@@ -10,7 +10,7 @@ import { FilialesService } from './filiales.service';
   imports: [
     MulterModule.register({
       storage: diskStorage({
-        destination: join(process.cwd(), '..', 'data', 'uploads'),
+        destination: join(process.cwd(), 'data', 'uploads'),
         filename: (_req, file, cb) => {
           cb(null, `${uuidv4()}${extname(file.originalname)}`);
         },

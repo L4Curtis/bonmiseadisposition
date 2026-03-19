@@ -57,7 +57,7 @@ export class FilialesService {
   }
 
   private deleteFile(relativePath: string) {
-    const fullPath = join(process.cwd(), '..', 'data', relativePath);
+    const fullPath = join(process.cwd(), 'data', relativePath);
     if (existsSync(fullPath)) unlinkSync(fullPath);
   }
 }

@@ -34,7 +34,7 @@ export class FilialesController {
   // Serve uploaded files
   @Get('file/:filename')
   serveFile(@Param('filename') filename: string, @Res() res: Response) {
-    return res.sendFile(join(process.cwd(), '..', 'data', 'uploads', filename));
+    return res.sendFile(join(process.cwd(), 'data', 'uploads', filename));
   }
 
   @Post()

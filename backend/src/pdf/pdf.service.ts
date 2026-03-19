@@ -83,7 +83,7 @@ export class PdfService {
   private getLogoBase64(logoPath: string | null): string | null {
     if (!logoPath) return null;
     const filename = logoPath.split('/').pop() || '';
-    const fullPath = join(process.cwd(), '..', 'data', 'uploads', filename);
+    const fullPath = join(process.cwd(), 'data', 'uploads', filename);
     if (!existsSync(fullPath)) return null;
     try {
       const data = readFileSync(fullPath);

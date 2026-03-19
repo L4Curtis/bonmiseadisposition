@@ -10,7 +10,7 @@ import { join } from 'path';
 
 async function bootstrap() {
   // Ensure upload directory exists
-  mkdirSync(join(process.cwd(), '..', 'data', 'uploads'), { recursive: true });
+  mkdirSync(join(process.cwd(), 'data', 'uploads'), { recursive: true });
 
   const app = await NestFactory.create(AppModule);
 

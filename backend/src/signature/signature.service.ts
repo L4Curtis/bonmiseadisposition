@@ -15,7 +15,7 @@ import { PdfService, SigImages } from '../pdf/pdf.service';
 @Injectable()
 export class SignatureService {
   private readonly logger = new Logger(SignatureService.name);
-  private readonly UPLOADS_DIR = path.join(process.cwd(), '..', 'data', 'signatures');
+  private readonly UPLOADS_DIR = path.join(process.cwd(), 'data', 'signatures');
   private readonly TOKEN_VALIDITY_DAYS = 7;
 
   constructor(
@@ -326,7 +326,7 @@ export class SignatureService {
   /** Get decrypted signature image for PDF generation */
   async getSignatureImageDecrypted(signatureImagePath: string): Promise<string | null> {
     try {
-      const fullPath = path.join(process.cwd(), '..', 'data', 'signatures', signatureImagePath);
+      const fullPath = path.join(process.cwd(), 'data', 'signatures', signatureImagePath);
       if (!fs.existsSync(fullPath)) return null;
       const encrypted = fs.readFileSync(fullPath, 'utf8');
       return this.encryption.decrypt(encrypted);
