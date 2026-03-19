@@ -342,12 +342,17 @@ export class SignatureService {
     type: string,
     dataUrl: string,
   ): Promise<string> {
-    const base64 = dataUrl.replace(/^data:image\/png;base64,/, '');
-    const encrypted = this.encryption.encrypt(base64);
-    const filename = `${bonId}_${type}_${Date.now()}.enc`;
-    const filepath = path.join(this.UPLOADS_DIR, filename);
-    fs.writeFileSync(filepath, encrypted, 'utf8');
-    return filename;
+    try {
+      const base64 = dataUrl.replace(/^data:image\/png;base64,/, '');
+      const encrypted = this.encryption.encrypt(base64);
+      const filename = `${bonId}_${type}_${Date.now()}.enc`;
+      const filepath = path.join(this.UPLOADS_DIR, filename);
+      fs.writeFileSync(filepath, encrypted, 'utf8');
+      return filename;
+    } catch (err) {
+      this.logger.error(`Échec sauvegarde signature (bon=${bonId}, type=${type}): ${(err as Error).message}`);
+      throw new BadRequestException('Erreur lors de la sauvegarde de la signature');
+    }
   }
 
   private getNextBonStatus(currentStatus: string, signatureType: string): string {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '@/lib/api';
-import { Search, ChevronLeft, ChevronRight, Shield, ExternalLink } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, Shield, ExternalLink, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useNavigate } from 'react-router-dom';
 
@@ -63,6 +63,7 @@ export function AuditLogsPage() {
 
   const [data, setData] = useState<AuditResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const limit = 50;
 
@@ -79,6 +80,7 @@ export function AuditLogsPage() {
 
   const load = useCallback(() => {
     setLoading(true);
+    setLoadError(null);
     const params = new URLSearchParams();
     if (userEmail) params.set('userEmail', userEmail);
     if (action) params.set('action', action);
@@ -89,6 +91,7 @@ export function AuditLogsPage() {
 
     api.get<AuditResponse>(`/audit?${params}`)
       .then(setData)
+      .catch((e: any) => setLoadError(e?.message ?? 'Erreur lors du chargement des logs'))
       .finally(() => setLoading(false));
   }, [userEmail, action, dateFrom, dateTo, page]);
 
@@ -161,6 +164,15 @@ export function AuditLogsPage() {
           <Button size="sm" variant="outline" onClick={resetFilters}>Réinitialiser</Button>
         </div>
       </div>
+
+      {/* Erreur de chargement */}
+      {loadError && (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-center">
+          <XCircle className="h-8 w-8 mx-auto mb-2 text-red-400" />
+          <p className="text-sm text-red-700">{loadError}</p>
+          <button onClick={load} className="mt-3 text-sm font-medium text-red-600 underline hover:text-red-800">Réessayer</button>
+        </div>
+      )}
 
       {/* Table */}
       <div className="rounded-xl border bg-white shadow-sm overflow-hidden">

@@ -1,12 +1,14 @@
 import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, Logger } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { AuthService } from './auth/auth.service';
 import * as cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { mkdirSync } from 'fs';
 import { join } from 'path';
+
+const logger = new Logger('Bootstrap');
 
 async function bootstrap() {
   // Ensure upload directory exists
@@ -44,7 +46,7 @@ async function bootstrap() {
   app.setGlobalPrefix('api');
 
   await app.listen(4000);
-  console.log('Backend running on http://localhost:4000');
+  logger.log('Backend running on http://localhost:4000');
 
   // Ensure default local admin exists
   const authService = app.get(AuthService);

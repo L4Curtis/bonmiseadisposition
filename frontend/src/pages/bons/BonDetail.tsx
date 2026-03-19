@@ -343,6 +343,7 @@ export function BonDetailPage() {
 
   const [bon, setBon] = useState<BonDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [pdfLoading, setPdfLoading] = useState<string | null>(null);
@@ -358,7 +359,11 @@ export function BonDetailPage() {
 
   const load = () => {
     setLoading(true);
-    api.get<BonDetail>(`/bons/${id}`).then(setBon).finally(() => setLoading(false));
+    setLoadError(null);
+    api.get<BonDetail>(`/bons/${id}`)
+      .then(setBon)
+      .catch((e: any) => setLoadError(e?.message ?? 'Erreur lors du chargement du bon'))
+      .finally(() => setLoading(false));
   };
 
   useEffect(() => { load(); }, [id]);
@@ -490,7 +495,14 @@ export function BonDetailPage() {
   if (!bon) {
     return (
       <div className="text-center py-16 text-slate-400">
-        <p>Bon introuvable</p>
+        {loadError ? (
+          <>
+            <XCircle className="h-8 w-8 mx-auto mb-2 text-red-400" />
+            <p className="text-red-600">{loadError}</p>
+          </>
+        ) : (
+          <p>Bon introuvable</p>
+        )}
         <button className="mt-3 text-blue-600 text-sm hover:underline" onClick={() => navigate('/bons')}>
           Retour à la liste
         </button>

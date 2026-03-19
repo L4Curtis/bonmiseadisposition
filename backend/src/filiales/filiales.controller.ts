@@ -4,7 +4,8 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
-import { join } from 'path';
+import { join, basename } from 'path';
+import { existsSync } from 'fs';
 import { FilialesService } from './filiales.service';
 import { CreateFilialeDto, UpdateFilialeDto } from './dto/filiale.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -31,10 +32,15 @@ export class FilialesController {
     return this.filialesService.findOne(id);
   }
 
-  // Serve uploaded files
+  // Serve uploaded files (sanitized to prevent path traversal)
   @Get('file/:filename')
   serveFile(@Param('filename') filename: string, @Res() res: Response) {
-    return res.sendFile(join(process.cwd(), 'data', 'uploads', filename));
+    const safe = basename(filename);
+    const fullPath = join(process.cwd(), 'data', 'uploads', safe);
+    if (!existsSync(fullPath)) {
+      return res.status(404).json({ message: 'Fichier introuvable' });
+    }
+    return res.sendFile(fullPath);
   }
 
   @Post()

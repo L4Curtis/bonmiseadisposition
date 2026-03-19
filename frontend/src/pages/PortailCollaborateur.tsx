@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '@/lib/api';
-import { FileText, Clock, CheckCircle2, Archive, ExternalLink, AlertOctagon, X } from 'lucide-react';
+import { FileText, Clock, CheckCircle2, Archive, ExternalLink, AlertOctagon, X, XCircle } from 'lucide-react';
 import { BON_STATUS_LABELS, BON_STATUS_COLORS, type BonStatus } from '@/types';
 
 interface SignatureInfo {
@@ -117,12 +117,17 @@ function ContestationModal({
 export function PortailCollaborateur() {
   const [bons, setBons] = useState<BonCollab[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [contestingBon, setContestingBon] = useState<BonCollab | null>(null);
   const [successMsg, setSuccessMsg] = useState('');
 
   const reload = () => {
     setLoading(true);
-    api.get<BonCollab[]>('/bons/mes-bons').then(setBons).catch(() => setBons([])).finally(() => setLoading(false));
+    setLoadError(null);
+    api.get<BonCollab[]>('/bons/mes-bons')
+      .then(setBons)
+      .catch((e: any) => { setBons([]); setLoadError(e?.message ?? 'Erreur lors du chargement'); })
+      .finally(() => setLoading(false));
   };
 
   useEffect(() => { reload(); }, []);
@@ -135,6 +140,16 @@ export function PortailCollaborateur() {
   };
 
   if (loading) return <div className='flex justify-center py-16'><div className='h-7 w-7 animate-spin rounded-full border-4 border-blue-600 border-t-transparent' /></div>;
+
+  if (loadError) return (
+    <div className='max-w-3xl'>
+      <div className='rounded-xl border border-red-200 bg-red-50 p-8 text-center'>
+        <XCircle className='h-10 w-10 mx-auto mb-3 text-red-400' />
+        <p className='text-sm text-red-700'>{loadError}</p>
+        <button onClick={reload} className='mt-4 text-sm font-medium text-red-600 underline hover:text-red-800'>Réessayer</button>
+      </div>
+    </div>
+  );
 
   const pending = bons.filter((b) => ['sent_mise_dispo', 'sent_restitution'].includes(b.status));
   const active = bons.filter((b) => b.status === 'active');
