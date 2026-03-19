@@ -103,8 +103,15 @@ Date : 2026-03-19
 | `frontend/src/pages/bons/BonsList.tsx` | Modifie |
 | `frontend/src/pages/admin/Configuration.tsx` | Modifie |
 
+## Correctifs post-session (2026-03-19)
+
+- **SMB couleur rouge** : `testConnection()` retournait `{ ok }` au lieu de `{ success }` — le `TestButton` cherche `result.success` → toujours rouge meme en succes. Corrige.
+- **LDAP 400 Bad Request** : cles `use_ssl` et `search_base` utilisees par `LdapService` absentes de `ALLOWED_CONFIG_KEYS`. `base_dn` remplace par `search_base`.
+- **SMTP 400** : cle `from` absente de la whitelist smtp. Ajoutee.
+- **Rappels/Tokens 400** : categories absentes de `ALLOWED_CONFIG_KEYS`. Ajoutees.
+
 ## Verification
 
 - Backend `npx tsc --noEmit` : OK
 - Frontend `npx tsc --noEmit` : OK
-- Migration Prisma : appliquee
+- Migration Prisma : appliquee (6 migrations, schema a jour)
