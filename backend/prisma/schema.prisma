@@ -213,6 +213,7 @@ enum PdfSnapshotType {
   signature_it_restitution
   signature_collab_restitution
   cloture_equipements_manquants
+  avenant_equipement_retrouve
 }
 
 model Signature {

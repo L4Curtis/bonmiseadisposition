@@ -355,6 +355,7 @@ const SNAPSHOT_LABELS: Record<string, string> = {
   signature_it_restitution: 'Cachet IT — Restitution',
   signature_collab_restitution: 'Signature collab — Restitution',
   cloture_equipements_manquants: 'PV — Équipements non restitués',
+  avenant_equipement_retrouve: 'Avenant — Équipement(s) retrouvé(s)',
 };
 
 // ─── Modal : restitution avec sélection d'équipements ────────────────────────
@@ -633,11 +634,13 @@ function MarkFoundModal({
   onConfirm,
   onCancel,
   loading,
+  isArchived,
 }: {
   equipments: BonDetail['equipments'];
   onConfirm: (equipmentIds: string[], signatureDataUrl: string) => void;
   onCancel: () => void;
   loading: boolean;
+  isArchived?: boolean;
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
@@ -674,7 +677,9 @@ function MarkFoundModal({
             <PackageCheck className="h-4 w-4" /> Équipement(s) retrouvé(s)
           </h3>
           <p className="text-green-100 text-xs mt-1">
-            Le PV sera mis à jour et renvoyé au collaborateur pour signature.
+            {isArchived
+              ? 'Un avenant IT sera généré. Le collaborateur n\'aura pas à re-signer.'
+              : 'Le PV sera mis à jour et renvoyé au collaborateur pour signature.'}
           </p>
         </div>
         <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
@@ -726,7 +731,11 @@ function MarkFoundModal({
                     <p className="text-xs font-medium text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
                       <Stamp className="h-3.5 w-3.5" /> Cachet du service informatique *
                     </p>
-                    <p className="text-xs text-slate-400 mt-0.5">Apposez votre cachet pour valider la mise à jour du PV</p>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {isArchived
+                        ? 'Apposez votre cachet pour certifier cet avenant'
+                        : 'Apposez votre cachet pour valider la mise à jour du PV'}
+                    </p>
                   </div>
                   <button onClick={clear} className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600">
                     <Trash2 className="h-3 w-3" /> Effacer
@@ -773,7 +782,9 @@ function MarkFoundModal({
           >
             {loading
               ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> En cours…</>
-              : <><PackageCheck className="h-3.5 w-3.5" /> Mettre à jour le PV ({selected.size})</>}
+              : isArchived
+                ? <><PackageCheck className="h-3.5 w-3.5" /> Générer l'avenant ({selected.size})</>
+                : <><PackageCheck className="h-3.5 w-3.5" /> Mettre à jour le PV ({selected.size})</>}
           </Button>
         </div>
       </div>
@@ -1151,19 +1162,20 @@ export function BonDetailPage() {
                 </Button>
               )}
 
-              {/* Équipement retrouvé — IT peut mettre à jour le PV */}
-              {isItStaff && hasNotReturnedEquipment && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="text-green-600 hover:text-green-700 hover:bg-green-50 border-green-200"
-                  onClick={() => setShowMarkFoundModal(true)}
-                  disabled={!!actionLoading}
-                >
-                  <PackageCheck className="h-3.5 w-3.5" /> Équipement retrouvé
-                </Button>
-              )}
             </>
+          )}
+
+          {/* Équipement retrouvé — IT peut mettre à jour le PV (ou générer un avenant si archivé) */}
+          {isItStaff && hasNotReturnedEquipment && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-green-600 hover:text-green-700 hover:bg-green-50 border-green-200"
+              onClick={() => setShowMarkFoundModal(true)}
+              disabled={!!actionLoading}
+            >
+              <PackageCheck className="h-3.5 w-3.5" /> Équipement retrouvé
+            </Button>
           )}
 
           {/* Renvoyer le lien — disponible pour IT quand le bon est en attente de signature ou PV en attente */}
@@ -1475,6 +1487,7 @@ export function BonDetailPage() {
           onConfirm={doMarkFound}
           onCancel={() => setShowMarkFoundModal(false)}
           loading={actionLoading === 'markfound'}
+          isArchived={bon.status === 'archived'}
         />
       )}
     </div>

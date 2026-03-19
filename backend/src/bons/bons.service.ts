@@ -500,7 +500,8 @@ export class BonsService {
 
   /**
    * IT marks previously not-returned equipment as found.
-   * Re-signs the PV and sends updated PV to collab for signature.
+   * - Bon archived: generates an IT-only avenant PDF, bon stays archived.
+   * - Bon partially_returned (PV pending collab): regenerates PV, sends new pv_cloture token.
    */
   async markFound(
     id: string,
@@ -509,7 +510,7 @@ export class BonsService {
     signatureDataUrl?: string,
   ) {
     const bon = await this.findOne(id);
-    if (!['partially_returned', 'active'].includes(bon.status))
+    if (!['partially_returned', 'active', 'archived'].includes(bon.status))
       throw new BadRequestException('Action impossible sur ce bon');
 
     if (!equipmentIds?.length) throw new BadRequestException('Aucun équipement sélectionné');
@@ -530,24 +531,19 @@ export class BonsService {
         bonId: id,
         userId,
         action: 'mark_found',
-        details: { equipmentIds },
+        details: { equipmentIds, wasArchived: bon.status === 'archived' },
       },
-    });
-
-    // Check remaining not-returned equipment
-    const stillMissing = await this.prisma.bonEquipment.count({
-      where: { bonId: id, notReturned: true },
     });
 
     const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
     const signerEmail = user?.email ?? 'unknown';
 
-    // Save new IT signature
+    // Save IT signature
     if (signatureDataUrl) {
       await this.signatureService.saveItPvSignature(id, signatureDataUrl, signerEmail, userId);
     }
 
-    // Reload bon with fresh signatures
+    // Reload bon with fresh data + signatures
     const updatedBon = await this.prisma.bon.findUniqueOrThrow({
       where: { id },
       include: {
@@ -557,28 +553,47 @@ export class BonsService {
       },
     });
 
-    // Generate updated PV PDF (shows only remaining notReturned equipment)
     const collabName = this.smbService.sanitizeName(
       updatedBon.collaborateur?.displayName || 'INCONNU',
     );
-    const filename = `${updatedBon.reference}_${collabName}_cloture_equipements_manquants.pdf`;
-    const sigImages: SigImages = { it: signatureDataUrl || null, collab: null };
-    const pdfBuffer = await this.pdfService.generateAndSave(
-      updatedBon,
-      'cloture_equipements_manquants',
-      sigImages,
-      filename,
-    );
-    this.smbService.exportPdf(updatedBon, filename, pdfBuffer).catch(() => {});
 
-    if (stillMissing > 0 || signatureDataUrl) {
+    if (bon.status === 'archived') {
+      // ── Bon already archived: generate IT-only avenant, keep archived ──────
+      const filename = `${updatedBon.reference}_${collabName}_avenant_equipement_retrouve.pdf`;
+      const sigImages: SigImages = { it: signatureDataUrl || null, collab: null };
+
+      // Pass found equipment IDs so the PDF renders only those
+      const bonWithContext = { ...updatedBon, _avenantEquipmentIds: equipmentIds };
+      const pdfBuffer = await this.pdfService.generateAndSave(
+        bonWithContext,
+        'avenant_equipement_retrouve',
+        sigImages,
+        filename,
+      );
+      this.smbService.exportPdf(updatedBon, filename, pdfBuffer).catch(() => {});
+
+      this.logger.log(
+        `Bon ${updatedBon.reference} (archivé) — avenant IT généré pour équipement retrouvé`,
+      );
+    } else {
+      // ── Bon partially_returned: update PV, send new pv_cloture token to collab ──
+      const filename = `${updatedBon.reference}_${collabName}_cloture_equipements_manquants.pdf`;
+      const sigImages: SigImages = { it: signatureDataUrl || null, collab: null };
+      const pdfBuffer = await this.pdfService.generateAndSave(
+        updatedBon,
+        'cloture_equipements_manquants',
+        sigImages,
+        filename,
+      );
+      this.smbService.exportPdf(updatedBon, filename, pdfBuffer).catch(() => {});
+
       // Create new pv_cloture token (invalidates old unsigned one)
       const pvSig = await this.signatureService.generateToken(id, 'pv_cloture', userId, false);
-
-      // Send updated PV to collab
       this.notificationService.sendPvClotureRequest(updatedBon, pvSig.token).catch(() => {});
 
-      this.logger.log(`Bon ${updatedBon.reference} — PV mis à jour (équipement retrouvé), renvoyé au collaborateur`);
+      this.logger.log(
+        `Bon ${updatedBon.reference} — PV mis à jour (équipement retrouvé), renvoyé au collaborateur`,
+      );
     }
 
     return this.findOne(id);

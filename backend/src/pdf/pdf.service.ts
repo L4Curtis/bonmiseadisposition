@@ -49,7 +49,8 @@ export class PdfService {
     return pdf;
   }
 
-  private getDocumentType(snapshotType: string): 'mise_disposition' | 'restitution' | 'cloture' {
+  private getDocumentType(snapshotType: string): 'mise_disposition' | 'restitution' | 'cloture' | 'avenant' {
+    if (snapshotType.includes('avenant')) return 'avenant';
     if (snapshotType.includes('restitution')) return 'restitution';
     if (snapshotType.includes('cloture')) return 'cloture';
     return 'mise_disposition';
@@ -59,7 +60,7 @@ export class PdfService {
   async generateBonPdf(
     bon: any,
     sigImages: SigImages = { it: null, collab: null },
-    documentType: 'mise_disposition' | 'restitution' | 'cloture' = 'mise_disposition',
+    documentType: 'mise_disposition' | 'restitution' | 'cloture' | 'avenant' = 'mise_disposition',
   ): Promise<Buffer> {
     return this.renderPdf(bon, sigImages, documentType);
   }
@@ -69,12 +70,13 @@ export class PdfService {
   private async renderPdf(
     bon: any,
     sigImages: SigImages,
-    documentType: 'mise_disposition' | 'restitution' | 'cloture' = 'mise_disposition',
+    documentType: 'mise_disposition' | 'restitution' | 'cloture' | 'avenant' = 'mise_disposition',
   ): Promise<Buffer> {
     const titleMap: Record<string, string> = {
       mise_disposition: `Bon de Mise à Disposition - ${bon.reference}`,
       restitution: `Bon de Restitution - ${bon.reference}`,
       cloture: `Procès-verbal d'équipements non restitués - ${bon.reference}`,
+      avenant: `Avenant — Équipement(s) retrouvé(s) - ${bon.reference}`,
     };
 
     return new Promise((resolve, reject) => {
@@ -106,7 +108,7 @@ export class PdfService {
     doc: PDFKit.PDFDocument,
     bon: any,
     sigImages: SigImages,
-    documentType: 'mise_disposition' | 'restitution' | 'cloture' = 'mise_disposition',
+    documentType: 'mise_disposition' | 'restitution' | 'cloture' | 'avenant' = 'mise_disposition',
   ): void {
     const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
     const leftX = doc.page.margins.left;
@@ -133,11 +135,13 @@ export class PdfService {
       mise_disposition: 'BON DE MISE À DISPOSITION',
       restitution: 'BON DE RESTITUTION',
       cloture: 'PROCÈS-VERBAL D\'ÉQUIPEMENTS NON RESTITUÉS',
+      avenant: 'AVENANT — ÉQUIPEMENT(S) RETROUVÉ(S)',
     };
     const subtitleTextMap: Record<string, string> = {
       mise_disposition: `Équipements informatiques — ${filialeName}`,
       restitution: `Restitution des équipements — ${filialeName}`,
       cloture: `Équipements non rendus — ${filialeName}`,
+      avenant: `Mise à jour du PV de clôture — ${filialeName}`,
     };
     doc.font('Helvetica-Bold').fontSize(14).fillColor(BLUE);
     doc.text(titleTextMap[documentType], leftX, headerY, { width: pageWidth, align: 'center' });
@@ -182,16 +186,46 @@ export class PdfService {
 
     doc.y = infoY + 80;
 
+    // ─── AVENANT NOTE ─────────────────────────────────────────────────────────
+    if (documentType === 'avenant') {
+      doc.y += 6;
+      const noteY = doc.y;
+      doc.rect(leftX, noteY, pageWidth, 28).fill('#f0fdf4').stroke();
+      doc.font('Helvetica-Bold').fontSize(8).fillColor('#15803d');
+      doc.text(
+        'Ce document atteste que les équipements ci-dessous, précédemment déclarés non restitués,',
+        leftX + 8, noteY + 6, { width: pageWidth - 16 },
+      );
+      doc.font('Helvetica').fontSize(8).fillColor('#15803d');
+      doc.text(
+        'ont été retrouvés et récupérés par le service informatique. Le procès-verbal de clôture initial reste valide.',
+        leftX + 8, noteY + 16, { width: pageWidth - 16 },
+      );
+      doc.y = noteY + 34;
+    }
+
     // ─── EQUIPMENT TABLE ─────────────────────────────────────────────────────
     doc.y += 8;
-    this.drawSectionTitle(doc, leftX, 'ÉQUIPEMENTS MIS À DISPOSITION', pageWidth);
+    const tableSectionLabel = documentType === 'avenant'
+      ? 'ÉQUIPEMENTS RETROUVÉS'
+      : 'ÉQUIPEMENTS MIS À DISPOSITION';
+    this.drawSectionTitle(doc, leftX, tableSectionLabel, pageWidth);
     doc.y += 4;
 
     const allEquipments = bon.equipments || [];
-    // For 'cloture' type, only show notReturned=true equipments
-    const equipments = documentType === 'cloture'
-      ? allEquipments.filter((eq: any) => eq.notReturned === true)
-      : allEquipments;
+    // Filter equipment per document type
+    let equipments: any[];
+    if (documentType === 'cloture') {
+      equipments = allEquipments.filter((eq: any) => eq.notReturned === true);
+    } else if (documentType === 'avenant') {
+      // Show only the equipment just found (passed via _avenantEquipmentIds)
+      const foundIds: string[] = bon._avenantEquipmentIds || [];
+      equipments = foundIds.length > 0
+        ? allEquipments.filter((eq: any) => foundIds.includes(eq.id))
+        : allEquipments.filter((eq: any) => eq.returnedAt && !eq.notReturned);
+    } else {
+      equipments = allEquipments;
+    }
 
     const hasStatutCol = documentType === 'restitution' || documentType === 'cloture';
     const colWidths = hasStatutCol
@@ -283,34 +317,48 @@ export class PdfService {
     this.drawSectionTitle(doc, leftX, 'SIGNATURES', pageWidth);
     doc.y += 6;
 
-    const sigBoxWidth = (pageWidth - 24) / 2;
-    const sigY = doc.y;
-
-    // Signature dates
-    const collabSig = (bon.signatures || []).find((s: any) => s.signed && s.signatureImagePath);
-    const itSig = (bon.signatures || []).find((s: any) => s.signed && s.type === 'it_cachet' && s.signatureImagePath);
-    const collabDate = collabSig?.signedAt ? this.formatDate(collabSig.signedAt) : '_______________';
+    // Signature dates — use the latest it_cachet
+    const allSigs: any[] = bon.signatures || [];
+    const itSigs = allSigs.filter((s: any) => s.signed && s.type === 'it_cachet' && s.signatureImagePath);
+    const itSig = itSigs.length > 0 ? itSigs[itSigs.length - 1] : null; // latest
+    const collabSig = allSigs.find((s: any) => s.signed && s.signatureImagePath && s.type !== 'it_cachet');
     const itDate = itSig?.signedAt ? this.formatDate(itSig.signedAt) : '_______________';
+    const collabDate = collabSig?.signedAt ? this.formatDate(collabSig.signedAt) : '_______________';
 
-    // IT signature box
-    this.drawSignatureBox(doc, leftX, sigY, sigBoxWidth, {
-      title: 'SERVICE INFORMATIQUE',
-      name: bon.createdBy?.displayName || '—',
-      mention: 'Je certifie avoir remis les équipements ci-dessus en bon état de fonctionnement',
-      signatureImage: sigImages.it,
-      date: itDate,
-    });
+    if (documentType === 'avenant') {
+      // IT signature only — full width
+      this.drawSignatureBox(doc, leftX, doc.y, pageWidth, {
+        title: 'SERVICE INFORMATIQUE — ATTESTATION',
+        name: bon.createdBy?.displayName || '—',
+        mention: 'Je certifie que le(s) équipement(s) listé(s) ci-dessus ont été retrouvés et récupérés à la date indiquée.',
+        signatureImage: sigImages.it,
+        date: itDate,
+      });
+      doc.y += 130;
+    } else {
+      const sigBoxWidth = (pageWidth - 24) / 2;
+      const sigY = doc.y;
 
-    // Collaborateur signature box
-    this.drawSignatureBox(doc, leftX + sigBoxWidth + 24, sigY, sigBoxWidth, {
-      title: 'COLLABORATEUR',
-      name: `${civiliteLabel} ${bon.collaborateur?.displayName || '—'}`,
-      mention: 'Lu et approuvé — Je reconnais avoir reçu les équipements listés ci-dessus en bon état',
-      signatureImage: sigImages.collab,
-      date: collabDate,
-    });
+      // IT signature box
+      this.drawSignatureBox(doc, leftX, sigY, sigBoxWidth, {
+        title: 'SERVICE INFORMATIQUE',
+        name: bon.createdBy?.displayName || '—',
+        mention: 'Je certifie avoir remis les équipements ci-dessus en bon état de fonctionnement',
+        signatureImage: sigImages.it,
+        date: itDate,
+      });
 
-    doc.y = sigY + 130;
+      // Collaborateur signature box
+      this.drawSignatureBox(doc, leftX + sigBoxWidth + 24, sigY, sigBoxWidth, {
+        title: 'COLLABORATEUR',
+        name: `${civiliteLabel} ${bon.collaborateur?.displayName || '—'}`,
+        mention: 'Lu et approuvé — Je reconnais avoir reçu les équipements listés ci-dessus en bon état',
+        signatureImage: sigImages.collab,
+        date: collabDate,
+      });
+
+      doc.y = sigY + 130;
+    }
 
     // ─── FOOTER ──────────────────────────────────────────────────────────────
     doc.y += 12;
