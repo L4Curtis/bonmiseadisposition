@@ -1,0 +1,290 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model AppConfig {
+  id          String    @id @default(uuid())
+  category    String
+  key         String
+  value       String?
+  encrypted   Boolean   @default(false)
+  description String?
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  updatedById String?   @map("updated_by_id")
+  updatedBy   User?     @relation(fields: [updatedById], references: [id])
+
+  @@unique([category, key])
+  @@map("app_config")
+}
+
+model Filiale {
+  id          String   @id @default(uuid())
+  name        String
+  displayName String   @map("display_name")
+  logoPath    String?  @map("logo_path")
+  stampPath   String?  @map("stamp_path")
+  address     String?
+  siret       String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  users User[]
+  bons  Bon[]
+
+  @@map("filiales")
+}
+
+enum UserRole {
+  admin
+  technician
+  collaborator
+}
+
+model User {
+  id              String    @id @default(uuid())
+  samAccountName  String    @unique @map("sam_account_name")
+  displayName     String    @map("display_name")
+  email           String
+  department      String?
+  company         String?
+  title           String?
+  filialeId       String?   @map("filiale_id")
+  filiale         Filiale?  @relation(fields: [filialeId], references: [id])
+  isItStaff       Boolean   @default(false) @map("is_it_staff")
+  role            UserRole  @default(collaborator)
+  lastLdapSync    DateTime? @map("last_ldap_sync")
+  active          Boolean   @default(true)
+  passwordHash    String?   @map("password_hash")
+  isLocalAccount  Boolean   @default(false) @map("is_local_account")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  bonsCreated           Bon[]          @relation("BonCreatedBy")
+  bonsCollaborateur     Bon[]          @relation("BonCollaborateur")
+  contestations         Contestation[] @relation("ContestationUser")
+  contestationsResolved Contestation[] @relation("ContestationResolvedBy")
+  signaturesInitiated   Signature[]    @relation("SignatureInitiatedBy")
+  configUpdates         AppConfig[]
+  auditLogs             AuditLog[]
+
+  @@map("users")
+}
+
+enum EquipmentCategory {
+  pc_portable
+  pc_fixe
+  ecran
+  souris
+  clavier
+  casque
+  telephone
+  housse
+  dock
+  cable
+  autre
+}
+
+model EquipmentCatalog {
+  id          String            @id @default(uuid())
+  category    EquipmentCategory
+  brand       String
+  model       String
+  description String?
+  active      Boolean           @default(true)
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @updatedAt @map("updated_at")
+
+  packItems     EquipmentPackItem[]
+  bonEquipments BonEquipment[]
+
+  @@map("equipment_catalog")
+}
+
+model EquipmentPack {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  items EquipmentPackItem[]
+
+  @@map("equipment_packs")
+}
+
+model EquipmentPackItem {
+  id            String           @id @default(uuid())
+  packId        String           @map("pack_id")
+  pack          EquipmentPack    @relation(fields: [packId], references: [id], onDelete: Cascade)
+  catalogItemId String           @map("catalog_item_id")
+  catalogItem   EquipmentCatalog @relation(fields: [catalogItemId], references: [id])
+  quantity      Int              @default(1)
+  order         Int              @default(0)
+
+  @@map("equipment_pack_items")
+}
+
+enum BonStatus {
+  draft
+  sent_mise_dispo
+  active
+  sent_restitution
+  archived
+  cancelled
+  contested
+}
+
+enum Civilite {
+  mme
+  mr
+}
+
+model Bon {
+  id                  String    @id @default(uuid())
+  reference           String    @unique
+  filialeId           String    @map("filiale_id")
+  filiale             Filiale   @relation(fields: [filialeId], references: [id])
+  collaborateurId     String    @map("collaborateur_id")
+  collaborateur       User      @relation("BonCollaborateur", fields: [collaborateurId], references: [id])
+  collaborateurEmail  String    @map("collaborateur_email")
+  createdById         String    @map("created_by_id")
+  createdBy           User      @relation("BonCreatedBy", fields: [createdById], references: [id])
+  civilite            Civilite
+  status              BonStatus @default(draft)
+  dateMiseDisposition DateTime  @map("date_mise_disposition") @db.Date
+  dateRestitution     DateTime? @map("date_restitution") @db.Date
+  notes               String?
+  pdfMiseDispoSnapshot     Bytes?    @map("pdf_mise_dispo_snapshot")
+  pdfMiseDispoSnapshotAt   DateTime? @map("pdf_mise_dispo_snapshot_at")
+  pdfRestitutionSnapshot   Bytes?    @map("pdf_restitution_snapshot")
+  pdfRestitutionSnapshotAt DateTime? @map("pdf_restitution_snapshot_at")
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  equipments    BonEquipment[]
+  signatures    Signature[]
+  contestations Contestation[]
+  notifications NotificationLog[]
+  auditLogs     AuditLog[]
+
+  @@map("bons")
+}
+
+model BonEquipment {
+  id              String            @id @default(uuid())
+  bonId           String            @map("bon_id")
+  bon             Bon               @relation(fields: [bonId], references: [id], onDelete: Cascade)
+  catalogItemId   String?           @map("catalog_item_id")
+  catalogItem     EquipmentCatalog? @relation(fields: [catalogItemId], references: [id])
+  customLabel     String?           @map("custom_label")
+  serialNumber    String?           @map("serial_number")
+  inventoryNumber String?           @map("inventory_number")
+  notes           String?
+  order           Int               @default(0)
+  createdAt       DateTime          @default(now()) @map("created_at")
+
+  @@map("bon_equipments")
+}
+
+enum SignatureType {
+  mise_disposition
+  restitution
+  it_cachet
+}
+
+model Signature {
+  id                 String        @id @default(uuid())
+  bonId              String        @map("bon_id")
+  bon                Bon           @relation(fields: [bonId], references: [id], onDelete: Cascade)
+  type               SignatureType
+  token              String        @unique
+  tokenExpiresAt     DateTime      @map("token_expires_at")
+  signed             Boolean       @default(false)
+  signatureImagePath String?       @map("signature_image_path")
+  signedAt           DateTime?     @map("signed_at")
+  signerEmail        String?       @map("signer_email")
+  signerIp           String?       @map("signer_ip")
+  signerUserAgent    String?       @map("signer_user_agent")
+  mentionLuApprouve  Boolean       @default(false) @map("mention_lu_approuve")
+  isInPerson         Boolean       @default(false) @map("is_in_person")
+  initiatedById      String?       @map("initiated_by_id")
+  initiatedBy        User?         @relation("SignatureInitiatedBy", fields: [initiatedById], references: [id])
+  createdAt          DateTime      @default(now()) @map("created_at")
+
+  @@map("signatures")
+}
+
+enum ContestationStatus {
+  open
+  in_review
+  resolved
+  rejected
+}
+
+model Contestation {
+  id                String             @id @default(uuid())
+  bonId             String             @map("bon_id")
+  bon               Bon                @relation(fields: [bonId], references: [id])
+  userId            String             @map("user_id")
+  user              User               @relation("ContestationUser", fields: [userId], references: [id])
+  message           String
+  status            ContestationStatus @default(open)
+  resolvedById      String?            @map("resolved_by_id")
+  resolvedBy        User?              @relation("ContestationResolvedBy", fields: [resolvedById], references: [id])
+  resolutionMessage String?            @map("resolution_message")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+
+  @@map("contestations")
+}
+
+enum NotificationType {
+  mise_dispo_request
+  restitution_request
+  reminder
+  confirmation
+  contestation_alert
+}
+
+enum NotificationStatus {
+  sent
+  failed
+  bounced
+}
+
+model NotificationLog {
+  id             String             @id @default(uuid())
+  bonId          String             @map("bon_id")
+  bon            Bon                @relation(fields: [bonId], references: [id])
+  recipientEmail String             @map("recipient_email")
+  type           NotificationType
+  sentAt         DateTime           @default(now()) @map("sent_at")
+  status         NotificationStatus
+  errorMessage   String?            @map("error_message")
+  reminderNumber Int?               @map("reminder_number")
+
+  @@map("notification_logs")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  bonId     String?  @map("bon_id")
+  bon       Bon?     @relation(fields: [bonId], references: [id])
+  userId    String?  @map("user_id")
+  user      User?    @relation(fields: [userId], references: [id])
+  userEmail String?  @map("user_email")
+  action    String
+  details   Json?
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("audit_logs")
+}

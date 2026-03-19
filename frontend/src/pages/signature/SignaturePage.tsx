@@ -1,0 +1,513 @@
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { useParams } from 'react-router-dom';
+import { CheckCircle, XCircle, Clock, Loader2, Pen, Trash2 } from 'lucide-react';
+
+// ─── Types ──────────────────────────────────────────────────────────────────
+
+interface BonInfo {
+  id: string;
+  reference: string;
+  civilite: string;
+  dateMiseDisposition: string;
+  dateRestitution?: string;
+  notes?: string;
+  collaborateur: { displayName: string; email: string; department?: string };
+  collaborateurEmail: string;
+  filiale: { name: string; displayName: string; address?: string };
+  equipments: {
+    id: string;
+    order: number;
+    catalogItem?: { brand: string; model: string; category: string };
+    customLabel?: string;
+    serialNumber?: string;
+    inventoryNumber?: string;
+    notes?: string;
+  }[];
+}
+
+interface SignatureResponse {
+  status: 'pending' | 'already_signed' | 'expired';
+  bon: BonInfo;
+  signature: {
+    id: string;
+    type: string;
+    signed: boolean;
+    signedAt?: string;
+    signerEmail?: string;
+    isInPerson: boolean;
+    tokenExpiresAt: string;
+  };
+}
+
+// ─── Canvas Hook ─────────────────────────────────────────────────────────────
+
+function useSignatureCanvas() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const isDrawing = useRef(false);
+  const [isEmpty, setIsEmpty] = useState(true);
+
+  const getPos = (canvas: HTMLCanvasElement, clientX: number, clientY: number) => {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: (clientX - rect.left) * (canvas.width / rect.width),
+      y: (clientY - rect.top) * (canvas.height / rect.height),
+    };
+  };
+
+  // ── Mouse events (React synthetic — fiables en StrictMode) ──
+  const onMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    isDrawing.current = true;
+    const ctx = canvas.getContext('2d')!;
+    const pos = getPos(canvas, e.clientX, e.clientY);
+    ctx.beginPath();
+    ctx.moveTo(pos.x, pos.y);
+  };
+
+  const onMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isDrawing.current) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d')!;
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#1e293b';
+    const pos = getPos(canvas, e.clientX, e.clientY);
+    ctx.lineTo(pos.x, pos.y);
+    ctx.stroke();
+    setIsEmpty(false);
+  };
+
+  const onMouseUp = () => { isDrawing.current = false; };
+  const onMouseLeave = () => { isDrawing.current = false; };
+
+  // ── Touch events (addEventListener requis pour passive:false) ──
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const touchStart = (e: TouchEvent) => {
+      e.preventDefault();
+      isDrawing.current = true;
+      const ctx = canvas.getContext('2d')!;
+      const pos = getPos(canvas, e.touches[0].clientX, e.touches[0].clientY);
+      ctx.beginPath();
+      ctx.moveTo(pos.x, pos.y);
+    };
+
+    const touchMove = (e: TouchEvent) => {
+      if (!isDrawing.current) return;
+      e.preventDefault();
+      const ctx = canvas.getContext('2d')!;
+      ctx.lineWidth = 2.5;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = '#1e293b';
+      const pos = getPos(canvas, e.touches[0].clientX, e.touches[0].clientY);
+      ctx.lineTo(pos.x, pos.y);
+      ctx.stroke();
+      setIsEmpty(false);
+    };
+
+    const touchEnd = () => { isDrawing.current = false; };
+
+    canvas.addEventListener('touchstart', touchStart, { passive: false });
+    canvas.addEventListener('touchmove', touchMove, { passive: false });
+    canvas.addEventListener('touchend', touchEnd);
+
+    return () => {
+      canvas.removeEventListener('touchstart', touchStart);
+      canvas.removeEventListener('touchmove', touchMove);
+      canvas.removeEventListener('touchend', touchEnd);
+    };
+  }, []);
+
+  const clear = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    canvas.getContext('2d')!.clearRect(0, 0, canvas.width, canvas.height);
+    setIsEmpty(true);
+  }, []);
+
+  const getDataUrl = useCallback((): string | null => {
+    const canvas = canvasRef.current;
+    if (!canvas || isEmpty) return null;
+    return canvas.toDataURL('image/png');
+  }, [isEmpty]);
+
+  return { canvasRef, isEmpty, clear, getDataUrl, onMouseDown, onMouseMove, onMouseUp, onMouseLeave };
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function formatDate(d: string | null | undefined) {
+  if (!d) return '—';
+  return new Date(d).toLocaleDateString('fr-FR', {
+    day: '2-digit', month: 'long', year: 'numeric',
+  });
+}
+
+// ─── Main Component ─────────────────────────────────────────────────────────
+
+export function SignaturePage() {
+  const { token } = useParams<{ token: string }>();
+
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<SignatureResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<{ email: string; displayName: string } | null>(null);
+  const [checkingAuth, setCheckingAuth] = useState(true);
+
+  const [luApprouve, setLuApprouve] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [signed, setSigned] = useState(false);
+
+  const { canvasRef, isEmpty, clear, getDataUrl, onMouseDown, onMouseMove, onMouseUp, onMouseLeave } = useSignatureCanvas();
+
+  // ── 1. Fetch bon info (public) ──
+  useEffect(() => {
+    if (!token) return;
+    fetch(`/api/signature/${token}`)
+      .then((r) => r.json())
+      .then((d) => setData(d))
+      .catch(() => setError('Impossible de charger le document'))
+      .finally(() => setLoading(false));
+  }, [token]);
+
+  // ── 2. Check current session ──
+  useEffect(() => {
+    fetch('/api/auth/me', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((u) => setCurrentUser(u))
+      .finally(() => setCheckingAuth(false));
+  }, []);
+
+  // ── 3. Handle SSO redirect ──
+  const handleSSOLogin = () => {
+    window.location.href = `/api/auth/login?returnTo=/signer/${token}`;
+  };
+
+  // ── 4. Submit signature ──
+  const handleSubmit = async () => {
+    const dataUrl = getDataUrl();
+    if (!dataUrl) return;
+    if (!luApprouve) {
+      setSubmitError('Veuillez cocher "Lu et approuvé" avant de signer.');
+      return;
+    }
+
+    setSubmitting(true);
+    setSubmitError(null);
+
+    try {
+      const res = await fetch(`/api/signature/${token}/sign`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ signatureDataUrl: dataUrl, mentionLuApprouve: true }),
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || `Erreur ${res.status}`);
+      }
+
+      setSigned(true);
+    } catch (e: any) {
+      setSubmitError(e.message ?? 'Une erreur est survenue lors de la signature.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // ── Rendering ──────────────────────────────────────────────────────────────
+
+  if (loading || checkingAuth) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-slate-50">
+        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return <StatusScreen icon={<XCircle className="h-12 w-12 text-red-400" />} title="Lien invalide" message={error} />;
+  }
+
+  if (!data) {
+    return <StatusScreen icon={<XCircle className="h-12 w-12 text-red-400" />} title="Document introuvable" message="Ce lien de signature n'existe pas." />;
+  }
+
+  if (data.status === 'expired') {
+    return (
+      <StatusScreen
+        icon={<Clock className="h-12 w-12 text-orange-400" />}
+        title="Lien expiré"
+        message="Ce lien de signature a expiré (validité 7 jours). Contactez le service informatique pour en recevoir un nouveau."
+      />
+    );
+  }
+
+  if (data.status === 'already_signed' || signed) {
+    const sigType = data.signature.type === 'restitution' ? 'restitution' : 'mise à disposition';
+    return (
+      <StatusScreen
+        icon={<CheckCircle className="h-12 w-12 text-green-500" />}
+        title="Document signé ✓"
+        message={`Le bon de ${sigType} (réf. ${data.bon.reference}) a bien été signé électroniquement. Un email de confirmation vous a été envoyé.`}
+        success
+      />
+    );
+  }
+
+  const bon = data.bon;
+  const sig = data.signature;
+  const sigType = sig.type === 'restitution' ? 'restitution' : 'mise à disposition';
+  const civiliteLabel = bon.civilite === 'mme' ? 'Madame' : 'Monsieur';
+  const isInPerson = sig.isInPerson;
+
+  // Email mismatch warning (not blocking for in-person)
+  const emailMismatch =
+    currentUser && !isInPerson &&
+    currentUser.email.toLowerCase() !== bon.collaborateurEmail.toLowerCase();
+
+  return (
+    <div className="min-h-screen bg-slate-50 py-8 px-4">
+      <div className="mx-auto max-w-2xl space-y-5">
+        {/* Header card */}
+        <div className="rounded-xl bg-white border border-slate-200 shadow-sm overflow-hidden">
+          <div className="bg-blue-700 px-6 py-4">
+            <p className="text-blue-200 text-xs font-medium uppercase tracking-wider mb-1">
+              {bon.filiale.displayName}
+            </p>
+            <h1 className="text-white font-bold text-lg">
+              Bon de {sigType} à signer
+            </h1>
+            <p className="text-blue-100 text-sm font-mono mt-0.5">{bon.reference}</p>
+          </div>
+          <div className="px-6 py-4 space-y-2 text-sm">
+            <Row label="Destinataire" value={`${civiliteLabel} ${bon.collaborateur.displayName}`} />
+            <Row label="Email" value={bon.collaborateurEmail} />
+            {bon.collaborateur.department && <Row label="Service" value={bon.collaborateur.department} />}
+            <Row label="Filiale" value={bon.filiale.displayName} />
+            <Row label="Date mise à dispo" value={formatDate(bon.dateMiseDisposition)} />
+            {bon.dateRestitution && <Row label="Date restitution" value={formatDate(bon.dateRestitution)} />}
+          </div>
+        </div>
+
+        {/* Equipment list */}
+        <div className="rounded-xl bg-white border border-slate-200 shadow-sm">
+          <div className="px-5 py-3 border-b">
+            <h2 className="font-semibold text-sm text-slate-800">
+              Équipements ({bon.equipments.length})
+            </h2>
+          </div>
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50">
+              <tr>
+                <th className="px-4 py-2 text-left text-xs font-medium text-slate-500">#</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-slate-500">Désignation</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-slate-500">N° Série</th>
+              </tr>
+            </thead>
+            <tbody>
+              {bon.equipments
+                .sort((a, b) => a.order - b.order)
+                .map((eq, i) => {
+                  const label = eq.catalogItem
+                    ? `${eq.catalogItem.brand} ${eq.catalogItem.model}`
+                    : eq.customLabel || '—';
+                  return (
+                    <tr key={eq.id} className="border-t">
+                      <td className="px-4 py-2 text-slate-400">{i + 1}</td>
+                      <td className="px-4 py-2 font-medium">{label}</td>
+                      <td className="px-4 py-2 font-mono text-xs text-slate-500">
+                        {eq.serialNumber || <span className="text-slate-300">—</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Auth section */}
+        {!currentUser ? (
+          <div className="rounded-xl bg-white border border-slate-200 shadow-sm p-6 text-center space-y-4">
+            <div className="bg-blue-50 rounded-full w-16 h-16 flex items-center justify-center mx-auto">
+              <Pen className="h-7 w-7 text-blue-600" />
+            </div>
+            <div>
+              <h2 className="font-semibold text-slate-900">Connexion requise</h2>
+              <p className="text-sm text-slate-500 mt-1">
+                Vous devez vous connecter avec votre compte Microsoft pour signer ce document.
+              </p>
+            </div>
+            <button
+              onClick={handleSSOLogin}
+              className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-6 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 transition-colors"
+            >
+              <svg className="h-4 w-4" viewBox="0 0 21 21" fill="none">
+                <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
+                <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
+                <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
+                <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
+              </svg>
+              Se connecter avec Microsoft
+            </button>
+          </div>
+        ) : (
+          <div className="rounded-xl bg-white border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-5 py-3 border-b flex items-center justify-between">
+              <h2 className="font-semibold text-sm text-slate-800">Votre signature</h2>
+              <span className="text-xs text-slate-400">
+                Connecté en tant que <strong>{currentUser.displayName}</strong> ({currentUser.email})
+              </span>
+            </div>
+
+            {/* Email mismatch warning */}
+            {emailMismatch && (
+              <div className="mx-5 mt-4 flex items-start gap-3 rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+                <XCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium">Compte non autorisé</p>
+                  <p className="text-xs mt-0.5">
+                    Ce document est destiné à <strong>{bon.collaborateurEmail}</strong>. Vous êtes connecté avec <strong>{currentUser.email}</strong>. Veuillez vous connecter avec le bon compte Microsoft.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {isInPerson && (
+              <div className="mx-5 mt-4 flex items-start gap-3 rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-700">
+                <div>
+                  <p className="font-medium">Signature présentielle</p>
+                  <p className="text-xs mt-0.5">
+                    Cette signature est réalisée en présence du technicien informatique. Signez ci-dessous pour confirmer la {sigType} du matériel.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <div className="p-5 space-y-4">
+              {/* Canvas */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-medium text-slate-600 uppercase tracking-wider">
+                    Tracez votre signature ci-dessous
+                  </label>
+                  <button
+                    onClick={clear}
+                    className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 transition-colors"
+                  >
+                    <Trash2 className="h-3 w-3" /> Effacer
+                  </button>
+                </div>
+                <div className="relative border-2 border-dashed border-slate-200 rounded-lg bg-slate-50 hover:border-blue-300 transition-colors touch-none">
+                  <canvas
+                    ref={canvasRef}
+                    width={600}
+                    height={180}
+                    className="w-full cursor-crosshair block"
+                    style={{ touchAction: 'none' }}
+                    onMouseDown={onMouseDown}
+                    onMouseMove={onMouseMove}
+                    onMouseUp={onMouseUp}
+                    onMouseLeave={onMouseLeave}
+                  />
+                  {isEmpty && (
+                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                      <p className="text-slate-300 text-sm select-none">Signez ici...</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Lu et approuvé */}
+              <label className="flex items-start gap-3 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={luApprouve}
+                  onChange={(e) => setLuApprouve(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm text-slate-700 group-hover:text-slate-900 transition-colors">
+                  <strong>Lu et approuvé</strong> — Je reconnais avoir pris connaissance de la liste des équipements ci-dessus et en confirme la {sigType}. Je comprends que cette signature électronique a valeur contractuelle.
+                </span>
+              </label>
+
+              {/* Error */}
+              {submitError && (
+                <div className="flex items-start gap-2 rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+                  <XCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                  <span>{submitError}</span>
+                </div>
+              )}
+
+              {/* Submit */}
+              <button
+                onClick={handleSubmit}
+                disabled={submitting || isEmpty || !luApprouve || (!isInPerson && emailMismatch)}
+                className="w-full flex items-center justify-center gap-2 rounded-lg bg-blue-700 px-6 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {submitting ? (
+                  <><Loader2 className="h-4 w-4 animate-spin" /> Signature en cours…</>
+                ) : (
+                  <><Pen className="h-4 w-4" /> Signer le bon de {sigType}</>
+                )}
+              </button>
+
+              <p className="text-center text-xs text-slate-400">
+                Lien valide jusqu'au {formatDate(sig.tokenExpiresAt)}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Footer */}
+        <p className="text-center text-xs text-slate-400 pb-4">
+          Groupe Livio — Service informatique · Signature électronique sécurisée
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ─── Sub-components ──────────────────────────────────────────────────────────
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex gap-3">
+      <span className="text-slate-400 w-32 shrink-0">{label}</span>
+      <span className="text-slate-800 font-medium">{value}</span>
+    </div>
+  );
+}
+
+function StatusScreen({
+  icon,
+  title,
+  message,
+  success,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  message: string;
+  success?: boolean;
+}) {
+  return (
+    <div className="flex h-screen items-center justify-center bg-slate-50 px-4">
+      <div className="max-w-sm w-full text-center space-y-4">
+        <div className={`mx-auto w-20 h-20 rounded-full flex items-center justify-center ${success ? 'bg-green-50' : 'bg-slate-100'}`}>
+          {icon}
+        </div>
+        <h1 className="text-xl font-bold text-slate-900">{title}</h1>
+        <p className="text-sm text-slate-500">{message}</p>
+        <p className="text-xs text-slate-400">Groupe Livio — Service informatique</p>
+      </div>
+    </div>
+  );
+}

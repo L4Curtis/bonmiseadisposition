@@ -1,0 +1,488 @@
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+import { CreateBonDto, UpdateBonDto } from './dto/bon.dto';
+import { SignatureService } from '../signature/signature.service';
+import { NotificationService } from '../notification/notification.service';
+
+const BON_INCLUDE = {
+  filiale: true,
+  collaborateur: {
+    select: { id: true, displayName: true, email: true, department: true },
+  },
+  createdBy: {
+    select: { id: true, displayName: true, email: true },
+  },
+  equipments: {
+    orderBy: { order: 'asc' as const },
+    include: {
+      catalogItem: {
+        select: { id: true, brand: true, model: true, category: true },
+      },
+    },
+  },
+  signatures: true,
+};
+
+@Injectable()
+export class BonsService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly signatureService: SignatureService,
+    private readonly notificationService: NotificationService,
+  ) {}
+
+  async getStats() {
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+
+    const [waitingSignature, active, overdue, total, archivedThisMonth, filialesRaw] = await Promise.all([
+      this.prisma.bon.count({
+        where: { status: { in: ['sent_mise_dispo', 'sent_restitution'] } },
+      }),
+      this.prisma.bon.count({ where: { status: 'active' } }),
+      this.prisma.bon.count({
+        where: {
+          status: { in: ['sent_mise_dispo', 'sent_restitution'] },
+          updatedAt: { lt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
+        },
+      }),
+      this.prisma.bon.count({
+        where: { status: { notIn: ['cancelled', 'archived'] } },
+      }),
+      this.prisma.bon.count({
+        where: { status: 'archived', updatedAt: { gte: monthStart } },
+      }),
+      this.prisma.filiale.findMany({
+        where: { active: true },
+        select: {
+          id: true,
+          displayName: true,
+          _count: {
+            select: {
+              bons: { where: { status: { notIn: ['cancelled', 'archived'] } } },
+            },
+          },
+        },
+        orderBy: { displayName: 'asc' },
+      }),
+    ]);
+
+    return {
+      waitingSignature,
+      active,
+      overdue,
+      total,
+      archivedThisMonth,
+      byFiliale: filialesRaw
+        .map((f) => ({ id: f.id, name: f.displayName, count: f._count.bons }))
+        .filter((f) => f.count > 0),
+    };
+  }
+
+  async getExportData(filters: { status?: string; filialeId?: string; search?: string }) {
+    const { status, filialeId, search } = filters;
+    const where: any = {};
+    if (status) where.status = status;
+    if (filialeId) where.filialeId = filialeId;
+    if (search) {
+      where.OR = [
+        { reference: { contains: search, mode: 'insensitive' } },
+        { collaborateur: { displayName: { contains: search, mode: 'insensitive' } } },
+        { collaborateur: { email: { contains: search, mode: 'insensitive' } } },
+      ];
+    }
+
+    const bons = await this.prisma.bon.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        filiale: { select: { displayName: true } },
+        collaborateur: { select: { displayName: true, email: true, department: true } },
+        createdBy: { select: { displayName: true, email: true } },
+        equipments: { include: { catalogItem: { select: { brand: true, model: true } } } },
+        signatures: { where: { signed: true }, select: { type: true, signedAt: true } },
+      },
+    });
+
+    const STATUS_LABELS: Record<string, string> = {
+      draft: 'Brouillon',
+      sent_mise_dispo: 'En attente signature',
+      active: 'Actif',
+      sent_restitution: 'Restitution en attente',
+      archived: 'Archivé',
+      cancelled: 'Annulé',
+    };
+
+    const headers = [
+      'Référence', 'Statut', 'Filiale', 'Collaborateur', 'Email collaborateur',
+      'Service', 'Date mise à disposition', 'Date restitution', 'Nb équipements',
+      'Équipements', 'Créé par', 'Date création',
+      'Date signature mise à dispo', 'Date signature restitution',
+    ];
+
+    const escape = (v: string) => `"${String(v).replace(/"/g, '""')}"`;
+
+    const rows = bons.map((b) => {
+      const sigMise = b.signatures.find((s) => s.type === 'mise_disposition');
+      const sigRest = b.signatures.find((s) => s.type === 'restitution');
+      const equipLabel = b.equipments
+        .map((e) =>
+          e.catalogItem
+            ? `${e.catalogItem.brand} ${e.catalogItem.model}`
+            : (e as any).customLabel ?? '',
+        )
+        .join(' | ');
+      return [
+        b.reference,
+        STATUS_LABELS[b.status] ?? b.status,
+        b.filiale.displayName,
+        b.collaborateur.displayName,
+        b.collaborateur.email,
+        b.collaborateur.department ?? '',
+        b.dateMiseDisposition ? new Date(b.dateMiseDisposition).toLocaleDateString('fr-FR') : '',
+        b.dateRestitution ? new Date(b.dateRestitution).toLocaleDateString('fr-FR') : '',
+        String(b.equipments.length),
+        equipLabel,
+        b.createdBy.displayName,
+        new Date(b.createdAt).toLocaleDateString('fr-FR'),
+        sigMise?.signedAt ? new Date(sigMise.signedAt).toLocaleDateString('fr-FR') : '',
+        sigRest?.signedAt ? new Date(sigRest.signedAt).toLocaleDateString('fr-FR') : '',
+      ].map(escape);
+    });
+
+    const csv = [headers.map(escape).join(';'), ...rows.map((r) => r.join(';'))].join('\n');
+    return '\uFEFF' + csv; // BOM UTF-8 pour Excel
+  }
+
+  async findAll(filters: {
+    status?: string;
+    filialeId?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }) {
+    const { status, filialeId, search, page = 1, limit = 20 } = filters;
+    const where: any = {};
+
+    if (status) where.status = status;
+    if (filialeId) where.filialeId = filialeId;
+    if (search) {
+      where.OR = [
+        { reference: { contains: search, mode: 'insensitive' } },
+        {
+          collaborateur: {
+            displayName: { contains: search, mode: 'insensitive' },
+          },
+        },
+        {
+          collaborateur: {
+            email: { contains: search, mode: 'insensitive' },
+          },
+        },
+      ];
+    }
+
+    const [bons, total] = await Promise.all([
+      this.prisma.bon.findMany({
+        where,
+        include: BON_INCLUDE,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.bon.count({ where }),
+    ]);
+
+    return { bons, total, page, limit };
+  }
+
+  async findOne(id: string) {
+    const bon = await this.prisma.bon.findUnique({
+      where: { id },
+      include: BON_INCLUDE,
+    });
+    if (!bon) throw new NotFoundException('Bon introuvable');
+    return bon;
+  }
+
+  async create(dto: CreateBonDto, userId: string) {
+    const reference = await this.generateReference();
+
+    let equipments: any[] = dto.equipments || [];
+
+    // Import from pack if specified
+    if (dto.packId) {
+      const pack = await this.prisma.equipmentPack.findUnique({
+        where: { id: dto.packId },
+        include: {
+          items: {
+            orderBy: { order: 'asc' },
+            include: { catalogItem: true },
+          },
+        },
+      });
+      if (pack) {
+        const packEquipments = pack.items.flatMap((item) =>
+          Array.from({ length: item.quantity }, (_, i) => ({
+            catalogItemId: item.catalogItemId,
+            order: item.order * 10 + i,
+          })),
+        );
+        equipments = [...packEquipments, ...equipments];
+      }
+    }
+
+    const collaborateur = await this.prisma.user.findUnique({
+      where: { id: dto.collaborateurId },
+    });
+    if (!collaborateur) throw new NotFoundException('Collaborateur introuvable');
+
+    return this.prisma.bon.create({
+      data: {
+        reference,
+        filialeId: dto.filialeId,
+        collaborateurId: dto.collaborateurId,
+        collaborateurEmail: collaborateur.email,
+        createdById: userId,
+        civilite: dto.civilite as any,
+        dateMiseDisposition: new Date(dto.dateMiseDisposition),
+        dateRestitution: dto.dateRestitution
+          ? new Date(dto.dateRestitution)
+          : null,
+        notes: dto.notes,
+        equipments: {
+          create: equipments.map((e, idx) => ({
+            catalogItemId: e.catalogItemId || null,
+            customLabel: e.customLabel || null,
+            serialNumber: e.serialNumber || null,
+            inventoryNumber: e.inventoryNumber || null,
+            notes: e.notes || null,
+            order: e.order ?? idx,
+          })),
+        },
+      },
+      include: BON_INCLUDE,
+    });
+  }
+
+  async update(id: string, dto: UpdateBonDto) {
+    const bon = await this.findOne(id);
+    if (bon.status !== 'draft')
+      throw new BadRequestException(
+        'Seuls les brouillons peuvent être modifiés',
+      );
+
+    const data: any = {};
+    if (dto.filialeId) data.filialeId = dto.filialeId;
+    if (dto.collaborateurId) {
+      const collab = await this.prisma.user.findUnique({
+        where: { id: dto.collaborateurId },
+      });
+      if (!collab) throw new NotFoundException('Collaborateur introuvable');
+      data.collaborateurId = dto.collaborateurId;
+      data.collaborateurEmail = collab.email;
+    }
+    if (dto.civilite) data.civilite = dto.civilite;
+    if (dto.dateMiseDisposition)
+      data.dateMiseDisposition = new Date(dto.dateMiseDisposition);
+    if (dto.dateRestitution !== undefined)
+      data.dateRestitution = dto.dateRestitution
+        ? new Date(dto.dateRestitution)
+        : null;
+    if (dto.notes !== undefined) data.notes = dto.notes;
+
+    if (dto.equipments !== undefined) {
+      await this.prisma.bonEquipment.deleteMany({ where: { bonId: id } });
+      data.equipments = {
+        create: dto.equipments.map((e, idx) => ({
+          catalogItemId: e.catalogItemId || null,
+          customLabel: e.customLabel || null,
+          serialNumber: e.serialNumber || null,
+          inventoryNumber: e.inventoryNumber || null,
+          notes: e.notes || null,
+          order: e.order ?? idx,
+        })),
+      };
+    }
+
+    return this.prisma.bon.update({ where: { id }, data, include: BON_INCLUDE });
+  }
+
+  async cancel(id: string) {
+    const bon = await this.findOne(id);
+    if (['archived', 'cancelled'].includes(bon.status))
+      throw new BadRequestException('Ce bon ne peut pas être annulé');
+    return this.prisma.bon.update({
+      where: { id },
+      data: { status: 'cancelled' },
+      include: BON_INCLUDE,
+    });
+  }
+
+  async send(id: string, initiatedById?: string) {
+    const bon = await this.findOne(id);
+    if (bon.status !== 'draft')
+      throw new BadRequestException('Seuls les brouillons peuvent être envoyés');
+    if (bon.equipments.length === 0)
+      throw new BadRequestException(
+        'Le bon doit contenir au moins un équipement',
+      );
+
+    // Update status first
+    const updated = await this.prisma.bon.update({
+      where: { id },
+      data: { status: 'sent_mise_dispo' },
+      include: BON_INCLUDE,
+    });
+
+    // Generate signature token
+    const sig = await this.signatureService.generateToken(
+      id,
+      'mise_disposition',
+      initiatedById,
+      false,
+    );
+
+    // Send email (fire and forget — ne pas bloquer si SMTP non configuré)
+    this.notificationService
+      .sendMiseDispositionRequest(updated, sig.token)
+      .catch(() => {/* email errors are logged in NotificationService */});
+
+    return updated;
+  }
+
+  async initiateRestitution(id: string, initiatedById?: string) {
+    const bon = await this.findOne(id);
+    if (bon.status !== 'active')
+      throw new BadRequestException(
+        'La restitution ne peut être initiée que sur un bon actif',
+      );
+
+    const updated = await this.prisma.bon.update({
+      where: { id },
+      data: { status: 'sent_restitution' },
+      include: BON_INCLUDE,
+    });
+
+    // Generate signature token for restitution
+    const sig = await this.signatureService.generateToken(
+      id,
+      'restitution',
+      initiatedById,
+      false,
+    );
+
+    // Send email
+    this.notificationService
+      .sendRestitutionRequest(updated, sig.token)
+      .catch(() => {});
+
+    return updated;
+  }
+
+  async initiateInPersonSignature(
+    id: string,
+    type: 'mise_disposition' | 'restitution',
+    initiatedById: string,
+  ) {
+    const bon = await this.findOne(id);
+    const allowedStatuses: Record<string, string> = {
+      mise_disposition: 'draft',
+      restitution: 'active',
+    };
+
+    if (bon.status !== allowedStatuses[type]) {
+      throw new BadRequestException(
+        `Impossible d'initier une signature présentielle pour un bon en statut "${bon.status}"`,
+      );
+    }
+
+    // Update bon status
+    const newStatus = type === 'mise_disposition' ? 'sent_mise_dispo' : 'sent_restitution';
+    const updated = await this.prisma.bon.update({
+      where: { id },
+      data: { status: newStatus as any },
+      include: BON_INCLUDE,
+    });
+
+    // Generate in-person token (24h validity)
+    const sig = await this.signatureService.generateToken(id, type, initiatedById, true);
+
+    return { bon: updated, token: sig.token };
+  }
+
+  async getRecentBons(limit = 10) {
+    return this.prisma.bon.findMany({
+      include: BON_INCLUDE,
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
+  }
+
+  async findByCollaborateur(userId: string) {
+    return this.prisma.bon.findMany({
+      where: {
+        collaborateurId: userId,
+        status: { notIn: ['cancelled'] },
+      },
+      include: {
+        ...BON_INCLUDE,
+        signatures: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /**
+   * Renvoi manuel du lien de signature (depuis BonDetail par l'IT).
+   * Génère un nouveau token et renvoie l'email correspondant.
+   */
+  async resendSignatureLink(bonId: string, initiatedById: string) {
+    const bon = await this.findOne(bonId);
+
+    if (!['sent_mise_dispo', 'sent_restitution'].includes(bon.status))
+      throw new BadRequestException(
+        'Le renvoi est possible uniquement pour les bons en attente de signature',
+      );
+
+    const type: 'mise_disposition' | 'restitution' =
+      bon.status === 'sent_restitution' ? 'restitution' : 'mise_disposition';
+
+    // Invalider le token précédent et en générer un nouveau
+    const sig = await this.signatureService.generateToken(bonId, type, initiatedById, false);
+
+    // Renvoyer l'email
+    if (type === 'restitution') {
+      this.notificationService
+        .sendRestitutionRequest(bon, sig.token)
+        .catch(() => {});
+    } else {
+      this.notificationService
+        .sendMiseDispositionRequest(bon, sig.token)
+        .catch(() => {});
+    }
+
+    // Log d'audit
+    await this.prisma.auditLog.create({
+      data: {
+        bonId,
+        userId: initiatedById,
+        action: 'reminder_sent',
+        details: { manual: true, type },
+      },
+    });
+
+    return { ok: true, message: 'Lien renvoyé avec succès' };
+  }
+
+  private async generateReference(): Promise<string> {
+    const year = new Date().getFullYear();
+    const count = await this.prisma.bon.count({
+      where: {
+        createdAt: { gte: new Date(`${year}-01-01T00:00:00.000Z`) },
+      },
+    });
+    return `BON-${year}-${String(count + 1).padStart(4, '0')}`;
+  }
+}
