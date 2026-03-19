@@ -34,7 +34,7 @@ interface SignatureResponse {
     signed: boolean;
     signedAt?: string;
     signerEmail?: string;
-    isInPerson: boolean;
+    isInPerson: boolean | null;
     tokenExpiresAt: string;
   };
 }
@@ -450,7 +450,7 @@ export function SignaturePage() {
               {/* Submit */}
               <button
                 onClick={handleSubmit}
-                disabled={submitting || isEmpty || !luApprouve || (!isInPerson && emailMismatch)}
+                disabled={submitting || isEmpty || !luApprouve || (!!(!isInPerson && emailMismatch))}
                 className="w-full flex items-center justify-center gap-2 rounded-lg bg-blue-700 px-6 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {submitting ? (

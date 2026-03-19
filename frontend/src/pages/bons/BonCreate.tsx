@@ -20,6 +20,7 @@ interface CatalogItem {
   brand: string;
   model: string;
   category: string;
+  active: boolean;
 }
 
 interface Pack {
