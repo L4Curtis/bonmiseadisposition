@@ -446,28 +446,37 @@ export class BonsService {
       where: { bonId: id, returnedAt: null, notReturned: false },
     });
 
-    // Reload bon with fresh data
-    const updatedBon = await this.prisma.bon.findUniqueOrThrow({
+    // Always update status to partially_returned while waiting for PV signature
+    await this.prisma.bon.update({
       where: { id },
-      include: {
-        ...BON_INCLUDE,
-        createdBy: { select: { id: true, displayName: true, email: true } },
-      },
+      data: { status: 'partially_returned' as any },
     });
 
     if (remaining === 0) {
-      // All resolved → archive the bon
-      await this.prisma.bon.update({
+      // All resolved → generate PV with IT signature, send to collab for co-signature
+      const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+      const signerEmail = user?.email ?? 'unknown';
+
+      // Save IT signature as it_cachet record
+      if (signatureDataUrl) {
+        await this.signatureService.saveItPvSignature(id, signatureDataUrl, signerEmail, userId);
+      }
+
+      // Reload bon with fresh signatures
+      const updatedBon = await this.prisma.bon.findUniqueOrThrow({
         where: { id },
-        data: { status: 'archived' as any },
+        include: {
+          ...BON_INCLUDE,
+          signatures: true,
+          createdBy: { select: { id: true, displayName: true, email: true } },
+        },
       });
 
-      // Generate PDF "Procès-verbal d'équipements non restitués"
+      // Generate PV PDF with IT signature only (collab not yet signed)
       const collabName = this.smbService.sanitizeName(
         updatedBon.collaborateur?.displayName || 'INCONNU',
       );
       const filename = `${updatedBon.reference}_${collabName}_cloture_equipements_manquants.pdf`;
-      // Utilise la signature IT fournie (cachet du technicien sur le PV)
       const sigImages: SigImages = { it: signatureDataUrl || null, collab: null };
       const pdfBuffer = await this.pdfService.generateAndSave(
         updatedBon,
@@ -475,17 +484,101 @@ export class BonsService {
         sigImages,
         filename,
       );
-
-      // Export to SMB
       this.smbService.exportPdf(updatedBon, filename, pdfBuffer).catch(() => {});
 
-      this.logger.log(`Bon ${updatedBon.reference} clôturé — équipements non rendus déclarés`);
-    } else {
-      // Still some pending
-      await this.prisma.bon.update({
-        where: { id },
-        data: { status: 'partially_returned' as any },
-      });
+      // Create pv_cloture token for collab co-signature
+      const pvSig = await this.signatureService.generateToken(id, 'pv_cloture', userId, false);
+
+      // Send PV email to collab
+      this.notificationService.sendPvClotureRequest(updatedBon, pvSig.token).catch(() => {});
+
+      this.logger.log(`Bon ${updatedBon.reference} — PV cloture envoyé au collaborateur pour signature`);
+    }
+
+    return this.findOne(id);
+  }
+
+  /**
+   * IT marks previously not-returned equipment as found.
+   * Re-signs the PV and sends updated PV to collab for signature.
+   */
+  async markFound(
+    id: string,
+    equipmentIds: string[],
+    userId: string,
+    signatureDataUrl?: string,
+  ) {
+    const bon = await this.findOne(id);
+    if (!['partially_returned', 'active'].includes(bon.status))
+      throw new BadRequestException('Action impossible sur ce bon');
+
+    if (!equipmentIds?.length) throw new BadRequestException('Aucun équipement sélectionné');
+
+    // Mark equipment as found (returned)
+    await this.prisma.bonEquipment.updateMany({
+      where: {
+        id: { in: equipmentIds },
+        bonId: id,
+        notReturned: true,
+      },
+      data: { notReturned: false, notReturnedReason: null, returnedAt: new Date() },
+    });
+
+    // Audit log
+    await this.prisma.auditLog.create({
+      data: {
+        bonId: id,
+        userId,
+        action: 'mark_found',
+        details: { equipmentIds },
+      },
+    });
+
+    // Check remaining not-returned equipment
+    const stillMissing = await this.prisma.bonEquipment.count({
+      where: { bonId: id, notReturned: true },
+    });
+
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+    const signerEmail = user?.email ?? 'unknown';
+
+    // Save new IT signature
+    if (signatureDataUrl) {
+      await this.signatureService.saveItPvSignature(id, signatureDataUrl, signerEmail, userId);
+    }
+
+    // Reload bon with fresh signatures
+    const updatedBon = await this.prisma.bon.findUniqueOrThrow({
+      where: { id },
+      include: {
+        ...BON_INCLUDE,
+        signatures: true,
+        createdBy: { select: { id: true, displayName: true, email: true } },
+      },
+    });
+
+    // Generate updated PV PDF (shows only remaining notReturned equipment)
+    const collabName = this.smbService.sanitizeName(
+      updatedBon.collaborateur?.displayName || 'INCONNU',
+    );
+    const filename = `${updatedBon.reference}_${collabName}_cloture_equipements_manquants.pdf`;
+    const sigImages: SigImages = { it: signatureDataUrl || null, collab: null };
+    const pdfBuffer = await this.pdfService.generateAndSave(
+      updatedBon,
+      'cloture_equipements_manquants',
+      sigImages,
+      filename,
+    );
+    this.smbService.exportPdf(updatedBon, filename, pdfBuffer).catch(() => {});
+
+    if (stillMissing > 0 || signatureDataUrl) {
+      // Create new pv_cloture token (invalidates old unsigned one)
+      const pvSig = await this.signatureService.generateToken(id, 'pv_cloture', userId, false);
+
+      // Send updated PV to collab
+      this.notificationService.sendPvClotureRequest(updatedBon, pvSig.token).catch(() => {});
+
+      this.logger.log(`Bon ${updatedBon.reference} — PV mis à jour (équipement retrouvé), renvoyé au collaborateur`);
     }
 
     return this.findOne(id);
@@ -556,21 +649,31 @@ export class BonsService {
         'Le renvoi est possible uniquement pour les bons en attente de signature',
       );
 
-    const type: 'mise_disposition' | 'restitution' =
-      ['sent_restitution', 'partially_returned'].includes(bon.status) ? 'restitution' : 'mise_disposition';
+    // Check if there's a pending pv_cloture signature (PV awaiting collab co-signature)
+    const hasPendingPvCloture = (bon as any).signatures?.some(
+      (s: any) => s.type === 'pv_cloture' && !s.signed && new Date() < new Date(s.tokenExpiresAt),
+    );
 
-    // Invalider le token précédent et en générer un nouveau
-    const sig = await this.signatureService.generateToken(bonId, type, initiatedById, false);
-
-    // Renvoyer l'email
-    if (type === 'restitution') {
-      this.notificationService
-        .sendRestitutionRequest(bon, sig.token)
-        .catch(() => {});
+    if (hasPendingPvCloture) {
+      const sig = await this.signatureService.generateToken(bonId, 'pv_cloture', initiatedById, false);
+      this.notificationService.sendPvClotureRequest(bon, sig.token).catch(() => {});
     } else {
-      this.notificationService
-        .sendMiseDispositionRequest(bon, sig.token)
-        .catch(() => {});
+      const type: 'mise_disposition' | 'restitution' =
+        ['sent_restitution', 'partially_returned'].includes(bon.status) ? 'restitution' : 'mise_disposition';
+
+      // Invalider le token précédent et en générer un nouveau
+      const sig = await this.signatureService.generateToken(bonId, type, initiatedById, false);
+
+      // Renvoyer l'email
+      if (type === 'restitution') {
+        this.notificationService
+          .sendRestitutionRequest(bon, sig.token)
+          .catch(() => {});
+      } else {
+        this.notificationService
+          .sendMiseDispositionRequest(bon, sig.token)
+          .catch(() => {});
+      }
     }
 
     // Log d'audit
@@ -579,7 +682,7 @@ export class BonsService {
         bonId,
         userId: initiatedById,
         action: 'reminder_sent',
-        details: { manual: true, type },
+        details: { manual: true },
       },
     });
 

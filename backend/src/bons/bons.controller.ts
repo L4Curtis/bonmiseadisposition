@@ -158,6 +158,16 @@ export class BonsController {
     return this.bonsService.declareNotReturned(id, equipmentIds, reason, user.id, signatureDataUrl);
   }
 
+  @Post(':id/mark-found')
+  markFound(
+    @Param('id') id: string,
+    @Body('equipmentIds') equipmentIds: string[],
+    @Body('signatureDataUrl') signatureDataUrl: string | undefined,
+    @CurrentUser() user: any,
+  ) {
+    return this.bonsService.markFound(id, equipmentIds, user.id, signatureDataUrl);
+  }
+
   @Get(':id/pdf-snapshots')
   @Roles('admin', 'technician', 'collaborator')
   async getPdfSnapshots(@Param('id') id: string) {

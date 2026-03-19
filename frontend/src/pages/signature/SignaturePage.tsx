@@ -22,6 +22,9 @@ interface BonInfo {
     serialNumber?: string;
     inventoryNumber?: string;
     notes?: string;
+    notReturned?: boolean;
+    notReturnedReason?: string;
+    returnedAt?: string;
   }[];
 }
 
@@ -298,12 +301,15 @@ export function SignaturePage() {
   }
 
   if (data.status === 'already_signed' || signed) {
-    const sigType = data.signature.type === 'restitution' ? 'restitution' : 'mise à disposition';
+    const sigType = data.signature.type === 'pv_cloture'
+      ? 'procès-verbal d\'équipements non restitués'
+      : data.signature.type === 'restitution' ? 'restitution' : 'mise à disposition';
+    const docLabel = data.signature.type === 'pv_cloture' ? 'Le procès-verbal' : `Le bon de ${sigType}`;
     return (
       <StatusScreen
         icon={<CheckCircle className="h-12 w-12 text-green-500" />}
         title="Document signé ✓"
-        message={`Le bon de ${sigType} (réf. ${data.bon.reference}) a bien été signé électroniquement. Un email de confirmation vous a été envoyé.`}
+        message={`${docLabel} (réf. ${data.bon.reference}) a bien été signé électroniquement. Un email de confirmation vous a été envoyé.`}
         success
       />
     );
@@ -311,7 +317,10 @@ export function SignaturePage() {
 
   const bon = data.bon;
   const sig = data.signature;
-  const sigType = sig.type === 'restitution' ? 'restitution' : 'mise à disposition';
+  const isPvCloture = sig.type === 'pv_cloture';
+  const sigType = isPvCloture
+    ? 'procès-verbal d\'équipements non restitués'
+    : sig.type === 'restitution' ? 'restitution' : 'mise à disposition';
   const civiliteLabel = bon.civilite === 'mme' ? 'Madame' : 'Monsieur';
   const isInPerson = sig.isInPerson;
 
@@ -325,14 +334,14 @@ export function SignaturePage() {
       <div className="mx-auto max-w-2xl space-y-5">
         {/* Header card */}
         <div className="rounded-xl bg-white border border-slate-200 shadow-sm overflow-hidden">
-          <div className="bg-blue-700 px-6 py-4">
-            <p className="text-blue-200 text-xs font-medium uppercase tracking-wider mb-1">
+          <div className={`${isPvCloture ? 'bg-red-700' : 'bg-blue-700'} px-6 py-4`}>
+            <p className={`${isPvCloture ? 'text-red-200' : 'text-blue-200'} text-xs font-medium uppercase tracking-wider mb-1`}>
               {bon.filiale.displayName}
             </p>
             <h1 className="text-white font-bold text-lg">
-              Bon de {sigType} à signer
+              {isPvCloture ? 'Procès-verbal à signer' : `Bon de ${sigType} à signer`}
             </h1>
-            <p className="text-blue-100 text-sm font-mono mt-0.5">{bon.reference}</p>
+            <p className={`${isPvCloture ? 'text-red-100' : 'text-blue-100'} text-sm font-mono mt-0.5`}>{bon.reference}</p>
           </div>
           <div className="px-6 py-4 space-y-2 text-sm">
             <Row label="Destinataire" value={`${civiliteLabel} ${bon.collaborateur.displayName}`} />
@@ -348,8 +357,15 @@ export function SignaturePage() {
         <div className="rounded-xl bg-white border border-slate-200 shadow-sm">
           <div className="px-5 py-3 border-b">
             <h2 className="font-semibold text-sm text-slate-800">
-              Équipements ({bon.equipments.length})
+              {isPvCloture
+                ? `Équipements non restitués (${bon.equipments.filter(e => e.notReturned).length})`
+                : `Équipements (${bon.equipments.length})`}
             </h2>
+            {isPvCloture && (
+              <p className="text-xs text-slate-500 mt-0.5">
+                Les équipements ci-dessous ont été déclarés non restitués par le service informatique.
+              </p>
+            )}
           </div>
           <table className="w-full text-sm">
             <thead className="bg-slate-50">
@@ -357,22 +373,29 @@ export function SignaturePage() {
                 <th className="px-4 py-2 text-left text-xs font-medium text-slate-500">#</th>
                 <th className="px-4 py-2 text-left text-xs font-medium text-slate-500">Désignation</th>
                 <th className="px-4 py-2 text-left text-xs font-medium text-slate-500">N° Série</th>
+                {isPvCloture && <th className="px-4 py-2 text-left text-xs font-medium text-slate-500">Motif</th>}
               </tr>
             </thead>
             <tbody>
               {bon.equipments
                 .sort((a, b) => a.order - b.order)
+                .filter(eq => !isPvCloture || eq.notReturned)
                 .map((eq, i) => {
                   const label = eq.catalogItem
                     ? `${eq.catalogItem.brand} ${eq.catalogItem.model}`
                     : eq.customLabel || '—';
                   return (
-                    <tr key={eq.id} className="border-t">
+                    <tr key={eq.id} className={`border-t ${isPvCloture ? 'bg-red-50' : ''}`}>
                       <td className="px-4 py-2 text-slate-400">{i + 1}</td>
                       <td className="px-4 py-2 font-medium">{label}</td>
                       <td className="px-4 py-2 font-mono text-xs text-slate-500">
                         {eq.serialNumber || <span className="text-slate-300">—</span>}
                       </td>
+                      {isPvCloture && (
+                        <td className="px-4 py-2 text-xs text-red-700 italic">
+                          {eq.notReturnedReason || '—'}
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
@@ -402,7 +425,17 @@ export function SignaturePage() {
               </div>
             )}
 
-            {isInPerson && (
+            {isPvCloture && (
+              <div className="mx-5 mt-4 flex items-start gap-3 rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+                <div>
+                  <p className="font-medium">Procès-verbal d'équipements non restitués</p>
+                  <p className="text-xs mt-0.5">
+                    Ce document atteste que les équipements listés ci-dessus n'ont pas été restitués. Votre signature confirme que vous avez pris connaissance de ce procès-verbal.
+                  </p>
+                </div>
+              </div>
+            )}
+            {isInPerson && !isPvCloture && (
               <div className="mx-5 mt-4 flex items-start gap-3 rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-700">
                 <div>
                   <p className="font-medium">Signature présentielle</p>
@@ -456,7 +489,11 @@ export function SignaturePage() {
                   className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                 />
                 <span className="text-sm text-slate-700 group-hover:text-slate-900 transition-colors">
-                  <strong>Lu et approuvé</strong> — Je reconnais avoir pris connaissance de la liste des équipements ci-dessus et en confirme la {sigType}. Je comprends que cette signature électronique a valeur contractuelle.
+                  {isPvCloture ? (
+                    <><strong>Lu et approuvé</strong> — Je reconnais avoir pris connaissance du présent procès-verbal d'équipements non restitués. Je comprends que cette signature électronique a valeur contractuelle.</>
+                  ) : (
+                    <><strong>Lu et approuvé</strong> — Je reconnais avoir pris connaissance de la liste des équipements ci-dessus et en confirme la {sigType}. Je comprends que cette signature électronique a valeur contractuelle.</>
+                  )}
                 </span>
               </label>
 
@@ -471,11 +508,13 @@ export function SignaturePage() {
               {/* Submit */}
               <button
                 onClick={handleSubmit}
-                disabled={submitting || isEmpty || !luApprouve || (!!(!isInPerson && emailMismatch))}
-                className="w-full flex items-center justify-center gap-2 rounded-lg bg-blue-700 px-6 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                disabled={submitting || isEmpty || !luApprouve || (!!(!isInPerson && !isPvCloture && emailMismatch))}
+                className={`w-full flex items-center justify-center gap-2 rounded-lg px-6 py-3 text-sm font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors ${isPvCloture ? 'bg-red-700 hover:bg-red-800' : 'bg-blue-700 hover:bg-blue-800'}`}
               >
                 {submitting ? (
                   <><Loader2 className="h-4 w-4 animate-spin" /> Signature en cours…</>
+                ) : isPvCloture ? (
+                  <><Pen className="h-4 w-4" /> Signer le procès-verbal</>
                 ) : (
                   <><Pen className="h-4 w-4" /> Signer le bon de {sigType}</>
                 )}

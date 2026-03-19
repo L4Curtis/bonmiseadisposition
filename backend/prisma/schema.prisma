@@ -204,6 +204,7 @@ enum SignatureType {
   mise_disposition
   restitution
   it_cachet
+  pv_cloture
 }
 
 enum PdfSnapshotType {

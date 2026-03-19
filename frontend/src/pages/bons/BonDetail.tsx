@@ -22,6 +22,7 @@ import {
   AlertTriangle,
   FileText,
   Package,
+  PackageCheck,
 } from 'lucide-react';
 import { BON_STATUS_LABELS, BON_STATUS_COLORS, type BonStatus } from '@/types';
 
@@ -625,6 +626,161 @@ function DeclareNotReturnedModal({
   );
 }
 
+// ─── Modal : équipement retrouvé (avec cachet IT) ────────────────────────────
+
+function MarkFoundModal({
+  equipments,
+  onConfirm,
+  onCancel,
+  loading,
+}: {
+  equipments: BonDetail['equipments'];
+  onConfirm: (equipmentIds: string[], signatureDataUrl: string) => void;
+  onCancel: () => void;
+  loading: boolean;
+}) {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [error, setError] = useState<string | null>(null);
+  const { canvasRef, isEmpty, clear, getDataUrl, onMouseDown, onMouseMove, onMouseUp, onMouseLeave } =
+    useSignatureCanvas();
+
+  const notReturnedEquipments = equipments.filter((eq) => eq.notReturned);
+
+  const toggle = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const eqLabel = (eq: BonDetail['equipments'][0]) =>
+    eq.catalogItem ? `${eq.catalogItem.brand} ${eq.catalogItem.model}` : eq.customLabel || '—';
+
+  const handleSubmit = () => {
+    setError(null);
+    if (selected.size === 0) { setError('Sélectionnez au moins un équipement retrouvé.'); return; }
+    const dataUrl = getDataUrl();
+    if (!dataUrl) { setError('Le cachet IT est obligatoire pour mettre à jour le PV.'); return; }
+    onConfirm(Array.from(selected), dataUrl);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-lg rounded-xl bg-white shadow-xl overflow-hidden">
+        <div className="bg-green-600 px-5 py-4">
+          <h3 className="font-semibold text-white text-sm flex items-center gap-2">
+            <PackageCheck className="h-4 w-4" /> Équipement(s) retrouvé(s)
+          </h3>
+          <p className="text-green-100 text-xs mt-1">
+            Le PV sera mis à jour et renvoyé au collaborateur pour signature.
+          </p>
+        </div>
+        <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
+          {/* Équipements non rendus */}
+          {notReturnedEquipments.length === 0 ? (
+            <p className="text-sm text-slate-500 text-center py-4">
+              Aucun équipement non rendu.
+            </p>
+          ) : (
+            <>
+              <p className="text-sm text-slate-600">
+                Sélectionnez les équipements qui ont été retrouvés :
+              </p>
+              <div className="space-y-2">
+                {notReturnedEquipments.map((eq) => (
+                  <label
+                    key={eq.id}
+                    className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                      selected.has(eq.id)
+                        ? 'bg-green-50 border-green-300'
+                        : 'hover:bg-slate-50 border-slate-200'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-slate-300 text-green-600 focus:ring-green-500"
+                      checked={selected.has(eq.id)}
+                      onChange={() => toggle(eq.id)}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm font-medium text-slate-800">{eqLabel(eq)}</span>
+                      {eq.serialNumber && (
+                        <span className="text-xs text-slate-400 ml-2 font-mono">{eq.serialNumber}</span>
+                      )}
+                    </div>
+                    {eq.notReturnedReason && (
+                      <span className="text-xs text-red-600 italic shrink-0 max-w-[120px] truncate" title={eq.notReturnedReason}>
+                        {eq.notReturnedReason}
+                      </span>
+                    )}
+                  </label>
+                ))}
+              </div>
+
+              {/* Cachet IT */}
+              <div className="border-t pt-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <p className="text-xs font-medium text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                      <Stamp className="h-3.5 w-3.5" /> Cachet du service informatique *
+                    </p>
+                    <p className="text-xs text-slate-400 mt-0.5">Apposez votre cachet pour valider la mise à jour du PV</p>
+                  </div>
+                  <button onClick={clear} className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600">
+                    <Trash2 className="h-3 w-3" /> Effacer
+                  </button>
+                </div>
+                <div className="relative border-2 border-dashed border-slate-200 rounded-lg bg-slate-50 hover:border-green-300 transition-colors touch-none">
+                  <canvas
+                    ref={canvasRef}
+                    width={560}
+                    height={120}
+                    className="w-full cursor-crosshair block"
+                    style={{ touchAction: 'none' }}
+                    onMouseDown={onMouseDown}
+                    onMouseMove={onMouseMove}
+                    onMouseUp={onMouseUp}
+                    onMouseLeave={onMouseLeave}
+                  />
+                  {isEmpty && (
+                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                      <p className="text-slate-300 text-sm select-none">Signez ici…</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+
+          {error && (
+            <div className="flex items-start gap-2 rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+              <XCircle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>{error}</span>
+            </div>
+          )}
+        </div>
+        <div className="flex gap-2 p-5 pt-0">
+          <Button variant="outline" size="sm" className="flex-1" onClick={onCancel} disabled={loading}>
+            Annuler
+          </Button>
+          <Button
+            size="sm"
+            className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+            onClick={handleSubmit}
+            disabled={loading || notReturnedEquipments.length === 0}
+          >
+            {loading
+              ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> En cours…</>
+              : <><PackageCheck className="h-3.5 w-3.5" /> Mettre à jour le PV ({selected.size})</>}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Page principale ──────────────────────────────────────────────────────────
 
 export function BonDetailPage() {
@@ -653,6 +809,9 @@ export function BonDetailPage() {
 
   /** Modal déclaration non-rendu */
   const [showNotReturnedModal, setShowNotReturnedModal] = useState(false);
+
+  /** Modal équipement retrouvé */
+  const [showMarkFoundModal, setShowMarkFoundModal] = useState(false);
 
   /** PDF snapshots disponibles */
   const [pdfSnapshots, setPdfSnapshots] = useState<PdfSnapshotInfo[]>([]);
@@ -706,6 +865,15 @@ export function BonDetailPage() {
     try {
       await api.post(`/bons/${id}/declare-not-returned`, { equipmentIds, reason, signatureDataUrl });
       setShowNotReturnedModal(false);
+      load();
+    } finally { setActionLoading(null); }
+  };
+
+  const doMarkFound = async (equipmentIds: string[], signatureDataUrl: string) => {
+    setActionLoading('markfound');
+    try {
+      await api.post(`/bons/${id}/mark-found`, { equipmentIds, signatureDataUrl });
+      setShowMarkFoundModal(false);
       load();
     } finally { setActionLoading(null); }
   };
@@ -868,8 +1036,16 @@ export function BonDetailPage() {
     if (type === 'mise_disposition') return 'Mise à disposition';
     if (type === 'restitution') return 'Restitution';
     if (type === 'it_cachet') return 'Cachet IT';
+    if (type === 'pv_cloture') return 'PV équipements non restitués';
     return type;
   };
+
+  // Pending pv_cloture signature (awaiting collab co-signature)
+  const hasPendingPvCloture = bon.signatures?.some(
+    (s) => s.type === 'pv_cloture' && !s.signed && new Date() < new Date(s.tokenExpiresAt),
+  );
+
+  const hasNotReturnedEquipment = bon.equipments.some((eq) => eq.notReturned);
 
   const sigPdfType = (sigType: string): 'mise_disposition' | 'restitution' =>
     sigType === 'restitution' ? 'restitution' : 'mise_disposition';
@@ -974,22 +1150,35 @@ export function BonDetailPage() {
                   <AlertTriangle className="h-3.5 w-3.5" /> Non rendu
                 </Button>
               )}
+
+              {/* Équipement retrouvé — IT peut mettre à jour le PV */}
+              {isItStaff && hasNotReturnedEquipment && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-green-600 hover:text-green-700 hover:bg-green-50 border-green-200"
+                  onClick={() => setShowMarkFoundModal(true)}
+                  disabled={!!actionLoading}
+                >
+                  <PackageCheck className="h-3.5 w-3.5" /> Équipement retrouvé
+                </Button>
+              )}
             </>
           )}
 
-          {/* Renvoyer le lien — disponible pour IT quand le bon est en attente de signature */}
-          {isSentWaiting && isItStaff && (
+          {/* Renvoyer le lien — disponible pour IT quand le bon est en attente de signature ou PV en attente */}
+          {(isSentWaiting || hasPendingPvCloture) && isItStaff && (
             <Button
               variant="outline"
               size="sm"
               onClick={doResend}
               disabled={!!actionLoading}
-              title="Régénère un nouveau token et renvoie l'email de signature au collaborateur"
+              title={hasPendingPvCloture ? 'Renvoie le PV au collaborateur pour signature' : 'Régénère un nouveau token et renvoie l\'email de signature au collaborateur'}
             >
               {actionLoading === 'resend'
                 ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 : <Send className="h-3.5 w-3.5" />}
-              Renvoyer le lien
+              {hasPendingPvCloture ? 'Renvoyer le PV' : 'Renvoyer le lien'}
             </Button>
           )}
 
@@ -1071,6 +1260,11 @@ export function BonDetailPage() {
                     {sig.type === 'it_cachet' && (
                       <span className="text-xs bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded flex items-center gap-1">
                         <Stamp className="h-3 w-3" /> IT
+                      </span>
+                    )}
+                    {sig.type === 'pv_cloture' && (
+                      <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded flex items-center gap-1">
+                        <AlertTriangle className="h-3 w-3" /> PV
                       </span>
                     )}
                   </div>
@@ -1271,6 +1465,16 @@ export function BonDetailPage() {
           onConfirm={doDeclareNotReturned}
           onCancel={() => setShowNotReturnedModal(false)}
           loading={actionLoading === 'notreturned'}
+        />
+      )}
+
+      {/* Modal équipement retrouvé */}
+      {showMarkFoundModal && bon && (
+        <MarkFoundModal
+          equipments={bon.equipments}
+          onConfirm={doMarkFound}
+          onCancel={() => setShowMarkFoundModal(false)}
+          loading={actionLoading === 'markfound'}
         />
       )}
     </div>

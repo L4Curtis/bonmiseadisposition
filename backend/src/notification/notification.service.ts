@@ -220,6 +220,65 @@ export class NotificationService {
     });
   }
 
+  async sendPvClotureRequest(bon: any, token: string): Promise<void> {
+    const appUrl = await this.getAppUrl();
+    const signerUrl = `${appUrl}/signer/${token}`;
+    const civilite = bon.civilite === 'mme' ? 'Madame' : 'Monsieur';
+    const filialeNom = bon.filiale?.displayName ?? bon.filiale?.name ?? '';
+
+    const notReturnedList = (bon.equipments ?? [])
+      .filter((eq: any) => eq.notReturned)
+      .sort((a: any, b: any) => a.order - b.order)
+      .map((eq: any) => {
+        const label = eq.catalogItem
+          ? `${eq.catalogItem.brand} ${eq.catalogItem.model}`
+          : eq.customLabel || 'Équipement';
+        return `<li>${label}${eq.serialNumber ? ` (N° série : ${eq.serialNumber})` : ''} — <em>${eq.notReturnedReason ?? 'Motif non précisé'}</em></li>`;
+      })
+      .join('');
+
+    const html = `
+      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1e293b">
+        <div style="background:#dc2626;padding:24px 32px;border-radius:8px 8px 0 0">
+          <h1 style="color:#fff;margin:0;font-size:20px">${filialeNom}</h1>
+          <p style="color:#fecaca;margin:4px 0 0;font-size:14px">Procès-verbal d'équipements non restitués — À signer</p>
+        </div>
+        <div style="background:#fff;padding:32px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px">
+          <p style="margin-top:0">${civilite} ${bon.collaborateur?.displayName ?? ''},</p>
+          <p>Le service informatique de <strong>${filialeNom}</strong> vous invite à prendre connaissance et à signer le procès-verbal d'équipements non restitués concernant le bon <strong>${bon.reference}</strong>.</p>
+          <p>Les équipements suivants ont été déclarés non restitués :</p>
+          <ul style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:16px 16px 16px 32px;margin:16px 0">
+            ${notReturnedList || '<li>Voir le procès-verbal en ligne</li>'}
+          </ul>
+          <div style="text-align:center;margin:32px 0">
+            <a href="${signerUrl}"
+               style="background:#dc2626;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:15px;display:inline-block">
+              ✍️ Signer le procès-verbal
+            </a>
+          </div>
+          <p style="font-size:13px;color:#64748b">Ce lien est valable 7 jours. Une connexion via votre compte Microsoft est requise.<br>Référence : <strong>${bon.reference}</strong></p>
+          <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0">
+          <p style="font-size:12px;color:#94a3b8;margin:0">Service informatique — Groupe Livio<br>Cet email est envoyé automatiquement, merci de ne pas y répondre.</p>
+        </div>
+      </div>`;
+
+    const ok = await this.sendEmail(
+      bon.collaborateurEmail,
+      `[${bon.reference}] Procès-verbal d'équipements non restitués à signer — ${filialeNom}`,
+      html,
+    );
+
+    await this.prisma.notificationLog.create({
+      data: {
+        bonId: bon.id,
+        recipientEmail: bon.collaborateurEmail,
+        type: 'restitution_request',
+        status: ok ? 'sent' : 'failed',
+        errorMessage: ok ? null : 'SMTP non configuré ou erreur d\'envoi',
+      },
+    });
+  }
+
   // ─── Contestation ────────────────────────────────────────────────────────────
 
   /** Alerte email envoyée aux IT staff quand un collaborateur conteste son bon */

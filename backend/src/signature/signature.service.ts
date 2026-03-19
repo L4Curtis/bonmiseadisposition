@@ -31,10 +31,10 @@ export class SignatureService {
     }
   }
 
-  /** Generate a signature token for a bon (mise_disposition or restitution) */
+  /** Generate a signature token for a bon (mise_disposition, restitution, or pv_cloture) */
   async generateToken(
     bonId: string,
-    type: 'mise_disposition' | 'restitution',
+    type: 'mise_disposition' | 'restitution' | 'pv_cloture',
     initiatedById?: string,
     isInPerson = false,
   ) {
@@ -205,6 +205,8 @@ export class SignatureService {
     // Génération asynchrone du snapshot PDF (fire & forget — ne bloque pas la réponse)
     const snapshotType = sig.type === 'restitution'
       ? 'signature_collab_restitution'
+      : sig.type === 'pv_cloture'
+      ? 'cloture_equipements_manquants'
       : 'signature_collab_mise_disposition';
     this.generatePdfSnapshot(updatedBon, snapshotType).catch((err) =>
       this.logger.error(`Échec génération snapshot PDF: ${err.message}`),
@@ -239,6 +241,11 @@ export class SignatureService {
 
       if (sig.type === 'it_cachet') {
         sigImages.it = src;
+      } else if (snapshotType === 'cloture_equipements_manquants') {
+        // For PV cloture final snapshot (collab signed): use pv_cloture sig
+        if (sig.type === 'pv_cloture') {
+          sigImages.collab = src;
+        }
       } else if (snapshotType.includes('collab')) {
         // For collab snapshots, include the collab signature matching the context
         const isRestitutionSnapshot = snapshotType.includes('restitution');
@@ -401,6 +408,41 @@ export class SignatureService {
       // After restitution signature → archived
       return 'archived';
     }
+    if (signatureType === 'pv_cloture') {
+      // After PV cloture collab signature → archived
+      return 'archived';
+    }
     return currentStatus;
+  }
+
+  /**
+   * Save an IT signature for PV cloture context (called by BonsService).
+   * Creates a signed it_cachet Signature record without the full signItCachet flow.
+   */
+  async saveItPvSignature(
+    bonId: string,
+    signatureDataUrl: string,
+    signerEmail: string,
+    userId: string,
+  ): Promise<void> {
+    if (!signatureDataUrl.startsWith('data:image/png;base64,')) {
+      throw new Error('Format de signature invalide');
+    }
+    const signatureImagePath = await this.saveSignatureFile(bonId, 'it_cachet', signatureDataUrl);
+    await this.prisma.signature.create({
+      data: {
+        bonId,
+        type: 'it_cachet' as any,
+        token: crypto.randomUUID(),
+        tokenExpiresAt: new Date(0),
+        signed: true,
+        signatureImagePath,
+        signedAt: new Date(),
+        signerEmail,
+        mentionLuApprouve: true,
+        isInPerson: true,
+        initiatedById: userId,
+      },
+    });
   }
 }
