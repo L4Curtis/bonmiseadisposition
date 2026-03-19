@@ -1,12 +1,22 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
+import * as PDFDocument from 'pdfkit';
 import { PrismaService } from '../prisma/prisma.service';
 
 export interface SigImages {
   it: string | null;
   collab: string | null;
 }
+
+// ─── Couleurs ──────────────────────────────────────────────────────────────────
+const BLUE = '#2563eb';
+const DARK = '#1e293b';
+const GRAY = '#64748b';
+const LIGHT_GRAY = '#94a3b8';
+const BORDER = '#e2e8f0';
+const HEADER_BG = '#2563eb';
+const ROW_ALT = '#f8fafc';
 
 @Injectable()
 export class PdfService {
@@ -55,42 +65,312 @@ export class PdfService {
     return this.renderPdf(bon, sigImages);
   }
 
-  // ─── Rendering ─────────────────────────────────────────────────────────────
+  // ─── Rendering (PDFKit) ────────────────────────────────────────────────────
 
   private async renderPdf(bon: any, sigImages: SigImages): Promise<Buffer> {
-    const puppeteer = await import('puppeteer');
-    const html = this.buildHtml(bon, sigImages);
-
-    const browser = await puppeteer.default.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-    });
-
-    try {
-      const page = await browser.newPage();
-      await page.setContent(html, { waitUntil: 'networkidle0' });
-      const pdf = await page.pdf({
-        format: 'A4',
-        margin: { top: '18mm', right: '18mm', bottom: '18mm', left: '18mm' },
-        printBackground: true,
+    return new Promise((resolve, reject) => {
+      const doc = new PDFDocument({
+        size: 'A4',
+        margins: { top: 50, bottom: 50, left: 50, right: 50 },
+        bufferPages: true,
+        info: {
+          Title: `Bon de Mise à Disposition - ${bon.reference}`,
+          Author: bon.createdBy?.displayName || 'Service IT',
+        },
       });
-      return Buffer.from(pdf);
-    } finally {
-      await browser.close();
-    }
+
+      const chunks: Buffer[] = [];
+      doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+
+      try {
+        this.buildPdf(doc, bon, sigImages);
+        doc.end();
+      } catch (err) {
+        reject(err);
+      }
+    });
   }
 
-  private getLogoBase64(logoPath: string | null): string | null {
+  private buildPdf(doc: PDFKit.PDFDocument, bon: any, sigImages: SigImages): void {
+    const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+    const leftX = doc.page.margins.left;
+    const filialeName = bon.filiale?.displayName || bon.filiale?.name || '';
+    const civiliteLabel = bon.civilite === 'mme' ? 'Mme' : 'M.';
+
+    // ─── HEADER ──────────────────────────────────────────────────────────────
+    const headerY = doc.y;
+
+    // Logo (left)
+    const logoBuffer = this.getLogoBuffer(bon.filiale?.logoPath || null);
+    if (logoBuffer) {
+      try {
+        doc.image(logoBuffer, leftX, headerY, { height: 40, width: 120 });
+      } catch {
+        doc.font('Helvetica-Bold').fontSize(12).fillColor(BLUE).text(filialeName, leftX, headerY);
+      }
+    } else if (filialeName) {
+      doc.font('Helvetica-Bold').fontSize(12).fillColor(BLUE).text(filialeName, leftX, headerY);
+    }
+
+    // Title (center)
+    doc.font('Helvetica-Bold').fontSize(14).fillColor(BLUE);
+    doc.text('BON DE MISE À DISPOSITION', leftX, headerY, { width: pageWidth, align: 'center' });
+    doc.font('Helvetica').fontSize(8).fillColor(GRAY);
+    doc.text(`Équipements informatiques — ${filialeName}`, leftX, headerY + 18, { width: pageWidth, align: 'center' });
+
+    // Reference (right)
+    doc.font('Helvetica-Bold').fontSize(10).fillColor(DARK);
+    doc.text(bon.reference, leftX, headerY, { width: pageWidth, align: 'right' });
+    doc.font('Helvetica').fontSize(7).fillColor(GRAY);
+    doc.text(`Émis le : ${this.formatDate(bon.dateMiseDisposition)}`, leftX, headerY + 14, { width: pageWidth, align: 'right' });
+    if (bon.dateRestitution) {
+      doc.text(`Restitution : ${this.formatDate(bon.dateRestitution)}`, leftX, headerY + 23, { width: pageWidth, align: 'right' });
+    }
+    doc.text(`Statut : ${this.getStatusLabel(bon.status)}`, leftX, headerY + (bon.dateRestitution ? 32 : 23), { width: pageWidth, align: 'right' });
+
+    // Blue line under header
+    const lineY = headerY + 48;
+    doc.moveTo(leftX, lineY).lineTo(leftX + pageWidth, lineY).lineWidth(2).strokeColor(BLUE).stroke();
+    doc.y = lineY + 14;
+
+    // ─── INFO BOXES ──────────────────────────────────────────────────────────
+    const boxWidth = (pageWidth - 14) / 2;
+    const infoY = doc.y;
+
+    // Collaborateur box (left)
+    this.drawInfoBox(doc, leftX, infoY, boxWidth, 'COLLABORATEUR', [
+      ['Nom complet', `${civiliteLabel} ${bon.collaborateur?.displayName || '—'}`],
+      ['Email', bon.collaborateurEmail || '—'],
+      ['Service', bon.collaborateur?.department || '—'],
+    ]);
+
+    // Entité box (right)
+    const rightBoxX = leftX + boxWidth + 14;
+    const entityRows: [string, string][] = [
+      ['Filiale', bon.filiale?.displayName || bon.filiale?.name || '—'],
+    ];
+    if (bon.filiale?.address) entityRows.push(['Adresse', bon.filiale.address]);
+    if (bon.filiale?.siret) entityRows.push(['SIRET', bon.filiale.siret]);
+    entityRows.push(['Créé par', bon.createdBy?.displayName || '—']);
+    this.drawInfoBox(doc, rightBoxX, infoY, boxWidth, 'ENTITÉ / FILIALE', entityRows);
+
+    doc.y = infoY + 80;
+
+    // ─── EQUIPMENT TABLE ─────────────────────────────────────────────────────
+    doc.y += 8;
+    this.drawSectionTitle(doc, leftX, 'ÉQUIPEMENTS MIS À DISPOSITION', pageWidth);
+    doc.y += 4;
+
+    const equipments = bon.equipments || [];
+    const colWidths = [28, pageWidth * 0.32, pageWidth * 0.22, pageWidth * 0.22, pageWidth - 28 - pageWidth * 0.76];
+    const headers = ['#', 'Désignation', 'N° Série', 'N° Inventaire', 'Remarques'];
+
+    // Table header
+    const tableY = doc.y;
+    doc.rect(leftX, tableY, pageWidth, 18).fill(HEADER_BG);
+    doc.font('Helvetica-Bold').fontSize(7).fillColor('#ffffff');
+    let colX = leftX + 4;
+    headers.forEach((h, i) => {
+      doc.text(h.toUpperCase(), colX, tableY + 5, { width: colWidths[i] - 8 });
+      colX += colWidths[i];
+    });
+    doc.y = tableY + 18;
+
+    // Table rows
+    if (equipments.length === 0) {
+      doc.font('Helvetica').fontSize(8).fillColor(LIGHT_GRAY);
+      doc.text('Aucun équipement enregistré', leftX, doc.y + 6, { width: pageWidth, align: 'center' });
+      doc.y += 24;
+    } else {
+      equipments.forEach((eq: any, i: number) => {
+        const rowY = doc.y;
+        const label = eq.catalogItem
+          ? `${eq.catalogItem.brand} ${eq.catalogItem.model}`
+          : eq.customLabel || '—';
+
+        // Alternate row background
+        if (i % 2 === 1) {
+          doc.rect(leftX, rowY, pageWidth, 16).fill(ROW_ALT);
+        }
+
+        doc.font('Helvetica').fontSize(8).fillColor(DARK);
+        colX = leftX + 4;
+        const rowData = [
+          `${i + 1}`,
+          label,
+          eq.serialNumber || '—',
+          eq.inventoryNumber || '—',
+          eq.notes || '',
+        ];
+        rowData.forEach((val, ci) => {
+          doc.fillColor(ci === 0 || ci === 4 ? GRAY : DARK);
+          if (ci === 1) doc.font('Helvetica-Bold');
+          else doc.font('Helvetica');
+          doc.text(val, colX, rowY + 4, { width: colWidths[ci] - 8, lineBreak: false });
+          colX += colWidths[ci];
+        });
+
+        // Row bottom border
+        doc.moveTo(leftX, rowY + 16).lineTo(leftX + pageWidth, rowY + 16)
+          .lineWidth(0.5).strokeColor(BORDER).stroke();
+        doc.y = rowY + 16;
+      });
+    }
+
+    // ─── NOTES ───────────────────────────────────────────────────────────────
+    if (bon.notes) {
+      doc.y += 8;
+      doc.rect(leftX, doc.y, pageWidth, 1).fill(BORDER);
+      doc.y += 6;
+      doc.font('Helvetica-Bold').fontSize(7).fillColor(LIGHT_GRAY).text('REMARQUES GÉNÉRALES', leftX);
+      doc.y += 4;
+      doc.font('Helvetica').fontSize(8).fillColor(DARK).text(bon.notes, leftX, doc.y, { width: pageWidth });
+      doc.y += 12;
+    }
+
+    // ─── SIGNATURES ──────────────────────────────────────────────────────────
+    // Check if we need a new page for signatures
+    if (doc.y > doc.page.height - 200) {
+      doc.addPage();
+    }
+
+    doc.y += 8;
+    this.drawSectionTitle(doc, leftX, 'SIGNATURES', pageWidth);
+    doc.y += 6;
+
+    const sigBoxWidth = (pageWidth - 24) / 2;
+    const sigY = doc.y;
+
+    // Signature dates
+    const collabSig = (bon.signatures || []).find((s: any) => s.signed && s.signatureImagePath);
+    const itSig = (bon.signatures || []).find((s: any) => s.signed && s.type === 'it_cachet' && s.signatureImagePath);
+    const collabDate = collabSig?.signedAt ? this.formatDate(collabSig.signedAt) : '_______________';
+    const itDate = itSig?.signedAt ? this.formatDate(itSig.signedAt) : '_______________';
+
+    // IT signature box
+    this.drawSignatureBox(doc, leftX, sigY, sigBoxWidth, {
+      title: 'SERVICE INFORMATIQUE',
+      name: bon.createdBy?.displayName || '—',
+      mention: 'Je certifie avoir remis les équipements ci-dessus en bon état de fonctionnement',
+      signatureImage: sigImages.it,
+      date: itDate,
+    });
+
+    // Collaborateur signature box
+    this.drawSignatureBox(doc, leftX + sigBoxWidth + 24, sigY, sigBoxWidth, {
+      title: 'COLLABORATEUR',
+      name: `${civiliteLabel} ${bon.collaborateur?.displayName || '—'}`,
+      mention: 'Lu et approuvé — Je reconnais avoir reçu les équipements listés ci-dessus en bon état',
+      signatureImage: sigImages.collab,
+      date: collabDate,
+    });
+
+    doc.y = sigY + 130;
+
+    // ─── FOOTER ──────────────────────────────────────────────────────────────
+    doc.y += 12;
+    doc.moveTo(leftX, doc.y).lineTo(leftX + pageWidth, doc.y).lineWidth(0.5).strokeColor(BORDER).stroke();
+    doc.y += 6;
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('fr-FR');
+    const timeStr = now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    doc.font('Helvetica').fontSize(7).fillColor(LIGHT_GRAY);
+    doc.text(`Document généré le ${dateStr} à ${timeStr} — ${filialeName} — Réf. ${bon.reference}`, leftX, doc.y, {
+      width: pageWidth,
+      align: 'center',
+    });
+  }
+
+  // ─── Drawing helpers ─────────────────────────────────────────────────────────
+
+  private drawSectionTitle(doc: PDFKit.PDFDocument, x: number, title: string, width: number): void {
+    doc.font('Helvetica-Bold').fontSize(8).fillColor(BLUE).text(title, x, doc.y);
+    doc.y += 2;
+    doc.moveTo(x, doc.y).lineTo(x + width, doc.y).lineWidth(1.5).strokeColor('#dbeafe').stroke();
+    doc.y += 4;
+  }
+
+  private drawInfoBox(
+    doc: PDFKit.PDFDocument,
+    x: number,
+    y: number,
+    width: number,
+    title: string,
+    rows: [string, string][],
+  ): void {
+    const boxHeight = 14 + rows.length * 14 + 6;
+    doc.rect(x, y, width, boxHeight).lineWidth(0.5).strokeColor(BORDER).stroke();
+
+    // Title
+    doc.font('Helvetica-Bold').fontSize(7).fillColor(LIGHT_GRAY);
+    doc.text(title, x + 8, y + 6, { width: width - 16 });
+    doc.moveTo(x + 8, y + 16).lineTo(x + width - 8, y + 16).lineWidth(0.3).strokeColor('#f1f5f9').stroke();
+
+    // Rows
+    let rowY = y + 22;
+    rows.forEach(([label, value]) => {
+      doc.font('Helvetica').fontSize(7).fillColor(GRAY).text(label, x + 8, rowY, { width: 70 });
+      doc.font('Helvetica-Bold').fontSize(8).fillColor(DARK).text(value, x + 80, rowY, { width: width - 88, lineBreak: false });
+      rowY += 14;
+    });
+  }
+
+  private drawSignatureBox(
+    doc: PDFKit.PDFDocument,
+    x: number,
+    y: number,
+    width: number,
+    opts: { title: string; name: string; mention: string; signatureImage: string | null; date: string },
+  ): void {
+    doc.rect(x, y, width, 120).lineWidth(0.5).strokeColor(BORDER).stroke();
+
+    doc.font('Helvetica-Bold').fontSize(7).fillColor(GRAY).text(opts.title, x + 8, y + 8, { width: width - 16 });
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(DARK).text(opts.name, x + 8, y + 20, { width: width - 16 });
+    doc.font('Helvetica').fontSize(6.5).fillColor(GRAY).text(opts.mention, x + 8, y + 32, { width: width - 16 });
+
+    // Signature zone
+    const sigZoneY = y + 50;
+    const sigZoneH = 50;
+    if (opts.signatureImage) {
+      try {
+        const imgBuffer = this.dataUrlToBuffer(opts.signatureImage);
+        if (imgBuffer) {
+          doc.image(imgBuffer, x + 10, sigZoneY, { height: sigZoneH - 4, width: width - 20, fit: [width - 20, sigZoneH - 4] });
+        }
+      } catch {
+        // Fallback: empty zone
+        doc.rect(x + 8, sigZoneY, width - 16, sigZoneH).dash(3, { space: 3 }).strokeColor('#cbd5e1').stroke().undash();
+        doc.font('Helvetica').fontSize(7).fillColor(LIGHT_GRAY).text('Signature', x + 8, sigZoneY + 20, { width: width - 16, align: 'center' });
+      }
+    } else {
+      doc.rect(x + 8, sigZoneY, width - 16, sigZoneH).dash(3, { space: 3 }).strokeColor('#cbd5e1').stroke().undash();
+      doc.font('Helvetica').fontSize(7).fillColor(LIGHT_GRAY).text('Signature', x + 8, sigZoneY + 20, { width: width - 16, align: 'center' });
+    }
+
+    doc.font('Helvetica').fontSize(7).fillColor(GRAY).text(`Date : ${opts.date}`, x + 8, y + 104, { width: width - 16 });
+  }
+
+  // ─── Utility methods ─────────────────────────────────────────────────────────
+
+  private getLogoBuffer(logoPath: string | null): Buffer | null {
     if (!logoPath) return null;
     const filename = logoPath.split('/').pop() || '';
     const fullPath = join(process.cwd(), 'data', 'uploads', filename);
     if (!existsSync(fullPath)) return null;
     try {
-      const data = readFileSync(fullPath);
-      const ext = filename.split('.').pop()?.toLowerCase() || '';
-      const mime =
-        ext === 'png' ? 'image/png' : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : 'image/png';
-      return `data:${mime};base64,${data.toString('base64')}`;
+      return readFileSync(fullPath);
+    } catch {
+      return null;
+    }
+  }
+
+  private dataUrlToBuffer(dataUrl: string): Buffer | null {
+    try {
+      const matches = dataUrl.match(/^data:[^;]+;base64,(.+)$/);
+      if (!matches) return null;
+      return Buffer.from(matches[1], 'base64');
     } catch {
       return null;
     }
@@ -103,199 +383,6 @@ export class PdfService {
       month: '2-digit',
       year: 'numeric',
     });
-  }
-
-  private buildHtml(bon: any, sigImages: SigImages): string {
-    const logoBase64 = this.getLogoBase64(bon.filiale?.logoPath || null);
-    const civiliteLabel = bon.civilite === 'mme' ? 'Mme' : 'M.';
-    const filialeName = bon.filiale?.displayName || bon.filiale?.name || '';
-
-    const equipmentRows = (bon.equipments || [])
-      .map(
-        (eq: any, i: number) => {
-          const label = eq.catalogItem
-            ? `${eq.catalogItem.brand} ${eq.catalogItem.model}`
-            : eq.customLabel || '—';
-          return `<tr>
-          <td style="width:28px;text-align:center;color:#64748b">${i + 1}</td>
-          <td><strong>${label}</strong></td>
-          <td>${eq.serialNumber || '<span style="color:#94a3b8">—</span>'}</td>
-          <td>${eq.inventoryNumber || '<span style="color:#94a3b8">—</span>'}</td>
-          <td style="color:#64748b">${eq.notes || ''}</td>
-        </tr>`;
-        },
-      )
-      .join('');
-
-    // Signature dates
-    const collabSig = (bon.signatures || []).find(
-      (s: any) => s.signed && s.signatureImagePath,
-    );
-    const itSig = (bon.signatures || []).find(
-      (s: any) => s.signed && s.type === 'it_cachet' && s.signatureImagePath,
-    );
-    const collabDate = collabSig?.signedAt ? this.formatDate(collabSig.signedAt) : '_______________';
-    const itDate = itSig?.signedAt ? this.formatDate(itSig.signedAt) : '_______________';
-
-    return `<!DOCTYPE html>
-<html lang="fr">
-<head>
-<meta charset="UTF-8">
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: Arial, Helvetica, sans-serif; font-size: 11px; color: #1e293b; line-height: 1.4; }
-  .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; padding-bottom: 14px; border-bottom: 3px solid #2563eb; }
-  .logo { max-height: 56px; max-width: 160px; object-fit: contain; }
-  .logo-placeholder { font-size: 15px; font-weight: bold; color: #2563eb; }
-  .title-block { text-align: center; }
-  .title { font-size: 17px; font-weight: bold; color: #2563eb; text-transform: uppercase; letter-spacing: 1px; }
-  .subtitle { font-size: 10px; color: #64748b; margin-top: 3px; }
-  .ref-block { text-align: right; font-size: 10px; color: #475569; min-width: 150px; }
-  .ref-block .ref { font-size: 13px; font-weight: bold; color: #1e293b; }
-  .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 18px; }
-  .info-box { border: 1px solid #e2e8f0; border-radius: 6px; padding: 11px 13px; }
-  .info-box-title { font-size: 9px; text-transform: uppercase; letter-spacing: 0.6px; color: #94a3b8; font-weight: bold; margin-bottom: 8px; padding-bottom: 5px; border-bottom: 1px solid #f1f5f9; }
-  .info-row { display: flex; margin-bottom: 4px; gap: 6px; }
-  .info-label { color: #64748b; width: 100px; flex-shrink: 0; font-size: 10px; }
-  .info-value { font-weight: 500; font-size: 11px; }
-  .section-title { font-size: 10px; font-weight: bold; color: #2563eb; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 2px solid #dbeafe; }
-  table { width: 100%; border-collapse: collapse; margin-bottom: 18px; font-size: 10.5px; }
-  table thead tr { background: #2563eb; }
-  table th { color: white; padding: 7px 9px; text-align: left; font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.4px; font-weight: 600; }
-  table td { padding: 6px 9px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
-  table tbody tr:nth-child(even) td { background: #f8fafc; }
-  table tbody tr:last-child td { border-bottom: none; }
-  .empty-row td { text-align: center; color: #94a3b8; padding: 16px; }
-  .notes-box { border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 13px; margin-bottom: 18px; }
-  .signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 18px; }
-  .sig-box { border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px; }
-  .sig-title { font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; font-weight: bold; margin-bottom: 6px; }
-  .sig-name { font-weight: 600; font-size: 12px; margin-bottom: 4px; }
-  .sig-mention { font-size: 9px; color: #64748b; margin-bottom: 8px; font-style: italic; }
-  .sig-zone { border: 1px dashed #cbd5e1; border-radius: 4px; height: 72px; display: flex; align-items: center; justify-content: center; color: #94a3b8; font-size: 9px; }
-  .sig-img { max-height: 72px; max-width: 100%; object-fit: contain; display: block; }
-  .sig-date { margin-top: 6px; font-size: 9px; color: #64748b; }
-  .footer { margin-top: 24px; padding-top: 8px; border-top: 1px solid #e2e8f0; font-size: 9px; color: #94a3b8; text-align: center; }
-</style>
-</head>
-<body>
-
-<!-- HEADER -->
-<div class="header">
-  <div>
-    ${logoBase64
-      ? `<img src="${logoBase64}" class="logo" alt="Logo ${filialeName}" />`
-      : `<div class="logo-placeholder">${filialeName}</div>`}
-  </div>
-  <div class="title-block">
-    <div class="title">Bon de Mise à Disposition</div>
-    <div class="subtitle">Équipements informatiques — ${filialeName}</div>
-  </div>
-  <div class="ref-block">
-    <div class="ref">${bon.reference}</div>
-    <div style="margin-top:5px">Émis le : ${this.formatDate(bon.dateMiseDisposition)}</div>
-    ${bon.dateRestitution ? `<div>Restitution : ${this.formatDate(bon.dateRestitution)}</div>` : ''}
-    <div style="margin-top:5px">
-      <span style="display:inline-block;background:#dbeafe;color:#1d4ed8;padding:2px 7px;border-radius:10px;font-size:9px;font-weight:600;text-transform:uppercase">
-        ${this.getStatusLabel(bon.status)}
-      </span>
-    </div>
-  </div>
-</div>
-
-<!-- INFO -->
-<div class="info-grid">
-  <div class="info-box">
-    <div class="info-box-title">Collaborateur</div>
-    <div class="info-row">
-      <span class="info-label">Nom complet</span>
-      <span class="info-value">${civiliteLabel} ${bon.collaborateur?.displayName || '—'}</span>
-    </div>
-    <div class="info-row">
-      <span class="info-label">Email</span>
-      <span class="info-value">${bon.collaborateurEmail || '—'}</span>
-    </div>
-    <div class="info-row">
-      <span class="info-label">Service</span>
-      <span class="info-value">${bon.collaborateur?.department || '—'}</span>
-    </div>
-  </div>
-  <div class="info-box">
-    <div class="info-box-title">Entité / Filiale</div>
-    <div class="info-row">
-      <span class="info-label">Filiale</span>
-      <span class="info-value">${bon.filiale?.displayName || bon.filiale?.name || '—'}</span>
-    </div>
-    ${bon.filiale?.address ? `<div class="info-row"><span class="info-label">Adresse</span><span class="info-value">${bon.filiale.address}</span></div>` : ''}
-    ${bon.filiale?.siret ? `<div class="info-row"><span class="info-label">SIRET</span><span class="info-value">${bon.filiale.siret}</span></div>` : ''}
-    <div class="info-row">
-      <span class="info-label">Créé par</span>
-      <span class="info-value">${bon.createdBy?.displayName || '—'}</span>
-    </div>
-  </div>
-</div>
-
-<!-- EQUIPMENT TABLE -->
-<div class="section-title">Équipements mis à disposition</div>
-<table>
-  <thead>
-    <tr>
-      <th style="width:28px">#</th>
-      <th>Désignation</th>
-      <th style="width:130px">N° Série</th>
-      <th style="width:130px">N° Inventaire</th>
-      <th style="width:100px">Remarques</th>
-    </tr>
-  </thead>
-  <tbody>
-    ${
-      (bon.equipments || []).length > 0
-        ? equipmentRows
-        : '<tr class="empty-row"><td colspan="5">Aucun équipement enregistré</td></tr>'
-    }
-  </tbody>
-</table>
-
-${
-  bon.notes
-    ? `<div class="notes-box">
-        <div class="info-box-title">Remarques générales</div>
-        <div style="font-size:11px">${bon.notes}</div>
-       </div>`
-    : ''
-}
-
-<!-- SIGNATURES -->
-<div class="section-title">Signatures</div>
-<div class="signatures">
-  <div class="sig-box">
-    <div class="sig-title">Service informatique</div>
-    <div class="sig-name">${bon.createdBy?.displayName || '—'}</div>
-    <div class="sig-mention">Je certifie avoir remis les équipements ci-dessus en bon état de fonctionnement</div>
-    ${sigImages.it
-      ? `<img class="sig-img" src="${sigImages.it}" alt="Signature IT" />`
-      : `<div class="sig-zone">Signature IT / Cachet</div>`}
-    <div class="sig-date">Date : ${itDate}</div>
-  </div>
-  <div class="sig-box">
-    <div class="sig-title">Collaborateur</div>
-    <div class="sig-name">${civiliteLabel} ${bon.collaborateur?.displayName || '—'}</div>
-    <div class="sig-mention">Lu et approuvé — Je reconnais avoir reçu les équipements listés ci-dessus en bon état</div>
-    ${sigImages.collab
-      ? `<img class="sig-img" src="${sigImages.collab}" alt="Signature collaborateur" />`
-      : `<div class="sig-zone">Signature collaborateur</div>`}
-    <div class="sig-date">Date : ${collabDate}</div>
-  </div>
-</div>
-
-<!-- FOOTER -->
-<div class="footer">
-  Document généré le ${new Date().toLocaleDateString('fr-FR')} à ${new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} —
-  ${filialeName} — Réf. ${bon.reference}
-</div>
-
-</body>
-</html>`;
   }
 
   private getStatusLabel(status: string): string {

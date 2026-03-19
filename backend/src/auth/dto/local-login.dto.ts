@@ -1,7 +1,7 @@
 import { IsString, IsEmail } from 'class-validator';
 
 export class LocalLoginDto {
-  @IsEmail({}, { message: 'Email invalide' })
+  @IsEmail({ require_tld: false }, { message: 'Email invalide' })
   email: string;
 
   @IsString()

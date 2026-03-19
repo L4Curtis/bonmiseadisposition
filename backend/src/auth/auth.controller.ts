@@ -21,10 +21,11 @@ export class AuthController {
     try {
       const state = crypto.randomBytes(16).toString('hex');
       const loginUrl = await this.authService.getLoginUrl(state);
-      res.cookie('oauth_state', state, { httpOnly: true, maxAge: 10 * 60 * 1000 });
+      const isProduction = process.env.NODE_ENV === 'production';
+      res.cookie('oauth_state', state, { httpOnly: true, secure: isProduction, sameSite: 'lax', maxAge: 10 * 60 * 1000 });
       // Store returnTo (safe relative paths only)
       if (returnTo && returnTo.startsWith('/')) {
-        res.cookie('auth_return_to', returnTo, { httpOnly: true, maxAge: 10 * 60 * 1000 });
+        res.cookie('auth_return_to', returnTo, { httpOnly: true, secure: isProduction, sameSite: 'lax', maxAge: 10 * 60 * 1000 });
       }
       return res.redirect(loginUrl);
     } catch (err) {
@@ -44,7 +45,7 @@ export class AuthController {
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
 
     if (error) {
-      return res.redirect(`${frontendUrl}/login?error=${error}`);
+      return res.redirect(`${frontendUrl}/login?error=${encodeURIComponent(error)}`);
     }
 
     const savedState = req.cookies['oauth_state'];

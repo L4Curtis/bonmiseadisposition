@@ -11,6 +11,13 @@ export class EncryptionService implements OnModuleInit {
     if (!rawKey) {
       throw new Error('ENCRYPTION_KEY environment variable is required');
     }
+    const isProduction = process.env.NODE_ENV === 'production';
+    if (isProduction && rawKey.length < 32) {
+      throw new Error(
+        'ENCRYPTION_KEY trop faible pour la production. ' +
+        'Utilisez au moins 32 caractères (ex: openssl rand -hex 32)',
+      );
+    }
     // Derive a 32-byte key from the env var using SHA-256
     this.key = crypto.createHash('sha256').update(rawKey).digest();
   }
