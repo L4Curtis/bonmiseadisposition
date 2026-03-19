@@ -304,6 +304,20 @@ export function ConfigurationPage() {
           { key: 'expiry_days', label: 'Expiration (jours)', placeholder: '30' },
         ]}
       />
+
+      <ConfigSection
+        title="Export SMB (Partage réseau)"
+        category="smb"
+        onTest={() => api.post<TestResult>('/admin/config/test/smb')}
+        testLabel="Tester la connexion SMB"
+        fields={[
+          { key: 'enabled', label: 'Export SMB activé', toggle: true },
+          { key: 'path', label: 'Chemin UNC ou local', placeholder: '\\\\serveur\\partage\\bons' },
+          { key: 'username', label: 'Utilisateur', placeholder: 'DOMAINE\\utilisateur' },
+          { key: 'password', label: 'Mot de passe', type: 'password', encrypted: true },
+          { key: 'domain', label: 'Domaine', placeholder: 'ENTREPRISE' },
+        ]}
+      />
     </div>
   );
 }

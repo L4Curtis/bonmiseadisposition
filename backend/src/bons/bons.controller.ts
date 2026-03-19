@@ -17,6 +17,7 @@ import { BonsService } from './bons.service';
 import { PdfService } from '../pdf/pdf.service';
 import { SignatureService } from '../signature/signature.service';
 import { ContestationService } from '../contestation/contestation.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { CreateBonDto, UpdateBonDto } from './dto/bon.dto';
 import { SignItDto } from '../signature/dto/sign.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -33,6 +34,7 @@ export class BonsController {
     private readonly pdfService: PdfService,
     private readonly signatureService: SignatureService,
     private readonly contestationService: ContestationService,
+    private readonly prisma: PrismaService,
   ) {}
 
   // ─── Routes collaborateur (override du guard global) ───────────────────────
@@ -128,8 +130,12 @@ export class BonsController {
   }
 
   @Post(':id/initiate-restitution')
-  initiateRestitution(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.bonsService.initiateRestitution(id, user?.id);
+  initiateRestitution(
+    @Param('id') id: string,
+    @Body('returnedEquipmentIds') returnedEquipmentIds: string[],
+    @CurrentUser() user: any,
+  ) {
+    return this.bonsService.initiateRestitution(id, user?.id, returnedEquipmentIds);
   }
 
   @Post(':id/initiate-inperson')
@@ -141,30 +147,81 @@ export class BonsController {
     return this.bonsService.initiateInPersonSignature(id, type, user.id);
   }
 
+  @Post(':id/declare-not-returned')
+  declareNotReturned(
+    @Param('id') id: string,
+    @Body('equipmentIds') equipmentIds: string[],
+    @Body('reason') reason: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.bonsService.declareNotReturned(id, equipmentIds, reason, user.id);
+  }
+
+  @Get(':id/pdf-snapshots')
+  @Roles('admin', 'technician', 'collaborator')
+  async getPdfSnapshots(@Param('id') id: string) {
+    const snapshots = await this.prisma.pdfSnapshot.findMany({
+      where: { bonId: id },
+      select: { type: true, filename: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    return snapshots;
+  }
+
   @Get(':id/pdf')
+  @Roles('admin', 'technician', 'collaborator')
   async getPdf(
     @Param('id') id: string,
     @Query('type') type: 'mise_disposition' | 'restitution' = 'mise_disposition',
-    @Res() res: Response,
+    @Query('stage') stage?: string,
+    @Res() res?: Response,
   ) {
     const bon = await this.bonsService.findOne(id);
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="bon-${bon.reference}.pdf"`);
 
-    // Servir le snapshot signé depuis la DB si disponible (PDF figé à la date de signature)
-    const snapshot =
+    // If specific stage requested, serve from PdfSnapshot table
+    if (stage) {
+      const pdfSnapshot = await this.prisma.pdfSnapshot.findUnique({
+        where: { bonId_type: { bonId: (bon as any).id, type: stage as any } },
+      });
+      if (pdfSnapshot) {
+        res!.setHeader('Content-Type', 'application/pdf');
+        res!.setHeader('Content-Disposition', `attachment; filename="${pdfSnapshot.filename}"`);
+        return res!.send(Buffer.from(pdfSnapshot.data));
+      }
+    }
+
+    // Default: serve best available snapshot
+    const snapshotType = type === 'restitution'
+      ? 'signature_collab_restitution'
+      : 'signature_collab_mise_disposition';
+    const pdfSnapshot = await this.prisma.pdfSnapshot.findUnique({
+      where: { bonId_type: { bonId: (bon as any).id, type: snapshotType as any } },
+    });
+
+    if (pdfSnapshot) {
+      res!.setHeader('Content-Type', 'application/pdf');
+      res!.setHeader('Content-Disposition', `attachment; filename="${pdfSnapshot.filename}"`);
+      return res!.send(Buffer.from(pdfSnapshot.data));
+    }
+
+    // Fallback: legacy snapshot columns
+    const legacySnapshot =
       type === 'restitution'
         ? (bon as any).pdfRestitutionSnapshot
         : (bon as any).pdfMiseDispoSnapshot;
 
-    if (snapshot) {
-      return res.send(Buffer.from(snapshot));
+    if (legacySnapshot) {
+      res!.setHeader('Content-Type', 'application/pdf');
+      res!.setHeader('Content-Disposition', `attachment; filename="bon-${bon.reference}.pdf"`);
+      return res!.send(Buffer.from(legacySnapshot));
     }
 
-    // Générer à la volée en incluant les images de signature si présentes
+    // Generate on-the-fly
+    res!.setHeader('Content-Type', 'application/pdf');
+    res!.setHeader('Content-Disposition', `attachment; filename="bon-${bon.reference}.pdf"`);
     const sigImages = await this.signatureService.getSignatureImagesForBon((bon as any).signatures || []);
-    const pdf = await this.pdfService.generateBonMiseDisposition(bon, sigImages);
-    res.send(pdf);
+    const pdf = await this.pdfService.generateBonPdf(bon, sigImages, type);
+    res!.send(pdf);
   }
 
   @Post(':id/sign-it')

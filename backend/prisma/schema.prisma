@@ -138,6 +138,7 @@ enum BonStatus {
   sent_mise_dispo
   active
   sent_restitution
+  partially_returned
   archived
   cancelled
   contested
@@ -175,6 +176,7 @@ model Bon {
   contestations Contestation[]
   notifications NotificationLog[]
   auditLogs     AuditLog[]
+  pdfSnapshots  PdfSnapshot[]
 
   @@map("bons")
 }
@@ -190,6 +192,9 @@ model BonEquipment {
   inventoryNumber String?           @map("inventory_number")
   notes           String?
   order           Int               @default(0)
+  returnedAt        DateTime? @map("returned_at")
+  notReturned       Boolean   @default(false) @map("not_returned")
+  notReturnedReason String?   @map("not_returned_reason")
   createdAt       DateTime          @default(now()) @map("created_at")
 
   @@map("bon_equipments")
@@ -199,6 +204,14 @@ enum SignatureType {
   mise_disposition
   restitution
   it_cachet
+}
+
+enum PdfSnapshotType {
+  signature_it_mise_disposition
+  signature_collab_mise_disposition
+  signature_it_restitution
+  signature_collab_restitution
+  cloture_equipements_manquants
 }
 
 model Signature {
@@ -221,6 +234,19 @@ model Signature {
   createdAt          DateTime      @default(now()) @map("created_at")
 
   @@map("signatures")
+}
+
+model PdfSnapshot {
+  id        String          @id @default(uuid())
+  bonId     String          @map("bon_id")
+  bon       Bon             @relation(fields: [bonId], references: [id], onDelete: Cascade)
+  type      PdfSnapshotType
+  data      Bytes
+  filename  String
+  createdAt DateTime        @default(now()) @map("created_at")
+
+  @@unique([bonId, type])
+  @@map("pdf_snapshots")
 }
 
 enum ContestationStatus {

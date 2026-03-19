@@ -28,6 +28,7 @@ const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: 'sent_mise_dispo', label: 'En attente signature' },
   { value: 'active', label: 'Actif' },
   { value: 'sent_restitution', label: 'Restitution en attente' },
+  { value: 'partially_returned', label: 'Restitution partielle' },
   { value: 'archived', label: 'Archivé' },
   { value: 'cancelled', label: 'Annulé' },
 ];

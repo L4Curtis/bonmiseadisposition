@@ -29,6 +29,7 @@ export type BonStatus =
   | 'sent_mise_dispo'
   | 'active'
   | 'sent_restitution'
+  | 'partially_returned'
   | 'archived'
   | 'cancelled'
   | 'contested';
@@ -38,6 +39,7 @@ export const BON_STATUS_LABELS: Record<BonStatus, string> = {
   sent_mise_dispo: 'En attente de signature',
   active: 'Actif',
   sent_restitution: 'Restitution en attente',
+  partially_returned: 'Restitution partielle',
   archived: 'Archivé',
   cancelled: 'Annulé',
   contested: 'Contesté',
@@ -48,6 +50,7 @@ export const BON_STATUS_COLORS: Record<BonStatus, string> = {
   sent_mise_dispo: 'bg-orange-100 text-orange-700',
   active: 'bg-green-100 text-green-700',
   sent_restitution: 'bg-orange-100 text-orange-700',
+  partially_returned: 'bg-yellow-100 text-yellow-700',
   archived: 'bg-gray-100 text-gray-600',
   cancelled: 'bg-gray-100 text-gray-500',
   contested: 'bg-red-100 text-red-700',

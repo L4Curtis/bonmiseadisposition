@@ -26,55 +26,64 @@ export class PdfService {
 
   /**
    * Génère le PDF d'un bon et le sauvegarde en base (snapshot immuable).
-   * type = 'mise_disposition' | 'restitution'
+   * snapshotType = PdfSnapshotType enum value
    */
   async generateAndSave(
     bon: any,
-    type: 'mise_disposition' | 'restitution',
-    sigImages: SigImages = { it: null, collab: null },
+    snapshotType: string, // PdfSnapshotType enum value
+    sigImages: SigImages,
+    filename: string,
   ): Promise<Buffer> {
-    const pdf = await this.renderPdf(bon, sigImages);
+    // Determine document type from snapshot type
+    const documentType = this.getDocumentType(snapshotType);
+    const pdf = await this.renderPdf(bon, sigImages, documentType);
 
-    if (type === 'mise_disposition') {
-      await this.prisma.bon.update({
-        where: { id: bon.id },
-        data: {
-          pdfMiseDispoSnapshot: pdf,
-          pdfMiseDispoSnapshotAt: new Date(),
-        },
-      });
-    } else {
-      await this.prisma.bon.update({
-        where: { id: bon.id },
-        data: {
-          pdfRestitutionSnapshot: pdf,
-          pdfRestitutionSnapshotAt: new Date(),
-        },
-      });
-    }
+    // Upsert into PdfSnapshot table
+    await this.prisma.pdfSnapshot.upsert({
+      where: { bonId_type: { bonId: bon.id, type: snapshotType as any } },
+      update: { data: pdf, filename },
+      create: { bonId: bon.id, type: snapshotType as any, data: pdf, filename },
+    });
 
-    this.logger.log(`PDF snapshot ${type} sauvegardé pour le bon ${bon.reference}`);
+    this.logger.log(`PDF snapshot ${snapshotType} sauvegardé pour le bon ${bon.reference}`);
     return pdf;
   }
 
+  private getDocumentType(snapshotType: string): 'mise_disposition' | 'restitution' | 'cloture' {
+    if (snapshotType.includes('restitution')) return 'restitution';
+    if (snapshotType.includes('cloture')) return 'cloture';
+    return 'mise_disposition';
+  }
+
   /** Génère le PDF sans le sauvegarder (appel à la demande). */
-  async generateBonMiseDisposition(
+  async generateBonPdf(
     bon: any,
     sigImages: SigImages = { it: null, collab: null },
+    documentType: 'mise_disposition' | 'restitution' | 'cloture' = 'mise_disposition',
   ): Promise<Buffer> {
-    return this.renderPdf(bon, sigImages);
+    return this.renderPdf(bon, sigImages, documentType);
   }
 
   // ─── Rendering (PDFKit) ────────────────────────────────────────────────────
 
-  private async renderPdf(bon: any, sigImages: SigImages): Promise<Buffer> {
+  private async renderPdf(
+    bon: any,
+    sigImages: SigImages,
+    documentType: 'mise_disposition' | 'restitution' | 'cloture' = 'mise_disposition',
+  ): Promise<Buffer> {
+    const titleMap: Record<string, string> = {
+      mise_disposition: `Bon de Mise à Disposition - ${bon.reference}`,
+      restitution: `Bon de Restitution - ${bon.reference}`,
+      cloture: `Procès-verbal d'équipements non restitués - ${bon.reference}`,
+    };
+
     return new Promise((resolve, reject) => {
       const doc = new PDFDocument({
         size: 'A4',
         margins: { top: 50, bottom: 50, left: 50, right: 50 },
         bufferPages: true,
         info: {
-          Title: `Bon de Mise à Disposition - ${bon.reference}`,
+          Title: titleMap[documentType],
           Author: bon.createdBy?.displayName || 'Service IT',
         },
       });
@@ -85,7 +94,7 @@ export class PdfService {
       doc.on('error', reject);
 
       try {
-        this.buildPdf(doc, bon, sigImages);
+        this.buildPdf(doc, bon, sigImages, documentType);
         doc.end();
       } catch (err) {
         reject(err);
@@ -93,7 +102,12 @@ export class PdfService {
     });
   }
 
-  private buildPdf(doc: PDFKit.PDFDocument, bon: any, sigImages: SigImages): void {
+  private buildPdf(
+    doc: PDFKit.PDFDocument,
+    bon: any,
+    sigImages: SigImages,
+    documentType: 'mise_disposition' | 'restitution' | 'cloture' = 'mise_disposition',
+  ): void {
     const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
     const leftX = doc.page.margins.left;
     const filialeName = bon.filiale?.displayName || bon.filiale?.name || '';
@@ -114,11 +128,21 @@ export class PdfService {
       doc.font('Helvetica-Bold').fontSize(12).fillColor(BLUE).text(filialeName, leftX, headerY);
     }
 
-    // Title (center)
+    // Title (center) — conditional on documentType
+    const titleTextMap: Record<string, string> = {
+      mise_disposition: 'BON DE MISE À DISPOSITION',
+      restitution: 'BON DE RESTITUTION',
+      cloture: 'PROCÈS-VERBAL D\'ÉQUIPEMENTS NON RESTITUÉS',
+    };
+    const subtitleTextMap: Record<string, string> = {
+      mise_disposition: `Équipements informatiques — ${filialeName}`,
+      restitution: `Restitution des équipements — ${filialeName}`,
+      cloture: `Équipements non rendus — ${filialeName}`,
+    };
     doc.font('Helvetica-Bold').fontSize(14).fillColor(BLUE);
-    doc.text('BON DE MISE À DISPOSITION', leftX, headerY, { width: pageWidth, align: 'center' });
+    doc.text(titleTextMap[documentType], leftX, headerY, { width: pageWidth, align: 'center' });
     doc.font('Helvetica').fontSize(8).fillColor(GRAY);
-    doc.text(`Équipements informatiques — ${filialeName}`, leftX, headerY + 18, { width: pageWidth, align: 'center' });
+    doc.text(subtitleTextMap[documentType], leftX, headerY + 18, { width: pageWidth, align: 'center' });
 
     // Reference (right)
     doc.font('Helvetica-Bold').fontSize(10).fillColor(DARK);
@@ -163,9 +187,19 @@ export class PdfService {
     this.drawSectionTitle(doc, leftX, 'ÉQUIPEMENTS MIS À DISPOSITION', pageWidth);
     doc.y += 4;
 
-    const equipments = bon.equipments || [];
-    const colWidths = [28, pageWidth * 0.32, pageWidth * 0.22, pageWidth * 0.22, pageWidth - 28 - pageWidth * 0.76];
-    const headers = ['#', 'Désignation', 'N° Série', 'N° Inventaire', 'Remarques'];
+    const allEquipments = bon.equipments || [];
+    // For 'cloture' type, only show notReturned=true equipments
+    const equipments = documentType === 'cloture'
+      ? allEquipments.filter((eq: any) => eq.notReturned === true)
+      : allEquipments;
+
+    const hasStatutCol = documentType === 'restitution' || documentType === 'cloture';
+    const colWidths = hasStatutCol
+      ? [24, pageWidth * 0.24, pageWidth * 0.16, pageWidth * 0.16, pageWidth * 0.20, pageWidth - 24 - pageWidth * 0.76]
+      : [28, pageWidth * 0.32, pageWidth * 0.22, pageWidth * 0.22, pageWidth - 28 - pageWidth * 0.76];
+    const headers = hasStatutCol
+      ? ['#', 'Désignation', 'N° Série', 'N° Inventaire', 'Statut', 'Remarques']
+      : ['#', 'Désignation', 'N° Série', 'N° Inventaire', 'Remarques'];
 
     // Table header
     const tableY = doc.y;
@@ -195,17 +229,26 @@ export class PdfService {
           doc.rect(leftX, rowY, pageWidth, 16).fill(ROW_ALT);
         }
 
+        // Build statut text for restitution/cloture
+        let statutText = '';
+        if (hasStatutCol) {
+          if (eq.returnedAt) {
+            statutText = '\u2713 Rendu';
+          } else if (eq.notReturned) {
+            statutText = `\u2717 Non rendu: ${eq.notReturnedReason || ''}`;
+          } else {
+            statutText = '\u231B En attente';
+          }
+        }
+
         doc.font('Helvetica').fontSize(8).fillColor(DARK);
         colX = leftX + 4;
-        const rowData = [
-          `${i + 1}`,
-          label,
-          eq.serialNumber || '—',
-          eq.inventoryNumber || '—',
-          eq.notes || '',
-        ];
+        const rowData = hasStatutCol
+          ? [`${i + 1}`, label, eq.serialNumber || '—', eq.inventoryNumber || '—', statutText, eq.notes || '']
+          : [`${i + 1}`, label, eq.serialNumber || '—', eq.inventoryNumber || '—', eq.notes || ''];
         rowData.forEach((val, ci) => {
-          doc.fillColor(ci === 0 || ci === 4 ? GRAY : DARK);
+          const lastIdx = rowData.length - 1;
+          doc.fillColor(ci === 0 || ci === lastIdx ? GRAY : DARK);
           if (ci === 1) doc.font('Helvetica-Bold');
           else doc.font('Helvetica');
           doc.text(val, colX, rowY + 4, { width: colWidths[ci] - 8, lineBreak: false });
@@ -391,6 +434,7 @@ export class PdfService {
       sent_mise_dispo: 'En attente signature',
       active: 'Actif',
       sent_restitution: 'Restitution en attente',
+      partially_returned: 'Partiellement restitué',
       archived: 'Archivé',
       cancelled: 'Annulé',
       contested: 'Contesté',

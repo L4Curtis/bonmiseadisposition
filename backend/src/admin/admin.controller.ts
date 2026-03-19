@@ -8,13 +8,17 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AppConfigService } from '../config/config.service';
+import { SmbService } from '../smb/smb.service';
 
 /** Clés autorisées par catégorie de configuration */
 const ALLOWED_CONFIG_KEYS: Record<string, string[]> = {
   general: ['local_auth_enabled', 'app_name', 'default_filiale_id'],
   entra: ['tenant_id', 'client_id', 'client_secret', 'redirect_uri', 'admin_group_id', 'technician_group_id'],
-  ldap: ['url', 'base_dn', 'bind_dn', 'bind_password', 'user_filter', 'enabled', 'sync_interval_hours'],
-  smtp: ['host', 'port', 'secure', 'user', 'password', 'from_name', 'from_address', 'method', 'graph_tenant_id', 'graph_client_id', 'graph_client_secret', 'graph_from_address'],
+  ldap: ['url', 'search_base', 'bind_dn', 'bind_password', 'user_filter', 'enabled', 'sync_interval_hours', 'use_ssl'],
+  smtp: ['host', 'port', 'secure', 'user', 'password', 'from', 'from_name', 'from_address', 'method', 'graph_tenant_id', 'graph_client_id', 'graph_client_secret', 'graph_from_address'],
+  smb: ['enabled', 'path', 'username', 'password', 'domain'],
+  rappels: ['enabled', 'delay_1', 'delay_2', 'delay_3'],
+  tokens: ['expiry_days'],
 };
 
 const ALLOWED_CATEGORIES = Object.keys(ALLOWED_CONFIG_KEYS);
@@ -27,6 +31,7 @@ export class AdminController {
     private readonly adminService: AdminService,
     private readonly ldapService: LdapService,
     private readonly configService: AppConfigService,
+    private readonly smbService: SmbService,
   ) {}
 
   // â”€â”€ Config CRUD â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -79,6 +84,12 @@ export class AdminController {
     return this.adminService.testEntra();
   }
 
+  @Post('config/test/smb')
+  @Roles('admin')
+  async testSmb() {
+    return this.smbService.testConnection();
+  }
+
   // â”€â”€ LDAP sync â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   @Get('ldap/status')
   async ldapStatus() {
@@ -106,6 +117,7 @@ function getEncryptedKeys(category: string): string[] {
     ldap: ['bind_password'],
     entra: ['client_secret'],
     smtp: ['password', 'graph_client_secret'],
+    smb: ['password'],
   };
   return encryptedMap[category] || [];
 }

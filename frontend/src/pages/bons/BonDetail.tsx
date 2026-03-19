@@ -19,6 +19,9 @@ import {
   Pen,
   Trash2,
   Stamp,
+  AlertTriangle,
+  FileText,
+  Package,
 } from 'lucide-react';
 import { BON_STATUS_LABELS, BON_STATUS_COLORS, type BonStatus } from '@/types';
 
@@ -56,6 +59,9 @@ interface BonDetail {
     inventoryNumber?: string;
     notes?: string;
     order: number;
+    returnedAt?: string;
+    notReturned?: boolean;
+    notReturnedReason?: string;
   }[];
   signatures: SignatureInfo[];
 }
@@ -334,6 +340,235 @@ function ItSignModal({
   );
 }
 
+// ─── Types supplémentaires ────────────────────────────────────────────────────
+
+interface PdfSnapshotInfo {
+  type: string;
+  filename: string;
+  createdAt: string;
+}
+
+const SNAPSHOT_LABELS: Record<string, string> = {
+  signature_it_mise_disposition: 'Cachet IT — Mise à disposition',
+  signature_collab_mise_disposition: 'Signature collab — Mise à disposition',
+  signature_it_restitution: 'Cachet IT — Restitution',
+  signature_collab_restitution: 'Signature collab — Restitution',
+  cloture_equipements_manquants: 'PV — Équipements non restitués',
+};
+
+// ─── Modal : restitution avec sélection d'équipements ────────────────────────
+
+function RestitutionModal({
+  equipments,
+  onConfirm,
+  onCancel,
+  loading,
+}: {
+  equipments: BonDetail['equipments'];
+  onConfirm: (selectedIds: string[]) => void;
+  onCancel: () => void;
+  loading: boolean;
+}) {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  const pending = equipments.filter((eq) => !eq.returnedAt && !eq.notReturned);
+
+  const toggle = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const eqLabel = (eq: BonDetail['equipments'][0]) =>
+    eq.catalogItem ? `${eq.catalogItem.brand} ${eq.catalogItem.model}` : eq.customLabel || '—';
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-lg rounded-xl bg-white shadow-xl overflow-hidden">
+        <div className="bg-blue-600 px-5 py-4">
+          <h3 className="font-semibold text-white text-sm flex items-center gap-2">
+            <RotateCcw className="h-4 w-4" /> Initier la restitution
+          </h3>
+          <p className="text-blue-100 text-xs mt-1">
+            Cochez les équipements restitués par le collaborateur
+          </p>
+        </div>
+        <div className="p-5 space-y-3 max-h-[60vh] overflow-y-auto">
+          {equipments.map((eq) => {
+            const isReturned = !!eq.returnedAt;
+            const isDeclaredNotReturned = !!eq.notReturned;
+            const isPending = !isReturned && !isDeclaredNotReturned;
+
+            return (
+              <label
+                key={eq.id}
+                className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                  isReturned
+                    ? 'bg-green-50 border-green-200 opacity-60'
+                    : isDeclaredNotReturned
+                      ? 'bg-red-50 border-red-200 opacity-60'
+                      : selected.has(eq.id)
+                        ? 'bg-blue-50 border-blue-300'
+                        : 'hover:bg-slate-50 border-slate-200'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  checked={isReturned || selected.has(eq.id)}
+                  disabled={isReturned || isDeclaredNotReturned}
+                  onChange={() => isPending && toggle(eq.id)}
+                />
+                <div className="flex-1 min-w-0">
+                  <span className="text-sm font-medium text-slate-800">{eqLabel(eq)}</span>
+                  {eq.serialNumber && (
+                    <span className="text-xs text-slate-400 ml-2 font-mono">{eq.serialNumber}</span>
+                  )}
+                </div>
+                {isReturned && (
+                  <span className="text-xs text-green-600 flex items-center gap-1">
+                    <CheckCircle2 className="h-3 w-3" /> Rendu
+                  </span>
+                )}
+                {isDeclaredNotReturned && (
+                  <span className="text-xs text-red-600 flex items-center gap-1">
+                    <XCircle className="h-3 w-3" /> Non rendu
+                  </span>
+                )}
+              </label>
+            );
+          })}
+        </div>
+        <div className="flex gap-2 p-5 pt-0">
+          <Button variant="outline" size="sm" className="flex-1" onClick={onCancel} disabled={loading}>
+            Annuler
+          </Button>
+          <Button
+            size="sm"
+            className="flex-1"
+            onClick={() => onConfirm(Array.from(selected))}
+            disabled={loading || selected.size === 0}
+          >
+            {loading
+              ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> En cours…</>
+              : <>Lancer la restitution ({selected.size})</>}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Modal : déclarer équipements non rendus ─────────────────────────────────
+
+function DeclareNotReturnedModal({
+  equipments,
+  onConfirm,
+  onCancel,
+  loading,
+}: {
+  equipments: BonDetail['equipments'];
+  onConfirm: (equipmentIds: string[], reason: string) => void;
+  onCancel: () => void;
+  loading: boolean;
+}) {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [reason, setReason] = useState('');
+
+  const unresolvedEquipments = equipments.filter((eq) => !eq.returnedAt && !eq.notReturned);
+
+  const toggle = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const eqLabel = (eq: BonDetail['equipments'][0]) =>
+    eq.catalogItem ? `${eq.catalogItem.brand} ${eq.catalogItem.model}` : eq.customLabel || '—';
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-lg rounded-xl bg-white shadow-xl overflow-hidden">
+        <div className="bg-red-600 px-5 py-4">
+          <h3 className="font-semibold text-white text-sm flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4" /> Déclarer des équipements non rendus
+          </h3>
+          <p className="text-red-100 text-xs mt-1">
+            Ces équipements seront marqués comme non restitués. Un PV sera généré.
+          </p>
+        </div>
+        <div className="p-5 space-y-3 max-h-[60vh] overflow-y-auto">
+          {unresolvedEquipments.length === 0 ? (
+            <p className="text-sm text-slate-500 text-center py-4">
+              Tous les équipements ont été traités.
+            </p>
+          ) : (
+            <>
+              {unresolvedEquipments.map((eq) => (
+                <label
+                  key={eq.id}
+                  className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                    selected.has(eq.id)
+                      ? 'bg-red-50 border-red-300'
+                      : 'hover:bg-slate-50 border-slate-200'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-slate-300 text-red-600 focus:ring-red-500"
+                    checked={selected.has(eq.id)}
+                    onChange={() => toggle(eq.id)}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <span className="text-sm font-medium text-slate-800">{eqLabel(eq)}</span>
+                    {eq.serialNumber && (
+                      <span className="text-xs text-slate-400 ml-2 font-mono">{eq.serialNumber}</span>
+                    )}
+                  </div>
+                </label>
+              ))}
+
+              <div className="pt-2">
+                <label className="text-xs font-medium text-slate-600 uppercase tracking-wider">
+                  Motif
+                </label>
+                <textarea
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                  rows={2}
+                  placeholder="Perte, vol, casse, non restitué par le collaborateur…"
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                />
+              </div>
+            </>
+          )}
+        </div>
+        <div className="flex gap-2 p-5 pt-0">
+          <Button variant="outline" size="sm" className="flex-1" onClick={onCancel} disabled={loading}>
+            Annuler
+          </Button>
+          <Button
+            size="sm"
+            className="flex-1 bg-red-600 hover:bg-red-700 text-white"
+            onClick={() => onConfirm(Array.from(selected), reason)}
+            disabled={loading || selected.size === 0 || !reason.trim()}
+          >
+            {loading
+              ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> En cours…</>
+              : <>Confirmer ({selected.size})</>}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Page principale ──────────────────────────────────────────────────────────
 
 export function BonDetailPage() {
@@ -357,11 +592,26 @@ export function BonDetailPage() {
     token: string;
   } | null>(null);
 
+  /** Modal restitution avec sélection d'équipements */
+  const [showRestitutionModal, setShowRestitutionModal] = useState(false);
+
+  /** Modal déclaration non-rendu */
+  const [showNotReturnedModal, setShowNotReturnedModal] = useState(false);
+
+  /** PDF snapshots disponibles */
+  const [pdfSnapshots, setPdfSnapshots] = useState<PdfSnapshotInfo[]>([]);
+
   const load = () => {
     setLoading(true);
     setLoadError(null);
     api.get<BonDetail>(`/bons/${id}`)
-      .then(setBon)
+      .then((b) => {
+        setBon(b);
+        // Load PDF snapshots
+        api.get<PdfSnapshotInfo[]>(`/bons/${b.id}/pdf-snapshots`)
+          .then(setPdfSnapshots)
+          .catch(() => setPdfSnapshots([]));
+      })
       .catch((e: any) => setLoadError(e?.message ?? 'Erreur lors du chargement du bon'))
       .finally(() => setLoading(false));
   };
@@ -386,10 +636,20 @@ export function BonDetailPage() {
     } finally { setActionLoading(null); setConfirmCancel(false); }
   };
 
-  const doRestitution = async () => {
+  const doRestitution = async (returnedEquipmentIds?: string[]) => {
     setActionLoading('restitution');
     try {
-      await api.post(`/bons/${id}/initiate-restitution`);
+      await api.post(`/bons/${id}/initiate-restitution`, { returnedEquipmentIds });
+      setShowRestitutionModal(false);
+      load();
+    } finally { setActionLoading(null); }
+  };
+
+  const doDeclareNotReturned = async (equipmentIds: string[], reason: string) => {
+    setActionLoading('notreturned');
+    try {
+      await api.post(`/bons/${id}/declare-not-returned`, { equipmentIds, reason });
+      setShowNotReturnedModal(false);
       load();
     } finally { setActionLoading(null); }
   };
@@ -443,11 +703,22 @@ export function BonDetailPage() {
   };
 
   const handleItRestitutionClick = () => {
-    triggerWithItSign(
-      'restitution',
-      'Apposez votre cachet pour confirmer la restitution des équipements. L\'email sera ensuite envoyé au collaborateur.',
-      doRestitution,
-    );
+    setShowRestitutionModal(true);
+  };
+
+  /** Appelé après sélection d'équipements dans la modal restitution */
+  const handleRestitutionConfirm = (selectedIds: string[]) => {
+    if (isItStaff) {
+      // IT doit signer d'abord, puis la restitution est lancée
+      setShowRestitutionModal(false);
+      triggerWithItSign(
+        'restitution',
+        'Apposez votre cachet pour confirmer la restitution des équipements. L\'email sera ensuite envoyé au collaborateur.',
+        () => doRestitution(selectedIds),
+      );
+    } else {
+      doRestitution(selectedIds);
+    }
   };
 
   const handleItInPersonRestitutionClick = () => {
@@ -479,7 +750,24 @@ export function BonDetailPage() {
 
   const headerPdfType = (): 'mise_disposition' | 'restitution' => {
     if (!bon) return 'mise_disposition';
-    return ['archived', 'sent_restitution'].includes(bon.status) ? 'restitution' : 'mise_disposition';
+    return ['archived', 'sent_restitution', 'partially_returned'].includes(bon.status) ? 'restitution' : 'mise_disposition';
+  };
+
+  const downloadPdfSnapshot = async (stage: string, loadingKey: string) => {
+    setPdfLoading(loadingKey);
+    try {
+      const response = await fetch(`/api/bons/${id}/pdf?stage=${stage}`, { credentials: 'include' });
+      if (!response.ok) throw new Error('Erreur PDF');
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${bon?.reference || id}_${stage}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      alert('Erreur lors du téléchargement du PDF');
+    } finally { setPdfLoading(null); }
   };
 
   // ── Rendu ────────────────────────────────────────────────────────────────────
@@ -513,9 +801,12 @@ export function BonDetailPage() {
   const civiliteLabel = bon.civilite === 'mme' ? 'Mme' : 'M.';
   const isDraft = bon.status === 'draft';
   const isActive = bon.status === 'active';
+  const isPartiallyReturned = bon.status === 'partially_returned';
+  const canInitiateRestitution = isActive || isPartiallyReturned;
   const isCancellable = !['archived', 'cancelled'].includes(bon.status);
   const isItStaff = currentUser?.isItStaff ?? false;
   const isSentWaiting = ['sent_mise_dispo', 'sent_restitution'].includes(bon.status);
+  const showEquipmentStatus = ['sent_restitution', 'partially_returned', 'archived'].includes(bon.status);
 
   const sigTypeLabel = (type: string) => {
     if (type === 'mise_disposition') return 'Mise à disposition';
@@ -593,13 +884,13 @@ export function BonDetailPage() {
             </>
           )}
 
-          {isActive && (
+          {canInitiateRestitution && (
             <>
-              {/* Initier restitution — IT signe, puis email part */}
+              {/* Initier restitution — ouvre modal de sélection d'équipements */}
               <Button
                 size="sm"
                 variant="outline"
-                onClick={isItStaff ? handleItRestitutionClick : () => doRestitution()}
+                onClick={handleItRestitutionClick}
                 disabled={!!actionLoading}
               >
                 <RotateCcw className="h-3.5 w-3.5" /> Initier restitution
@@ -614,6 +905,19 @@ export function BonDetailPage() {
               >
                 <Smartphone className="h-3.5 w-3.5" /> Restitution présentielle
               </Button>
+
+              {/* Déclarer non rendu — uniquement IT */}
+              {isItStaff && bon.equipments.some((eq) => !eq.returnedAt && !eq.notReturned) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                  onClick={() => setShowNotReturnedModal(true)}
+                  disabled={!!actionLoading}
+                >
+                  <AlertTriangle className="h-3.5 w-3.5" /> Non rendu
+                </Button>
+              )}
             </>
           )}
 
@@ -768,6 +1072,9 @@ export function BonDetailPage() {
                   <th className="px-4 py-2.5 text-left font-medium text-slate-600">N° Série</th>
                   <th className="px-4 py-2.5 text-left font-medium text-slate-600">N° Inventaire</th>
                   <th className="px-4 py-2.5 text-left font-medium text-slate-600">Notes</th>
+                  {showEquipmentStatus && (
+                    <th className="px-4 py-2.5 text-left font-medium text-slate-600">Statut</th>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -786,6 +1093,23 @@ export function BonDetailPage() {
                         {eq.inventoryNumber || <span className="text-slate-300">—</span>}
                       </td>
                       <td className="px-4 py-2.5 text-slate-500 text-xs">{eq.notes || ''}</td>
+                      {showEquipmentStatus && (
+                        <td className="px-4 py-2.5">
+                          {eq.returnedAt ? (
+                            <span className="inline-flex items-center gap-1 text-xs text-green-700 bg-green-50 px-2 py-0.5 rounded-full">
+                              <CheckCircle2 className="h-3 w-3" /> Rendu
+                            </span>
+                          ) : eq.notReturned ? (
+                            <span className="inline-flex items-center gap-1 text-xs text-red-700 bg-red-50 px-2 py-0.5 rounded-full" title={eq.notReturnedReason || ''}>
+                              <XCircle className="h-3 w-3" /> Non rendu
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                              <Clock className="h-3 w-3" /> En attente
+                            </span>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
@@ -799,6 +1123,43 @@ export function BonDetailPage() {
         <Card>
           <CardHeader><CardTitle className="text-sm">Remarques</CardTitle></CardHeader>
           <CardContent className="text-sm text-slate-600">{bon.notes}</CardContent>
+        </Card>
+      )}
+
+      {/* PDF Snapshots */}
+      {pdfSnapshots.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm flex items-center gap-2">
+              <FileText className="h-4 w-4" /> Documents PDF ({pdfSnapshots.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {pdfSnapshots.map((snap) => (
+              <div
+                key={snap.type}
+                className="flex items-center justify-between p-3 rounded-lg border border-slate-100 hover:bg-slate-50"
+              >
+                <div>
+                  <p className="text-sm font-medium text-slate-800">
+                    {SNAPSHOT_LABELS[snap.type] || snap.type}
+                  </p>
+                  <p className="text-xs text-slate-400">{formatDateTime(snap.createdAt)}</p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => downloadPdfSnapshot(snap.type, `snap-${snap.type}`)}
+                  disabled={pdfLoading === `snap-${snap.type}`}
+                >
+                  {pdfLoading === `snap-${snap.type}`
+                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    : <Download className="h-3.5 w-3.5" />}
+                  Télécharger
+                </Button>
+              </div>
+            ))}
+          </CardContent>
         </Card>
       )}
 
@@ -834,6 +1195,26 @@ export function BonDetailPage() {
             setPendingItAction(null);
             await pendingItAction.onSigned();
           }}
+        />
+      )}
+
+      {/* Modal restitution avec sélection d'équipements */}
+      {showRestitutionModal && bon && (
+        <RestitutionModal
+          equipments={bon.equipments}
+          onConfirm={handleRestitutionConfirm}
+          onCancel={() => setShowRestitutionModal(false)}
+          loading={actionLoading === 'restitution'}
+        />
+      )}
+
+      {/* Modal déclarer non rendu */}
+      {showNotReturnedModal && bon && (
+        <DeclareNotReturnedModal
+          equipments={bon.equipments}
+          onConfirm={doDeclareNotReturned}
+          onCancel={() => setShowNotReturnedModal(false)}
+          loading={actionLoading === 'notreturned'}
         />
       )}
     </div>

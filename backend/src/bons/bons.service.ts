@@ -1,8 +1,10 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateBonDto, UpdateBonDto } from './dto/bon.dto';
 import { SignatureService } from '../signature/signature.service';
 import { NotificationService } from '../notification/notification.service';
+import { PdfService, SigImages } from '../pdf/pdf.service';
+import { SmbService } from '../smb/smb.service';
 
 const BON_INCLUDE = {
   filiale: true,
@@ -25,10 +27,14 @@ const BON_INCLUDE = {
 
 @Injectable()
 export class BonsService {
+  private readonly logger = new Logger(BonsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly signatureService: SignatureService,
     private readonly notificationService: NotificationService,
+    private readonly pdfService: PdfService,
+    private readonly smbService: SmbService,
   ) {}
 
   async getStats() {
@@ -38,7 +44,7 @@ export class BonsService {
 
     const [waitingSignature, active, overdue, total, archivedThisMonth, filialesRaw] = await Promise.all([
       this.prisma.bon.count({
-        where: { status: { in: ['sent_mise_dispo', 'sent_restitution'] } },
+        where: { status: { in: ['sent_mise_dispo', 'sent_restitution', 'partially_returned'] } },
       }),
       this.prisma.bon.count({ where: { status: 'active' } }),
       this.prisma.bon.count({
@@ -352,20 +358,41 @@ export class BonsService {
     return updated;
   }
 
-  async initiateRestitution(id: string, initiatedById?: string) {
+  async initiateRestitution(id: string, initiatedById?: string, returnedEquipmentIds?: string[]) {
     const bon = await this.findOne(id);
-    if (bon.status !== 'active')
+    if (!['active', 'partially_returned'].includes(bon.status))
       throw new BadRequestException(
-        'La restitution ne peut être initiée que sur un bon actif',
+        'La restitution ne peut être initiée que sur un bon actif ou partiellement restitué',
       );
+
+    // Mark selected equipments as returned
+    if (returnedEquipmentIds && returnedEquipmentIds.length > 0) {
+      await this.prisma.bonEquipment.updateMany({
+        where: {
+          id: { in: returnedEquipmentIds },
+          bonId: id,
+          returnedAt: null,
+          notReturned: false,
+        },
+        data: { returnedAt: new Date() },
+      });
+    }
+
+    // Check if all equipments are now returned or declared not-returned
+    const remaining = await this.prisma.bonEquipment.count({
+      where: { bonId: id, returnedAt: null, notReturned: false },
+    });
+
+    const allReturned = remaining === 0;
+    const newStatus = allReturned ? 'sent_restitution' : 'partially_returned';
 
     const updated = await this.prisma.bon.update({
       where: { id },
-      data: { status: 'sent_restitution' },
+      data: { status: newStatus as any },
       include: BON_INCLUDE,
     });
 
-    // Generate signature token for restitution
+    // Generate signature token for restitution (even partial — to sign what's been returned)
     const sig = await this.signatureService.generateToken(
       id,
       'restitution',
@@ -381,18 +408,99 @@ export class BonsService {
     return updated;
   }
 
+  async declareNotReturned(
+    id: string,
+    equipmentIds: string[],
+    reason: string,
+    userId: string,
+  ) {
+    const bon = await this.findOne(id);
+    if (!['active', 'partially_returned', 'sent_restitution'].includes(bon.status))
+      throw new BadRequestException('Action impossible sur ce bon');
+
+    if (!equipmentIds?.length) throw new BadRequestException('Aucun équipement sélectionné');
+
+    // Mark equipments as not returned
+    await this.prisma.bonEquipment.updateMany({
+      where: {
+        id: { in: equipmentIds },
+        bonId: id,
+        returnedAt: null,
+      },
+      data: { notReturned: true, notReturnedReason: reason },
+    });
+
+    // Audit log
+    await this.prisma.auditLog.create({
+      data: {
+        bonId: id,
+        userId,
+        action: 'declare_not_returned',
+        details: { equipmentIds, reason },
+      },
+    });
+
+    // Check if all equipments are now resolved (returned or not returned)
+    const remaining = await this.prisma.bonEquipment.count({
+      where: { bonId: id, returnedAt: null, notReturned: false },
+    });
+
+    // Reload bon with fresh data
+    const updatedBon = await this.prisma.bon.findUniqueOrThrow({
+      where: { id },
+      include: {
+        ...BON_INCLUDE,
+        createdBy: { select: { id: true, displayName: true, email: true } },
+      },
+    });
+
+    if (remaining === 0) {
+      // All resolved → archive the bon
+      await this.prisma.bon.update({
+        where: { id },
+        data: { status: 'archived' as any },
+      });
+
+      // Generate PDF "Procès-verbal d'équipements non restitués"
+      const collabName = this.smbService.sanitizeName(
+        updatedBon.collaborateur?.displayName || 'INCONNU',
+      );
+      const filename = `${updatedBon.reference}_${collabName}_cloture_equipements_manquants.pdf`;
+      const sigImages: SigImages = { it: null, collab: null };
+      const pdfBuffer = await this.pdfService.generateAndSave(
+        updatedBon,
+        'cloture_equipements_manquants',
+        sigImages,
+        filename,
+      );
+
+      // Export to SMB
+      this.smbService.exportPdf(updatedBon, filename, pdfBuffer).catch(() => {});
+
+      this.logger.log(`Bon ${updatedBon.reference} clôturé — équipements non rendus déclarés`);
+    } else {
+      // Still some pending
+      await this.prisma.bon.update({
+        where: { id },
+        data: { status: 'partially_returned' as any },
+      });
+    }
+
+    return this.findOne(id);
+  }
+
   async initiateInPersonSignature(
     id: string,
     type: 'mise_disposition' | 'restitution',
     initiatedById: string,
   ) {
     const bon = await this.findOne(id);
-    const allowedStatuses: Record<string, string> = {
-      mise_disposition: 'draft',
-      restitution: 'active',
+    const allowedStatuses: Record<string, string[]> = {
+      mise_disposition: ['draft'],
+      restitution: ['active', 'partially_returned'],
     };
 
-    if (bon.status !== allowedStatuses[type]) {
+    if (!allowedStatuses[type]?.includes(bon.status)) {
       throw new BadRequestException(
         `Impossible d'initier une signature présentielle pour un bon en statut "${bon.status}"`,
       );
@@ -441,13 +549,13 @@ export class BonsService {
   async resendSignatureLink(bonId: string, initiatedById: string) {
     const bon = await this.findOne(bonId);
 
-    if (!['sent_mise_dispo', 'sent_restitution'].includes(bon.status))
+    if (!['sent_mise_dispo', 'sent_restitution', 'partially_returned'].includes(bon.status))
       throw new BadRequestException(
         'Le renvoi est possible uniquement pour les bons en attente de signature',
       );
 
     const type: 'mise_disposition' | 'restitution' =
-      bon.status === 'sent_restitution' ? 'restitution' : 'mise_disposition';
+      ['sent_restitution', 'partially_returned'].includes(bon.status) ? 'restitution' : 'mise_disposition';
 
     // Invalider le token précédent et en générer un nouveau
     const sig = await this.signatureService.generateToken(bonId, type, initiatedById, false);

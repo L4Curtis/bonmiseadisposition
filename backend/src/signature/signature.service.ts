@@ -11,6 +11,7 @@ import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { EncryptionService } from '../config/encryption.service';
 import { PdfService, SigImages } from '../pdf/pdf.service';
+import { SmbService } from '../smb/smb.service';
 
 @Injectable()
 export class SignatureService {
@@ -22,6 +23,7 @@ export class SignatureService {
     private readonly prisma: PrismaService,
     private readonly encryption: EncryptionService,
     private readonly pdfService: PdfService,
+    private readonly smbService: SmbService,
   ) {
     // Ensure signatures directory exists
     if (!fs.existsSync(this.UPLOADS_DIR)) {
@@ -201,9 +203,10 @@ export class SignatureService {
     );
 
     // Génération asynchrone du snapshot PDF (fire & forget — ne bloque pas la réponse)
-    const pdfType: 'mise_disposition' | 'restitution' =
-      sig.type === 'restitution' ? 'restitution' : 'mise_disposition';
-    this.generatePdfSnapshot(updatedBon, pdfType).catch((err) =>
+    const snapshotType = sig.type === 'restitution'
+      ? 'signature_collab_restitution'
+      : 'signature_collab_mise_disposition';
+    this.generatePdfSnapshot(updatedBon, snapshotType).catch((err) =>
       this.logger.error(`Échec génération snapshot PDF: ${err.message}`),
     );
 
@@ -211,9 +214,43 @@ export class SignatureService {
   }
 
   /** Génère et sauvegarde en DB le snapshot PDF au moment de la signature */
-  private async generatePdfSnapshot(bon: any, signatureType: 'mise_disposition' | 'restitution'): Promise<void> {
-    const sigImages = await this.getSignatureImagesForBon(bon.signatures || []);
-    await this.pdfService.generateAndSave(bon, signatureType, sigImages);
+  private async generatePdfSnapshot(bon: any, snapshotType: string): Promise<void> {
+    const sigImages = await this.buildSigImagesForSnapshot(bon, snapshotType);
+    const collabName = this.smbService.sanitizeName(bon.collaborateur?.displayName || 'INCONNU');
+    const filename = `${bon.reference}_${collabName}_${snapshotType}.pdf`;
+    const pdfBuffer = await this.pdfService.generateAndSave(bon, snapshotType, sigImages, filename);
+
+    // Export to SMB share (fire & forget)
+    this.smbService.exportPdf(bon, filename, pdfBuffer).catch((err) =>
+      this.logger.error(`Échec export SMB: ${(err as Error).message}`),
+    );
+  }
+
+  /** Build SigImages with only the relevant signatures for a given snapshot type */
+  private async buildSigImagesForSnapshot(bon: any, snapshotType: string): Promise<SigImages> {
+    const sigImages: SigImages = { it: null, collab: null };
+    const signatures = bon.signatures || [];
+
+    for (const sig of signatures) {
+      if (!sig.signed || !sig.signatureImagePath) continue;
+      const raw = await this.getSignatureImageDecrypted(sig.signatureImagePath);
+      if (!raw) continue;
+      const src = raw.startsWith('data:') ? raw : `data:image/png;base64,${raw}`;
+
+      if (sig.type === 'it_cachet') {
+        sigImages.it = src;
+      } else if (snapshotType.includes('collab')) {
+        // For collab snapshots, include the collab signature matching the context
+        const isRestitutionSnapshot = snapshotType.includes('restitution');
+        const isRestitutionSig = sig.type === 'restitution';
+        if (isRestitutionSnapshot === isRestitutionSig) {
+          sigImages.collab = src;
+        }
+      }
+      // For IT-only snapshots (signature_it_*), don't include collab signature
+    }
+
+    return sigImages;
   }
 
   /** Resolve decrypted SigImages for a list of signatures (used by BonsController for on-the-fly PDF) */
@@ -314,9 +351,9 @@ export class SignatureService {
     });
 
     // Regenerate PDF snapshot with IT signature (fire & forget)
-    const resolvedPdfType: 'mise_disposition' | 'restitution' =
-      pdfType ?? (['sent_restitution', 'archived'].includes(bon.status as string) ? 'restitution' : 'mise_disposition');
-    this.generatePdfSnapshot(updatedBon, resolvedPdfType).catch((err) =>
+    const isRestitution = pdfType === 'restitution' || ['sent_restitution', 'partially_returned'].includes(bon.status as string);
+    const itSnapshotType = isRestitution ? 'signature_it_restitution' : 'signature_it_mise_disposition';
+    this.generatePdfSnapshot(updatedBon, itSnapshotType).catch((err) =>
       this.logger.error(`Échec snapshot PDF IT cachet: ${err.message}`),
     );
 
