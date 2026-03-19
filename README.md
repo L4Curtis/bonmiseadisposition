@@ -4,118 +4,119 @@ Application web interne de gestion des bons de mise à disposition et de restitu
 
 ---
 
-## Déploiement via Portainer (méthode recommandée)
+## CI/CD — Images Docker automatiques
 
-> Pas de fichier `.env` à créer — les variables sont saisies directement dans l'interface Portainer.
+À chaque push sur `main`, GitHub Actions build et publie automatiquement les images sur GitHub Container Registry :
 
-### Prérequis
-- Portainer déjà installé et accessible
-- Nginx Proxy Manager en place (gère le SSL)
-- Le repo accessible depuis le serveur (GitHub, Gitea, etc.)
+```
+ghcr.io/l4curtis/bonmiseadisposition-backend:latest
+ghcr.io/l4curtis/bonmiseadisposition-frontend:latest
+```
+
+> Statut : [![Build](https://github.com/L4Curtis/bonmiseadisposition/actions/workflows/docker.yml/badge.svg)](https://github.com/L4Curtis/bonmiseadisposition/actions/workflows/docker.yml)
 
 ---
 
-### Étape 1 — Générer les secrets (sur n'importe quelle machine avec openssl)
+## Déploiement via Portainer (méthode recommandée)
+
+> Pas de build sur le serveur, pas de fichier `.env` — tout se fait dans l'interface Portainer.
+
+### Prérequis
+- Portainer installé et accessible
+- Nginx Proxy Manager en place (gère le SSL)
+- Images disponibles sur ghcr.io (build automatique via GitHub Actions)
+
+---
+
+### Étape 1 — Générer les secrets
+
+Sur n'importe quelle machine avec openssl :
 
 ```bash
-# Clé de chiffrement AES-256 (à garder précieusement — ne jamais changer après le 1er lancement)
+# Clé de chiffrement AES-256 — NE JAMAIS changer après le 1er lancement
 openssl rand -hex 32
 
 # Mot de passe PostgreSQL
 openssl rand -base64 24
 ```
 
-Copier les deux valeurs générées, elles seront collées dans Portainer.
+Copier les deux valeurs, elles seront collées dans Portainer.
 
 ---
 
 ### Étape 2 — Créer la Stack dans Portainer
 
 1. **Portainer → Stacks → Add Stack**
-2. Donner un nom : `bons-disposition`
-3. Choisir la source :
-   - **Repository** (recommandé) : coller l'URL git + branche `main` + fichier `docker-compose.prod.yml`
-   - **Web editor** : coller directement le contenu de `docker-compose.prod.yml`
+2. Nom : `bons-disposition`
+3. Source → **Repository** :
+   - URL : `https://github.com/L4Curtis/bonmiseadisposition`
+   - Branche : `main`
+   - Compose path : `docker-compose.prod.yml`
+   - ✅ **Automatic updates** (optionnel — redéploie automatiquement après chaque push)
 
 ---
 
-### Étape 3 — Renseigner les variables d'environnement
+### Étape 3 — Variables d'environnement dans Portainer
 
-Dans la section **"Environment variables"** de Portainer (en bas de la page Stack), cliquer **"Add environment variable"** pour chaque ligne :
+Section **"Environment variables"** → **Add environment variable** :
 
-| Nom | Valeur | Description |
+| Nom | Valeur | Obligatoire |
 |-----|--------|-------------|
-| `ENCRYPTION_KEY` | *(valeur générée étape 1)* | Clé AES-256 — **ne jamais changer** |
-| `POSTGRES_PASSWORD` | *(valeur générée étape 1)* | Mot de passe base de données |
-| `FRONTEND_URL` | `https://bons.groupelivio.local` | URL publique HTTPS sans slash final |
+| `ENCRYPTION_KEY` | *(résultat openssl rand -hex 32)* | ✅ |
+| `POSTGRES_PASSWORD` | *(résultat openssl rand -base64 24)* | ✅ |
+| `FRONTEND_URL` | `https://bons.groupelivio.local` | ✅ |
+| `FRONTEND_PORT` | `5147` | optionnel (défaut: 5147) |
 
-> ⚠️ Ces valeurs sont stockées dans Portainer et injectées au démarrage. Elles ne sont jamais écrites dans un fichier sur le disque.
-
----
-
-### Étape 4 — Choisir le port d'exposition
-
-Le frontend est exposé sur le port **`5147`** par défaut (configurable).
-
-Pour changer le port, deux options :
-
-**Option A — Variable d'environnement** (ajouter dans Portainer) :
-```
-FRONTEND_PORT=8080
-```
-Et dans le compose, modifier la ligne ports :
-```yaml
-ports:
-  - "${FRONTEND_PORT:-5147}:80"
-```
-
-**Option B — Modifier directement** le compose (Web editor) avant de déployer :
-```yaml
-ports:
-  - "8080:80"   # ← changer 5147 par le port voulu
-```
+> ⚠️ `ENCRYPTION_KEY` ne doit jamais changer après le premier démarrage — les données chiffrées en base deviendraient illisibles.
 
 ---
 
-### Étape 5 — Déployer
+### Étape 4 — Deploy the stack
 
-Cliquer **"Deploy the stack"**. Portainer va :
-1. Build les images Docker (frontend + backend)
-2. Démarrer les 3 containers : `db`, `backend`, `frontend`
-3. Le backend exécute `prisma migrate deploy` automatiquement → la base PostgreSQL est créée
+Portainer télécharge les images depuis ghcr.io et démarre 3 containers :
+- `db` — PostgreSQL 16
+- `backend` — NestJS (exécute `prisma migrate deploy` au démarrage)
+- `frontend` — React SPA + nginx (proxy `/api/*` vers le backend)
 
 ---
 
-### Étape 6 — Configurer Nginx Proxy Manager
+### Étape 5 — Configurer Nginx Proxy Manager
 
-Dans NPM, créer un **Proxy Host** :
+Créer un **Proxy Host** :
 
 | Champ | Valeur |
 |-------|--------|
 | Domain Names | `bons.groupelivio.local` |
 | Scheme | `http` |
 | Forward Hostname / IP | IP de la VM Portainer |
-| Forward Port | `5147` (ou le port choisi) |
-| Cache Assets | off |
-| Block Common Exploits | on |
-| Websockets Support | off |
-| **SSL → SSL Certificate** | Let's Encrypt ou certificat interne |
+| Forward Port | `5147` (ou `FRONTEND_PORT`) |
+| Block Common Exploits | ✅ on |
+| **SSL → Certificate** | Let's Encrypt ou cert interne |
 | Force SSL | ✅ on |
 | HTTP/2 Support | ✅ on |
 
 ---
 
-### Étape 7 — Premier accès
+### Étape 6 — Premier accès
 
 1. Ouvrir `https://bons.groupelivio.local`
-2. Se connecter : `admin@local` / `admin`
-3. **Changer le mot de passe immédiatement** (icône profil en haut à droite)
-4. Aller dans **Admin → Configuration** et renseigner :
-   - LDAP / Active Directory
-   - Microsoft Entra ID (SSO)
-   - SMTP / Email
-5. Créer les filiales dans **Admin → Filiales**
-6. Lancer une sync LDAP dans **Admin → Synchronisation LDAP**
+2. Connexion : `admin@local` / `admin`
+3. **Changer le mot de passe immédiatement**
+4. **Admin → Configuration** : renseigner LDAP, Entra ID, SMTP
+5. **Admin → Filiales** : créer les 14 filiales
+6. **Admin → Sync LDAP** : lancer la première synchronisation
+
+---
+
+## Mise à jour
+
+### Automatique (si "Automatic updates" activé dans Portainer)
+Chaque push sur `main` → GitHub Actions build les images → Portainer redéploie.
+
+### Manuelle
+**Portainer → Stacks → bons-disposition → Pull and redeploy**
+
+Les volumes `pgdata` et `data` sont conservés — aucune donnée perdue.
 
 ---
 
@@ -135,36 +136,18 @@ Internet / Intranet
                      db:5432 PostgreSQL  (réseau interne, non exposé)
 ```
 
-**Sécurité réseau :**
-- Seul le port `5147` (frontend) est accessible depuis l'hôte
-- Le backend (4000) et la base (5432) sont sur le réseau Docker `internal` uniquement
-- Le SSL est terminé par NPM — le trafic interne est en HTTP (réseau local Docker)
-
 ---
 
-## Mise à jour de l'application
+## Variables d'environnement — référence
 
-### Avec Portainer (méthode repo git)
-1. Portainer → Stacks → `bons-disposition`
-2. Cliquer **"Pull and redeploy"**
-
-### Manuellement
-```bash
-docker compose -f docker-compose.prod.yml build
-docker compose -f docker-compose.prod.yml up -d
-```
-
-Les volumes `pgdata` et `data` sont conservés — aucune donnée perdue.
-
----
-
-## Déploiement CLI (alternative sans Portainer)
-
-```bash
-git clone <repo-url> && cd BonDeMiseADisposition
-cp .env.example .env && nano .env   # renseigner les 3 valeurs
-docker compose -f docker-compose.prod.yml up -d
-```
+| Variable | Requis | Description |
+|----------|--------|-------------|
+| `ENCRYPTION_KEY` | ✅ | Clé AES-256-GCM 64 hex. Chiffre signatures PNG + config DB. **Immuable.** |
+| `POSTGRES_PASSWORD` | ✅ | Mot de passe PostgreSQL |
+| `FRONTEND_URL` | ✅ | URL HTTPS publique sans slash. CORS + redirects SSO + liens emails |
+| `FRONTEND_PORT` | — | Port hôte exposé pour NPM (défaut: `5147`) |
+| `DATABASE_URL` | auto | Construit depuis `POSTGRES_PASSWORD` dans le compose |
+| `NODE_ENV` | auto | Hardcodé `production` dans le compose prod |
 
 ---
 
@@ -173,20 +156,8 @@ docker compose -f docker-compose.prod.yml up -d
 ```bash
 cp .env.example .env   # renseigner ENCRYPTION_KEY et POSTGRES_PASSWORD
 
-docker compose up db -d            # démarrer uniquement la base
+docker compose up db -d            # base PostgreSQL uniquement
 
-cd backend && npm install && npm run start:dev    # backend :4000
-cd frontend && npm install && npm run dev         # frontend :5173
+cd backend && npm install && npm run start:dev    # :4000
+cd frontend && npm install && npm run dev         # :5173
 ```
-
----
-
-## Variables d'environnement — référence complète
-
-| Variable | Requis | Description |
-|----------|--------|-------------|
-| `ENCRYPTION_KEY` | ✅ | Clé AES-256-GCM (64 hex). Chiffre les signatures PNG et la config en base. **Immuable après 1er lancement.** |
-| `POSTGRES_PASSWORD` | ✅ | Mot de passe du user `app` sur la base `bons_disposition` |
-| `FRONTEND_URL` | ✅ | URL HTTPS publique sans slash. Utilisée pour CORS, redirects SSO, liens emails |
-| `DATABASE_URL` | auto | Construit automatiquement depuis `POSTGRES_PASSWORD` dans le compose |
-| `NODE_ENV` | auto | Hardcodé `production` dans le compose prod |

@@ -1,12 +1,14 @@
-# ─── Production — SSL géré par Nginx Proxy Manager externe ──────────────────
+# ─── Production — images pré-buildées depuis ghcr.io ────────────────────────
 #
-# Usage :
-#   cp .env.example .env && nano .env   # renseigner les 3 secrets
-#   docker compose -f docker-compose.prod.yml up -d
+# Portainer → Stacks → Add Stack → Repository → docker-compose.prod.yml
 #
-# Nginx Proxy Manager : pointer sur http://<host>:5147
-# Le frontend (port 5147) proxifie /api/* vers le backend en interne.
-# Le backend et la base ne sont PAS exposés sur le réseau hôte.
+# Variables à renseigner (dans Portainer ou .env) :
+#   ENCRYPTION_KEY    = openssl rand -hex 32
+#   POSTGRES_PASSWORD = openssl rand -base64 24
+#   FRONTEND_URL      = https://bons.groupelivio.local
+#   FRONTEND_PORT     = 5147  (optionnel, défaut 5147)
+#
+# Mise à jour : Portainer → Stack → "Pull and redeploy"
 
 services:
 
@@ -34,9 +36,7 @@ services:
 
   # ── Backend NestJS ───────────────────────────────────────────────────────────
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    image: ghcr.io/l4curtis/bonmiseadisposition-backend:latest
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql://app:${POSTGRES_PASSWORD}@db:5432/bons_disposition
@@ -62,12 +62,10 @@ services:
 
   # ── Frontend React — exposé sur le port hôte pour NPM ──────────────────────
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
+    image: ghcr.io/l4curtis/bonmiseadisposition-frontend:latest
     restart: unless-stopped
     ports:
-      - "${FRONTEND_PORT:-5147}:80"   # Changer via variable FRONTEND_PORT dans Portainer (défaut: 5147)
+      - "${FRONTEND_PORT:-5147}:80"
     depends_on:
       backend:
         condition: service_healthy
