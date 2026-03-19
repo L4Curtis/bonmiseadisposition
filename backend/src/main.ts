@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { AuthService } from './auth/auth.service';
+import { AllExceptionsFilter } from './filters/all-exceptions.filter';
 import * as cookieParser from 'cookie-parser';
 import * as express from 'express';
 import helmet from 'helmet';
@@ -33,11 +34,17 @@ async function bootstrap() {
     }),
   );
 
+  const isProduction = process.env.NODE_ENV === 'production';
+  const frontendUrl = process.env.FRONTEND_URL;
+  if (isProduction && !frontendUrl) {
+    throw new Error('FRONTEND_URL est requis en production (ex: https://bon.curtislm.xyz)');
+  }
   app.enableCors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+    origin: frontendUrl || 'http://localhost:5173',
     credentials: true,
   });
 
+  app.useGlobalFilters(new AllExceptionsFilter());
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

@@ -1,5 +1,5 @@
 ﻿import {
-  Controller, Get, Put, Post, Delete, Body, Param, UseGuards,
+  Controller, Get, Put, Post, Delete, Body, Param, UseGuards, BadRequestException,
 } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { LdapService } from '../ldap/ldap.service';
@@ -8,6 +8,16 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AppConfigService } from '../config/config.service';
+
+/** Clés autorisées par catégorie de configuration */
+const ALLOWED_CONFIG_KEYS: Record<string, string[]> = {
+  general: ['local_auth_enabled', 'app_name', 'default_filiale_id'],
+  entra: ['tenant_id', 'client_id', 'client_secret', 'redirect_uri', 'admin_group_id', 'technician_group_id'],
+  ldap: ['url', 'base_dn', 'bind_dn', 'bind_password', 'user_filter', 'enabled', 'sync_interval_hours'],
+  smtp: ['host', 'port', 'secure', 'user', 'password', 'from_name', 'from_address', 'method', 'graph_tenant_id', 'graph_client_id', 'graph_client_secret', 'graph_from_address'],
+};
+
+const ALLOWED_CATEGORIES = Object.keys(ALLOWED_CONFIG_KEYS);
 
 @Controller('admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -34,6 +44,17 @@ export class AdminController {
     @Body() body: Record<string, string>,
     @CurrentUser() user: any,
   ) {
+    // Valider la catégorie
+    if (!ALLOWED_CATEGORIES.includes(category)) {
+      throw new BadRequestException(`Catégorie de configuration inconnue : ${category}`);
+    }
+    // Valider les clés
+    const allowedKeys = ALLOWED_CONFIG_KEYS[category];
+    const unknownKeys = Object.keys(body).filter((k) => !allowedKeys.includes(k));
+    if (unknownKeys.length > 0) {
+      throw new BadRequestException(`Clé(s) non autorisée(s) pour la catégorie "${category}" : ${unknownKeys.join(', ')}`);
+    }
+
     const encryptedKeys = getEncryptedKeys(category);
     await this.adminService.bulkSetConfig(category, body, encryptedKeys, user.id);
     return { ok: true };
