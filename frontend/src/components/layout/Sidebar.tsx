@@ -14,11 +14,11 @@ import {
 const itNavItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Tableau de bord' },
   { to: '/bons', icon: FileText, label: 'Bons' },
-  { to: '/collaborateurs', icon: Users, label: 'Collaborateurs' },
-  { to: '/catalogue', icon: Package, label: 'Catalogue' },
-  { to: '/filiales', icon: Building2, label: 'Filiales' },
-  { to: '/audit', icon: ScrollText, label: 'Audit' },
-  { to: '/admin', icon: Settings, label: 'Administration' },
+  { to: '/admin/utilisateurs', icon: Users, label: 'Collaborateurs' },
+  { to: '/admin/catalogue', icon: Package, label: 'Catalogue' },
+  { to: '/admin/filiales', icon: Building2, label: 'Filiales' },
+  { to: '/admin/audit', icon: ScrollText, label: 'Audit' },
+  { to: '/admin/configuration', icon: Settings, label: 'Administration' },
 ];
 
 const collaboratorNavItems = [
