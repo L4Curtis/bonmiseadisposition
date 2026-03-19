@@ -4,6 +4,7 @@ import { ValidationPipe, Logger } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { AuthService } from './auth/auth.service';
 import * as cookieParser from 'cookie-parser';
+import * as express from 'express';
 import helmet from 'helmet';
 import { mkdirSync } from 'fs';
 import { join } from 'path';
@@ -16,6 +17,8 @@ async function bootstrap() {
 
   const app = await NestFactory.create(AppModule);
 
+  // Limite de taille des requêtes JSON (signatures base64 incluses)
+  app.use(express.json({ limit: '2mb' }));
   app.use(cookieParser());
   app.use(
     helmet({

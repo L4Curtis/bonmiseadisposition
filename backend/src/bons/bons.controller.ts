@@ -11,13 +11,14 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import { Throttle } from '@nestjs/throttler';
 import { Response, Request } from 'express';
 import { BonsService } from './bons.service';
 import { PdfService } from '../pdf/pdf.service';
 import { SignatureService } from '../signature/signature.service';
 import { ContestationService } from '../contestation/contestation.service';
 import { CreateBonDto, UpdateBonDto } from './dto/bon.dto';
+import { SignItDto } from '../signature/dto/sign.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -167,11 +168,10 @@ export class BonsController {
   }
 
   @Post(':id/sign-it')
-  @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   async signIt(
     @Param('id') id: string,
-    @Body() body: { signatureDataUrl: string; pdfType?: 'mise_disposition' | 'restitution' },
+    @Body() body: SignItDto,
     @CurrentUser() user: any,
     @Req() req: Request,
   ) {

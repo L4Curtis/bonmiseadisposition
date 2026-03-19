@@ -62,8 +62,9 @@ model User {
   lastLdapSync    DateTime? @map("last_ldap_sync")
   active          Boolean   @default(true)
   passwordHash    String?   @map("password_hash")
-  isLocalAccount  Boolean   @default(false) @map("is_local_account")
-  createdAt       DateTime  @default(now()) @map("created_at")
+  isLocalAccount      Boolean   @default(false) @map("is_local_account")
+  mustChangePassword  Boolean   @default(false) @map("must_change_password")
+  createdAt           DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
   bonsCreated           Bon[]          @relation("BonCreatedBy")

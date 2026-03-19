@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { Layout } from '@/components/layout/Layout';
 import { LoginPage } from '@/pages/Login';
+import { ChangePasswordPage } from '@/pages/ChangePassword';
 import { DashboardIT } from '@/pages/DashboardIT';
 import { PortailCollaborateur } from '@/pages/PortailCollaborateur';
 import { UnauthorizedPage } from '@/pages/Unauthorized';
@@ -50,6 +51,7 @@ function AppRoutes() {
       <Route path="/signer/:token" element={<SignaturePage />} />
 
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
+      <Route path="/change-password" element={<ChangePasswordPage />} />
       <Route path="/setup" element={<Navigate to="/login" replace />} />
       <Route path="/unauthorized" element={<UnauthorizedPage />} />
 

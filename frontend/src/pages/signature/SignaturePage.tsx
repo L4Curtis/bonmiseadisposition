@@ -167,23 +167,29 @@ export function SignaturePage() {
 
   const { canvasRef, isEmpty, clear, getDataUrl, onMouseDown, onMouseMove, onMouseUp, onMouseLeave } = useSignatureCanvas();
 
-  // ── 1. Fetch bon info (public) ──
-  useEffect(() => {
-    if (!token) return;
-    fetch(`/api/signature/${token}`)
-      .then((r) => r.json())
-      .then((d) => setData(d))
-      .catch(() => setError('Impossible de charger le document'))
-      .finally(() => setLoading(false));
-  }, [token]);
-
-  // ── 2. Check current session ──
+  // ── 1. Check current session first ──
   useEffect(() => {
     fetch('/api/auth/me', { credentials: 'include' })
       .then((r) => (r.ok ? r.json() : null))
       .then((u) => setCurrentUser(u))
       .finally(() => setCheckingAuth(false));
   }, []);
+
+  // ── 2. Fetch bon info (requires auth) ──
+  useEffect(() => {
+    if (!token || checkingAuth || !currentUser) return;
+    fetch(`/api/signature/${token}`, { credentials: 'include' })
+      .then((r) => {
+        if (r.status === 401) throw new Error('auth');
+        if (!r.ok) throw new Error('Impossible de charger le document');
+        return r.json();
+      })
+      .then((d) => setData(d))
+      .catch((e) => {
+        if (e.message !== 'auth') setError(e.message);
+      })
+      .finally(() => setLoading(false));
+  }, [token, checkingAuth, currentUser]);
 
   // ── 3. Handle SSO redirect ──
   const handleSSOLogin = () => {
@@ -225,7 +231,47 @@ export function SignaturePage() {
 
   // ── Rendering ──────────────────────────────────────────────────────────────
 
-  if (loading || checkingAuth) {
+  if (checkingAuth) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-slate-50">
+        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
+
+  // Pas connecté → afficher le prompt de connexion immédiatement
+  if (!currentUser) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-slate-50 px-4">
+        <div className="w-full max-w-md rounded-xl bg-white border border-slate-200 shadow-sm p-8 text-center space-y-4">
+          <div className="bg-blue-50 rounded-full w-16 h-16 flex items-center justify-center mx-auto">
+            <Pen className="h-7 w-7 text-blue-600" />
+          </div>
+          <div>
+            <h2 className="font-semibold text-slate-900">Connexion requise</h2>
+            <p className="text-sm text-slate-500 mt-1">
+              Vous devez vous connecter avec votre compte Microsoft pour consulter et signer ce document.
+            </p>
+          </div>
+          <button
+            onClick={handleSSOLogin}
+            className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-6 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 transition-colors"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 21 21" fill="none">
+              <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
+              <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
+              <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
+              <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
+            </svg>
+            Se connecter avec Microsoft
+          </button>
+          <p className="text-xs text-slate-400">Groupe Livio — Service informatique</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (loading) {
     return (
       <div className="flex h-screen items-center justify-center bg-slate-50">
         <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
@@ -334,37 +380,12 @@ export function SignaturePage() {
           </table>
         </div>
 
-        {/* Auth section */}
-        {!currentUser ? (
-          <div className="rounded-xl bg-white border border-slate-200 shadow-sm p-6 text-center space-y-4">
-            <div className="bg-blue-50 rounded-full w-16 h-16 flex items-center justify-center mx-auto">
-              <Pen className="h-7 w-7 text-blue-600" />
-            </div>
-            <div>
-              <h2 className="font-semibold text-slate-900">Connexion requise</h2>
-              <p className="text-sm text-slate-500 mt-1">
-                Vous devez vous connecter avec votre compte Microsoft pour signer ce document.
-              </p>
-            </div>
-            <button
-              onClick={handleSSOLogin}
-              className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-6 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 transition-colors"
-            >
-              <svg className="h-4 w-4" viewBox="0 0 21 21" fill="none">
-                <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
-                <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
-                <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
-                <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
-              </svg>
-              Se connecter avec Microsoft
-            </button>
-          </div>
-        ) : (
-          <div className="rounded-xl bg-white border border-slate-200 shadow-sm overflow-hidden">
+        {/* Signature section (user is always authenticated at this point) */}
+        <div className="rounded-xl bg-white border border-slate-200 shadow-sm overflow-hidden">
             <div className="px-5 py-3 border-b flex items-center justify-between">
               <h2 className="font-semibold text-sm text-slate-800">Votre signature</h2>
               <span className="text-xs text-slate-400">
-                Connecté en tant que <strong>{currentUser.displayName}</strong> ({currentUser.email})
+                Connecté en tant que <strong>{currentUser!.displayName}</strong> ({currentUser!.email})
               </span>
             </div>
 
@@ -465,7 +486,6 @@ export function SignaturePage() {
               </p>
             </div>
           </div>
-        )}
 
         {/* Footer */}
         <p className="text-center text-xs text-slate-400 pb-4">

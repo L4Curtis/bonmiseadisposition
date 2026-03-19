@@ -184,7 +184,7 @@ export class AuthService {
     return crypto.createHash('sha256').update(encryptionKey + '_jwt').digest('hex');
   }
 
-  async localLogin(email: string, password: string): Promise<{ accessToken: string; refreshToken: string }> {
+  async localLogin(email: string, password: string): Promise<{ accessToken: string; refreshToken: string; mustChangePassword: boolean }> {
     const user = await this.prisma.user.findFirst({
       where: { email, isLocalAccount: true, active: true },
     });
@@ -198,7 +198,8 @@ export class AuthService {
       throw new UnauthorizedException('Identifiants incorrects');
     }
 
-    return this.createTokensForUser(user);
+    const tokens = await this.createTokensForUser(user);
+    return { ...tokens, mustChangePassword: user.mustChangePassword };
   }
 
   async changePassword(userId: string, currentPassword: string, newPassword: string): Promise<void> {
@@ -214,7 +215,10 @@ export class AuthService {
     }
 
     const hash = await bcrypt.hash(newPassword, 12);
-    await this.prisma.user.update({ where: { id: userId }, data: { passwordHash: hash } });
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash: hash, mustChangePassword: false },
+    });
   }
 
   async ensureDefaultAdmin(): Promise<void> {
@@ -224,22 +228,23 @@ export class AuthService {
       await this.configService.set('general', 'local_auth_enabled', 'true');
     }
 
-    const hash = await bcrypt.hash('admin', 12);
     const existing = await this.prisma.user.findFirst({ where: { email: 'admin@local' } });
 
     if (existing) {
-      // Upgrade to local account if not already
+      // Admin exists — do NOT reset the password (avoid reverting a custom password on restart)
       if (!existing.isLocalAccount) {
+        const hash = await bcrypt.hash('admin', 12);
         await this.prisma.user.update({
           where: { id: existing.id },
-          data: { isLocalAccount: true, passwordHash: hash, role: 'admin', isItStaff: true },
+          data: { isLocalAccount: true, passwordHash: hash, role: 'admin', isItStaff: true, mustChangePassword: true },
         });
-        this.logger.log('Default local admin upgraded: admin@local / admin');
+        this.logger.log('Default local admin upgraded: admin@local (changement de mot de passe requis)');
       }
       return;
     }
 
-    // No conflict on samAccountName — use a unique value
+    // Create default admin with must-change-password flag
+    const hash = await bcrypt.hash('admin', 12);
     try {
       await this.prisma.user.create({
         data: {
@@ -250,10 +255,11 @@ export class AuthService {
           isItStaff: true,
           isLocalAccount: true,
           passwordHash: hash,
+          mustChangePassword: true,
           active: true,
         },
       });
-      this.logger.log('Default local admin created: admin@local / admin');
+      this.logger.log('Default local admin created: admin@local / admin (changement de mot de passe requis à la première connexion)');
     } catch {
       this.logger.warn('Could not create default local admin (already exists)');
     }

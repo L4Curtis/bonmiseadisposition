@@ -24,8 +24,9 @@ export class SignatureController {
     private readonly notificationService: NotificationService,
   ) {}
 
-  /** Public — get bon info from token (no auth required) */
+  /** Authentifié — consultation du bon via token (connexion SSO requise) */
   @Get(':token')
+  @UseGuards(JwtAuthGuard)
   async getBonInfo(@Param('token') token: string) {
     return this.signatureService.getBonInfoByToken(token);
   }
@@ -35,7 +36,7 @@ export class SignatureController {
    * Rate-limited : 10 req / 60s par IP pour prévenir le bruteforce de tokens
    */
   @Post(':token/sign')
-  @UseGuards(ThrottlerGuard, JwtAuthGuard)
+  @UseGuards(JwtAuthGuard)
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
   async sign(

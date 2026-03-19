@@ -41,9 +41,14 @@ export function LoginPage() {
         credentials: 'include',
       });
       if (res.ok) {
-        window.location.href = '/';
-      } else {
         const data = await res.json();
+        if (data.mustChangePassword) {
+          window.location.href = '/change-password?forced=true';
+        } else {
+          window.location.href = '/';
+        }
+      } else {
+        const data = await res.json().catch(() => ({}));
         setLocalError(data.message || 'Identifiants incorrects');
       }
     } catch {
@@ -138,7 +143,7 @@ export function LoginPage() {
                     {localLoading ? 'Connexion...' : 'Se connecter'}
                   </button>
                   <p className="text-center text-xs text-slate-400">
-                    Compte par défaut : admin@local / admin
+                    Compte local IT
                   </p>
                 </form>
               )}

@@ -1,18 +1,19 @@
 import { Controller, Get, Query, Req, Res, Post, Body, UseGuards, UnauthorizedException, ForbiddenException } from '@nestjs/common';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { Request, Response } from 'express';
 import * as crypto from 'crypto';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { AppConfigService } from '../config/config.service';
-import { PrismaService } from '../prisma/prisma.service';
+import { LocalLoginDto } from './dto/local-login.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 
 @Controller('auth')
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly configService: AppConfigService,
-    private readonly prisma: PrismaService,
   ) {}
 
   @Get('login')
@@ -103,66 +104,30 @@ export class AuthController {
     return { setupRequired: required };
   }
 
-  /** DEV ONLY — login as any user by email (creates user if not exists) */
-  @Post('dev-login')
-  async devLogin(
-    @Body() body: { email: string; role?: string },
-    @Res() res: Response,
-  ) {
-    if (process.env.NODE_ENV !== 'development') {
-      throw new ForbiddenException('Not available in production');
-    }
-
-    let user = await this.prisma.user.findFirst({ where: { email: body.email } });
-    const role = (body.role as any) || 'admin';
-    const isItStaff = role === 'admin' || role === 'technician';
-
-    if (!user) {
-      user = await this.prisma.user.create({
-        data: {
-          samAccountName: body.email.split('@')[0],
-          displayName: body.email.split('@')[0],
-          email: body.email,
-          role,
-          isItStaff,
-          active: true,
-        },
-      });
-    } else {
-      user = await this.prisma.user.update({
-        where: { id: user.id },
-        data: { role, isItStaff },
-      });
-    }
-
-    const { accessToken, refreshToken } = await this.authService.createTokensForUser(user);
-
-    this.authService.setAuthCookies(res, accessToken, refreshToken);
-    return res.json({ ok: true, user });
-  }
-
   @Post('local-login')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   async localLogin(
-    @Body() body: { email: string; password: string },
+    @Body() dto: LocalLoginDto,
     @Res() res: Response,
   ) {
     const localAuthEnabled = await this.configService.get('general', 'local_auth_enabled');
     if (localAuthEnabled === 'false') {
       throw new ForbiddenException('Authentification locale désactivée');
     }
-    const { accessToken, refreshToken } = await this.authService.localLogin(body.email, body.password);
+    const { accessToken, refreshToken, mustChangePassword } = await this.authService.localLogin(dto.email, dto.password);
     this.authService.setAuthCookies(res, accessToken, refreshToken);
-    return res.json({ ok: true });
+    return res.json({ ok: true, mustChangePassword });
   }
 
   @Post('change-password')
   @UseGuards(JwtAuthGuard)
   async changePassword(
-    @Body() body: { currentPassword: string; newPassword: string },
+    @Body() dto: ChangePasswordDto,
     @CurrentUser() user: any,
     @Res() res: Response,
   ) {
-    await this.authService.changePassword(user.id, body.currentPassword, body.newPassword);
+    await this.authService.changePassword(user.id, dto.currentPassword, dto.newPassword);
     return res.json({ ok: true });
   }
 

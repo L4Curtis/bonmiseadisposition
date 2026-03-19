@@ -1,0 +1,171 @@
+import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { Lock, CheckCircle2, XCircle, Eye, EyeOff } from 'lucide-react';
+
+const PASSWORD_RULES = [
+  { regex: /.{12,}/, label: '12 caractères minimum' },
+  { regex: /[A-Z]/, label: '1 majuscule' },
+  { regex: /[a-z]/, label: '1 minuscule' },
+  { regex: /[0-9]/, label: '1 chiffre' },
+  { regex: /[@$!%*?&_#^+=\-.]/, label: '1 caractère spécial (@$!%*?&_#^+=-.)'  },
+];
+
+export function ChangePasswordPage() {
+  const [searchParams] = useSearchParams();
+  const forced = searchParams.get('forced') === 'true';
+
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showNew, setShowNew] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const rulesStatus = PASSWORD_RULES.map((r) => ({
+    ...r,
+    ok: r.regex.test(newPassword),
+  }));
+  const allRulesOk = rulesStatus.every((r) => r.ok);
+  const passwordsMatch = newPassword === confirmPassword && confirmPassword.length > 0;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!allRulesOk) { setError('Le mot de passe ne respecte pas toutes les règles'); return; }
+    if (!passwordsMatch) { setError('Les mots de passe ne correspondent pas'); return; }
+
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      if (res.ok) {
+        setSuccess(true);
+        setTimeout(() => { window.location.href = '/'; }, 2000);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setError(data.message || 'Erreur lors du changement de mot de passe');
+      }
+    } catch {
+      setError('Erreur de connexion au serveur');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (success) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+        <div className="max-w-md w-full text-center p-8">
+          <div className="mx-auto w-16 h-16 rounded-full bg-green-50 flex items-center justify-center mb-4">
+            <CheckCircle2 className="h-8 w-8 text-green-500" />
+          </div>
+          <h1 className="text-xl font-bold text-slate-900">Mot de passe modifié</h1>
+          <p className="text-sm text-slate-500 mt-2">Redirection en cours...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+      <div className="w-full max-w-md">
+        <div className="rounded-xl border bg-white p-8 shadow-sm">
+          <div className="mb-6 text-center">
+            <div className="mx-auto w-14 h-14 rounded-full bg-amber-50 flex items-center justify-center mb-3">
+              <Lock className="h-7 w-7 text-amber-600" />
+            </div>
+            <h1 className="text-xl font-bold text-slate-900">
+              {forced ? 'Changement de mot de passe obligatoire' : 'Changer mon mot de passe'}
+            </h1>
+            {forced && (
+              <p className="text-sm text-amber-600 mt-2">
+                Vous devez choisir un nouveau mot de passe avant de continuer.
+              </p>
+            )}
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Mot de passe actuel</label>
+              <input
+                type="password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                required
+                className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Nouveau mot de passe</label>
+              <div className="relative">
+                <input
+                  type={showNew ? 'text' : 'password'}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  required
+                  className="w-full rounded-md border border-slate-200 px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowNew(!showNew)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                >
+                  {showNew ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Password rules */}
+            {newPassword.length > 0 && (
+              <div className="rounded-lg bg-slate-50 border p-3 space-y-1">
+                {rulesStatus.map((r, i) => (
+                  <div key={i} className="flex items-center gap-2 text-xs">
+                    {r.ok
+                      ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                      : <XCircle className="h-3.5 w-3.5 text-slate-300 shrink-0" />
+                    }
+                    <span className={r.ok ? 'text-green-700' : 'text-slate-500'}>{r.label}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Confirmer le nouveau mot de passe</label>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                required
+                className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              {confirmPassword.length > 0 && !passwordsMatch && (
+                <p className="text-xs text-red-500 mt-1">Les mots de passe ne correspondent pas</p>
+              )}
+            </div>
+
+            {error && (
+              <div className="rounded-lg bg-red-50 border border-red-200 p-3">
+                <p className="text-sm text-red-700">{error}</p>
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading || !allRulesOk || !passwordsMatch}
+              className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            >
+              {loading ? 'Enregistrement...' : 'Enregistrer le nouveau mot de passe'}
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
