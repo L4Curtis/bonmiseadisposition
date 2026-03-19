@@ -413,6 +413,7 @@ export class BonsService {
     equipmentIds: string[],
     reason: string,
     userId: string,
+    signatureDataUrl?: string,
   ) {
     const bon = await this.findOne(id);
     if (!['active', 'partially_returned', 'sent_restitution'].includes(bon.status))
@@ -466,7 +467,8 @@ export class BonsService {
         updatedBon.collaborateur?.displayName || 'INCONNU',
       );
       const filename = `${updatedBon.reference}_${collabName}_cloture_equipements_manquants.pdf`;
-      const sigImages: SigImages = { it: null, collab: null };
+      // Utilise la signature IT fournie (cachet du technicien sur le PV)
+      const sigImages: SigImages = { it: signatureDataUrl || null, collab: null };
       const pdfBuffer = await this.pdfService.generateAndSave(
         updatedBon,
         'cloture_equipements_manquants',

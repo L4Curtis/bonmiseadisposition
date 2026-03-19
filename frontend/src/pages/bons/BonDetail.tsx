@@ -462,7 +462,7 @@ function RestitutionModal({
   );
 }
 
-// ─── Modal : déclarer équipements non rendus ─────────────────────────────────
+// ─── Modal : déclarer équipements non rendus (avec cachet IT) ────────────────
 
 function DeclareNotReturnedModal({
   equipments,
@@ -471,12 +471,15 @@ function DeclareNotReturnedModal({
   loading,
 }: {
   equipments: BonDetail['equipments'];
-  onConfirm: (equipmentIds: string[], reason: string) => void;
+  onConfirm: (equipmentIds: string[], reason: string, signatureDataUrl: string) => void;
   onCancel: () => void;
   loading: boolean;
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [reason, setReason] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const { canvasRef, isEmpty, clear, getDataUrl, onMouseDown, onMouseMove, onMouseUp, onMouseLeave } =
+    useSignatureCanvas();
 
   const unresolvedEquipments = equipments.filter((eq) => !eq.returnedAt && !eq.notReturned);
 
@@ -492,6 +495,15 @@ function DeclareNotReturnedModal({
   const eqLabel = (eq: BonDetail['equipments'][0]) =>
     eq.catalogItem ? `${eq.catalogItem.brand} ${eq.catalogItem.model}` : eq.customLabel || '—';
 
+  const handleSubmit = () => {
+    setError(null);
+    if (selected.size === 0) { setError('Sélectionnez au moins un équipement.'); return; }
+    if (!reason.trim()) { setError('Le motif est obligatoire.'); return; }
+    const dataUrl = getDataUrl();
+    if (!dataUrl) { setError('Le cachet IT est obligatoire pour certifier ce procès-verbal.'); return; }
+    onConfirm(Array.from(selected), reason, dataUrl);
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div className="w-full max-w-lg rounded-xl bg-white shadow-xl overflow-hidden">
@@ -500,53 +512,97 @@ function DeclareNotReturnedModal({
             <AlertTriangle className="h-4 w-4" /> Déclarer des équipements non rendus
           </h3>
           <p className="text-red-100 text-xs mt-1">
-            Ces équipements seront marqués comme non restitués. Un PV sera généré.
+            Un procès-verbal sera généré et certifié par votre cachet IT.
           </p>
         </div>
-        <div className="p-5 space-y-3 max-h-[60vh] overflow-y-auto">
+        <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
+          {/* Équipements */}
           {unresolvedEquipments.length === 0 ? (
             <p className="text-sm text-slate-500 text-center py-4">
               Tous les équipements ont été traités.
             </p>
           ) : (
             <>
-              {unresolvedEquipments.map((eq) => (
-                <label
-                  key={eq.id}
-                  className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-                    selected.has(eq.id)
-                      ? 'bg-red-50 border-red-300'
-                      : 'hover:bg-slate-50 border-slate-200'
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 rounded border-slate-300 text-red-600 focus:ring-red-500"
-                    checked={selected.has(eq.id)}
-                    onChange={() => toggle(eq.id)}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <span className="text-sm font-medium text-slate-800">{eqLabel(eq)}</span>
-                    {eq.serialNumber && (
-                      <span className="text-xs text-slate-400 ml-2 font-mono">{eq.serialNumber}</span>
-                    )}
-                  </div>
-                </label>
-              ))}
+              <div className="space-y-2">
+                {unresolvedEquipments.map((eq) => (
+                  <label
+                    key={eq.id}
+                    className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                      selected.has(eq.id)
+                        ? 'bg-red-50 border-red-300'
+                        : 'hover:bg-slate-50 border-slate-200'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-slate-300 text-red-600 focus:ring-red-500"
+                      checked={selected.has(eq.id)}
+                      onChange={() => toggle(eq.id)}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm font-medium text-slate-800">{eqLabel(eq)}</span>
+                      {eq.serialNumber && (
+                        <span className="text-xs text-slate-400 ml-2 font-mono">{eq.serialNumber}</span>
+                      )}
+                    </div>
+                  </label>
+                ))}
+              </div>
 
-              <div className="pt-2">
+              {/* Motif */}
+              <div>
                 <label className="text-xs font-medium text-slate-600 uppercase tracking-wider">
-                  Motif
+                  Motif *
                 </label>
                 <textarea
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-red-500 focus:ring-1 focus:ring-red-500"
                   rows={2}
                   placeholder="Perte, vol, casse, non restitué par le collaborateur…"
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
                 />
               </div>
+
+              {/* Cachet IT */}
+              <div className="border-t pt-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <p className="text-xs font-medium text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                      <Stamp className="h-3.5 w-3.5" /> Cachet du service informatique *
+                    </p>
+                    <p className="text-xs text-slate-400 mt-0.5">Apposez votre cachet pour certifier ce PV</p>
+                  </div>
+                  <button onClick={clear} className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600">
+                    <Trash2 className="h-3 w-3" /> Effacer
+                  </button>
+                </div>
+                <div className="relative border-2 border-dashed border-slate-200 rounded-lg bg-slate-50 hover:border-red-300 transition-colors touch-none">
+                  <canvas
+                    ref={canvasRef}
+                    width={560}
+                    height={120}
+                    className="w-full cursor-crosshair block"
+                    style={{ touchAction: 'none' }}
+                    onMouseDown={onMouseDown}
+                    onMouseMove={onMouseMove}
+                    onMouseUp={onMouseUp}
+                    onMouseLeave={onMouseLeave}
+                  />
+                  {isEmpty && (
+                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                      <p className="text-slate-300 text-sm select-none">Signez ici…</p>
+                    </div>
+                  )}
+                </div>
+              </div>
             </>
+          )}
+
+          {error && (
+            <div className="flex items-start gap-2 rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+              <XCircle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>{error}</span>
+            </div>
           )}
         </div>
         <div className="flex gap-2 p-5 pt-0">
@@ -556,12 +612,12 @@ function DeclareNotReturnedModal({
           <Button
             size="sm"
             className="flex-1 bg-red-600 hover:bg-red-700 text-white"
-            onClick={() => onConfirm(Array.from(selected), reason)}
-            disabled={loading || selected.size === 0 || !reason.trim()}
+            onClick={handleSubmit}
+            disabled={loading || unresolvedEquipments.length === 0}
           >
             {loading
               ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> En cours…</>
-              : <>Confirmer ({selected.size})</>}
+              : <><Pen className="h-3.5 w-3.5" /> Certifier et déclarer ({selected.size})</>}
           </Button>
         </div>
       </div>
@@ -645,10 +701,10 @@ export function BonDetailPage() {
     } finally { setActionLoading(null); }
   };
 
-  const doDeclareNotReturned = async (equipmentIds: string[], reason: string) => {
+  const doDeclareNotReturned = async (equipmentIds: string[], reason: string, signatureDataUrl: string) => {
     setActionLoading('notreturned');
     try {
-      await api.post(`/bons/${id}/declare-not-returned`, { equipmentIds, reason });
+      await api.post(`/bons/${id}/declare-not-returned`, { equipmentIds, reason, signatureDataUrl });
       setShowNotReturnedModal(false);
       load();
     } finally { setActionLoading(null); }

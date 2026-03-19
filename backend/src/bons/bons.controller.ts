@@ -152,9 +152,10 @@ export class BonsController {
     @Param('id') id: string,
     @Body('equipmentIds') equipmentIds: string[],
     @Body('reason') reason: string,
+    @Body('signatureDataUrl') signatureDataUrl: string | undefined,
     @CurrentUser() user: any,
   ) {
-    return this.bonsService.declareNotReturned(id, equipmentIds, reason, user.id);
+    return this.bonsService.declareNotReturned(id, equipmentIds, reason, user.id, signatureDataUrl);
   }
 
   @Get(':id/pdf-snapshots')
