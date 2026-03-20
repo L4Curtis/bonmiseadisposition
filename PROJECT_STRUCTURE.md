@@ -1,6 +1,6 @@
 # Structure du Projet — Bon de Mise a Disposition
 
-> **Mis a jour le 2026-03-21** — Pensez a mettre a jour ce fichier apres ajout/suppression de fichiers.
+> **Mis a jour le 2026-03-21** — Refonte navigation sidebar (3 sections, renommages, support badges)
 
 ## Vue d'ensemble
 
@@ -183,7 +183,7 @@ BonDeMiseADisposition/
         │   ├── layout/
         │   │   ├── Layout.tsx          # Shell : sidebar + header + <Outlet/>
         │   │   ├── Header.tsx          # Barre sup : user info, logout, changement mdp
-        │   │   └── Sidebar.tsx         # Nav gauche (liens selon role IT/collab)
+        │   │   └── Sidebar.tsx         # Nav gauche : 3 sections (Opérations, Référentiel, Système)
         │   │
         │   └── ui/                     # Composants shadcn/ui (Radix + Tailwind)
         │       ├── button.tsx          # Bouton CVA (6 variants, 4 tailles)
@@ -218,15 +218,16 @@ BonDeMiseADisposition/
             │   └── SignaturePage.tsx     # Page publique /signer/:token (canvas + lu et approuve)
             │
             └── admin/
-                ├── AdminLayout.tsx      # Sous-nav admin (8 sections)
+                ├── AdminLayout.tsx      # Sous-nav admin avec routing
                 ├── Configuration.tsx    # Config : General, LDAP, SMTP, Entra, Rappels, Tokens
                 ├── LdapSync.tsx         # Sync LDAP : statut, declenchement manuel, purge
                 ├── Filiales.tsx         # CRUD filiales + upload logo/cachet
-                ├── Catalogue.tsx        # Catalogue equipements (11 categories) + packs
                 ├── Utilisateurs.tsx     # Annuaire utilisateurs (recherche)
-                ├── AuditLogs.tsx        # Journal d'audit filtre (email, action, dates)
                 ├── Contestations.tsx    # Gestion contestations (open/review/resolve)
-                └── Templates.tsx        # Gestion templates email (edit/apercu/reset/export/import)
+                └── detail/
+                    ├── Configuration.tsx # (alias)
+                    ├── LdapSync.tsx     # (alias)
+                    └── Filiales.tsx     # (alias)
 ```
 
 ---
@@ -397,6 +398,57 @@ BonDeMiseADisposition/
 
 ---
 
+## Navigation Sidebar (Reorganisee 2026-03-21)
+
+### Structure IT Staff (isItStaff = true)
+
+La sidebar est organisee en **3 sections principales**, chaque item peut avoir un badge optionnel :
+
+#### Opérations
+- **Vue d'ensemble** → `/dashboard` (KPIs, activite recente, filiales)
+- **Bons** → `/bons` (Liste, detail, signatures)
+- **Contestations** → `/admin/contestations` (Litige collaborateur)
+
+#### Référentiel
+- **Collaborateurs** → `/admin/utilisateurs` (Annuaire recherche)
+- **Filiales** → `/admin/filiales` (CRUD + logo/cachet)
+- **Équipements** → `/admin/catalogue` (Catalogue 11 categories + packs)
+
+#### Système
+- **Modèles d'emails** → `/admin/templates` (CRUD templates + apercu + export/import)
+- **Active Directory** → `/admin/ldap` (Sync AD, statut, declenchement manuel)
+- **Journal d'audit** → `/admin/audit` (Filtres email/action/dates)
+- **Configuration** → `/admin/configuration` (LDAP, SMTP, Entra ID, rappels, tokens)
+
+### Structure Collaborateur (isItStaff = false)
+
+#### Opérations
+- **Mes bons** → `/mes-bons` (Bons du collaborateur connecte)
+
+### Composants et Types
+
+**Type NavItem** :
+```typescript
+type NavItem = {
+  to: string;           // Route destination
+  icon: React.ElementType;  // Icone lucide-react
+  label: string;        // Texte affiche
+  badge?: number;       // Badge optionnel (ex: nb contestations)
+};
+```
+
+**Type NavGroup** :
+```typescript
+type NavGroup = {
+  title: string;        // Titre section (Opérations, Référentiel, Système)
+  items: NavItem[];     // Items de la section
+};
+```
+
+**Composant SidebarSection** : Rend une section avec separateur et badge support.
+
+---
+
 ## Routing Frontend
 
 | Route | Composant | Roles requis | Description |
@@ -415,7 +467,6 @@ BonDeMiseADisposition/
 | `/admin/configuration` | ConfigurationPage | admin, tech | Config systeme (6 sections) |
 | `/admin/ldap` | LdapSyncPage | admin, tech | Sync LDAP |
 | `/admin/filiales` | FilialesPage | admin, tech | Gestion filiales |
-| `/admin/catalogue` | CataloguePage | admin, tech | Catalogue + packs |
 | `/admin/utilisateurs` | UtilisateursPage | admin, tech | Annuaire utilisateurs |
 | `/admin/audit` | AuditLogsPage | admin, tech | Journal d'audit |
 | `/admin/contestations` | ContestationsPage | admin, tech | Contestations |

@@ -181,17 +181,25 @@ Ajout des 5 nouveaux modules : `AdminModule`, `LdapModule`, `FilialesModule`, `E
 ## Panel admin frontend
 
 ### Layout admin
-`src/pages/admin/AdminLayout.tsx` — sidebar secondaire avec navigation interne admin.
+`src/pages/admin/AdminLayout.tsx` — routing pour pages admin (rôles `admin` et `technician`).
 
-**Routes admin** (toutes sous `/admin`, accessibles aux rôles `admin` et `technician`) :
-| Route | Composant | Contenu |
-|---|---|---|
-| `/admin/configuration` | `Configuration.tsx` | 6 sections de config avec toggles et boutons test |
-| `/admin/ldap` | `LdapSync.tsx` | Statut sync + bouton sync manuelle |
-| `/admin/filiales` | `Filiales.tsx` | CRUD filiales + upload logo/cachet |
-| `/admin/catalogue` | `Catalogue.tsx` | Onglets Catalogue / Packs |
-| `/admin/utilisateurs` | `Utilisateurs.tsx` | Liste + recherche autocomplete |
-| `/admin/audit` | `AuditLogs.tsx` | Placeholder (Phase 7) |
+**Routes admin** (toutes sous `/admin`) :
+| Route | Composant | Rôle | Contenu |
+|---|---|---|---|
+| `/admin/configuration` | `Configuration.tsx` | admin, tech | 6 sections de config avec toggles et boutons test |
+| `/admin/ldap` | `LdapSync.tsx` | admin, tech | Statut sync + bouton sync manuelle |
+| `/admin/filiales` | `Filiales.tsx` | admin, tech | CRUD filiales + upload logo/cachet |
+| `/admin/utilisateurs` | `Utilisateurs.tsx` | admin, tech | Liste + recherche autocomplete |
+| `/admin/contestations` | `Contestations.tsx` | admin, tech | Gestion contestations |
+| `/admin/templates` | `Templates.tsx` | admin, tech | Gestion templates email |
+| `/admin/audit` | `AuditLogs.tsx` | admin, tech | Journal d'audit |
+
+**Navigation sidebar principale** (réorganisée Phase 2026-03-21) :
+- Structure en 3 sections pour rôle IT staff (Opérations, Référentiel, Système)
+- Section Opérations : Vue d'ensemble, Bons, Contestations
+- Section Référentiel : Collaborateurs, Filiales, Équipements
+- Section Système : Modèles d'emails, Active Directory, Journal d'audit, Configuration
+- Support de badges optionnels sur les items (ex: nb contestations non lues)
 
 ### Page Configuration (`/admin/configuration`)
 Composant réutilisable `ConfigSection` avec :

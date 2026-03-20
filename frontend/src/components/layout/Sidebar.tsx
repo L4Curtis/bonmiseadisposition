@@ -21,21 +21,53 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 
-const itNavItems = [
-  { to: '/dashboard', icon: LayoutDashboard, label: 'Tableau de bord' },
-  { to: '/bons', icon: FileText, label: 'Bons' },
-  { to: '/admin/utilisateurs', icon: Users, label: 'Collaborateurs' },
-  { to: '/admin/catalogue', icon: Package, label: 'Catalogue' },
-  { to: '/admin/filiales', icon: Building2, label: 'Filiales' },
-  { to: '/admin/contestations', icon: MessageSquareWarning, label: 'Contestations' },
-  { to: '/admin/audit', icon: ScrollText, label: 'Audit' },
-  { to: '/admin/ldap', icon: Server, label: 'Sync LDAP' },
-  { to: '/admin/templates', icon: Mail, label: 'Templates' },
-  { to: '/admin/configuration', icon: Settings, label: 'Administration' },
+type NavItem = {
+  to: string;
+  icon: React.ElementType;
+  label: string;
+  badge?: number;
+};
+
+type NavGroup = {
+  title: string;
+  items: NavItem[];
+};
+
+const itNavGroups: NavGroup[] = [
+  {
+    title: 'Opérations',
+    items: [
+      { to: '/dashboard', icon: LayoutDashboard, label: 'Vue d\'ensemble' },
+      { to: '/bons', icon: FileText, label: 'Bons' },
+      { to: '/admin/contestations', icon: MessageSquareWarning, label: 'Contestations' },
+    ],
+  },
+  {
+    title: 'Référentiel',
+    items: [
+      { to: '/admin/utilisateurs', icon: Users, label: 'Collaborateurs' },
+      { to: '/admin/filiales', icon: Building2, label: 'Filiales' },
+      { to: '/admin/catalogue', icon: Package, label: 'Équipements' },
+    ],
+  },
+  {
+    title: 'Système',
+    items: [
+      { to: '/admin/templates', icon: Mail, label: 'Modèles d\'emails' },
+      { to: '/admin/ldap', icon: Server, label: 'Active Directory' },
+      { to: '/admin/audit', icon: ScrollText, label: 'Journal d\'audit' },
+      { to: '/admin/configuration', icon: Settings, label: 'Configuration' },
+    ],
+  },
 ];
 
-const collaboratorNavItems = [
-  { to: '/mes-bons', icon: FileText, label: 'Mes bons' },
+const collaboratorNavGroups: NavGroup[] = [
+  {
+    title: 'Opérations',
+    items: [
+      { to: '/mes-bons', icon: FileText, label: 'Mes bons' },
+    ],
+  },
 ];
 
 /**
@@ -46,7 +78,6 @@ const SidebarNavLink = React.forwardRef<
   { to: string; children: React.ReactNode; className?: string }
 >(({ to, children, className: _className, ...props }, ref) => {
   const location = useLocation();
-  // Check if this link's path matches the current location
   const isActive = location.pathname === to || location.pathname.startsWith(to + '/');
 
   return (
@@ -67,9 +98,37 @@ const SidebarNavLink = React.forwardRef<
 });
 SidebarNavLink.displayName = 'SidebarNavLink';
 
+function SidebarSection({ group, isFirst }: { group: NavGroup; isFirst: boolean }) {
+  return (
+    <div className={cn('space-y-0.5', !isFirst && 'mt-4 border-t border-white/5 pt-4')}>
+      <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-slate-500 select-none">
+        {group.title}
+      </p>
+      {group.items.map(({ to, icon: Icon, label, badge }) => (
+        <Tooltip key={to}>
+          <TooltipTrigger asChild>
+            <SidebarNavLink to={to}>
+              <Icon className="h-4 w-4 shrink-0" />
+              <span className="truncate flex-1">{label}</span>
+              {badge !== undefined && badge > 0 && (
+                <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-500/80 px-1 text-[10px] font-semibold text-white leading-none">
+                  {badge > 99 ? '99+' : badge}
+                </span>
+              )}
+            </SidebarNavLink>
+          </TooltipTrigger>
+          <TooltipContent side="right" className="hidden">
+            {label}
+          </TooltipContent>
+        </Tooltip>
+      ))}
+    </div>
+  );
+}
+
 export function Sidebar() {
   const { user } = useAuth();
-  const navItems = user?.isItStaff ? itNavItems : collaboratorNavItems;
+  const navGroups = user?.isItStaff ? itNavGroups : collaboratorNavGroups;
 
   const roleLabel =
     user?.role === 'admin' ? 'Administrateur'
@@ -94,19 +153,9 @@ export function Sidebar() {
         </div>
 
         {/* Navigation */}
-        <nav aria-label="Navigation principale" className="flex-1 space-y-0.5 p-2.5 pt-3">
-          {navItems.map(({ to, icon: Icon, label }) => (
-            <Tooltip key={to}>
-              <TooltipTrigger asChild>
-                <SidebarNavLink to={to}>
-                  <Icon className="h-4 w-4 shrink-0" />
-                  <span className="truncate">{label}</span>
-                </SidebarNavLink>
-              </TooltipTrigger>
-              <TooltipContent side="right" className="hidden">
-                {label}
-              </TooltipContent>
-            </Tooltip>
+        <nav aria-label="Navigation principale" className="flex-1 overflow-y-auto p-2.5 pt-3">
+          {navGroups.map((group, index) => (
+            <SidebarSection key={group.title} group={group} isFirst={index === 0} />
           ))}
         </nav>
 
