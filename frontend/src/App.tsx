@@ -1,6 +1,8 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
+import { ThemeProvider } from '@/contexts/ThemeContext';
 import { Layout } from '@/components/layout/Layout';
+import { Toaster } from '@/components/ui/toaster';
 import { LoginPage } from '@/pages/Login';
 import { ChangePasswordPage } from '@/pages/ChangePassword';
 import { DashboardIT } from '@/pages/DashboardIT';
@@ -14,6 +16,7 @@ import { CataloguePage } from '@/pages/admin/Catalogue';
 import { UtilisateursPage } from '@/pages/admin/Utilisateurs';
 import { AuditLogsPage } from '@/pages/admin/AuditLogs';
 import { ContestationsPage } from '@/pages/admin/Contestations';
+import { TemplatesPage } from '@/pages/admin/Templates';
 import { BonsListPage } from '@/pages/bons/BonsList';
 import { BonCreatePage } from '@/pages/bons/BonCreate';
 import { BonDetailPage } from '@/pages/bons/BonDetail';
@@ -36,7 +39,9 @@ function ProtectedRoute({
 function LoadingSpinner() {
   return (
     <div className="flex h-screen items-center justify-center">
-      <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      <div className="h-8 w-8 animate-spin motion-reduce:animate-none rounded-full border-4 border-primary border-t-transparent" role="status">
+        <span className="sr-only">Chargement en cours</span>
+      </div>
     </div>
   );
 }
@@ -106,6 +111,7 @@ function AppRoutes() {
           <Route path="utilisateurs" element={<UtilisateursPage />} />
           <Route path="audit" element={<AuditLogsPage />} />
           <Route path="contestations" element={<ContestationsPage />} />
+          <Route path="templates" element={<TemplatesPage />} />
         </Route>
       </Route>
 
@@ -116,8 +122,11 @@ function AppRoutes() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <AppRoutes />
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <AppRoutes />
+        <Toaster />
+      </AuthProvider>
+    </ThemeProvider>
   );
 }

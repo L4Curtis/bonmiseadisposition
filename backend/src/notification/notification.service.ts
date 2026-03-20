@@ -3,6 +3,17 @@ import { Cron } from '@nestjs/schedule';
 import * as nodemailer from 'nodemailer';
 import { AppConfigService } from '../config/config.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { TemplatesService } from '../templates/templates.service';
+
+/** Escape user-supplied strings before embedding in HTML email templates */
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
 
 @Injectable()
 export class NotificationService {
@@ -11,6 +22,7 @@ export class NotificationService {
   constructor(
     private readonly configService: AppConfigService,
     private readonly prisma: PrismaService,
+    private readonly templatesService: TemplatesService,
   ) {}
 
   // ─── Transport ──────────────────────────────────────────────────────────────
@@ -29,7 +41,7 @@ export class NotificationService {
       port: port ? parseInt(port) : 587,
       secure: secure === 'true',
       auth: user ? { user, pass: pass || '' } : undefined,
-      tls: { rejectUnauthorized: false },
+      tls: { rejectUnauthorized: process.env.NODE_ENV === 'production' },
     });
   }
 
@@ -60,54 +72,62 @@ export class NotificationService {
     }
   }
 
+  // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+  private buildEquipList(equipments: any[]): string {
+    const items = (equipments ?? [])
+      .sort((a, b) => a.order - b.order)
+      .map((eq) => {
+        const label = eq.catalogItem
+          ? `${eq.catalogItem.brand} ${eq.catalogItem.model}`
+          : eq.customLabel || 'Équipement';
+        const serial = eq.serialNumber
+          ? `<span style="color:#94a3b8;font-size:12px;margin-left:6px">(N° série : ${eq.serialNumber})</span>`
+          : '';
+        return `<li style="padding:8px 0;border-bottom:1px solid #f1f5f9;font-size:14px;color:#374151;line-height:1.5;list-style:none">${label}${serial}</li>`;
+      });
+    return items.length
+      ? items.join('\n')
+      : '<li style="padding:8px 0;font-size:14px;color:#94a3b8;list-style:none">Voir le bon en ligne</li>';
+  }
+
+  private buildNotReturnedList(equipments: any[]): string {
+    const items = (equipments ?? [])
+      .filter((eq) => eq.notReturned)
+      .sort((a, b) => a.order - b.order)
+      .map((eq) => {
+        const label = eq.catalogItem
+          ? `${eq.catalogItem.brand} ${eq.catalogItem.model}`
+          : eq.customLabel || 'Équipement';
+        const serial = eq.serialNumber
+          ? `<span style="color:#94a3b8;font-size:12px;margin-left:6px">(N° série : ${eq.serialNumber})</span>`
+          : '';
+        const reason = `<span style="display:inline-block;margin-left:8px;font-size:11px;font-weight:600;color:#dc2626;background:#fef2f2;padding:1px 6px;border-radius:4px">${eq.notReturnedReason ?? 'Motif non précisé'}</span>`;
+        return `<li style="padding:8px 0;border-bottom:1px solid #fee2e2;font-size:14px;color:#374151;line-height:1.5;list-style:none">${label}${serial}${reason}</li>`;
+      });
+    return items.length
+      ? items.join('\n')
+      : '<li style="padding:8px 0;font-size:14px;color:#94a3b8;list-style:none">Voir le procès-verbal en ligne</li>';
+  }
+
   // ─── Email Templates ────────────────────────────────────────────────────────
 
   async sendMiseDispositionRequest(bon: any, token: string): Promise<void> {
     const appUrl = await this.getAppUrl();
-    const signerUrl = `${appUrl}/signer/${token}`;
-    const civilite = bon.civilite === 'mme' ? 'Madame' : 'Monsieur';
     const filialeNom = bon.filiale?.displayName ?? bon.filiale?.name ?? '';
     const dateMise = new Date(bon.dateMiseDisposition).toLocaleDateString('fr-FR', {
       day: '2-digit', month: 'long', year: 'numeric',
     });
 
-    const equipList = (bon.equipments ?? [])
-      .sort((a: any, b: any) => a.order - b.order)
-      .map((eq: any) => {
-        const label = eq.catalogItem
-          ? `${eq.catalogItem.brand} ${eq.catalogItem.model}`
-          : eq.customLabel || 'Équipement';
-        return `<li>${label}${eq.serialNumber ? ` (N° série : ${eq.serialNumber})` : ''}</li>`;
-      })
-      .join('');
-
-    const html = `
-      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1e293b">
-        <div style="background:#1e40af;padding:24px 32px;border-radius:8px 8px 0 0">
-          <h1 style="color:#fff;margin:0;font-size:20px">${filialeNom}</h1>
-          <p style="color:#bfdbfe;margin:4px 0 0;font-size:14px">Bon de mise à disposition — À signer</p>
-        </div>
-        <div style="background:#fff;padding:32px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px">
-          <p style="margin-top:0">${civilite} ${bon.collaborateur?.displayName ?? ''},</p>
-          <p>Dans le cadre de votre activité au sein de <strong>${filialeNom}</strong>, le service informatique vous remet du matériel à la date du <strong>${dateMise}</strong>.</p>
-          <p>Veuillez prendre connaissance de la liste des équipements ci-dessous et signer électroniquement le bon de mise à disposition en cliquant sur le bouton ci-dessous :</p>
-
-          <ul style="background:#f8fafc;border-radius:6px;padding:16px 16px 16px 32px;margin:16px 0">
-            ${equipList || '<li>Voir le bon en ligne</li>'}
-          </ul>
-
-          <div style="text-align:center;margin:32px 0">
-            <a href="${signerUrl}"
-               style="background:#1e40af;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:15px;display:inline-block">
-              ✍️ Signer le bon de mise à disposition
-            </a>
-          </div>
-
-          <p style="font-size:13px;color:#64748b">Ce lien est valable 7 jours. Une connexion via votre compte Microsoft est requise pour signer.<br>Référence : <strong>${bon.reference}</strong></p>
-          <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0">
-          <p style="font-size:12px;color:#94a3b8;margin:0">Service informatique — Groupe Livio<br>Cet email est envoyé automatiquement, merci de ne pas y répondre.</p>
-        </div>
-      </div>`;
+    const html = await this.templatesService.renderTemplate('mise_disposition_request', {
+      COLLAB_CIVILITE: bon.civilite === 'mme' ? 'Madame' : 'Monsieur',
+      COLLAB_NAME: bon.collaborateur?.displayName ?? '',
+      FILIALE_NOM: filialeNom,
+      DATE_MISE_DISPO: dateMise,
+      REFERENCE: bon.reference,
+      SIGNER_URL: `${appUrl}/signer/${token}`,
+      EQUIP_LIST: this.buildEquipList(bon.equipments ?? []),
+    });
 
     const ok = await this.sendEmail(
       bon.collaborateurEmail,
@@ -121,50 +141,23 @@ export class NotificationService {
         recipientEmail: bon.collaborateurEmail,
         type: 'mise_dispo_request',
         status: ok ? 'sent' : 'failed',
-        errorMessage: ok ? null : 'SMTP non configuré ou erreur d\'envoi',
+        errorMessage: ok ? null : "SMTP non configuré ou erreur d'envoi",
       },
     });
   }
 
   async sendRestitutionRequest(bon: any, token: string): Promise<void> {
     const appUrl = await this.getAppUrl();
-    const signerUrl = `${appUrl}/signer/${token}`;
-    const civilite = bon.civilite === 'mme' ? 'Madame' : 'Monsieur';
     const filialeNom = bon.filiale?.displayName ?? bon.filiale?.name ?? '';
 
-    const equipList = (bon.equipments ?? [])
-      .sort((a: any, b: any) => a.order - b.order)
-      .map((eq: any) => {
-        const label = eq.catalogItem
-          ? `${eq.catalogItem.brand} ${eq.catalogItem.model}`
-          : eq.customLabel || 'Équipement';
-        return `<li>${label}${eq.serialNumber ? ` (N° série : ${eq.serialNumber})` : ''}</li>`;
-      })
-      .join('');
-
-    const html = `
-      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1e293b">
-        <div style="background:#7c3aed;padding:24px 32px;border-radius:8px 8px 0 0">
-          <h1 style="color:#fff;margin:0;font-size:20px">${filialeNom}</h1>
-          <p style="color:#ddd6fe;margin:4px 0 0;font-size:14px">Bon de restitution — À signer</p>
-        </div>
-        <div style="background:#fff;padding:32px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px">
-          <p style="margin-top:0">${civilite} ${bon.collaborateur?.displayName ?? ''},</p>
-          <p>Le service informatique de <strong>${filialeNom}</strong> vous invite à signer le bon de <strong>restitution</strong> pour le matériel suivant :</p>
-          <ul style="background:#f8fafc;border-radius:6px;padding:16px 16px 16px 32px;margin:16px 0">
-            ${equipList || '<li>Voir le bon en ligne</li>'}
-          </ul>
-          <div style="text-align:center;margin:32px 0">
-            <a href="${signerUrl}"
-               style="background:#7c3aed;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:15px;display:inline-block">
-              ✍️ Signer le bon de restitution
-            </a>
-          </div>
-          <p style="font-size:13px;color:#64748b">Ce lien est valable 7 jours. Une connexion via votre compte Microsoft est requise.<br>Référence : <strong>${bon.reference}</strong></p>
-          <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0">
-          <p style="font-size:12px;color:#94a3b8;margin:0">Service informatique — Groupe Livio</p>
-        </div>
-      </div>`;
+    const html = await this.templatesService.renderTemplate('restitution_request', {
+      COLLAB_CIVILITE: bon.civilite === 'mme' ? 'Madame' : 'Monsieur',
+      COLLAB_NAME: bon.collaborateur?.displayName ?? '',
+      FILIALE_NOM: filialeNom,
+      REFERENCE: bon.reference,
+      SIGNER_URL: `${appUrl}/signer/${token}`,
+      EQUIP_LIST: this.buildEquipList(bon.equipments ?? []),
+    });
 
     const ok = await this.sendEmail(
       bon.collaborateurEmail,
@@ -178,30 +171,21 @@ export class NotificationService {
         recipientEmail: bon.collaborateurEmail,
         type: 'restitution_request',
         status: ok ? 'sent' : 'failed',
-        errorMessage: ok ? null : 'SMTP non configuré ou erreur d\'envoi',
+        errorMessage: ok ? null : "SMTP non configuré ou erreur d'envoi",
       },
     });
   }
 
   async sendSignatureConfirmation(bon: any, type: 'mise_disposition' | 'restitution'): Promise<void> {
     const filialeNom = bon.filiale?.displayName ?? bon.filiale?.name ?? '';
-    const isRestitution = type === 'restitution';
-    const typLabel = isRestitution ? 'restitution' : 'mise à disposition';
-    const color = isRestitution ? '#7c3aed' : '#16a34a';
+    const templateId = type === 'restitution' ? 'confirmation_restitution' : 'confirmation_mise_disposition';
+    const typLabel = type === 'restitution' ? 'restitution' : 'mise à disposition';
 
-    const html = `
-      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1e293b">
-        <div style="background:${color};padding:24px 32px;border-radius:8px 8px 0 0">
-          <h1 style="color:#fff;margin:0;font-size:20px">✅ Document signé</h1>
-          <p style="color:#d1fae5;margin:4px 0 0;font-size:14px">Bon de ${typLabel} — ${filialeNom}</p>
-        </div>
-        <div style="background:#fff;padding:32px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px">
-          <p>Votre bon de <strong>${typLabel}</strong> (réf. <strong>${bon.reference}</strong>) a bien été signé électroniquement.</p>
-          <p style="font-size:13px;color:#64748b">Conservez ce message comme confirmation. Le document signé est archivé dans notre système.</p>
-          <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0">
-          <p style="font-size:12px;color:#94a3b8;margin:0">Service informatique — Groupe Livio</p>
-        </div>
-      </div>`;
+    const html = await this.templatesService.renderTemplate(templateId, {
+      FILIALE_NOM: filialeNom,
+      REFERENCE: bon.reference,
+      TYPE_LABEL: typLabel,
+    });
 
     const ok = await this.sendEmail(
       bon.collaborateurEmail,
@@ -222,45 +206,16 @@ export class NotificationService {
 
   async sendPvClotureRequest(bon: any, token: string): Promise<void> {
     const appUrl = await this.getAppUrl();
-    const signerUrl = `${appUrl}/signer/${token}`;
-    const civilite = bon.civilite === 'mme' ? 'Madame' : 'Monsieur';
     const filialeNom = bon.filiale?.displayName ?? bon.filiale?.name ?? '';
 
-    const notReturnedList = (bon.equipments ?? [])
-      .filter((eq: any) => eq.notReturned)
-      .sort((a: any, b: any) => a.order - b.order)
-      .map((eq: any) => {
-        const label = eq.catalogItem
-          ? `${eq.catalogItem.brand} ${eq.catalogItem.model}`
-          : eq.customLabel || 'Équipement';
-        return `<li>${label}${eq.serialNumber ? ` (N° série : ${eq.serialNumber})` : ''} — <em>${eq.notReturnedReason ?? 'Motif non précisé'}</em></li>`;
-      })
-      .join('');
-
-    const html = `
-      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1e293b">
-        <div style="background:#dc2626;padding:24px 32px;border-radius:8px 8px 0 0">
-          <h1 style="color:#fff;margin:0;font-size:20px">${filialeNom}</h1>
-          <p style="color:#fecaca;margin:4px 0 0;font-size:14px">Procès-verbal d'équipements non restitués — À signer</p>
-        </div>
-        <div style="background:#fff;padding:32px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px">
-          <p style="margin-top:0">${civilite} ${bon.collaborateur?.displayName ?? ''},</p>
-          <p>Le service informatique de <strong>${filialeNom}</strong> vous invite à prendre connaissance et à signer le procès-verbal d'équipements non restitués concernant le bon <strong>${bon.reference}</strong>.</p>
-          <p>Les équipements suivants ont été déclarés non restitués :</p>
-          <ul style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:16px 16px 16px 32px;margin:16px 0">
-            ${notReturnedList || '<li>Voir le procès-verbal en ligne</li>'}
-          </ul>
-          <div style="text-align:center;margin:32px 0">
-            <a href="${signerUrl}"
-               style="background:#dc2626;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:15px;display:inline-block">
-              ✍️ Signer le procès-verbal
-            </a>
-          </div>
-          <p style="font-size:13px;color:#64748b">Ce lien est valable 7 jours. Une connexion via votre compte Microsoft est requise.<br>Référence : <strong>${bon.reference}</strong></p>
-          <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0">
-          <p style="font-size:12px;color:#94a3b8;margin:0">Service informatique — Groupe Livio<br>Cet email est envoyé automatiquement, merci de ne pas y répondre.</p>
-        </div>
-      </div>`;
+    const html = await this.templatesService.renderTemplate('pv_cloture_request', {
+      COLLAB_CIVILITE: bon.civilite === 'mme' ? 'Madame' : 'Monsieur',
+      COLLAB_NAME: bon.collaborateur?.displayName ?? '',
+      FILIALE_NOM: filialeNom,
+      REFERENCE: bon.reference,
+      SIGNER_URL: `${appUrl}/signer/${token}`,
+      NOT_RETURNED_LIST: this.buildNotReturnedList(bon.equipments ?? []),
+    });
 
     const ok = await this.sendEmail(
       bon.collaborateurEmail,
@@ -274,51 +229,40 @@ export class NotificationService {
         recipientEmail: bon.collaborateurEmail,
         type: 'restitution_request',
         status: ok ? 'sent' : 'failed',
-        errorMessage: ok ? null : 'SMTP non configuré ou erreur d\'envoi',
+        errorMessage: ok ? null : "SMTP non configuré ou erreur d'envoi",
       },
     });
   }
 
   // ─── Contestation ────────────────────────────────────────────────────────────
 
-  /** Alerte email envoyée aux IT staff quand un collaborateur conteste son bon */
   async sendContestationAlert(bon: any, contestingUser: any, message: string): Promise<void> {
     const filialeNom = bon.filiale?.displayName ?? '';
     const reference = bon.reference ?? '';
     const userName = contestingUser?.displayName ?? contestingUser?.email ?? '';
 
-    // Récupérer les emails des IT staff actifs
     const itStaff = await this.prisma.user.findMany({
       where: { isItStaff: true, active: true },
       select: { email: true },
     });
     if (itStaff.length === 0) return;
 
-    const html = `
-      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1e293b">
-        <div style="background:#b91c1c;padding:24px 32px;border-radius:8px 8px 0 0">
-          <h1 style="color:#fff;margin:0;font-size:20px">⚠️ Contestation reçue</h1>
-          <p style="color:#fecaca;margin:4px 0 0;font-size:14px">Bon ${reference} — ${filialeNom}</p>
-        </div>
-        <div style="background:#fff;padding:32px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px">
-          <p style="margin-top:0">Le collaborateur <strong>${userName}</strong> a contesté le bon <strong>${reference}</strong>.</p>
-          <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:16px;margin:16px 0">
-            <p style="margin:0;font-size:14px;color:#7f1d1d"><strong>Motif :</strong></p>
-            <p style="margin:8px 0 0;font-size:14px;color:#1e293b">${message}</p>
-          </div>
-          <p style="font-size:13px;color:#64748b">Connectez-vous à l'application pour consulter et traiter cette contestation.</p>
-          <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0">
-          <p style="font-size:12px;color:#94a3b8;margin:0">Service informatique — Groupe Livio</p>
-        </div>
-      </div>`;
+    const html = await this.templatesService.renderTemplate('contestation_alert', {
+      USER_NAME: escapeHtml(userName),
+      REFERENCE: reference,
+      FILIALE_NOM: filialeNom,
+      CONTESTATION_MESSAGE: escapeHtml(message),
+    });
 
-    for (const staff of itStaff) {
-      await this.sendEmail(
-        staff.email,
-        `[CONTESTATION] [${reference}] ${userName} conteste son bon — ${filialeNom}`,
-        html,
-      );
-    }
+    await Promise.all(
+      itStaff.map((staff) =>
+        this.sendEmail(
+          staff.email,
+          `[CONTESTATION] [${reference}] ${escapeHtml(userName)} conteste son bon — ${filialeNom}`,
+          html,
+        ),
+      ),
+    );
 
     await this.prisma.notificationLog.create({
       data: {
@@ -330,7 +274,6 @@ export class NotificationService {
     });
   }
 
-  /** Email envoyé au collaborateur suite à la résolution de sa contestation */
   async sendContestationResolution(
     bon: any,
     collaborateur: any,
@@ -338,31 +281,13 @@ export class NotificationService {
     resolutionMessage?: string,
   ): Promise<void> {
     const filialeNom = bon.filiale?.displayName ?? '';
-    const isResolved = action === 'resolved';
-    const color = isResolved ? '#16a34a' : '#dc2626';
-    const title = isResolved ? '✅ Contestation prise en compte' : '❌ Contestation non retenue';
-    const subtitle = isResolved
-      ? 'Votre contestation a été examinée et prise en compte par le service IT.'
-      : 'Votre contestation a été examinée mais n\'a pas pu être retenue.';
+    const templateId = action === 'resolved' ? 'contestation_resolved' : 'contestation_rejected';
 
-    const html = `
-      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1e293b">
-        <div style="background:${color};padding:24px 32px;border-radius:8px 8px 0 0">
-          <h1 style="color:#fff;margin:0;font-size:20px">${title}</h1>
-          <p style="color:#d1fae5;margin:4px 0 0;font-size:14px">Bon ${bon.reference} — ${filialeNom}</p>
-        </div>
-        <div style="background:#fff;padding:32px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px">
-          <p>${subtitle}</p>
-          ${resolutionMessage ? `
-          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:16px;margin:16px 0">
-            <p style="margin:0;font-size:14px"><strong>Message du service IT :</strong></p>
-            <p style="margin:8px 0 0;font-size:14px">${resolutionMessage}</p>
-          </div>` : ''}
-          <p style="font-size:13px;color:#64748b">Référence : <strong>${bon.reference}</strong></p>
-          <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0">
-          <p style="font-size:12px;color:#94a3b8;margin:0">Service informatique — Groupe Livio</p>
-        </div>
-      </div>`;
+    const html = await this.templatesService.renderTemplate(templateId, {
+      REFERENCE: bon.reference,
+      FILIALE_NOM: filialeNom,
+      RESOLUTION_MESSAGE: resolutionMessage ? escapeHtml(resolutionMessage) : '',
+    });
 
     await this.sendEmail(
       collaborateur.email,
@@ -409,35 +334,25 @@ export class NotificationService {
       const reminderCount = bon.notifications.filter((n) => n.type === 'reminder').length;
       if (reminderCount >= maxReminders) continue;
 
-      // Find active unsigned signature token
       const sig = bon.signatures.find((s) => !s.signed);
       if (!sig) continue;
 
       const appUrl = await this.getAppUrl();
-      const signerUrl = `${appUrl}/signer/${sig.token}`;
       const filialeNom = bon.filiale?.displayName ?? '';
       const isRestitution = bon.status === 'sent_restitution';
-      const typLabel = isRestitution ? 'restitution' : 'mise à disposition';
 
-      const html = `
-        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1e293b">
-          <div style="background:#dc2626;padding:24px 32px;border-radius:8px 8px 0 0">
-            <h1 style="color:#fff;margin:0;font-size:20px">⏰ Rappel — Document en attente de signature</h1>
-          </div>
-          <div style="background:#fff;padding:32px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px">
-            <p>Ce message est un rappel. Votre bon de <strong>${typLabel}</strong> (réf. <strong>${bon.reference}</strong>) est toujours en attente de votre signature.</p>
-            <div style="text-align:center;margin:32px 0">
-              <a href="${signerUrl}" style="background:#dc2626;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block">
-                ✍️ Signer maintenant
-              </a>
-            </div>
-            <p style="font-size:13px;color:#64748b">Rappel ${reminderCount + 1}/${maxReminders} — ${filialeNom}</p>
-          </div>
-        </div>`;
+      const html = await this.templatesService.renderTemplate('reminder', {
+        TYPE_LABEL: isRestitution ? 'restitution' : 'mise à disposition',
+        REFERENCE: bon.reference,
+        SIGNER_URL: `${appUrl}/signer/${sig.token}`,
+        REMINDER_NUMBER: String(reminderCount + 1),
+        MAX_REMINDERS: String(maxReminders),
+        FILIALE_NOM: filialeNom,
+      });
 
       const ok = await this.sendEmail(
         bon.collaborateurEmail,
-        `[RAPPEL] [${bon.reference}] Bon de ${typLabel} à signer — ${filialeNom}`,
+        `[RAPPEL] [${bon.reference}] Bon de ${isRestitution ? 'restitution' : 'mise à disposition'} à signer — ${filialeNom}`,
         html,
       );
 

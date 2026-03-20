@@ -15,6 +15,7 @@ import { SignatureModule } from './signature/signature.module';
 import { BonsModule } from './bons/bons.module';
 import { AuditModule } from './audit/audit.module';
 import { ContestationModule } from './contestation/contestation.module';
+import { TemplatesModule } from './templates/templates.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -28,6 +29,7 @@ import { HealthController } from './health.controller';
     }]),
     PrismaModule,
     ConfigModule,
+    TemplatesModule,
     AuthModule,
     AdminModule,
     LdapModule,
