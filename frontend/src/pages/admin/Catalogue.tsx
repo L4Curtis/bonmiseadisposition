@@ -14,6 +14,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { toast } from '@/hooks/use-toast';
 import { Plus, Pencil, Trash2, Package, ChevronDown, ChevronRight, X, Search } from 'lucide-react';
 
@@ -69,15 +76,16 @@ function CatalogItemForm({ item, onSave, onCancel }: {
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1">
           <Label>Categorie</Label>
-          <select
-            className="flex h-9 w-full rounded-md border border-input bg-background text-foreground px-3 py-1 text-sm"
-            value={form.category}
-            onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
-          >
-            {Object.entries(CATEGORIES).map(([k, v]) => (
-              <option key={k} value={k}>{v}</option>
-            ))}
-          </select>
+          <Select value={form.category} onValueChange={(v) => setForm((f) => ({ ...f, category: v }))}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {Object.entries(CATEGORIES).map(([k, v]) => (
+                <SelectItem key={k} value={k}>{v}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="space-y-1">
           <Label>Marque</Label>

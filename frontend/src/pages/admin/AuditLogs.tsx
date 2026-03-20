@@ -5,6 +5,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { formatDateTime } from '@/lib/utils';
 import { useNavigate } from 'react-router-dom';
 
@@ -129,16 +136,20 @@ export function AuditLogsPage() {
               />
             </div>
 
-            <select
-              className="flex h-9 w-full rounded-md border border-input bg-background text-foreground px-3 py-1 text-sm"
-              value={action}
-              onChange={(e) => { setAction(e.target.value); setPage(1); }}
+            <Select
+              value={action || '__all__'}
+              onValueChange={(v) => { setAction(v === '__all__' ? '' : v); setPage(1); }}
             >
-              <option value="">Toutes les actions</option>
-              {availableActions.map((a) => (
-                <option key={a} value={a}>{ACTION_LABELS[a]?.label ?? a}</option>
-              ))}
-            </select>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">Toutes les actions</SelectItem>
+                {availableActions.map((a) => (
+                  <SelectItem key={a} value={a}>{ACTION_LABELS[a]?.label ?? a}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
 
             <Input
               type="date"

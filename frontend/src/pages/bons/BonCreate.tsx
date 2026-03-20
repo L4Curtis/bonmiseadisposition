@@ -5,6 +5,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Search, X, Plus, Trash2, Package, ChevronLeft } from 'lucide-react';
 import type { Filiale } from '@/types';
 
@@ -332,17 +339,16 @@ export function BonCreatePage() {
             </div>
             <div className="space-y-1">
               <Label>Filiale *</Label>
-              <select
-                className="flex h-9 w-full rounded-md border border-input bg-background text-foreground px-3 py-1 text-sm"
-                value={filialeId}
-                onChange={(e) => setFilialeId(e.target.value)}
-                required
-              >
-                <option value="">Sélectionner une filiale...</option>
-                {filiales.map((f) => (
-                  <option key={f.id} value={f.id}>{f.displayName}</option>
-                ))}
-              </select>
+              <Select value={filialeId || undefined} onValueChange={setFilialeId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Sélectionner une filiale..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {filiales.map((f) => (
+                    <SelectItem key={f.id} value={f.id}>{f.displayName}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-1 sm:col-span-2">
               <Label>Collaborateur *</Label>
