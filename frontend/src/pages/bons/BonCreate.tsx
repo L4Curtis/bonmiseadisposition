@@ -79,9 +79,9 @@ function UserAutocomplete({
       <div className="flex items-center justify-between rounded-md border bg-blue-50 px-3 py-2">
         <div>
           <p className="text-sm font-medium">{value.displayName}</p>
-          <p className="text-xs text-slate-500">{value.email}{value.department ? ` — ${value.department}` : ''}</p>
+          <p className="text-xs text-muted-foreground">{value.email}{value.department ? ` — ${value.department}` : ''}</p>
         </div>
-        <button onClick={() => onChange(null)} className="text-slate-400 hover:text-slate-600">
+        <button onClick={() => onChange(null)} className="text-muted-foreground/70 hover:text-muted-foreground" aria-label="Retirer le collaborateur sélectionné">
           <X className="h-4 w-4" />
         </button>
       </div>
@@ -90,32 +90,36 @@ function UserAutocomplete({
 
   return (
     <div ref={ref} className="relative">
-      <div className="flex items-center gap-2 rounded-md border bg-white px-3 py-1.5">
-        <Search className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+      <div className="flex items-center gap-2 rounded-md border bg-card px-3 py-1.5">
+        <Search className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
         <input
-          className="flex-1 text-sm outline-none placeholder:text-slate-400"
+          className="flex-1 text-sm outline-none placeholder:text-muted-foreground/70"
           placeholder="Rechercher un collaborateur..."
+          aria-label="Rechercher un collaborateur"
+          role="combobox"
+          aria-expanded={open && results.length > 0}
+          aria-autocomplete="list"
           value={query}
           onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
         />
       </div>
       {open && results.length > 0 && (
-        <div className="absolute z-10 mt-1 w-full rounded-md border bg-white shadow-lg max-h-48 overflow-auto">
+        <div className="absolute z-10 mt-1 w-full rounded-md border bg-card shadow-lg max-h-48 overflow-auto">
           {results.map((u) => (
             <button
               key={u.id}
-              className="flex w-full flex-col px-3 py-2 text-left text-sm hover:bg-slate-50"
+              className="flex w-full flex-col px-3 py-2 text-left text-sm hover:bg-muted/40"
               onClick={() => { onChange(u); setQuery(''); setOpen(false); }}
             >
               <span className="font-medium">{u.displayName}</span>
-              <span className="text-xs text-slate-400">{u.email}{u.department ? ` — ${u.department}` : ''}</span>
+              <span className="text-xs text-muted-foreground/70">{u.email}{u.department ? ` — ${u.department}` : ''}</span>
             </button>
           ))}
         </div>
       )}
       {open && query.length >= 2 && results.length === 0 && (
-        <div className="absolute z-10 mt-1 w-full rounded-md border bg-white shadow-lg px-3 py-2 text-sm text-slate-400">
+        <div className="absolute z-10 mt-1 w-full rounded-md border bg-card shadow-lg px-3 py-2 text-sm text-muted-foreground/70">
           Aucun collaborateur trouvé
         </div>
       )}
@@ -156,30 +160,31 @@ function CatalogSearch({
 
   return (
     <div ref={ref} className="relative">
-      <div className="flex items-center gap-2 rounded-md border bg-white px-3 py-1.5">
-        <Search className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+      <div className="flex items-center gap-2 rounded-md border bg-card px-3 py-1.5">
+        <Search className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
         <input
-          className="flex-1 text-sm outline-none placeholder:text-slate-400"
+          className="flex-1 text-sm outline-none placeholder:text-muted-foreground/70"
           placeholder="Ajouter depuis le catalogue..."
+          aria-label="Rechercher dans le catalogue"
           value={query}
           onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
         />
-        {query && <button onClick={() => setQuery('')}><X className="h-3.5 w-3.5 text-slate-400" /></button>}
+        {query && <button onClick={() => setQuery('')} aria-label="Effacer la recherche catalogue"><X className="h-3.5 w-3.5 text-muted-foreground/70" /></button>}
       </div>
       {open && (query.length > 0 || results.length > 0) && (
-        <div className="absolute z-10 mt-1 w-full rounded-md border bg-white shadow-lg max-h-48 overflow-auto">
+        <div className="absolute z-10 mt-1 w-full rounded-md border bg-card shadow-lg max-h-48 overflow-auto">
           {results.length > 0 ? results.map((r) => (
             <button
               key={r.id}
-              className="flex w-full items-center justify-between px-3 py-2 text-sm hover:bg-slate-50"
+              className="flex w-full items-center justify-between px-3 py-2 text-sm hover:bg-muted/40"
               onClick={() => { onAdd(r); setQuery(''); setOpen(false); }}
             >
               <span className="font-medium">{r.brand} {r.model}</span>
-              <Plus className="h-3.5 w-3.5 text-slate-400" />
+              <Plus className="h-3.5 w-3.5 text-muted-foreground/70" />
             </button>
           )) : (
-            <div className="px-3 py-2 text-sm text-slate-400">Aucun résultat</div>
+            <div className="px-3 py-2 text-sm text-muted-foreground/70">Aucun résultat</div>
           )}
         </div>
       )}
@@ -289,15 +294,15 @@ export function BonCreatePage() {
   return (
     <div className="space-y-4 max-w-4xl">
       <div className="flex items-center gap-3">
-        <button onClick={() => navigate('/bons')} className="text-slate-400 hover:text-slate-600">
+        <button onClick={() => navigate('/bons')} className="text-muted-foreground/70 hover:text-muted-foreground" aria-label="Retour à la liste des bons">
           <ChevronLeft className="h-5 w-5" />
         </button>
-        <h1 className="text-xl font-bold text-slate-900">Nouveau bon de mise à disposition</h1>
+        <h1 className="text-xl font-bold text-foreground">Nouveau bon de mise à disposition</h1>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && (
-          <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+          <div className="rounded-lg bg-destructive/10 border border-destructive/20 px-4 py-3 text-sm text-destructive" role="alert">
             {error}
           </div>
         )}
@@ -317,7 +322,7 @@ export function BonCreatePage() {
                     className={`rounded-md border px-3 py-1.5 text-sm font-medium transition-colors ${
                       civilite === c
                         ? 'bg-blue-600 text-white border-blue-600'
-                        : 'bg-white text-slate-600 hover:bg-slate-50'
+                        : 'bg-card text-muted-foreground hover:bg-muted/40'
                     }`}
                   >
                     {c === 'mr' ? 'M.' : 'Mme'}
@@ -328,7 +333,7 @@ export function BonCreatePage() {
             <div className="space-y-1">
               <Label>Filiale *</Label>
               <select
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm"
+                className="flex h-9 w-full rounded-md border border-input bg-background text-foreground px-3 py-1 text-sm"
                 value={filialeId}
                 onChange={(e) => setFilialeId(e.target.value)}
                 required
@@ -360,7 +365,7 @@ export function BonCreatePage() {
               />
             </div>
             <div className="space-y-1">
-              <Label>Date de restitution prévue <span className="text-slate-400 text-xs">(optionnel)</span></Label>
+              <Label>Date de restitution prévue <span className="text-muted-foreground/70 text-xs">(optionnel)</span></Label>
               <Input
                 type="date"
                 value={dateRestitution}
@@ -379,7 +384,7 @@ export function BonCreatePage() {
                 {/* Import depuis pack */}
                 {packs.filter((p: any) => p.active !== false).length > 0 && (
                   <select
-                    className="rounded-md border bg-white px-2 py-1 text-xs text-slate-600"
+                    className="rounded-md border bg-card px-2 py-1 text-xs text-muted-foreground"
                     value=""
                     onChange={(e) => {
                       const pack = packs.find((p) => p.id === e.target.value);
@@ -409,11 +414,11 @@ export function BonCreatePage() {
             <CatalogSearch allItems={allCatalogItems} onAdd={addFromCatalog} />
 
             {equipments.length === 0 ? (
-              <p className="text-center text-sm text-slate-400 py-4">Aucun équipement ajouté</p>
+              <p className="text-center text-sm text-muted-foreground/70 py-4">Aucun équipement ajouté</p>
             ) : (
               <div className="mt-2 space-y-1">
                 {/* Header */}
-                <div className="grid grid-cols-[1fr_120px_120px_80px_32px] gap-2 text-xs font-medium text-slate-500 px-1">
+                <div className="grid grid-cols-[1fr_120px_120px_80px_32px] gap-2 text-xs font-medium text-muted-foreground px-1">
                   <span>Désignation</span>
                   <span>N° Série</span>
                   <span>N° Inventaire</span>
@@ -430,6 +435,7 @@ export function BonCreatePage() {
                             type="button"
                             onClick={() => updateEquipment(eq._id, 'catalogItemId', '')}
                             className="ml-auto text-blue-400 hover:text-blue-600"
+                            aria-label="Retirer cet article du catalogue"
                           >
                             <X className="h-3 w-3" />
                           </button>
@@ -465,6 +471,7 @@ export function BonCreatePage() {
                       type="button"
                       onClick={() => removeEquipment(eq._id)}
                       className="text-slate-300 hover:text-red-500 transition-colors"
+                      aria-label="Supprimer cet équipement"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
@@ -477,7 +484,7 @@ export function BonCreatePage() {
 
         {/* Notes */}
         <Card>
-          <CardHeader><CardTitle className="text-base">Remarques <span className="text-slate-400 text-xs font-normal">(optionnel)</span></CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-base">Remarques <span className="text-muted-foreground/70 text-xs font-normal">(optionnel)</span></CardTitle></CardHeader>
           <CardContent>
             <textarea
               className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"

@@ -5,19 +5,29 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { toast } from '@/hooks/use-toast';
 import { Plus, Pencil, Trash2, Package, ChevronDown, ChevronRight, X, Search } from 'lucide-react';
 
 const CATEGORIES: Record<string, string> = {
   pc_portable: 'PC Portable',
   pc_fixe: 'PC Fixe',
-  ecran: 'Écran',
+  ecran: 'Ecran',
   souris: 'Souris',
   clavier: 'Clavier',
   casque: 'Casque',
-  telephone: 'Téléphone',
+  telephone: 'Telephone',
   housse: 'Housse',
   dock: 'Dock',
-  cable: 'Câble',
+  cable: 'Cable',
   autre: 'Autre',
 };
 
@@ -38,6 +48,10 @@ interface Pack {
   items: { id: string; catalogItem: CatalogItem; quantity: number; order: number }[];
 }
 
+type DeleteTarget =
+  | { type: 'item'; id: string; label: string }
+  | { type: 'pack'; id: string; label: string };
+
 function CatalogItemForm({ item, onSave, onCancel }: {
   item?: CatalogItem;
   onSave: (data: any) => void;
@@ -51,12 +65,12 @@ function CatalogItemForm({ item, onSave, onCancel }: {
   });
 
   return (
-    <div className="rounded-lg border bg-slate-50 p-3 space-y-3">
+    <div className="rounded-lg border bg-muted/40 p-3 space-y-3">
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1">
-          <Label>Catégorie</Label>
+          <Label>Categorie</Label>
           <select
-            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm"
+            className="flex h-9 w-full rounded-md border border-input bg-background text-foreground px-3 py-1 text-sm"
             value={form.category}
             onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
           >
@@ -70,7 +84,7 @@ function CatalogItemForm({ item, onSave, onCancel }: {
           <Input value={form.brand} onChange={(e) => setForm((f) => ({ ...f, brand: e.target.value }))} placeholder="Lenovo" />
         </div>
         <div className="space-y-1">
-          <Label>Modèle</Label>
+          <Label>Modele</Label>
           <Input value={form.model} onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))} placeholder="ThinkBook 16 G6" />
         </div>
         <div className="space-y-1">
@@ -117,47 +131,47 @@ function PackItemAdder({ pack, allItems, onAdd }: {
 
   return (
     <div ref={ref} className="relative mt-3">
-      <div className="flex items-center gap-2 rounded-md border bg-white px-3 py-1.5">
-        <Search className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-        <input
-          className="flex-1 text-sm outline-none placeholder:text-slate-400"
-          placeholder="Rechercher un équipement à ajouter..."
+      <div className="flex items-center gap-2 rounded-md border bg-card px-3 py-1.5">
+        <Search className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
+        <Input
+          className="flex-1 h-auto border-0 shadow-none p-0 text-sm focus-visible:ring-0 placeholder:text-muted-foreground/70"
+          placeholder="Rechercher un equipement a ajouter..."
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onFocus={() => setOpen(true)}
         />
         {query && (
           <button onClick={() => { setQuery(''); }}>
-            <X className="h-3.5 w-3.5 text-slate-400" />
+            <X className="h-3.5 w-3.5 text-muted-foreground/70" />
           </button>
         )}
       </div>
       {open && results.length > 0 && (
-        <div className="absolute z-10 mt-1 w-full rounded-md border bg-white shadow-lg max-h-48 overflow-auto">
+        <div className="absolute z-10 mt-1 w-full rounded-md border bg-card shadow-lg max-h-48 overflow-auto">
           {results.map((r) => {
             const alreadyIn = pack.items.some((i) => i.catalogItem.id === r.id);
             return (
               <button
                 key={r.id}
                 disabled={alreadyIn}
-                className="flex w-full items-center justify-between px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="flex w-full items-center justify-between px-3 py-2 text-sm hover:bg-muted/40 disabled:opacity-40 disabled:cursor-not-allowed"
                 onClick={() => { onAdd(r, 1); setQuery(''); setOpen(false); }}
               >
                 <span>
                   <span className="font-medium">{r.brand} {r.model}</span>
-                  <span className="ml-2 text-slate-400">{CATEGORIES[r.category]}</span>
+                  <span className="ml-2 text-muted-foreground/70">{CATEGORIES[r.category]}</span>
                 </span>
                 {alreadyIn
-                  ? <span className="text-xs text-slate-400">Déjà ajouté</span>
-                  : <Plus className="h-3.5 w-3.5 text-slate-400" />}
+                  ? <span className="text-xs text-muted-foreground/70">Deja ajoute</span>
+                  : <Plus className="h-3.5 w-3.5 text-muted-foreground/70" />}
               </button>
             );
           })}
         </div>
       )}
       {open && results.length === 0 && (
-        <div className="absolute z-10 mt-1 w-full rounded-md border bg-white shadow-lg px-3 py-2 text-sm text-slate-400">
-          Aucun équipement trouvé dans le catalogue
+        <div className="absolute z-10 mt-1 w-full rounded-md border bg-card shadow-lg px-3 py-2 text-sm text-muted-foreground/70">
+          Aucun equipement trouve dans le catalogue
         </div>
       )}
     </div>
@@ -167,11 +181,13 @@ function PackItemAdder({ pack, allItems, onAdd }: {
 export function CataloguePage() {
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [packs, setPacks] = useState<Pack[]>([]);
+  const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'catalogue' | 'packs'>('catalogue');
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [expandedPack, setExpandedPack] = useState<string | null>(null);
   const [newPackName, setNewPackName] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
 
   const fetchData = async () => {
     const [catalogData, packsData] = await Promise.all([
@@ -180,39 +196,61 @@ export function CataloguePage() {
     ]);
     setItems(catalogData);
     setPacks(packsData);
+    setLoading(false);
   };
 
   useEffect(() => { fetchData(); }, []);
 
   const createItem = async (data: any) => {
-    await api.post('/equipment/catalog', data);
-    setCreating(false);
-    fetchData();
+    try {
+      await api.post('/equipment/catalog', data);
+      toast({ title: 'Equipement ajoute au catalogue', variant: 'success' });
+      setCreating(false);
+      fetchData();
+    } catch {
+      toast({ title: "Erreur lors de l'ajout", variant: 'destructive' });
+    }
   };
 
   const updateItem = async (id: string, data: any) => {
-    await api.put(`/equipment/catalog/${id}`, data);
-    setEditingId(null);
-    fetchData();
+    try {
+      await api.put(`/equipment/catalog/${id}`, data);
+      toast({ title: 'Equipement mis a jour', variant: 'success' });
+      setEditingId(null);
+      fetchData();
+    } catch {
+      toast({ title: 'Erreur lors de la mise a jour', variant: 'destructive' });
+    }
   };
 
-  const removeItem = async (id: string) => {
-    if (!confirm('Désactiver cet équipement ?')) return;
-    await api.delete(`/equipment/catalog/${id}`);
-    fetchData();
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    try {
+      if (deleteTarget.type === 'item') {
+        await api.delete(`/equipment/catalog/${deleteTarget.id}`);
+        toast({ title: 'Equipement desactive', variant: 'success' });
+      } else {
+        await api.delete(`/equipment/packs/${deleteTarget.id}`);
+        toast({ title: 'Pack desactive', variant: 'success' });
+      }
+      fetchData();
+    } catch {
+      toast({ title: 'Erreur lors de la desactivation', variant: 'destructive' });
+    } finally {
+      setDeleteTarget(null);
+    }
   };
 
   const createPack = async () => {
     if (!newPackName.trim()) return;
-    await api.post('/equipment/packs', { name: newPackName });
-    setNewPackName('');
-    fetchData();
-  };
-
-  const removePack = async (id: string) => {
-    if (!confirm('Désactiver ce pack ?')) return;
-    await api.delete(`/equipment/packs/${id}`);
-    fetchData();
+    try {
+      await api.post('/equipment/packs', { name: newPackName });
+      toast({ title: 'Pack cree', variant: 'success' });
+      setNewPackName('');
+      fetchData();
+    } catch {
+      toast({ title: 'Erreur lors de la creation du pack', variant: 'destructive' });
+    }
   };
 
   const addItemToPack = async (pack: Pack, catalogItem: CatalogItem, quantity: number) => {
@@ -245,7 +283,7 @@ export function CataloguePage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-slate-900">Catalogue & Packs</h1>
+        <h1 className="text-xl font-bold text-foreground">Catalogue & Packs</h1>
         <div className="flex gap-2">
           <Button
             variant={tab === 'catalogue' ? 'default' : 'outline'}
@@ -264,25 +302,35 @@ export function CataloguePage() {
         <div className="space-y-3">
           <div className="flex justify-end">
             <Button size="sm" onClick={() => setCreating(true)}>
-              <Plus className="h-4 w-4" /> Ajouter un équipement
+              <Plus className="h-4 w-4" /> Ajouter un equipement
             </Button>
           </div>
           {creating && <CatalogItemForm onSave={createItem} onCancel={() => setCreating(false)} />}
           <Card>
             <CardContent className="p-0">
-              <table className="w-full text-sm">
-                <thead className="border-b bg-slate-50">
+              <table className="w-full text-sm" aria-label="Catalogue des équipements">
+                <thead className="border-b bg-muted/40">
                   <tr>
-                    <th className="px-4 py-3 text-left font-medium text-slate-600">Catégorie</th>
-                    <th className="px-4 py-3 text-left font-medium text-slate-600">Marque</th>
-                    <th className="px-4 py-3 text-left font-medium text-slate-600">Modèle</th>
-                    <th className="px-4 py-3 text-left font-medium text-slate-600">Statut</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">Categorie</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">Marque</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">Modele</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">Statut</th>
                     <th className="px-4 py-3" />
                   </tr>
                 </thead>
                 <tbody>
-                  {items.map((item) => (
-                    <tr key={item.id} className="border-b last:border-0 hover:bg-slate-50">
+                  {loading ? (
+                    Array.from({ length: 5 }).map((_, i) => (
+                      <tr key={i} className="border-b">
+                        <td className="px-4 py-2"><Skeleton className="h-4 w-20" /></td>
+                        <td className="px-4 py-2"><Skeleton className="h-4 w-16" /></td>
+                        <td className="px-4 py-2"><Skeleton className="h-4 w-28" /></td>
+                        <td className="px-4 py-2"><Skeleton className="h-5 w-12 rounded-full" /></td>
+                        <td className="px-4 py-2"><Skeleton className="h-8 w-16" /></td>
+                      </tr>
+                    ))
+                  ) : items.map((item) => (
+                    <tr key={item.id} className="border-b last:border-0 hover:bg-muted/40">
                       {editingId === item.id ? (
                         <td colSpan={5} className="p-3">
                           <CatalogItemForm
@@ -303,10 +351,15 @@ export function CataloguePage() {
                           </td>
                           <td className="px-4 py-2">
                             <div className="flex gap-1 justify-end">
-                              <Button variant="ghost" size="icon" onClick={() => setEditingId(item.id)}>
+                              <Button variant="ghost" size="icon" onClick={() => setEditingId(item.id)} aria-label={`Modifier ${item.brand} ${item.model}`}>
                                 <Pencil className="h-3.5 w-3.5" />
                               </Button>
-                              <Button variant="ghost" size="icon" onClick={() => removeItem(item.id)}>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => setDeleteTarget({ type: 'item', id: item.id, label: `${item.brand} ${item.model}` })}
+                                aria-label={`Supprimer ${item.brand} ${item.model}`}
+                              >
                                 <Trash2 className="h-3.5 w-3.5 text-red-500" />
                               </Button>
                             </div>
@@ -332,16 +385,29 @@ export function CataloguePage() {
               onKeyDown={(e) => e.key === 'Enter' && createPack()}
             />
             <Button size="sm" onClick={createPack}>
-              <Plus className="h-4 w-4" /> Créer
+              <Plus className="h-4 w-4" /> Creer
             </Button>
           </div>
           <div className="space-y-2">
-            {packs.map((pack) => (
+            {loading ? (
+              Array.from({ length: 3 }).map((_, i) => (
+                <Card key={i}>
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-2">
+                      <Skeleton className="h-4 w-4" />
+                      <Skeleton className="h-4 w-4" />
+                      <Skeleton className="h-4 w-48" />
+                      <Skeleton className="h-5 w-20 rounded-full" />
+                    </div>
+                  </CardContent>
+                </Card>
+              ))
+            ) : packs.map((pack) => (
               <Card key={pack.id}>
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
                     <button
-                      className="flex items-center gap-2 font-medium text-slate-900"
+                      className="flex items-center gap-2 font-medium text-foreground"
                       onClick={() => setExpandedPack(expandedPack === pack.id ? null : pack.id)}
                     >
                       {expandedPack === pack.id ? (
@@ -353,34 +419,46 @@ export function CataloguePage() {
                       {pack.name}
                       <Badge variant="outline">{pack.items.length} item(s)</Badge>
                     </button>
-                    <Button variant="ghost" size="icon" onClick={() => removePack(pack.id)}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setDeleteTarget({ type: 'pack', id: pack.id, label: pack.name })}
+                      aria-label={`Supprimer le pack ${pack.name}`}
+                    >
                       <Trash2 className="h-3.5 w-3.5 text-red-500" />
                     </Button>
                   </div>
                   {expandedPack === pack.id && (
                     <div className="mt-3 pl-4 space-y-1.5">
                       {pack.items.length === 0 && (
-                        <p className="text-sm text-slate-400 pb-1">Aucun équipement — utilisez la recherche ci-dessous</p>
+                        <p className="text-sm text-muted-foreground/70 pb-1">Aucun equipement -- utilisez la recherche ci-dessous</p>
                       )}
                       {pack.items.map((item) => (
-                        <div key={item.id} className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-1.5 text-sm">
-                          <span className="flex-1 text-slate-700">
+                        <div key={item.id} className="flex items-center gap-2 rounded-md bg-muted/40 px-3 py-1.5 text-sm">
+                          <span className="flex-1 text-foreground/80">
                             <span className="font-medium">{item.catalogItem.brand} {item.catalogItem.model}</span>
-                            <span className="ml-2 text-slate-400">{CATEGORIES[item.catalogItem.category]}</span>
+                            <span className="ml-2 text-muted-foreground/70">{CATEGORIES[item.catalogItem.category]}</span>
                           </span>
                           <div className="flex items-center gap-1">
-                            <button
-                              className="w-6 h-6 rounded border text-slate-500 hover:bg-white text-xs"
-                              onClick={() => item.quantity > 1 && updateItemQty(pack, item.catalogItem.id, item.quantity - 1)}
-                            >−</button>
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="w-6 h-6 text-xs"
+                              disabled={item.quantity <= 1}
+                              onClick={() => updateItemQty(pack, item.catalogItem.id, item.quantity - 1)}
+                              aria-label="Diminuer la quantité"
+                            >-</Button>
                             <span className="w-6 text-center text-xs font-medium">{item.quantity}</span>
-                            <button
-                              className="w-6 h-6 rounded border text-slate-500 hover:bg-white text-xs"
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="w-6 h-6 text-xs"
                               onClick={() => updateItemQty(pack, item.catalogItem.id, item.quantity + 1)}
-                            >+</button>
+                              aria-label="Augmenter la quantité"
+                            >+</Button>
                           </div>
                           <button
-                            className="ml-1 text-slate-400 hover:text-red-500"
+                            className="ml-1 text-muted-foreground/70 hover:text-red-500"
                             onClick={() => removeItemFromPack(pack, item.catalogItem.id)}
                           >
                             <X className="h-3.5 w-3.5" />
@@ -396,6 +474,27 @@ export function CataloguePage() {
           </div>
         </div>
       )}
+
+      <Dialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Desactiver {deleteTarget?.type === 'pack' ? 'ce pack' : 'cet equipement'}
+            </DialogTitle>
+            <DialogDescription>
+              Voulez-vous vraiment desactiver &laquo;&nbsp;{deleteTarget?.label}&nbsp;&raquo; ?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+              Annuler
+            </Button>
+            <Button variant="destructive" onClick={confirmDelete}>
+              Desactiver
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
