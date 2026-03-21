@@ -1,6 +1,7 @@
 import { Controller, Get, Query, Req, Res, Post, Body, UseGuards, UnauthorizedException, ForbiddenException } from '@nestjs/common';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { Request, Response } from 'express';
+import { PrismaService } from '../prisma/prisma.service';
 import * as crypto from 'crypto';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -14,6 +15,7 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly configService: AppConfigService,
+    private readonly prisma: PrismaService,
   ) {}
 
   @Get('login')
@@ -72,6 +74,8 @@ export class AuthController {
   }
 
   @Post('refresh')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
   async refresh(@Req() req: Request, @Res() res: Response) {
     const refreshToken = req.cookies['refresh_token'];
     if (!refreshToken) throw new UnauthorizedException();
@@ -88,7 +92,18 @@ export class AuthController {
   }
 
   @Post('logout')
-  async logout(@Res() res: Response) {
+  @UseGuards(JwtAuthGuard)
+  async logout(@CurrentUser() user: any, @Req() req: Request, @Res() res: Response) {
+    const ip = (req.headers['x-real-ip'] as string) ?? req.socket?.remoteAddress ?? 'unknown';
+    await this.prisma.auditLog.create({
+      data: {
+        userId: user?.id,
+        userEmail: user?.email,
+        action: 'logout',
+        ipAddress: ip,
+        userAgent: req.headers['user-agent'] ?? 'unknown',
+      },
+    }).catch(() => { /* non-blocking */ });
     this.authService.clearAuthCookies(res);
     return res.json({ ok: true });
   }
@@ -110,15 +125,28 @@ export class AuthController {
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   async localLogin(
     @Body() dto: LocalLoginDto,
+    @Req() req: Request,
     @Res() res: Response,
   ) {
     const localAuthEnabled = await this.configService.get('general', 'local_auth_enabled');
     if (localAuthEnabled === 'false') {
       throw new ForbiddenException('Authentification locale désactivée');
     }
-    const { accessToken, refreshToken, mustChangePassword } = await this.authService.localLogin(dto.email, dto.password);
-    this.authService.setAuthCookies(res, accessToken, refreshToken);
-    return res.json({ ok: true, mustChangePassword });
+    const ip = (req.headers['x-real-ip'] as string) ?? req.socket?.remoteAddress ?? 'unknown';
+    const ua = req.headers['user-agent'] ?? 'unknown';
+    try {
+      const { accessToken, refreshToken, mustChangePassword } = await this.authService.localLogin(dto.email, dto.password);
+      this.authService.setAuthCookies(res, accessToken, refreshToken);
+      await this.prisma.auditLog.create({
+        data: { userEmail: dto.email, action: 'login_local_success', ipAddress: ip, userAgent: ua },
+      }).catch(() => { /* non-blocking */ });
+      return res.json({ ok: true, mustChangePassword });
+    } catch (err) {
+      await this.prisma.auditLog.create({
+        data: { userEmail: dto.email, action: 'login_local_failed', ipAddress: ip, userAgent: ua },
+      }).catch(() => { /* non-blocking */ });
+      throw err;
+    }
   }
 
   @Post('change-password')
@@ -126,9 +154,14 @@ export class AuthController {
   async changePassword(
     @Body() dto: ChangePasswordDto,
     @CurrentUser() user: any,
+    @Req() req: Request,
     @Res() res: Response,
   ) {
     await this.authService.changePassword(user.id, dto.currentPassword, dto.newPassword);
+    const ip = (req.headers['x-real-ip'] as string) ?? req.socket?.remoteAddress ?? 'unknown';
+    await this.prisma.auditLog.create({
+      data: { userId: user?.id, userEmail: user?.email, action: 'password_changed', ipAddress: ip, userAgent: req.headers['user-agent'] ?? 'unknown' },
+    }).catch(() => { /* non-blocking */ });
     return res.json({ ok: true });
   }
 

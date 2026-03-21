@@ -1,5 +1,5 @@
 ﻿import {
-  Controller, Get, Put, Post, Delete, Body, Param, UseGuards, BadRequestException,
+  Controller, Get, Put, Post, Delete, Body, Param, UseGuards, BadRequestException, ForbiddenException,
 } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { LdapService } from '../ldap/ldap.service';
@@ -35,8 +35,14 @@ export class AdminController {
   ) {}
 
   // â”€â”€ Config CRUD â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // Catégories réservées aux admins (contiennent des infos sensibles même masquées)
+  private static readonly ADMIN_ONLY_CATEGORIES = ['entra', 'ldap', 'smtp', 'smb'];
+
   @Get('config/:category')
-  async getConfig(@Param('category') category: string) {
+  async getConfig(@Param('category') category: string, @CurrentUser() user: any) {
+    if (AdminController.ADMIN_ONLY_CATEGORIES.includes(category) && user?.role !== 'admin') {
+      throw new ForbiddenException('Accès réservé aux administrateurs');
+    }
     // Masque les secrets (bind_password, client_secret, smtp password) dans la réponse
     const data = await this.adminService.getConfigSection(category, { maskSecrets: true });
     return data;

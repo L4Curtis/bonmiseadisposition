@@ -183,32 +183,73 @@ export class AuthService {
   }
 
   async localLogin(email: string, password: string): Promise<{ accessToken: string; refreshToken: string; mustChangePassword: boolean }> {
+    // Check brute-force lock before hitting the database
+    this.checkBruteForce(email);
+
     const user = await this.prisma.user.findFirst({
       where: { email, isLocalAccount: true, active: true },
     });
 
     if (!user || !user.passwordHash) {
+      this.recordFailedLogin(email);
       throw new UnauthorizedException('Identifiants incorrects');
     }
 
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) {
+      this.recordFailedLogin(email);
       throw new UnauthorizedException('Identifiants incorrects');
     }
 
+    this.clearFailedLogin(email);
     const tokens = await this.createTokensForUser(user);
     return { ...tokens, mustChangePassword: user.mustChangePassword };
   }
 
+  // ─── Brute-force protection (in-memory, resets on restart) ───────────────
+  private readonly loginAttempts = new Map<string, { count: number; lockedUntil?: Date }>();
+
+  private checkBruteForce(email: string): void {
+    const record = this.loginAttempts.get(email);
+    if (record?.lockedUntil && new Date() < record.lockedUntil) {
+      const remaining = Math.ceil((record.lockedUntil.getTime() - Date.now()) / 60000);
+      throw new UnauthorizedException(`Compte temporairement verrouillé. Réessayez dans ${remaining} minute(s).`);
+    }
+  }
+
+  private recordFailedLogin(email: string): void {
+    const record = this.loginAttempts.get(email) ?? { count: 0 };
+    record.count++;
+    if (record.count >= 10) {
+      record.lockedUntil = new Date(Date.now() + 30 * 60 * 1000); // 30 min lock
+      record.count = 0;
+      this.logger.warn(`Compte ${email} verrouillé après 10 tentatives échouées`);
+    }
+    this.loginAttempts.set(email, record);
+  }
+
+  private clearFailedLogin(email: string): void {
+    this.loginAttempts.delete(email);
+  }
+
   private validatePasswordStrength(password: string): void {
-    if (password.length < 8) {
-      throw new BadRequestException('Le mot de passe doit contenir au moins 8 caractères');
+    if (password.length > 128) {
+      throw new BadRequestException('Le mot de passe ne doit pas dépasser 128 caractères');
+    }
+    if (password.length < 12) {
+      throw new BadRequestException('Le mot de passe doit contenir au moins 12 caractères');
     }
     if (!/[A-Z]/.test(password)) {
       throw new BadRequestException('Le mot de passe doit contenir au moins une lettre majuscule');
     }
+    if (!/[a-z]/.test(password)) {
+      throw new BadRequestException('Le mot de passe doit contenir au moins une lettre minuscule');
+    }
     if (!/[0-9]/.test(password)) {
       throw new BadRequestException('Le mot de passe doit contenir au moins un chiffre');
+    }
+    if (!/[@$!%*?&_#^+=\-.]/.test(password)) {
+      throw new BadRequestException('Le mot de passe doit contenir au moins un caractère spécial (@$!%*?&_#^+=−.)');
     }
   }
 

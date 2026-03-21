@@ -60,6 +60,33 @@ export class LdapService {
     await this.syncUsers();
   }
 
+  /**
+   * Basic structural validation for LDAP filter strings.
+   * Prevents null bytes and catches obvious injections from misconfigured admin panels.
+   */
+  validateLdapFilter(filter: string): void {
+    if (!filter || typeof filter !== 'string') {
+      throw new Error('Filtre LDAP manquant');
+    }
+    if (filter.length > 512) {
+      throw new Error('Filtre LDAP trop long (max 512 caractères)');
+    }
+    if (filter.includes('\0')) {
+      throw new Error('Filtre LDAP invalide : caractère nul détecté');
+    }
+    if (!filter.startsWith('(') || !filter.endsWith(')')) {
+      throw new Error('Filtre LDAP invalide : doit commencer par "(" et se terminer par ")"');
+    }
+    // Check balanced parentheses
+    let depth = 0;
+    for (const ch of filter) {
+      if (ch === '(') depth++;
+      else if (ch === ')') depth--;
+      if (depth < 0) throw new Error('Filtre LDAP invalide : parenthèses non équilibrées');
+    }
+    if (depth !== 0) throw new Error('Filtre LDAP invalide : parenthèses non équilibrées');
+  }
+
   async syncUsers(): Promise<void> {
     this.logger.log('Starting LDAP sync...');
     const ldapEnabled = await this.configService.get('ldap', 'enabled');
@@ -74,7 +101,9 @@ export class LdapService {
       await this.bindClient(client);
 
       const searchBase = await this.configService.get('ldap', 'search_base') || '';
-      const filter = await this.configService.get('ldap', 'user_filter') || '(objectClass=person)';
+      const rawFilter = await this.configService.get('ldap', 'user_filter') || '(objectClass=person)';
+      this.validateLdapFilter(rawFilter);
+      const filter = rawFilter;
 
       const users = await this.searchUsers(client, searchBase, filter);
       await this.upsertUsers(users);
@@ -108,7 +137,7 @@ export class LdapService {
 
     const client = ldap.createClient({
       url,
-      tlsOptions: useSsl === 'true' ? { rejectUnauthorized: false } : undefined,
+      tlsOptions: useSsl === 'true' ? { rejectUnauthorized: process.env.NODE_ENV === 'production' } : undefined,
       timeout: 10000,
       connectTimeout: 10000,
     });

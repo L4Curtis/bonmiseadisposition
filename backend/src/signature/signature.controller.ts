@@ -45,8 +45,9 @@ export class SignatureController {
     @CurrentUser() user: any,
     @Req() req: Request,
   ) {
+    // Use X-Real-IP (set by nginx to $remote_addr) — cannot be spoofed by clients
     const ip =
-      (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ??
+      (req.headers['x-real-ip'] as string)?.trim() ??
       req.socket?.remoteAddress ??
       'unknown';
     const userAgent = req.headers['user-agent'] ?? 'unknown';

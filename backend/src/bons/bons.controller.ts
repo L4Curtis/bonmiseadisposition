@@ -10,6 +10,7 @@ import {
   Res,
   Req,
   UseGuards,
+  ForbiddenException,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Response, Request } from 'express';
@@ -48,11 +49,12 @@ export class BonsController {
   /** POST /bons/:id/contestation — collaborateur conteste son bon */
   @Post(':id/contestation')
   @Roles('admin', 'technician', 'collaborator')
-  createContestation(
+  async createContestation(
     @Param('id') id: string,
     @Body('message') message: string,
     @CurrentUser() user: any,
   ) {
+    await this.verifyCollaboratorAccess(id, user);
     return this.contestationService.create(id, user.id, message);
   }
 
@@ -70,7 +72,7 @@ export class BonsController {
 
   @Get('recent')
   getRecent(@Query('limit') limit?: string) {
-    return this.bonsService.getRecentBons(limit ? parseInt(limit) : 10);
+    return this.bonsService.getRecentBons(Math.min(limit ? parseInt(limit) : 10, 50));
   }
 
   @Get('export')
@@ -100,7 +102,7 @@ export class BonsController {
       filialeId,
       search,
       page: page ? parseInt(page) : 1,
-      limit: limit ? parseInt(limit) : 20,
+      limit: Math.min(limit ? parseInt(limit) : 20, 100),
     });
   }
 
@@ -170,7 +172,8 @@ export class BonsController {
 
   @Get(':id/pdf-snapshots')
   @Roles('admin', 'technician', 'collaborator')
-  async getPdfSnapshots(@Param('id') id: string) {
+  async getPdfSnapshots(@Param('id') id: string, @CurrentUser() user: any) {
+    await this.verifyCollaboratorAccess(id, user);
     const snapshots = await this.prisma.pdfSnapshot.findMany({
       where: { bonId: id },
       select: { type: true, filename: true, createdAt: true },
@@ -186,7 +189,9 @@ export class BonsController {
     @Query('type') type: 'mise_disposition' | 'restitution' = 'mise_disposition',
     @Query('stage') stage?: string,
     @Res() res?: Response,
+    @CurrentUser() user?: any,
   ) {
+    await this.verifyCollaboratorAccess(id, user);
     const bon = await this.bonsService.findOne(id);
 
     // If specific stage requested, serve from PdfSnapshot table
@@ -235,6 +240,18 @@ export class BonsController {
     res!.send(pdf);
   }
 
+  /** Verify collaborator can only access their own bons */
+  private async verifyCollaboratorAccess(bonId: string, user: any): Promise<void> {
+    if (!user || user.role !== 'collaborator') return;
+    const bon = await this.prisma.bon.findUnique({
+      where: { id: bonId },
+      select: { collaborateurId: true },
+    });
+    if (bon && bon.collaborateurId !== user.id) {
+      throw new ForbiddenException('Accès refusé à ce bon');
+    }
+  }
+
   @Post(':id/sign-it')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   async signIt(
@@ -243,8 +260,9 @@ export class BonsController {
     @CurrentUser() user: any,
     @Req() req: Request,
   ) {
+    // Use X-Real-IP (set by nginx to $remote_addr) — cannot be spoofed by clients
     const ip =
-      (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ??
+      (req.headers['x-real-ip'] as string)?.trim() ??
       req.socket?.remoteAddress ??
       'unknown';
     const userAgent = req.headers['user-agent'] ?? 'unknown';
