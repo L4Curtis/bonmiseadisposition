@@ -299,7 +299,27 @@ Internet → Nginx Proxy Manager (SSL:443)
 
 ---
 
-## 12. Evolutions futures envisagees
+## 12. Phase 6 — Securite et Hardening (Complete)
+
+**Status** : Tout implementé (2026-03-21)
+
+10 vulnerabilites critiques/haute corrigees :
+- SEC-01 : IDOR contestations (verifyCollaboratorAccess)
+- SEC-02 : LDAP injection (validation filtre syntaxique)
+- SEC-03 : IP spoofing (X-Real-IP nginx)
+- SEC-04 : Rate limit refresh (20/min)
+- SEC-06 : Password policy (12+ chars, spécial, max 128)
+- SEC-07 : Brute force (30 min lockout après 10 échecs)
+- SEC-08 : Config admin restreint à admin (entra/ldap/smtp/smb)
+- SEC-10 : CSP renforcée (frame-ancestors, connect-src)
+- SEC-14 : HSTS (1 an)
+- SEC-16 : Audit trail (login/logout/password)
+
+Voir **docs/phase6-security.md** pour details complets.
+
+---
+
+## 13. Evolutions futures envisagees
 
 - Integration GLPI (pre-remplir equipements depuis inventaire)
 - Signature qualifiee (Yousign)
@@ -310,6 +330,7 @@ Internet → Nginx Proxy Manager (SSL:443)
 - Archivage legal (coffre-fort numerique)
 - Multi-langue
 - Signature par lot
+- JWT revocation avec Redis (SEC-05 optionnel)
 
 ---
 

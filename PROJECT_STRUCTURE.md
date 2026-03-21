@@ -34,7 +34,8 @@ BonDeMiseADisposition/
 │   ├── phase2.md                       # Admin : LDAP sync, catalogue, filiales, config UI
 │   ├── phase3.md                       # Coeur : bons, signatures, PDF, emails, portail collab
 │   ├── phase4.md                       # Dashboard IT, audit, export CSV
-│   └── phase5.md                       # Securite, contestations, deploiement prod
+│   ├── phase5.md                       # Securite, contestations, deploiement prod
+│   └── phase6-security.md              # Hardening : 10 vulnerabilites critiques corrigees (2026-03-21)
 │
 ├── backend/
 │   ├── Dockerfile                      # Multi-stage : build TS → prod Node.js (non-root)

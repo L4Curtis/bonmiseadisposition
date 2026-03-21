@@ -151,6 +151,25 @@ Internet / Intranet
 
 ---
 
+## Sécurité
+
+Cette application a subi un audit de sécurité complet en mars 2026. **10 vulnérabilités critiques et haute priorité ont été corrigées** :
+
+- IDOR sur contestations (accès contrôlé)
+- LDAP injection (validation filtre)
+- IP spoofing (X-Real-IP nginx)
+- Rate limiting refresh token
+- Policy mot de passe (12+ chars, spécial)
+- Brute force protection (30 min lockout)
+- Config sensible restreinte à admin
+- CSP renforcée (frame-ancestors, connect-src)
+- HSTS activé (1 an)
+- Audit trail authentification
+
+Pour les détails complets, consulter **[docs/phase6-security.md](docs/phase6-security.md)**.
+
+---
+
 ## Développement local
 
 ```bash
