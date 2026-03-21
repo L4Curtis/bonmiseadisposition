@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { ThemeProvider } from '@/contexts/ThemeContext';
+import { UiViewProvider, useUiView } from '@/contexts/UiViewContext';
 import { Layout } from '@/components/layout/Layout';
 import { Toaster } from '@/components/ui/toaster';
 import { LoginPage } from '@/pages/Login';
@@ -48,6 +49,7 @@ function LoadingSpinner() {
 
 function AppRoutes() {
   const { user, loading } = useAuth();
+  const { activeView } = useUiView();
   if (loading) return <LoadingSpinner />;
 
   return (
@@ -64,8 +66,9 @@ function AppRoutes() {
         path="/"
         element={<ProtectedRoute><Layout /></ProtectedRoute>}
       >
+        {/* Redirection index basée sur la vue UX active */}
         <Route index element={
-          user?.isItStaff
+          activeView !== 'collaborateur'
             ? <Navigate to="/dashboard" replace />
             : <Navigate to="/mes-bons" replace />
         } />
@@ -97,21 +100,34 @@ function AppRoutes() {
           </ProtectedRoute>
         } />
 
-        {/* Admin section */}
+        {/* Section admin — garde parent : admin OU technicien */}
         <Route path="admin" element={
           <ProtectedRoute requiredRoles={['admin', 'technician']}>
             <AdminLayout />
           </ProtectedRoute>
         }>
-          <Route index element={<Navigate to="/admin/configuration" replace />} />
-          <Route path="configuration" element={<ConfigurationPage />} />
-          <Route path="ldap" element={<LdapSyncPage />} />
+          {/* Redirection par défaut vers contestations (accessible admin + technicien) */}
+          <Route index element={<Navigate to="/admin/contestations" replace />} />
+
+          {/* Accessible admin + technicien */}
+          <Route path="contestations" element={<ContestationsPage />} />
           <Route path="filiales" element={<FilialesPage />} />
           <Route path="catalogue" element={<CataloguePage />} />
           <Route path="utilisateurs" element={<UtilisateursPage />} />
-          <Route path="audit" element={<AuditLogsPage />} />
-          <Route path="contestations" element={<ContestationsPage />} />
-          <Route path="templates" element={<TemplatesPage />} />
+
+          {/* Réservé admin uniquement — configuration système sensible */}
+          <Route path="configuration" element={
+            <ProtectedRoute requiredRoles={['admin']}><ConfigurationPage /></ProtectedRoute>
+          } />
+          <Route path="ldap" element={
+            <ProtectedRoute requiredRoles={['admin']}><LdapSyncPage /></ProtectedRoute>
+          } />
+          <Route path="audit" element={
+            <ProtectedRoute requiredRoles={['admin']}><AuditLogsPage /></ProtectedRoute>
+          } />
+          <Route path="templates" element={
+            <ProtectedRoute requiredRoles={['admin']}><TemplatesPage /></ProtectedRoute>
+          } />
         </Route>
       </Route>
 
@@ -124,8 +140,10 @@ export default function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <AppRoutes />
-        <Toaster />
+        <UiViewProvider>
+          <AppRoutes />
+          <Toaster />
+        </UiViewProvider>
       </AuthProvider>
     </ThemeProvider>
   );

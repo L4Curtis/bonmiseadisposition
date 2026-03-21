@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { useUiView, UI_VIEW_LABELS } from '@/contexts/UiViewContext';
 import { cn } from '@/lib/utils';
 import {
   LayoutDashboard,
@@ -33,7 +34,8 @@ type NavGroup = {
   items: NavItem[];
 };
 
-const itNavGroups: NavGroup[] = [
+// Navigation technicien : opérations + référentiel (sans accès système admin)
+const technicienNavGroups: NavGroup[] = [
   {
     title: 'Opérations',
     items: [
@@ -50,6 +52,11 @@ const itNavGroups: NavGroup[] = [
       { to: '/admin/catalogue', icon: Package, label: 'Équipements' },
     ],
   },
+];
+
+// Navigation admin : tout (technicien + section système)
+const adminNavGroups: NavGroup[] = [
+  ...technicienNavGroups,
   {
     title: 'Système',
     items: [
@@ -128,12 +135,14 @@ function SidebarSection({ group, isFirst }: { group: NavGroup; isFirst: boolean 
 
 export function Sidebar() {
   const { user } = useAuth();
-  const navGroups = user?.isItStaff ? itNavGroups : collaboratorNavGroups;
+  const { activeView } = useUiView();
 
-  const roleLabel =
-    user?.role === 'admin' ? 'Administrateur'
-    : user?.role === 'technician' ? 'Technicien'
-    : 'Collaborateur';
+  const navGroups =
+    activeView === 'administrateur' ? adminNavGroups
+    : activeView === 'technicien' ? technicienNavGroups
+    : collaboratorNavGroups;
+
+  const viewLabel = UI_VIEW_LABELS[activeView];
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -167,7 +176,7 @@ export function Sidebar() {
             </div>
             <div className="min-w-0">
               <p className="text-xs font-medium text-slate-200 truncate leading-none">{user?.displayName}</p>
-              <p className="text-[10px] text-slate-500 mt-0.5 leading-none">{roleLabel}</p>
+              <p className="text-[10px] text-slate-500 mt-0.5 leading-none">{viewLabel}</p>
             </div>
           </div>
         </div>

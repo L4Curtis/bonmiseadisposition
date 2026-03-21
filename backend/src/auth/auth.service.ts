@@ -1,7 +1,6 @@
-import { Injectable, UnauthorizedException, Logger } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Response, Request } from 'express';
-import * as crypto from 'crypto';
 import * as bcrypt from 'bcryptjs';
 import { ConfidentialClientApplication, AuthorizationCodeRequest } from '@azure/msal-node';
 import { AppConfigService } from '../config/config.service';
@@ -93,9 +92,7 @@ export class AuthService {
     // Re-fetch with updated role
     user = await this.prisma.user.findUniqueOrThrow({ where: { id: user.id } });
 
-    const encryptionKey = process.env.ENCRYPTION_KEY;
-    const jwtSecret = crypto.createHash('sha256').update(encryptionKey + '_jwt').digest('hex');
-
+    const jwtSecret = this.getJwtSecret();
     const payload = { sub: user.id, email: user.email, role: user.role };
 
     const accessToken = this.jwtService.sign(payload, {
@@ -112,8 +109,7 @@ export class AuthService {
   }
 
   async createTokensForUser(user: { id: string; email: string; role: string }): Promise<{ accessToken: string; refreshToken: string }> {
-    const encryptionKey = process.env.ENCRYPTION_KEY;
-    const jwtSecret = crypto.createHash('sha256').update(encryptionKey + '_jwt').digest('hex');
+    const jwtSecret = this.getJwtSecret();
     const payload = { sub: user.id, email: user.email, role: user.role };
     const accessToken = this.jwtService.sign(payload, { secret: jwtSecret, expiresIn: '15m' });
     const refreshToken = this.jwtService.sign({ sub: user.id, type: 'refresh' }, { secret: jwtSecret, expiresIn: '8h' });
@@ -121,8 +117,7 @@ export class AuthService {
   }
 
   async refreshAccessToken(refreshToken: string): Promise<string> {
-    const encryptionKey = process.env.ENCRYPTION_KEY;
-    const jwtSecret = crypto.createHash('sha256').update(encryptionKey + '_jwt').digest('hex');
+    const jwtSecret = this.getJwtSecret();
 
     try {
       const payload = this.jwtService.verify(refreshToken, { secret: jwtSecret });
@@ -180,8 +175,11 @@ export class AuthService {
   }
 
   getJwtSecret(): string {
-    const encryptionKey = process.env.ENCRYPTION_KEY;
-    return crypto.createHash('sha256').update(encryptionKey + '_jwt').digest('hex');
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+      throw new Error('JWT_SECRET environment variable is required. Generate with: openssl rand -hex 32');
+    }
+    return secret;
   }
 
   async localLogin(email: string, password: string): Promise<{ accessToken: string; refreshToken: string; mustChangePassword: boolean }> {
@@ -202,6 +200,18 @@ export class AuthService {
     return { ...tokens, mustChangePassword: user.mustChangePassword };
   }
 
+  private validatePasswordStrength(password: string): void {
+    if (password.length < 8) {
+      throw new BadRequestException('Le mot de passe doit contenir au moins 8 caractères');
+    }
+    if (!/[A-Z]/.test(password)) {
+      throw new BadRequestException('Le mot de passe doit contenir au moins une lettre majuscule');
+    }
+    if (!/[0-9]/.test(password)) {
+      throw new BadRequestException('Le mot de passe doit contenir au moins un chiffre');
+    }
+  }
+
   async changePassword(userId: string, currentPassword: string, newPassword: string): Promise<void> {
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
 
@@ -213,6 +223,8 @@ export class AuthService {
     if (!valid) {
       throw new UnauthorizedException('Mot de passe actuel incorrect');
     }
+
+    this.validatePasswordStrength(newPassword);
 
     const hash = await bcrypt.hash(newPassword, 12);
     await this.prisma.user.update({
@@ -259,7 +271,7 @@ export class AuthService {
           active: true,
         },
       });
-      this.logger.log('Default local admin created: admin@local / admin (changement de mot de passe requis à la première connexion)');
+      this.logger.log('Default local admin created: admin@local — password change required on first login');
     } catch {
       this.logger.warn('Could not create default local admin (already exists)');
     }

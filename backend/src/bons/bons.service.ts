@@ -421,35 +421,44 @@ export class BonsService {
 
     if (!equipmentIds?.length) throw new BadRequestException('Aucun équipement sélectionné');
 
-    // Mark equipments as not returned
-    await this.prisma.bonEquipment.updateMany({
-      where: {
-        id: { in: equipmentIds },
-        bonId: id,
-        returnedAt: null,
-      },
-      data: { notReturned: true, notReturnedReason: reason },
-    });
+    if (signatureDataUrl && !signatureDataUrl.startsWith('data:image/')) {
+      throw new BadRequestException('La signature doit être une image valide (data:image/...)');
+    }
 
-    // Audit log
-    await this.prisma.auditLog.create({
-      data: {
-        bonId: id,
-        userId,
-        action: 'declare_not_returned',
-        details: { equipmentIds, reason },
-      },
-    });
+    // Wrap equipment update + audit log + status change in a transaction
+    const remaining = await this.prisma.$transaction(async (tx) => {
+      // Mark equipments as not returned
+      await tx.bonEquipment.updateMany({
+        where: {
+          id: { in: equipmentIds },
+          bonId: id,
+          returnedAt: null,
+        },
+        data: { notReturned: true, notReturnedReason: reason },
+      });
 
-    // Check if all equipments are now resolved (returned or not returned)
-    const remaining = await this.prisma.bonEquipment.count({
-      where: { bonId: id, returnedAt: null, notReturned: false },
-    });
+      // Audit log
+      await tx.auditLog.create({
+        data: {
+          bonId: id,
+          userId,
+          action: 'declare_not_returned',
+          details: { equipmentIds, reason },
+        },
+      });
 
-    // Always update status to partially_returned while waiting for PV signature
-    await this.prisma.bon.update({
-      where: { id },
-      data: { status: 'partially_returned' as any },
+      // Check if all equipments are now resolved (returned or not returned)
+      const count = await tx.bonEquipment.count({
+        where: { bonId: id, returnedAt: null, notReturned: false },
+      });
+
+      // Always update status to partially_returned while waiting for PV signature
+      await tx.bon.update({
+        where: { id },
+        data: { status: 'partially_returned' as any },
+      });
+
+      return count;
     });
 
     if (remaining === 0) {
@@ -515,24 +524,31 @@ export class BonsService {
 
     if (!equipmentIds?.length) throw new BadRequestException('Aucun équipement sélectionné');
 
-    // Mark equipment as found (returned)
-    await this.prisma.bonEquipment.updateMany({
-      where: {
-        id: { in: equipmentIds },
-        bonId: id,
-        notReturned: true,
-      },
-      data: { notReturned: false, notReturnedReason: null, returnedAt: new Date() },
-    });
+    if (signatureDataUrl && !signatureDataUrl.startsWith('data:image/')) {
+      throw new BadRequestException('La signature doit être une image valide (data:image/...)');
+    }
 
-    // Audit log
-    await this.prisma.auditLog.create({
-      data: {
-        bonId: id,
-        userId,
-        action: 'mark_found',
-        details: { equipmentIds, wasArchived: bon.status === 'archived' },
-      },
+    // Wrap equipment update + audit log in a transaction for atomicity
+    await this.prisma.$transaction(async (tx) => {
+      // Mark equipment as found (returned)
+      await tx.bonEquipment.updateMany({
+        where: {
+          id: { in: equipmentIds },
+          bonId: id,
+          notReturned: true,
+        },
+        data: { notReturned: false, notReturnedReason: null, returnedAt: new Date() },
+      });
+
+      // Audit log
+      await tx.auditLog.create({
+        data: {
+          bonId: id,
+          userId,
+          action: 'mark_found',
+          details: { equipmentIds, wasArchived: bon.status === 'archived' },
+        },
+      });
     });
 
     const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
@@ -706,11 +722,22 @@ export class BonsService {
 
   private async generateReference(): Promise<string> {
     const year = new Date().getFullYear();
-    const count = await this.prisma.bon.count({
-      where: {
-        createdAt: { gte: new Date(`${year}-01-01T00:00:00.000Z`) },
-      },
+    const prefix = `BON-${year}-%`;
+    // Advisory lock sérialise les générations concurrentes au niveau PostgreSQL.
+    // hashtext() produit un entier stable à partir d'une chaîne, sans collision pratique
+    // pour cette clé unique. Pas de changement de schéma requis.
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('bon_reference_lock'))`;
+      const result = await tx.$queryRaw<[{ max_ref: string | null }]>`
+        SELECT MAX(reference) as max_ref
+        FROM "Bon"
+        WHERE reference LIKE ${prefix}
+      `;
+      const lastRef = result[0]?.max_ref;
+      const nextNum = lastRef
+        ? parseInt(lastRef.split('-')[2], 10) + 1
+        : 1;
+      return `BON-${year}-${String(nextNum).padStart(4, '0')}`;
     });
-    return `BON-${year}-${String(count + 1).padStart(4, '0')}`;
   }
 }
