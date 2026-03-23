@@ -432,7 +432,7 @@ export function BonDetailPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={doResend}
+              onClick={() => doResend()}
               disabled={!!actionLoading}
               title={hasPendingPvCloture ? 'Renvoie le PV au collaborateur pour signature' : 'Régénère un nouveau token et renvoie l\'email de signature au collaborateur'}
             >

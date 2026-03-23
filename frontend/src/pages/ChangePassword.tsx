@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Lock, CheckCircle2, XCircle, Eye, EyeOff } from 'lucide-react';
+import { changePasswordSchema, validate } from '@/lib/validation';
 
 const PASSWORD_RULES = [
   { regex: /.{12,}/, label: '12 caractères minimum' },
@@ -31,8 +32,11 @@ export function ChangePasswordPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!allRulesOk) { setError('Le mot de passe ne respecte pas toutes les règles'); return; }
-    if (!passwordsMatch) { setError('Les mots de passe ne correspondent pas'); return; }
+    const result = validate(changePasswordSchema, { currentPassword, newPassword, confirmPassword });
+    if (!result.success) {
+      setError(Object.values(result.errors)[0]);
+      return;
+    }
 
     setLoading(true);
     setError('');

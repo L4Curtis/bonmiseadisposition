@@ -19,10 +19,17 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       secretOrKeyProvider: async (_req: any, _rawJwtToken: any, done: any) => {
         done(null, authService.getJwtSecret());
       },
+      passReqToCallback: true,
     });
   }
 
-  async validate(payload: { sub: string; email: string; role: string }) {
+  async validate(req: Request, payload: { sub: string; email: string; role: string }) {
+    // Check if this token has been revoked (e.g. after logout)
+    const token = req?.cookies?.['access_token'];
+    if (token && this.authService.isTokenRevoked(token)) {
+      throw new UnauthorizedException();
+    }
+
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       select: {

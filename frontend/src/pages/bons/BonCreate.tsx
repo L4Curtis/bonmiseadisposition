@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Search, X, Plus, Trash2, Package, ChevronLeft } from 'lucide-react';
+import { bonCreateSchema, validate } from '@/lib/validation';
 import type { Filiale } from '@/types';
 
 interface UserResult {
@@ -100,7 +101,7 @@ function UserAutocomplete({
       <div className="flex items-center gap-2 rounded-md border bg-card px-3 py-1.5">
         <Search className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
         <input
-          className="flex-1 text-sm outline-none placeholder:text-muted-foreground/70"
+          className="flex-1 text-sm outline-none bg-transparent text-foreground placeholder:text-muted-foreground/70"
           placeholder="Rechercher un collaborateur..."
           aria-label="Rechercher un collaborateur"
           role="combobox"
@@ -170,7 +171,7 @@ function CatalogSearch({
       <div className="flex items-center gap-2 rounded-md border bg-card px-3 py-1.5">
         <Search className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
         <input
-          className="flex-1 text-sm outline-none placeholder:text-muted-foreground/70"
+          className="flex-1 text-sm outline-none bg-transparent text-foreground placeholder:text-muted-foreground/70"
           placeholder="Ajouter depuis le catalogue..."
           aria-label="Rechercher dans le catalogue"
           value={query}
@@ -264,19 +265,31 @@ export function BonCreatePage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!collaborateur) { setError('Sélectionnez un collaborateur'); return; }
-    if (!filialeId) { setError('Sélectionnez une filiale'); return; }
-    if (!dateMiseDisposition) { setError('Indiquez la date de mise à disposition'); return; }
-
     const validEquipments = equipments.filter((e) => e.catalogItemId || e.customLabel?.trim());
-    if (validEquipments.length === 0) { setError('Ajoutez au moins un équipement'); return; }
+    const result = validate(bonCreateSchema, {
+      collaborateurId: collaborateur?.id ?? '',
+      filialeId,
+      dateMiseDisposition,
+      civilite,
+      equipments: validEquipments.map((e) => ({
+        catalogItemId: e.catalogItemId || undefined,
+        customLabel: e.customLabel || undefined,
+        serialNumber: e.serialNumber || undefined,
+        inventoryNumber: e.inventoryNumber || undefined,
+        notes: e.notes || undefined,
+      })),
+    });
+    if (!result.success) {
+      setError(Object.values(result.errors)[0]);
+      return;
+    }
 
     setSubmitting(true);
     setError('');
     try {
       const bon = await api.post<{ id: string }>('/bons', {
         filialeId,
-        collaborateurId: collaborateur.id,
+        collaborateurId: collaborateur!.id,
         civilite,
         dateMiseDisposition,
         dateRestitution: dateRestitution || undefined,
@@ -493,7 +506,7 @@ export function BonCreatePage() {
           <CardHeader><CardTitle className="text-base">Remarques <span className="text-muted-foreground/70 text-xs font-normal">(optionnel)</span></CardTitle></CardHeader>
           <CardContent>
             <textarea
-              className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+              className="w-full rounded-md border bg-transparent text-foreground px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none"
               rows={3}
               placeholder="Informations complémentaires..."
               value={notes}

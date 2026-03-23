@@ -84,6 +84,12 @@ export class PdfService {
     const documentType = this.getDocumentType(snapshotType);
     const pdf = await this.renderPdf(bon, sigImages, documentType);
 
+    // Guard: reject oversized PDFs (10 MB max)
+    const MAX_PDF_SIZE = 10 * 1024 * 1024;
+    if (pdf.length > MAX_PDF_SIZE) {
+      throw new Error(`PDF trop volumineux (${(pdf.length / 1024 / 1024).toFixed(1)} MB > 10 MB) pour le bon ${bon.reference}`);
+    }
+
     // Upsert into PdfSnapshot table
     await this.prisma.pdfSnapshot.upsert({
       where: { bonId_type: { bonId: bon.id, type: snapshotType as any } },

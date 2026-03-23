@@ -13,6 +13,7 @@ import {
 import { Label } from '@/components/ui/label';
 import { FileText, Clock, CheckCircle2, Archive, ExternalLink, AlertOctagon, XCircle } from 'lucide-react';
 import { BON_STATUS_LABELS, BON_STATUS_COLORS, type BonStatus } from '@/types';
+import { contestationSchema, validate } from '@/lib/validation';
 import { formatDateLong } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 
@@ -81,8 +82,8 @@ function ContestationDialog({
 
   const handleSubmit = async () => {
     if (!bon) return;
-    if (!message.trim()) { setError('Le motif est obligatoire'); return; }
-    if (message.trim().length < 10) { setError('Veuillez détailler le motif (au moins 10 caractères)'); return; }
+    const result = validate(contestationSchema, { message: message.trim() });
+    if (!result.success) { setError(Object.values(result.errors)[0]); return; }
     setLoading(true);
     setError('');
     try {

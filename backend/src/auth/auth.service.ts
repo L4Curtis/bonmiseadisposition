@@ -2,6 +2,7 @@ import { Injectable, UnauthorizedException, BadRequestException, Logger } from '
 import { JwtService } from '@nestjs/jwt';
 import { Response, Request } from 'express';
 import * as bcrypt from 'bcryptjs';
+import * as crypto from 'crypto';
 import { ConfidentialClientApplication, AuthorizationCodeRequest } from '@azure/msal-node';
 import { AppConfigService } from '../config/config.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -10,11 +11,40 @@ import { PrismaService } from '../prisma/prisma.service';
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
 
+  // In-memory blacklist for revoked JWT access tokens (token hash → expiry timestamp)
+  private readonly revokedTokens = new Map<string, number>();
+
   constructor(
     private readonly configService: AppConfigService,
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
-  ) {}
+  ) {
+    // Periodically clean up expired entries every 5 minutes
+    setInterval(() => this.cleanupRevokedTokens(), 5 * 60 * 1000);
+  }
+
+  /** Revoke an access token so it cannot be used after logout */
+  revokeAccessToken(token: string): void {
+    const hash = crypto.createHash('sha256').update(token).digest('hex');
+    // Keep in blacklist until the token would have expired (15 min from now as max)
+    const expiresAt = Date.now() + 15 * 60 * 1000;
+    this.revokedTokens.set(hash, expiresAt);
+  }
+
+  /** Check if a token has been revoked */
+  isTokenRevoked(token: string): boolean {
+    const hash = crypto.createHash('sha256').update(token).digest('hex');
+    return this.revokedTokens.has(hash);
+  }
+
+  private cleanupRevokedTokens(): void {
+    const now = Date.now();
+    for (const [hash, expiresAt] of this.revokedTokens) {
+      if (expiresAt <= now) {
+        this.revokedTokens.delete(hash);
+      }
+    }
+  }
 
   /** Build MSAL ConfidentialClientApplication from DB config */
   private async getMsalClient(): Promise<ConfidentialClientApplication> {
@@ -264,6 +294,10 @@ export class AuthService {
     });
   }
 
+  private generateDefaultAdminPassword(): string {
+    return process.env.DEFAULT_ADMIN_PASSWORD || crypto.randomBytes(16).toString('hex');
+  }
+
   async ensureDefaultAdmin(): Promise<void> {
     // Ensure local_auth_enabled defaults to true
     const localAuthSetting = await this.configService.get('general', 'local_auth_enabled');
@@ -276,18 +310,20 @@ export class AuthService {
     if (existing) {
       // Admin exists — do NOT reset the password (avoid reverting a custom password on restart)
       if (!existing.isLocalAccount) {
-        const hash = await bcrypt.hash('admin', 12);
+        const tempPassword = this.generateDefaultAdminPassword();
+        const hash = await bcrypt.hash(tempPassword, 12);
         await this.prisma.user.update({
           where: { id: existing.id },
           data: { isLocalAccount: true, passwordHash: hash, role: 'admin', isItStaff: true, mustChangePassword: true },
         });
-        this.logger.log('Default local admin upgraded: admin@local (changement de mot de passe requis)');
+        this.logger.warn(`Default local admin upgraded: admin@local — temporary password: ${tempPassword} (changement requis au premier login)`);
       }
       return;
     }
 
     // Create default admin with must-change-password flag
-    const hash = await bcrypt.hash('admin', 12);
+    const tempPassword = this.generateDefaultAdminPassword();
+    const hash = await bcrypt.hash(tempPassword, 12);
     try {
       await this.prisma.user.create({
         data: {
@@ -302,7 +338,7 @@ export class AuthService {
           active: true,
         },
       });
-      this.logger.log('Default local admin created: admin@local — password change required on first login');
+      this.logger.warn(`Default local admin created: admin@local — temporary password: ${tempPassword} (changement requis au premier login)`);
     } catch {
       this.logger.warn('Could not create default local admin (already exists)');
     }

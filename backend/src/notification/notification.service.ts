@@ -79,10 +79,10 @@ export class NotificationService {
       .sort((a, b) => a.order - b.order)
       .map((eq) => {
         const label = eq.catalogItem
-          ? `${eq.catalogItem.brand} ${eq.catalogItem.model}`
-          : eq.customLabel || 'Équipement';
+          ? escapeHtml(`${eq.catalogItem.brand} ${eq.catalogItem.model}`)
+          : escapeHtml(eq.customLabel || 'Équipement');
         const serial = eq.serialNumber
-          ? `<span style="color:#94a3b8;font-size:12px;margin-left:6px">(N° série : ${eq.serialNumber})</span>`
+          ? `<span style="color:#94a3b8;font-size:12px;margin-left:6px">(N° série : ${escapeHtml(eq.serialNumber)})</span>`
           : '';
         return `<li style="padding:8px 0;border-bottom:1px solid #f1f5f9;font-size:14px;color:#374151;line-height:1.5;list-style:none">${label}${serial}</li>`;
       });
@@ -97,12 +97,12 @@ export class NotificationService {
       .sort((a, b) => a.order - b.order)
       .map((eq) => {
         const label = eq.catalogItem
-          ? `${eq.catalogItem.brand} ${eq.catalogItem.model}`
-          : eq.customLabel || 'Équipement';
+          ? escapeHtml(`${eq.catalogItem.brand} ${eq.catalogItem.model}`)
+          : escapeHtml(eq.customLabel || 'Équipement');
         const serial = eq.serialNumber
-          ? `<span style="color:#94a3b8;font-size:12px;margin-left:6px">(N° série : ${eq.serialNumber})</span>`
+          ? `<span style="color:#94a3b8;font-size:12px;margin-left:6px">(N° série : ${escapeHtml(eq.serialNumber)})</span>`
           : '';
-        const reason = `<span style="display:inline-block;margin-left:8px;font-size:11px;font-weight:600;color:#dc2626;background:#fef2f2;padding:1px 6px;border-radius:4px">${eq.notReturnedReason ?? 'Motif non précisé'}</span>`;
+        const reason = `<span style="display:inline-block;margin-left:8px;font-size:11px;font-weight:600;color:#dc2626;background:#fef2f2;padding:1px 6px;border-radius:4px">${escapeHtml(eq.notReturnedReason ?? 'Motif non précisé')}</span>`;
         return `<li style="padding:8px 0;border-bottom:1px solid #fee2e2;font-size:14px;color:#374151;line-height:1.5;list-style:none">${label}${serial}${reason}</li>`;
       });
     return items.length
@@ -121,10 +121,10 @@ export class NotificationService {
 
     const html = await this.templatesService.renderTemplate('mise_disposition_request', {
       COLLAB_CIVILITE: bon.civilite === 'mme' ? 'Madame' : 'Monsieur',
-      COLLAB_NAME: bon.collaborateur?.displayName ?? '',
-      FILIALE_NOM: filialeNom,
+      COLLAB_NAME: escapeHtml(bon.collaborateur?.displayName ?? ''),
+      FILIALE_NOM: escapeHtml(filialeNom),
       DATE_MISE_DISPO: dateMise,
-      REFERENCE: bon.reference,
+      REFERENCE: escapeHtml(bon.reference),
       SIGNER_URL: `${appUrl}/signer/${token}`,
       EQUIP_LIST: this.buildEquipList(bon.equipments ?? []),
     });
@@ -152,9 +152,9 @@ export class NotificationService {
 
     const html = await this.templatesService.renderTemplate('restitution_request', {
       COLLAB_CIVILITE: bon.civilite === 'mme' ? 'Madame' : 'Monsieur',
-      COLLAB_NAME: bon.collaborateur?.displayName ?? '',
-      FILIALE_NOM: filialeNom,
-      REFERENCE: bon.reference,
+      COLLAB_NAME: escapeHtml(bon.collaborateur?.displayName ?? ''),
+      FILIALE_NOM: escapeHtml(filialeNom),
+      REFERENCE: escapeHtml(bon.reference),
       SIGNER_URL: `${appUrl}/signer/${token}`,
       EQUIP_LIST: this.buildEquipList(bon.equipments ?? []),
     });
@@ -182,8 +182,8 @@ export class NotificationService {
     const typLabel = type === 'restitution' ? 'restitution' : 'mise à disposition';
 
     const html = await this.templatesService.renderTemplate(templateId, {
-      FILIALE_NOM: filialeNom,
-      REFERENCE: bon.reference,
+      FILIALE_NOM: escapeHtml(filialeNom),
+      REFERENCE: escapeHtml(bon.reference),
       TYPE_LABEL: typLabel,
     });
 
@@ -210,9 +210,9 @@ export class NotificationService {
 
     const html = await this.templatesService.renderTemplate('pv_cloture_request', {
       COLLAB_CIVILITE: bon.civilite === 'mme' ? 'Madame' : 'Monsieur',
-      COLLAB_NAME: bon.collaborateur?.displayName ?? '',
-      FILIALE_NOM: filialeNom,
-      REFERENCE: bon.reference,
+      COLLAB_NAME: escapeHtml(bon.collaborateur?.displayName ?? ''),
+      FILIALE_NOM: escapeHtml(filialeNom),
+      REFERENCE: escapeHtml(bon.reference),
       SIGNER_URL: `${appUrl}/signer/${token}`,
       NOT_RETURNED_LIST: this.buildNotReturnedList(bon.equipments ?? []),
     });
@@ -249,8 +249,8 @@ export class NotificationService {
 
     const html = await this.templatesService.renderTemplate('contestation_alert', {
       USER_NAME: escapeHtml(userName),
-      REFERENCE: reference,
-      FILIALE_NOM: filialeNom,
+      REFERENCE: escapeHtml(reference),
+      FILIALE_NOM: escapeHtml(filialeNom),
       CONTESTATION_MESSAGE: escapeHtml(message),
     });
 
@@ -284,8 +284,8 @@ export class NotificationService {
     const templateId = action === 'resolved' ? 'contestation_resolved' : 'contestation_rejected';
 
     const html = await this.templatesService.renderTemplate(templateId, {
-      REFERENCE: bon.reference,
-      FILIALE_NOM: filialeNom,
+      REFERENCE: escapeHtml(bon.reference),
+      FILIALE_NOM: escapeHtml(filialeNom),
       RESOLUTION_MESSAGE: resolutionMessage ? escapeHtml(resolutionMessage) : '',
     });
 
@@ -343,11 +343,11 @@ export class NotificationService {
 
       const html = await this.templatesService.renderTemplate('reminder', {
         TYPE_LABEL: isRestitution ? 'restitution' : 'mise à disposition',
-        REFERENCE: bon.reference,
+        REFERENCE: escapeHtml(bon.reference),
         SIGNER_URL: `${appUrl}/signer/${sig.token}`,
         REMINDER_NUMBER: String(reminderCount + 1),
         MAX_REMINDERS: String(maxReminders),
-        FILIALE_NOM: filialeNom,
+        FILIALE_NOM: escapeHtml(filialeNom),
       });
 
       const ok = await this.sendEmail(

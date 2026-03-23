@@ -105,12 +105,18 @@ export class AuthController {
   }
 
   @Post('logout')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   async logout(@CurrentUser() user: any, @Req() req: Request, @Res() res: Response) {
     const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
       ?? (req.headers['x-real-ip'] as string)
       ?? req.socket?.remoteAddress
       ?? 'unknown';
+    // Revoke the access token so it cannot be reused after logout
+    const accessToken = req.cookies?.['access_token'];
+    if (accessToken) {
+      this.authService.revokeAccessToken(accessToken);
+    }
     await this.prisma.auditLog.create({
       data: {
         userId: user?.id,
@@ -169,7 +175,8 @@ export class AuthController {
   }
 
   @Post('change-password')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   async changePassword(
     @Body() dto: ChangePasswordDto,
     @CurrentUser() user: any,

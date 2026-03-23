@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
 import { ChevronDown, ChevronUp } from 'lucide-react';
+import { loginSchema, validate } from '@/lib/validation';
 
 const ERROR_MESSAGES: Record<string, string> = {
   entra_config_missing: "La configuration Microsoft Entra ID n'est pas encore configurée.",
@@ -37,6 +38,11 @@ export function LoginPage() {
 
   const handleLocalLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    const result = validate(loginSchema, { email: localEmail, password: localPassword });
+    if (!result.success) {
+      setLocalError(Object.values(result.errors)[0]);
+      return;
+    }
     setLocalLoading(true);
     setLocalError('');
     try {
