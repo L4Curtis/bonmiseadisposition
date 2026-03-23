@@ -2,6 +2,7 @@ import {
   Controller, Get, Post, Put, Patch, Delete, Body, Param,
   UseGuards, UseInterceptors, UploadedFile, Res,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { join, basename } from 'path';
@@ -40,6 +41,11 @@ export class FilialesController {
     if (!existsSync(fullPath)) {
       return res.status(404).json({ message: 'Fichier introuvable' });
     }
+    // Force download for SVG files to prevent stored XSS
+    if (/\.svg$/i.test(safe)) {
+      res.setHeader('Content-Disposition', 'attachment');
+      res.setHeader('Content-Type', 'text/plain');
+    }
     return res.sendFile(fullPath);
   }
 
@@ -60,6 +66,7 @@ export class FilialesController {
   @Patch(':id/logo')
   @UseGuards(RolesGuard)
   @Roles('admin', 'technician')
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @UseInterceptors(FileInterceptor('file'))
   uploadLogo(@Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
     return this.filialesService.updateLogo(id, file.filename);
@@ -68,6 +75,7 @@ export class FilialesController {
   @Patch(':id/stamp')
   @UseGuards(RolesGuard)
   @Roles('admin', 'technician')
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @UseInterceptors(FileInterceptor('file'))
   uploadStamp(@Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
     return this.filialesService.updateStamp(id, file.filename);

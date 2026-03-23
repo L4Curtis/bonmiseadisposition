@@ -1,8 +1,19 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '@/lib/api';
-import { AlertOctagon, ChevronLeft, ChevronRight, CheckCircle, XCircle, Eye, X } from 'lucide-react';
+import { AlertOctagon, ChevronLeft, ChevronRight, CheckCircle, XCircle, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
 import { useNavigate } from 'react-router-dom';
+import { formatDateTime } from '@/lib/utils';
+import { toast } from '@/hooks/use-toast';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -35,10 +46,10 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  open: 'bg-red-100 text-red-700',
-  in_review: 'bg-orange-100 text-orange-700',
-  resolved: 'bg-green-100 text-green-700',
-  rejected: 'bg-slate-100 text-slate-600',
+  open: 'bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400',
+  in_review: 'bg-orange-100 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400',
+  resolved: 'bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400',
+  rejected: 'bg-muted text-muted-foreground',
 };
 
 const STATUS_OPTIONS = [
@@ -49,22 +60,17 @@ const STATUS_OPTIONS = [
   { value: 'rejected', label: 'Rejetée' },
 ];
 
-function formatDate(d: string) {
-  return new Date(d).toLocaleDateString('fr-FR', {
-    day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  });
-}
+// ─── Dialog de résolution ──────────────────────────────────────────────────
 
-// ─── Modal de résolution ───────────────────────────────────────────────────
-
-function ResolveModal({
+function ResolveDialog({
   contestation,
-  onClose,
+  open,
+  onOpenChange,
   onSuccess,
 }: {
-  contestation: Contestation;
-  onClose: () => void;
+  contestation: Contestation | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onSuccess: () => void;
 }) {
   const [action, setAction] = useState<'resolved' | 'rejected'>('resolved');
@@ -72,11 +78,23 @@ function ResolveModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  const handleClose = (v: boolean) => {
+    if (!v) { setResolutionMessage(''); setError(''); setAction('resolved'); }
+    onOpenChange(v);
+  };
+
   const handleSubmit = async () => {
+    if (!contestation) return;
     setLoading(true);
     setError('');
     try {
       await api.patch(`/contestations/${contestation.id}/resolve`, { action, resolutionMessage: resolutionMessage.trim() || undefined });
+      handleClose(false);
+      toast({
+        title: action === 'resolved' ? 'Contestation acceptée' : 'Contestation rejetée',
+        description: `La contestation de ${contestation.user.displayName} a été traitée.`,
+        variant: action === 'resolved' ? 'success' : 'default',
+      });
       onSuccess();
     } catch (e: any) {
       setError(e?.message ?? 'Erreur lors du traitement');
@@ -86,41 +104,41 @@ function ResolveModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-md rounded-xl bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b px-5 py-4">
-          <h2 className="font-semibold text-slate-900">Traiter la contestation</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X className="h-5 w-5" /></button>
-        </div>
+    <Dialog open={open} onOpenChange={handleClose}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Traiter la contestation</DialogTitle>
+        </DialogHeader>
 
-        <div className="p-5 space-y-4">
-          <div className="rounded-lg bg-slate-50 border p-3 text-sm">
-            <p className="text-slate-500 text-xs mb-1">Motif du collaborateur ({contestation.user.displayName})</p>
-            <p className="text-slate-700">{contestation.message}</p>
+        <div className="space-y-4">
+          <div className="rounded-lg bg-muted/40 border p-3 text-sm">
+            <p className="text-muted-foreground text-xs mb-1">Motif du collaborateur ({contestation?.user.displayName})</p>
+            <p className="text-foreground/80">{contestation?.message}</p>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">Décision</label>
+          <div className="space-y-2">
+            <Label>Décision</Label>
             <div className="flex gap-3">
               <button
                 onClick={() => setAction('resolved')}
-                className={`flex-1 flex items-center justify-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors ${action === 'resolved' ? 'border-green-400 bg-green-50 text-green-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+                className={`flex-1 flex items-center justify-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors ${action === 'resolved' ? 'border-green-400 dark:border-green-700 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400' : 'border-border text-muted-foreground hover:bg-muted/40'}`}
               >
                 <CheckCircle className="h-4 w-4" /> Accepter
               </button>
               <button
                 onClick={() => setAction('rejected')}
-                className={`flex-1 flex items-center justify-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors ${action === 'rejected' ? 'border-red-400 bg-red-50 text-red-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+                className={`flex-1 flex items-center justify-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors ${action === 'rejected' ? 'border-red-400 bg-red-50 text-red-700' : 'border-border text-muted-foreground hover:bg-muted/40'}`}
               >
                 <XCircle className="h-4 w-4" /> Rejeter
               </button>
             </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Réponse au collaborateur (optionnel)</label>
+          <div className="space-y-2">
+            <Label htmlFor="resolution-msg">Réponse au collaborateur (optionnel)</Label>
             <textarea
-              className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-400 resize-none"
+              id="resolution-msg"
+              className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring resize-none"
               rows={3}
               placeholder="Expliquez votre décision..."
               value={resolutionMessage}
@@ -129,11 +147,15 @@ function ResolveModal({
             />
           </div>
 
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          {error && (
+            <div role="alert" className="rounded-md bg-destructive/10 border border-destructive/20 p-3">
+              <p className="text-sm text-destructive">{error}</p>
+            </div>
+          )}
         </div>
 
-        <div className="flex gap-2 justify-end border-t px-5 py-4">
-          <Button variant="outline" size="sm" onClick={onClose}>Annuler</Button>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={() => handleClose(false)}>Annuler</Button>
           <Button
             size="sm"
             className={action === 'resolved' ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-red-600 hover:bg-red-700 text-white'}
@@ -142,9 +164,9 @@ function ResolveModal({
           >
             {loading ? 'Envoi...' : action === 'resolved' ? 'Accepter la contestation' : 'Rejeter la contestation'}
           </Button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -184,12 +206,12 @@ export function ContestationsPage() {
     <div className="space-y-4">
       <div className="flex items-center gap-2">
         <AlertOctagon className="h-5 w-5 text-red-500" />
-        <h1 className="text-xl font-bold text-slate-900">Contestations</h1>
+        <h1 className="text-xl font-bold text-foreground">Contestations</h1>
         {data && data.total > 0 && (
-          <span className="text-sm text-slate-400">({data.total} au total)</span>
+          <span className="text-sm text-muted-foreground/70">({data.total} au total)</span>
         )}
         {openCount > 0 && (
-          <span className="inline-flex rounded-full bg-red-100 text-red-700 px-2 py-0.5 text-xs font-semibold">
+          <span className="inline-flex rounded-full bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400 px-2 py-0.5 text-xs font-semibold">
             {openCount} ouvertes
           </span>
         )}
@@ -204,7 +226,7 @@ export function ContestationsPage() {
             className={`rounded-full px-3 py-1 text-xs font-medium border transition-colors ${
               statusFilter === opt.value
                 ? 'bg-primary text-white border-primary'
-                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                : 'bg-card text-muted-foreground border-border hover:bg-muted/40'
             }`}
           >
             {opt.label}
@@ -213,34 +235,43 @@ export function ContestationsPage() {
       </div>
 
       {/* Table */}
-      <div className="rounded-xl border bg-white shadow-sm overflow-hidden">
+      <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
         {loading ? (
-          <div className="flex justify-center py-12">
-            <div className="h-7 w-7 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
+          <div className="divide-y divide-border/60">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-4 px-4 py-3">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-4 w-20" />
+                <div className="flex-1 space-y-1"><Skeleton className="h-4 w-32" /><Skeleton className="h-3 w-40" /></div>
+                <Skeleton className="h-4 w-48" />
+                <Skeleton className="h-5 w-16 rounded-full" />
+                <Skeleton className="h-6 w-24" />
+              </div>
+            ))}
           </div>
         ) : !data?.contestations.length ? (
-          <div className="py-12 text-center text-sm text-slate-400">
+          <div className="py-12 text-center text-sm text-muted-foreground/70">
             <AlertOctagon className="h-8 w-8 mx-auto mb-2 opacity-30" />
             <p>Aucune contestation trouvée</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="border-b bg-slate-50">
+            <table className="w-full text-sm" aria-label="Liste des contestations">
+              <thead className="border-b bg-muted/40">
                 <tr>
-                  <th className="px-4 py-3 text-left font-medium text-slate-600">Date</th>
-                  <th className="px-4 py-3 text-left font-medium text-slate-600">Bon</th>
-                  <th className="px-4 py-3 text-left font-medium text-slate-600">Collaborateur</th>
-                  <th className="px-4 py-3 text-left font-medium text-slate-600">Motif</th>
-                  <th className="px-4 py-3 text-left font-medium text-slate-600">Statut</th>
-                  <th className="px-4 py-3 text-left font-medium text-slate-600">Actions</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Date</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Bon</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Collaborateur</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Motif</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Statut</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {data.contestations.map((c) => (
-                  <tr key={c.id} className="border-b last:border-0 hover:bg-slate-50">
-                    <td className="px-4 py-2.5 text-xs text-slate-500 whitespace-nowrap">
-                      {formatDate(c.createdAt)}
+                  <tr key={c.id} className="border-b last:border-0 hover:bg-muted/40">
+                    <td className="px-4 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
+                      {formatDateTime(c.createdAt)}
                     </td>
                     <td className="px-4 py-2.5 text-xs">
                       <button
@@ -249,16 +280,16 @@ export function ContestationsPage() {
                       >
                         {c.bon.reference}
                       </button>
-                      <p className="text-slate-400">{c.bon.filiale.displayName}</p>
+                      <p className="text-muted-foreground/70">{c.bon.filiale.displayName}</p>
                     </td>
                     <td className="px-4 py-2.5 text-xs">
-                      <div className="font-medium text-slate-700">{c.user.displayName}</div>
-                      <div className="text-slate-400">{c.user.email}</div>
+                      <div className="font-medium text-foreground/80">{c.user.displayName}</div>
+                      <div className="text-muted-foreground/70">{c.user.email}</div>
                     </td>
-                    <td className="px-4 py-2.5 text-xs text-slate-600 max-w-xs">
+                    <td className="px-4 py-2.5 text-xs text-muted-foreground max-w-xs">
                       <p className="truncate" title={c.message}>{c.message}</p>
                       {c.resolvedBy && (
-                        <p className="text-slate-400 mt-0.5">Traité par {c.resolvedBy.displayName}</p>
+                        <p className="text-muted-foreground/70 mt-0.5">Traité par {c.resolvedBy.displayName}</p>
                       )}
                     </td>
                     <td className="px-4 py-2.5">
@@ -271,7 +302,7 @@ export function ContestationsPage() {
                         {c.status === 'open' && (
                           <button
                             onClick={() => handleReview(c.id)}
-                            className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium bg-orange-50 text-orange-700 hover:bg-orange-100 transition-colors"
+                            className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400 hover:bg-orange-100 transition-colors"
                             title="Prendre en charge"
                           >
                             <Eye className="h-3 w-3" /> Prendre en charge
@@ -280,13 +311,13 @@ export function ContestationsPage() {
                         {['open', 'in_review'].includes(c.status) && (
                           <button
                             onClick={() => setResolving(c)}
-                            className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
+                            className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 hover:bg-blue-100 transition-colors"
                           >
                             <CheckCircle className="h-3 w-3" /> Traiter
                           </button>
                         )}
                         {c.resolutionMessage && (
-                          <span className="text-xs text-slate-400 italic truncate max-w-[120px]" title={c.resolutionMessage}>
+                          <span className="text-xs text-muted-foreground/70 italic truncate max-w-[120px]" title={c.resolutionMessage}>
                             {c.resolutionMessage}
                           </span>
                         )}
@@ -302,27 +333,26 @@ export function ContestationsPage() {
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-between text-sm text-slate-500">
+        <div className="flex items-center justify-between text-sm text-muted-foreground">
           <span>{data?.total} contestation(s)</span>
           <div className="flex items-center gap-1">
-            <Button variant="outline" size="icon" disabled={page === 1} onClick={() => setPage((p) => p - 1)}>
+            <Button variant="outline" size="icon" disabled={page === 1} onClick={() => setPage((p) => p - 1)} aria-label="Page précédente">
               <ChevronLeft className="h-4 w-4" />
             </Button>
             <span className="px-3">Page {page} / {totalPages}</span>
-            <Button variant="outline" size="icon" disabled={page === totalPages} onClick={() => setPage((p) => p + 1)}>
+            <Button variant="outline" size="icon" disabled={page === totalPages} onClick={() => setPage((p) => p + 1)} aria-label="Page suivante">
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
         </div>
       )}
 
-      {resolving && (
-        <ResolveModal
-          contestation={resolving}
-          onClose={() => setResolving(null)}
-          onSuccess={() => { setResolving(null); load(); }}
-        />
-      )}
+      <ResolveDialog
+        contestation={resolving}
+        open={!!resolving}
+        onOpenChange={(open) => { if (!open) setResolving(null); }}
+        onSuccess={load}
+      />
     </div>
   );
 }

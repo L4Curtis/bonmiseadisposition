@@ -5,6 +5,16 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { toast } from '@/hooks/use-toast';
 import { Plus, Pencil, Trash2, Upload, X, Check } from 'lucide-react';
 import type { Filiale } from '@/types';
 
@@ -25,7 +35,7 @@ function FilialeForm({
   });
 
   return (
-    <div className="rounded-lg border bg-slate-50 p-4 space-y-3">
+    <div className="rounded-lg border bg-muted/40 p-4 space-y-3">
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
           <Label>Nom officiel (mappage AD)</Label>
@@ -88,32 +98,52 @@ function FileUploadButton({
 
 export function FilialesPage() {
   const [filiales, setFiliales] = useState<Filiale[]>([]);
+  const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Filiale | null>(null);
 
   const fetchFiliales = async () => {
     const data = await api.get<Filiale[]>('/filiales');
     setFiliales(data);
+    setLoading(false);
   };
 
   useEffect(() => { fetchFiliales(); }, []);
 
   const create = async (data: Partial<Filiale>) => {
-    await api.post('/filiales', data);
-    setCreating(false);
-    fetchFiliales();
+    try {
+      await api.post('/filiales', data);
+      toast({ title: 'Filiale creee', variant: 'success' });
+      setCreating(false);
+      fetchFiliales();
+    } catch {
+      toast({ title: 'Erreur lors de la creation', variant: 'destructive' });
+    }
   };
 
   const update = async (id: string, data: Partial<Filiale>) => {
-    await api.put(`/filiales/${id}`, data);
-    setEditingId(null);
-    fetchFiliales();
+    try {
+      await api.put(`/filiales/${id}`, data);
+      toast({ title: 'Filiale mise a jour', variant: 'success' });
+      setEditingId(null);
+      fetchFiliales();
+    } catch {
+      toast({ title: 'Erreur lors de la mise a jour', variant: 'destructive' });
+    }
   };
 
-  const remove = async (id: string) => {
-    if (!confirm('Supprimer cette filiale ?')) return;
-    await api.delete(`/filiales/${id}`);
-    fetchFiliales();
+  const remove = async () => {
+    if (!deleteTarget) return;
+    try {
+      await api.delete(`/filiales/${deleteTarget.id}`);
+      toast({ title: 'Filiale supprimee', variant: 'success' });
+    } catch {
+      toast({ title: 'Erreur lors de la suppression', variant: 'destructive' });
+    } finally {
+      setDeleteTarget(null);
+      fetchFiliales();
+    }
   };
 
   const uploadFile = async (id: string, type: 'logo' | 'stamp', file: File) => {
@@ -123,6 +153,7 @@ export function FilialesPage() {
       method: 'PATCH',
       body: form,
       credentials: 'include',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
     });
     fetchFiliales();
   };
@@ -130,7 +161,7 @@ export function FilialesPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-slate-900">Filiales</h1>
+        <h1 className="text-xl font-bold text-foreground">Filiales</h1>
         <Button size="sm" onClick={() => setCreating(true)}>
           <Plus className="h-4 w-4" /> Ajouter
         </Button>
@@ -141,7 +172,30 @@ export function FilialesPage() {
       )}
 
       <div className="space-y-3">
-        {filiales.map((f) => (
+        {loading ? (
+          Array.from({ length: 3 }).map((_, i) => (
+            <Card key={i}>
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-4">
+                    <Skeleton className="h-10 w-20 rounded border" />
+                    <div className="space-y-1.5">
+                      <Skeleton className="h-4 w-32" />
+                      <Skeleton className="h-3 w-24" />
+                    </div>
+                    <Skeleton className="h-5 w-16 rounded-full" />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Skeleton className="h-8 w-16" />
+                    <Skeleton className="h-8 w-20" />
+                    <Skeleton className="h-8 w-8" />
+                    <Skeleton className="h-8 w-8" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))
+        ) : filiales.map((f) => (
           <Card key={f.id}>
             <CardContent className="p-4">
               {editingId === f.id ? (
@@ -160,13 +214,13 @@ export function FilialesPage() {
                         className="h-10 w-20 object-contain rounded border"
                       />
                     ) : (
-                      <div className="h-10 w-20 rounded border bg-slate-100 flex items-center justify-center text-xs text-slate-400">
+                      <div className="h-10 w-20 rounded border bg-muted flex items-center justify-center text-xs text-muted-foreground/70">
                         Pas de logo
                       </div>
                     )}
                     <div>
-                      <p className="font-medium text-slate-900">{f.displayName}</p>
-                      <p className="text-xs text-slate-500">AD: {f.name}</p>
+                      <p className="font-medium text-foreground">{f.displayName}</p>
+                      <p className="text-xs text-muted-foreground">AD: {f.name}</p>
                     </div>
                     <Badge variant={f.active ? 'success' : 'outline'}>
                       {f.active ? 'Active' : 'Inactive'}
@@ -184,7 +238,11 @@ export function FilialesPage() {
                     <Button variant="outline" size="sm" onClick={() => setEditingId(f.id)}>
                       <Pencil className="h-3 w-3" />
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => remove(f.id)}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setDeleteTarget(f)}
+                    >
                       <Trash2 className="h-3 w-3 text-red-500" />
                     </Button>
                   </div>
@@ -193,12 +251,32 @@ export function FilialesPage() {
             </CardContent>
           </Card>
         ))}
-        {filiales.length === 0 && !creating && (
-          <div className="text-center py-10 text-sm text-slate-400">
-            Aucune filiale configurée
+        {!loading && filiales.length === 0 && !creating && (
+          <div className="text-center py-10 text-sm text-muted-foreground/70">
+            Aucune filiale configuree
           </div>
         )}
       </div>
+
+      <Dialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Supprimer cette filiale</DialogTitle>
+            <DialogDescription>
+              Voulez-vous vraiment supprimer la filiale &laquo;&nbsp;{deleteTarget?.displayName}&nbsp;&raquo; ?
+              Cette action est irreversible.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+              Annuler
+            </Button>
+            <Button variant="destructive" onClick={remove}>
+              Supprimer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

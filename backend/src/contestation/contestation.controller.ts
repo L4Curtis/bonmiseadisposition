@@ -13,6 +13,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { ResolveContestationDto } from './dto/resolve-contestation.dto';
 
 @Controller('contestations')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -50,7 +51,7 @@ export class ContestationController {
   @Roles('admin', 'technician')
   resolve(
     @Param('id') id: string,
-    @Body() body: { action: 'resolved' | 'rejected'; resolutionMessage?: string },
+    @Body() body: ResolveContestationDto,
     @CurrentUser() user: any,
   ) {
     return this.contestationService.resolve(id, user.id, body.action, body.resolutionMessage);

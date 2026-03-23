@@ -159,6 +159,7 @@ export class AuthService {
       secure: isProduction,
       sameSite: 'lax',
       maxAge: 15 * 60 * 1000, // 15 min
+      path: '/api', // Limit cookie scope to API routes
     });
     res.cookie('refresh_token', refreshToken, {
       httpOnly: true,
@@ -170,7 +171,7 @@ export class AuthService {
   }
 
   clearAuthCookies(res: Response) {
-    res.clearCookie('access_token');
+    res.clearCookie('access_token', { path: '/api' });
     res.clearCookie('refresh_token', { path: '/api/auth/refresh' });
   }
 
@@ -183,53 +184,42 @@ export class AuthService {
   }
 
   async localLogin(email: string, password: string): Promise<{ accessToken: string; refreshToken: string; mustChangePassword: boolean }> {
-    // Check brute-force lock before hitting the database
-    this.checkBruteForce(email);
+    // Check brute-force lock (persistent, survives restarts)
+    await this.checkBruteForce(email);
 
     const user = await this.prisma.user.findFirst({
       where: { email, isLocalAccount: true, active: true },
     });
 
     if (!user || !user.passwordHash) {
-      this.recordFailedLogin(email);
       throw new UnauthorizedException('Identifiants incorrects');
     }
 
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) {
-      this.recordFailedLogin(email);
       throw new UnauthorizedException('Identifiants incorrects');
     }
 
-    this.clearFailedLogin(email);
     const tokens = await this.createTokensForUser(user);
     return { ...tokens, mustChangePassword: user.mustChangePassword };
   }
 
-  // ─── Brute-force protection (in-memory, resets on restart) ───────────────
-  private readonly loginAttempts = new Map<string, { count: number; lockedUntil?: Date }>();
-
-  private checkBruteForce(email: string): void {
-    const record = this.loginAttempts.get(email);
-    if (record?.lockedUntil && new Date() < record.lockedUntil) {
-      const remaining = Math.ceil((record.lockedUntil.getTime() - Date.now()) / 60000);
-      throw new UnauthorizedException(`Compte temporairement verrouillé. Réessayez dans ${remaining} minute(s).`);
+  // ─── Brute-force protection (persistent via AuditLog, survives restarts) ─
+  // Counts login_local_failed entries in the last 30 minutes for a given email.
+  // Failed login audit entries are recorded by the controller after this check.
+  private async checkBruteForce(email: string): Promise<void> {
+    const windowStart = new Date(Date.now() - 30 * 60 * 1000); // 30-min window
+    const recentFailures = await this.prisma.auditLog.count({
+      where: {
+        userEmail: email,
+        action: 'login_local_failed',
+        createdAt: { gte: windowStart },
+      },
+    });
+    if (recentFailures >= 10) {
+      this.logger.warn(`Compte ${email} bloqué (${recentFailures} échecs en 30 min)`);
+      throw new UnauthorizedException(`Compte temporairement verrouillé suite à plusieurs tentatives échouées. Réessayez dans 30 minutes.`);
     }
-  }
-
-  private recordFailedLogin(email: string): void {
-    const record = this.loginAttempts.get(email) ?? { count: 0 };
-    record.count++;
-    if (record.count >= 10) {
-      record.lockedUntil = new Date(Date.now() + 30 * 60 * 1000); // 30 min lock
-      record.count = 0;
-      this.logger.warn(`Compte ${email} verrouillé après 10 tentatives échouées`);
-    }
-    this.loginAttempts.set(email, record);
-  }
-
-  private clearFailedLogin(email: string): void {
-    this.loginAttempts.delete(email);
   }
 
   private validatePasswordStrength(password: string): void {

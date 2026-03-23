@@ -25,8 +25,8 @@ export class AuthController {
       const loginUrl = await this.authService.getLoginUrl(state);
       const isProduction = process.env.NODE_ENV === 'production';
       res.cookie('oauth_state', state, { httpOnly: true, secure: isProduction, sameSite: 'lax', maxAge: 10 * 60 * 1000 });
-      // Store returnTo (safe relative paths only)
-      if (returnTo && returnTo.startsWith('/')) {
+      // Store returnTo (safe relative paths only — reject double-slash to prevent //evil.com redirect)
+      if (returnTo && /^\/[^/]/.test(returnTo)) {
         res.cookie('auth_return_to', returnTo, { httpOnly: true, secure: isProduction, sameSite: 'lax', maxAge: 10 * 60 * 1000 });
       }
       return res.redirect(loginUrl);
@@ -65,8 +65,9 @@ export class AuthController {
       const { accessToken, refreshToken } = await this.authService.handleCallback(code, state);
       this.authService.setAuthCookies(res, accessToken, refreshToken);
       // Redirect to returnTo if valid, otherwise root (frontend redirects by role: IT→/dashboard, collab→/mes-bons)
+      // Use strict validation to prevent open redirect via //evil.com
       const destination =
-        returnTo && returnTo.startsWith('/') ? `${frontendUrl}${returnTo}` : `${frontendUrl}/`;
+        returnTo && /^\/[^/]/.test(returnTo) ? `${frontendUrl}${returnTo}` : `${frontendUrl}/`;
       return res.redirect(destination);
     } catch (err) {
       return res.redirect(`${frontendUrl}/login?error=auth_failed`);
@@ -87,6 +88,7 @@ export class AuthController {
       secure: isProduction,
       sameSite: 'lax',
       maxAge: 15 * 60 * 1000,
+      path: '/api', // Must match the path set during initial login
     });
     return res.json({ ok: true });
   }

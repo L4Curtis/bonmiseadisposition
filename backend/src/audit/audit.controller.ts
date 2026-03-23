@@ -6,7 +6,7 @@ import { AuditService } from './audit.service';
 
 @Controller('audit')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('admin', 'technician')
+@Roles('admin')
 export class AuditController {
   constructor(private readonly auditService: AuditService) {}
 
@@ -27,7 +27,7 @@ export class AuditController {
       dateFrom,
       dateTo,
       page: page ? parseInt(page, 10) : 1,
-      limit: limit ? parseInt(limit, 10) : 50,
+      limit: limit ? Math.min(parseInt(limit, 10), 100) : 50,
     });
   }
 

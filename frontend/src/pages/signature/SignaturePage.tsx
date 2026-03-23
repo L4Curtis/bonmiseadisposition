@@ -236,8 +236,8 @@ export function SignaturePage() {
 
   if (checkingAuth) {
     return (
-      <div className="flex h-screen items-center justify-center bg-slate-50">
-        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+      <div className="flex h-screen items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin motion-reduce:animate-none text-blue-600" /><span className="sr-only">Chargement en cours</span>
       </div>
     );
   }
@@ -245,14 +245,14 @@ export function SignaturePage() {
   // Pas connecté → afficher le prompt de connexion immédiatement
   if (!currentUser) {
     return (
-      <div className="flex h-screen items-center justify-center bg-slate-50 px-4">
-        <div className="w-full max-w-md rounded-xl bg-white border border-slate-200 shadow-sm p-8 text-center space-y-4">
-          <div className="bg-blue-50 rounded-full w-16 h-16 flex items-center justify-center mx-auto">
-            <Pen className="h-7 w-7 text-blue-600" />
+      <div className="flex h-screen items-center justify-center bg-background px-4">
+        <div className="w-full max-w-md rounded-xl bg-card border border-border shadow-sm p-8 text-center space-y-4">
+          <div className="bg-blue-50 dark:bg-blue-900/20 rounded-full w-16 h-16 flex items-center justify-center mx-auto">
+            <Pen className="h-7 w-7 text-blue-600 dark:text-blue-400" />
           </div>
           <div>
-            <h2 className="font-semibold text-slate-900">Connexion requise</h2>
-            <p className="text-sm text-slate-500 mt-1">
+            <h2 className="font-semibold text-foreground">Connexion requise</h2>
+            <p className="text-sm text-muted-foreground mt-1">
               Vous devez vous connecter avec votre compte Microsoft pour consulter et signer ce document.
             </p>
           </div>
@@ -268,7 +268,7 @@ export function SignaturePage() {
             </svg>
             Se connecter avec Microsoft
           </button>
-          <p className="text-xs text-slate-400">Groupe Livio — Service informatique</p>
+          <p className="text-xs text-muted-foreground/70">Groupe Livio — Service informatique</p>
         </div>
       </div>
     );
@@ -276,8 +276,8 @@ export function SignaturePage() {
 
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-slate-50">
-        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+      <div className="flex h-screen items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin motion-reduce:animate-none text-blue-600" /><span className="sr-only">Chargement en cours</span>
       </div>
     );
   }
@@ -330,10 +330,10 @@ export function SignaturePage() {
     currentUser.email.toLowerCase() !== bon.collaborateurEmail.toLowerCase();
 
   return (
-    <div className="min-h-screen bg-slate-50 py-8 px-4">
+    <div className="min-h-screen bg-background py-8 px-4">
       <div className="mx-auto max-w-2xl space-y-5">
         {/* Header card */}
-        <div className="rounded-xl bg-white border border-slate-200 shadow-sm overflow-hidden">
+        <div className="rounded-xl bg-card border border-border shadow-sm overflow-hidden">
           <div className={`${isPvCloture ? 'bg-red-700' : 'bg-blue-700'} px-6 py-4`}>
             <p className={`${isPvCloture ? 'text-red-200' : 'text-blue-200'} text-xs font-medium uppercase tracking-wider mb-1`}>
               {bon.filiale.displayName}
@@ -354,26 +354,26 @@ export function SignaturePage() {
         </div>
 
         {/* Equipment list */}
-        <div className="rounded-xl bg-white border border-slate-200 shadow-sm">
+        <div className="rounded-xl bg-card border border-border shadow-sm">
           <div className="px-5 py-3 border-b">
-            <h2 className="font-semibold text-sm text-slate-800">
+            <h2 className="font-semibold text-sm text-foreground">
               {isPvCloture
                 ? `Équipements non restitués (${bon.equipments.filter(e => e.notReturned).length})`
                 : `Équipements (${bon.equipments.length})`}
             </h2>
             {isPvCloture && (
-              <p className="text-xs text-slate-500 mt-0.5">
+              <p className="text-xs text-muted-foreground mt-0.5">
                 Les équipements ci-dessous ont été déclarés non restitués par le service informatique.
               </p>
             )}
           </div>
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50">
+          <table className="w-full text-sm" aria-label="Liste des équipements">
+            <thead className="bg-muted/50">
               <tr>
-                <th className="px-4 py-2 text-left text-xs font-medium text-slate-500">#</th>
-                <th className="px-4 py-2 text-left text-xs font-medium text-slate-500">Désignation</th>
-                <th className="px-4 py-2 text-left text-xs font-medium text-slate-500">N° Série</th>
-                {isPvCloture && <th className="px-4 py-2 text-left text-xs font-medium text-slate-500">Motif</th>}
+                <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground">#</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground">Désignation</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground">N° Série</th>
+                {isPvCloture && <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground">Motif</th>}
               </tr>
             </thead>
             <tbody>
@@ -385,11 +385,11 @@ export function SignaturePage() {
                     ? `${eq.catalogItem.brand} ${eq.catalogItem.model}`
                     : eq.customLabel || '—';
                   return (
-                    <tr key={eq.id} className={`border-t ${isPvCloture ? 'bg-red-50' : ''}`}>
-                      <td className="px-4 py-2 text-slate-400">{i + 1}</td>
+                    <tr key={eq.id} className={`border-t ${isPvCloture ? 'bg-red-50 dark:bg-red-900/10' : ''}`}>
+                      <td className="px-4 py-2 text-muted-foreground/70">{i + 1}</td>
                       <td className="px-4 py-2 font-medium">{label}</td>
-                      <td className="px-4 py-2 font-mono text-xs text-slate-500">
-                        {eq.serialNumber || <span className="text-slate-300">—</span>}
+                      <td className="px-4 py-2 font-mono text-xs text-muted-foreground">
+                        {eq.serialNumber || <span className="text-muted-foreground/30">—</span>}
                       </td>
                       {isPvCloture && (
                         <td className="px-4 py-2 text-xs text-red-700 italic">
@@ -404,17 +404,17 @@ export function SignaturePage() {
         </div>
 
         {/* Signature section (user is always authenticated at this point) */}
-        <div className="rounded-xl bg-white border border-slate-200 shadow-sm overflow-hidden">
+        <div className="rounded-xl bg-card border border-border shadow-sm overflow-hidden">
             <div className="px-5 py-3 border-b flex items-center justify-between">
-              <h2 className="font-semibold text-sm text-slate-800">Votre signature</h2>
-              <span className="text-xs text-slate-400">
+              <h2 className="font-semibold text-sm text-foreground">Votre signature</h2>
+              <span className="text-xs text-muted-foreground/70">
                 Connecté en tant que <strong>{currentUser!.displayName}</strong> ({currentUser!.email})
               </span>
             </div>
 
             {/* Email mismatch warning */}
             {emailMismatch && (
-              <div className="mx-5 mt-4 flex items-start gap-3 rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+              <div role="alert" className="mx-5 mt-4 flex items-start gap-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/30 p-3 text-sm text-red-700 dark:text-red-400">
                 <XCircle className="h-4 w-4 shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium">Compte non autorisé</p>
@@ -426,7 +426,7 @@ export function SignaturePage() {
             )}
 
             {isPvCloture && (
-              <div className="mx-5 mt-4 flex items-start gap-3 rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+              <div className="mx-5 mt-4 flex items-start gap-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/30 p-3 text-sm text-red-700 dark:text-red-400">
                 <div>
                   <p className="font-medium">Procès-verbal d'équipements non restitués</p>
                   <p className="text-xs mt-0.5">
@@ -436,7 +436,7 @@ export function SignaturePage() {
               </div>
             )}
             {isInPerson && !isPvCloture && (
-              <div className="mx-5 mt-4 flex items-start gap-3 rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-700">
+              <div className="mx-5 mt-4 flex items-start gap-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-900/30 p-3 text-sm text-amber-700 dark:text-amber-400">
                 <div>
                   <p className="font-medium">Signature présentielle</p>
                   <p className="text-xs mt-0.5">
@@ -450,17 +450,17 @@ export function SignaturePage() {
               {/* Canvas */}
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <label className="text-xs font-medium text-slate-600 uppercase tracking-wider">
+                  <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                     Tracez votre signature ci-dessous
                   </label>
                   <button
                     onClick={clear}
-                    className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 transition-colors"
+                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
                   >
                     <Trash2 className="h-3 w-3" /> Effacer
                   </button>
                 </div>
-                <div className="relative border-2 border-dashed border-slate-200 rounded-lg bg-slate-50 hover:border-blue-300 transition-colors touch-none">
+                <div className="relative border-2 border-dashed border-border rounded-lg bg-muted/30 hover:border-blue-300 transition-colors touch-none">
                   <canvas
                     ref={canvasRef}
                     width={600}
@@ -474,7 +474,7 @@ export function SignaturePage() {
                   />
                   {isEmpty && (
                     <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                      <p className="text-slate-300 text-sm select-none">Signez ici...</p>
+                      <p className="text-muted-foreground/40 text-sm select-none">Signez ici...</p>
                     </div>
                   )}
                 </div>
@@ -486,9 +486,9 @@ export function SignaturePage() {
                   type="checkbox"
                   checked={luApprouve}
                   onChange={(e) => setLuApprouve(e.target.checked)}
-                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  className="mt-0.5 h-4 w-4 rounded border-input text-blue-600 focus:ring-blue-500"
                 />
-                <span className="text-sm text-slate-700 group-hover:text-slate-900 transition-colors">
+                <span className="text-sm text-foreground/80 group-hover:text-foreground transition-colors">
                   {isPvCloture ? (
                     <><strong>Lu et approuvé</strong> — Je reconnais avoir pris connaissance du présent procès-verbal d'équipements non restitués. Je comprends que cette signature électronique a valeur contractuelle.</>
                   ) : (
@@ -499,7 +499,7 @@ export function SignaturePage() {
 
               {/* Error */}
               {submitError && (
-                <div className="flex items-start gap-2 rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+                <div role="alert" className="flex items-start gap-2 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/30 p-3 text-sm text-red-700 dark:text-red-400">
                   <XCircle className="h-4 w-4 shrink-0 mt-0.5" />
                   <span>{submitError}</span>
                 </div>
@@ -512,7 +512,7 @@ export function SignaturePage() {
                 className={`w-full flex items-center justify-center gap-2 rounded-lg px-6 py-3 text-sm font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors ${isPvCloture ? 'bg-red-700 hover:bg-red-800' : 'bg-blue-700 hover:bg-blue-800'}`}
               >
                 {submitting ? (
-                  <><Loader2 className="h-4 w-4 animate-spin" /> Signature en cours…</>
+                  <><Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" /> Signature en cours…</>
                 ) : isPvCloture ? (
                   <><Pen className="h-4 w-4" /> Signer le procès-verbal</>
                 ) : (
@@ -520,14 +520,14 @@ export function SignaturePage() {
                 )}
               </button>
 
-              <p className="text-center text-xs text-slate-400">
+              <p className="text-center text-xs text-muted-foreground/70">
                 Lien valide jusqu'au {formatDate(sig.tokenExpiresAt)}
               </p>
             </div>
           </div>
 
         {/* Footer */}
-        <p className="text-center text-xs text-slate-400 pb-4">
+        <p className="text-center text-xs text-muted-foreground/60 pb-4">
           Groupe Livio — Service informatique · Signature électronique sécurisée
         </p>
       </div>
@@ -540,8 +540,8 @@ export function SignaturePage() {
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex gap-3">
-      <span className="text-slate-400 w-32 shrink-0">{label}</span>
-      <span className="text-slate-800 font-medium">{value}</span>
+      <span className="text-muted-foreground w-32 shrink-0">{label}</span>
+      <span className="text-foreground font-medium">{value}</span>
     </div>
   );
 }
@@ -558,14 +558,14 @@ function StatusScreen({
   success?: boolean;
 }) {
   return (
-    <div className="flex h-screen items-center justify-center bg-slate-50 px-4">
+    <div className="flex h-screen items-center justify-center bg-background px-4">
       <div className="max-w-sm w-full text-center space-y-4">
-        <div className={`mx-auto w-20 h-20 rounded-full flex items-center justify-center ${success ? 'bg-green-50' : 'bg-slate-100'}`}>
+        <div className={`mx-auto w-20 h-20 rounded-full flex items-center justify-center ${success ? 'bg-green-50 dark:bg-green-900/20' : 'bg-muted'}`}>
           {icon}
         </div>
-        <h1 className="text-xl font-bold text-slate-900">{title}</h1>
-        <p className="text-sm text-slate-500">{message}</p>
-        <p className="text-xs text-slate-400">Groupe Livio — Service informatique</p>
+        <h1 className="text-xl font-bold text-foreground">{title}</h1>
+        <p className="text-sm text-muted-foreground">{message}</p>
+        <p className="text-xs text-muted-foreground/70">Groupe Livio — Service informatique</p>
       </div>
     </div>
   );

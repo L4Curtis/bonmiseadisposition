@@ -17,13 +17,13 @@ import { FilialesService } from './filiales.service';
       }),
       limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
       fileFilter: (_req, file, cb) => {
-        // Vérifier extension ET MIME type
-        const allowedExt = /\.(jpg|jpeg|png|gif|svg|webp)$/i;
-        const allowedMime = /^image\/(jpeg|png|gif|svg\+xml|webp)$/;
+        // SVG intentionally excluded: SVG files can contain embedded JavaScript (XSS risk)
+        const allowedExt = /\.(jpg|jpeg|png|gif|webp)$/i;
+        const allowedMime = /^image\/(jpeg|png|gif|webp)$/;
         if (allowedExt.test(file.originalname) && allowedMime.test(file.mimetype)) {
           cb(null, true);
         } else {
-          cb(new Error('Type de fichier non autorisé. Formats acceptés : JPG, PNG, GIF, SVG, WebP'), false);
+          cb(new Error('Type de fichier non autorisé. Formats acceptés : JPG, PNG, GIF, WebP'), false);
         }
       },
     }),

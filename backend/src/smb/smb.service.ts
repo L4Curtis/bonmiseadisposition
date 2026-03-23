@@ -31,6 +31,11 @@ export class SmbService {
         return;
       }
 
+      if (!this.isSafeExportPath(smbPath)) {
+        this.logger.error(`SMB: chemin rejeté (répertoire système ou invalide): ${smbPath}`);
+        return;
+      }
+
       const year = new Date(bon.createdAt).getFullYear().toString();
       const collabName = this.sanitizeName(bon.collaborateur?.displayName || 'INCONNU');
       const dirName = `${bon.reference}_${collabName}`;
@@ -55,6 +60,10 @@ export class SmbService {
         return { success: false, message: 'Aucun chemin configuré' };
       }
 
+      if (!this.isSafeExportPath(smbPath)) {
+        return { success: false, message: `Chemin rejeté (répertoire système ou invalide): ${smbPath}` };
+      }
+
       // Verify path exists (or try to create it)
       if (!fs.existsSync(smbPath)) {
         try {
@@ -73,6 +82,20 @@ export class SmbService {
     } catch (err) {
       return { success: false, message: `Pas d'accès en écriture: ${(err as Error).message}` };
     }
+  }
+
+  /**
+   * Validate that an SMB/export path is not a system-critical directory.
+   * Prevents misconfigured admin from writing to /etc, /proc, /bin, etc.
+   */
+  private isSafeExportPath(exportPath: string): boolean {
+    if (!exportPath || typeof exportPath !== 'string') return false;
+    const resolved = path.resolve(exportPath);
+    // Must be an absolute path
+    if (!path.isAbsolute(resolved)) return false;
+    // Block system-critical directories
+    const blocked = ['/etc', '/proc', '/sys', '/dev', '/root', '/bin', '/sbin', '/usr/bin', '/usr/sbin', '/lib', '/lib64', '/boot'];
+    return !blocked.some((b) => resolved === b || resolved.startsWith(b + path.sep));
   }
 
   /** Remove accents and special characters from a name for filesystem use */

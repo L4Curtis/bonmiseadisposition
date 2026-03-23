@@ -9,9 +9,11 @@ class ApiError extends Error {
   }
 }
 
+const CSRF_HEADER = { 'X-Requested-With': 'XMLHttpRequest' };
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    headers: { 'Content-Type': 'application/json', ...CSRF_HEADER, ...options?.headers },
     credentials: 'include',
     ...options,
   });
@@ -21,11 +23,12 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     const refreshed = await fetch(`${BASE_URL}/auth/refresh`, {
       method: 'POST',
       credentials: 'include',
+      headers: CSRF_HEADER,
     });
     if (refreshed.ok) {
       // Retry original request
       const retryRes = await fetch(`${BASE_URL}${path}`, {
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        headers: { 'Content-Type': 'application/json', ...CSRF_HEADER, ...options?.headers },
         credentials: 'include',
         ...options,
       });

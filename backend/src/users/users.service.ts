@@ -5,6 +5,27 @@ import { PrismaService } from '../prisma/prisma.service';
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
+  // Fields safe to return in API responses (passwordHash intentionally excluded)
+  private readonly safeSelect = {
+    id: true,
+    samAccountName: true,
+    displayName: true,
+    email: true,
+    department: true,
+    company: true,
+    title: true,
+    filialeId: true,
+    filiale: true,
+    isItStaff: true,
+    role: true,
+    isLocalAccount: true,
+    mustChangePassword: true,
+    active: true,
+    lastLdapSync: true,
+    createdAt: true,
+    updatedAt: true,
+  };
+
   findAll(options?: { filialeId?: string; role?: string }) {
     return this.prisma.user.findMany({
       where: {
@@ -12,7 +33,7 @@ export class UsersService {
         filialeId: options?.filialeId,
         role: options?.role as any,
       },
-      include: { filiale: true },
+      select: this.safeSelect,
       orderBy: { displayName: 'asc' },
     });
   }
@@ -27,7 +48,7 @@ export class UsersService {
           { samAccountName: { contains: query, mode: 'insensitive' } },
         ],
       },
-      include: { filiale: true },
+      select: this.safeSelect,
       take: 15,
       orderBy: { displayName: 'asc' },
     });
@@ -36,7 +57,7 @@ export class UsersService {
   findOne(id: string) {
     return this.prisma.user.findUnique({
       where: { id },
-      include: { filiale: true },
+      select: this.safeSelect,
     });
   }
 }

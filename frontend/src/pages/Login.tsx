@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Card, CardContent } from '@/components/ui/card';
+import { Spinner } from '@/components/ui/spinner';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 
 const ERROR_MESSAGES: Record<string, string> = {
   entra_config_missing: "La configuration Microsoft Entra ID n'est pas encore configurée.",
@@ -60,100 +66,118 @@ export function LoginPage() {
 
   if (setupRequired === null) {
     return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
+      <div className="flex h-screen items-center justify-center bg-background" aria-live="polite">
+        <Spinner className="h-8 w-8 text-primary motion-reduce:animate-none" />
+        <span className="sr-only">Chargement en cours</span>
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50">
-      <div className="w-full max-w-md">
-        <div className="rounded-xl border bg-white p-8 shadow-sm">
-          <div className="mb-8 text-center">
-            <h1 className="text-2xl font-bold text-slate-900">Bons de Mise à Disposition</h1>
-            <p className="mt-2 text-sm text-slate-500">Groupe Livio — Service IT</p>
-          </div>
-
-          {error && (
-            <div className="mb-6 rounded-lg bg-red-50 border border-red-200 p-4">
-              <p className="text-sm text-red-700">
-                {ERROR_MESSAGES[error] || 'Une erreur est survenue.'}
-              </p>
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100">
+      <div className="w-full max-w-md px-4">
+        <Card className="shadow-lg border-0">
+          <CardContent className="p-8">
+            {/* Brand */}
+            <div className="mb-8 text-center">
+              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-white font-bold text-lg">
+                GL
+              </div>
+              <h1 className="text-xl font-bold text-slate-900">Bons de Mise à Disposition</h1>
+              <p className="mt-1 text-sm text-muted-foreground">Groupe Livio — Service IT</p>
             </div>
-          )}
 
-          {/* SSO Button */}
-          <a
-            href="/api/auth/login"
-            className="flex w-full items-center justify-center gap-3 rounded-lg bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700 transition-colors"
-          >
-            <svg viewBox="0 0 21 21" className="h-5 w-5 fill-white">
-              <rect x="1" y="1" width="9" height="9" />
-              <rect x="11" y="1" width="9" height="9" />
-              <rect x="1" y="11" width="9" height="9" />
-              <rect x="11" y="11" width="9" height="9" />
-            </svg>
-            Se connecter avec Microsoft
-          </a>
+            {/* Error banner */}
+            {error && (
+              <div role="alert" className="mb-6 rounded-lg bg-destructive/10 border border-destructive/20 p-4">
+                <p className="text-sm text-destructive">
+                  {ERROR_MESSAGES[error] || 'Une erreur est survenue.'}
+                </p>
+              </div>
+            )}
 
-          {/* Local auth */}
-          {localAuthEnabled && (
-            <div className="mt-4">
-              <button
-                className="w-full text-center text-sm text-slate-400 hover:text-slate-600 transition-colors"
-                onClick={() => setShowLocal((v) => !v)}
-              >
-                {showLocal ? '▲ Masquer la connexion locale' : '▼ Connexion avec un compte local'}
-              </button>
+            {/* SSO Button */}
+            <Button asChild size="lg" className="w-full">
+              <a href="/api/auth/login" className="flex items-center justify-center gap-3">
+                <svg viewBox="0 0 21 21" className="h-5 w-5 fill-current">
+                  <rect x="1" y="1" width="9" height="9" />
+                  <rect x="11" y="1" width="9" height="9" />
+                  <rect x="1" y="11" width="9" height="9" />
+                  <rect x="11" y="11" width="9" height="9" />
+                </svg>
+                Se connecter avec Microsoft
+              </a>
+            </Button>
 
-              {showLocal && (
-                <form onSubmit={handleLocalLogin} className="mt-4 space-y-3">
-                  {localError && (
-                    <div className="rounded-lg bg-red-50 border border-red-200 p-3">
-                      <p className="text-sm text-red-700">{localError}</p>
-                    </div>
+            {/* Local auth */}
+            {localAuthEnabled && (
+              <div className="mt-5">
+                <button
+                  className="flex w-full items-center justify-center gap-1.5 text-sm text-muted-foreground hover:text-slate-600 transition-colors"
+                  onClick={() => setShowLocal((v) => !v)}
+                >
+                  {showLocal ? (
+                    <>
+                      <ChevronUp className="h-3.5 w-3.5" />
+                      Masquer la connexion locale
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown className="h-3.5 w-3.5" />
+                      Connexion avec un compte local
+                    </>
                   )}
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">Email</label>
-                    <input
-                      type="text"
-                      value={localEmail}
-                      onChange={(e) => setLocalEmail(e.target.value)}
-                      placeholder="admin@local"
-                      required
-                      className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">Mot de passe</label>
-                    <input
-                      type="password"
-                      value={localPassword}
-                      onChange={(e) => setLocalPassword(e.target.value)}
-                      required
-                      className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  <button
-                    type="submit"
-                    disabled={localLoading}
-                    className="w-full rounded-lg bg-slate-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60 transition-colors"
-                  >
-                    {localLoading ? 'Connexion...' : 'Se connecter'}
-                  </button>
-                  <p className="text-center text-xs text-slate-400">
-                    Compte local IT
-                  </p>
-                </form>
-              )}
-            </div>
-          )}
+                </button>
 
-          <p className="mt-6 text-center text-xs text-slate-400">
-            Authentification sécurisée via Microsoft Entra ID
-          </p>
-        </div>
+                {showLocal && (
+                  <form onSubmit={handleLocalLogin} className="mt-4 space-y-4">
+                    {localError && (
+                      <div role="alert" className="rounded-lg bg-destructive/10 border border-destructive/20 p-3">
+                        <p className="text-sm text-destructive">{localError}</p>
+                      </div>
+                    )}
+                    <div className="space-y-2">
+                      <Label htmlFor="login-email">Email</Label>
+                      <Input
+                        id="login-email"
+                        type="text"
+                        value={localEmail}
+                        onChange={(e) => setLocalEmail(e.target.value)}
+                        placeholder="admin@local"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="login-password">Mot de passe</Label>
+                      <Input
+                        id="login-password"
+                        type="password"
+                        value={localPassword}
+                        onChange={(e) => setLocalPassword(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <Button
+                      type="submit"
+                      variant="secondary"
+                      disabled={localLoading}
+                      className="w-full"
+                    >
+                      {localLoading ? 'Connexion...' : 'Se connecter'}
+                    </Button>
+                    <p className="text-center text-xs text-muted-foreground">
+                      Compte local IT uniquement
+                    </p>
+                  </form>
+                )}
+              </div>
+            )}
+
+            <p className="mt-6 text-center text-xs text-muted-foreground">
+              Authentification sécurisée via Microsoft Entra ID
+            </p>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

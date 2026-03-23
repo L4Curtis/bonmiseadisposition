@@ -59,27 +59,27 @@ export function ChangePasswordPage() {
 
   if (success) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50">
-        <div className="max-w-md w-full text-center p-8">
-          <div className="mx-auto w-16 h-16 rounded-full bg-green-50 flex items-center justify-center mb-4">
-            <CheckCircle2 className="h-8 w-8 text-green-500" />
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="max-w-md w-full text-center p-8" aria-live="polite">
+          <div className="mx-auto w-16 h-16 rounded-full bg-green-50 dark:bg-green-900/20 flex items-center justify-center mb-4">
+            <CheckCircle2 className="h-8 w-8 text-green-500 dark:text-green-400" />
           </div>
-          <h1 className="text-xl font-bold text-slate-900">Mot de passe modifié</h1>
-          <p className="text-sm text-slate-500 mt-2">Redirection en cours...</p>
+          <h1 className="text-xl font-bold text-foreground">Mot de passe modifié</h1>
+          <p className="text-sm text-muted-foreground mt-2">Redirection en cours...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+    <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="w-full max-w-md">
-        <div className="rounded-xl border bg-white p-8 shadow-sm">
+        <div className="rounded-xl border bg-card p-8 shadow-sm">
           <div className="mb-6 text-center">
-            <div className="mx-auto w-14 h-14 rounded-full bg-amber-50 flex items-center justify-center mb-3">
-              <Lock className="h-7 w-7 text-amber-600" />
+            <div className="mx-auto w-14 h-14 rounded-full bg-amber-50 dark:bg-amber-900/20 flex items-center justify-center mb-3">
+              <Lock className="h-7 w-7 text-amber-600 dark:text-amber-400" />
             </div>
-            <h1 className="text-xl font-bold text-slate-900">
+            <h1 className="text-xl font-bold text-foreground">
               {forced ? 'Changement de mot de passe obligatoire' : 'Changer mon mot de passe'}
             </h1>
             {forced && (
@@ -91,30 +91,31 @@ export function ChangePasswordPage() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Mot de passe actuel</label>
+              <label className="block text-xs font-medium text-muted-foreground mb-1">Mot de passe actuel</label>
               <input
                 type="password"
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
                 required
-                className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full rounded-md border border-input px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Nouveau mot de passe</label>
+              <label className="block text-xs font-medium text-muted-foreground mb-1">Nouveau mot de passe</label>
               <div className="relative">
                 <input
                   type={showNew ? 'text' : 'password'}
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   required
-                  className="w-full rounded-md border border-slate-200 px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full rounded-md border border-input px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <button
                   type="button"
                   onClick={() => setShowNew(!showNew)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  aria-label={showNew ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
                 >
                   {showNew ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
@@ -123,35 +124,35 @@ export function ChangePasswordPage() {
 
             {/* Password rules */}
             {newPassword.length > 0 && (
-              <div className="rounded-lg bg-slate-50 border p-3 space-y-1">
+              <div className="rounded-lg bg-muted/40 border p-3 space-y-1">
                 {rulesStatus.map((r, i) => (
                   <div key={i} className="flex items-center gap-2 text-xs">
                     {r.ok
                       ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                      : <XCircle className="h-3.5 w-3.5 text-slate-300 shrink-0" />
+                      : <XCircle className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />
                     }
-                    <span className={r.ok ? 'text-green-700' : 'text-slate-500'}>{r.label}</span>
+                    <span className={r.ok ? 'text-green-700 dark:text-green-400' : 'text-muted-foreground'}>{r.label}</span>
                   </div>
                 ))}
               </div>
             )}
 
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Confirmer le nouveau mot de passe</label>
+              <label className="block text-xs font-medium text-muted-foreground mb-1">Confirmer le nouveau mot de passe</label>
               <input
                 type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 required
-                className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full rounded-md border border-input px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               {confirmPassword.length > 0 && !passwordsMatch && (
-                <p className="text-xs text-red-500 mt-1">Les mots de passe ne correspondent pas</p>
+                <p className="text-xs text-red-500 mt-1" role="alert">Les mots de passe ne correspondent pas</p>
               )}
             </div>
 
             {error && (
-              <div className="rounded-lg bg-red-50 border border-red-200 p-3">
+              <div role="alert" className="rounded-lg bg-red-50 border border-red-200 p-3">
                 <p className="text-sm text-red-700">{error}</p>
               </div>
             )}

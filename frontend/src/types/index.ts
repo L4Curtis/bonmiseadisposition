@@ -46,12 +46,12 @@ export const BON_STATUS_LABELS: Record<BonStatus, string> = {
 };
 
 export const BON_STATUS_COLORS: Record<BonStatus, string> = {
-  draft: 'bg-gray-100 text-gray-700',
-  sent_mise_dispo: 'bg-orange-100 text-orange-700',
-  active: 'bg-green-100 text-green-700',
-  sent_restitution: 'bg-orange-100 text-orange-700',
-  partially_returned: 'bg-yellow-100 text-yellow-700',
-  archived: 'bg-gray-100 text-gray-600',
-  cancelled: 'bg-gray-100 text-gray-500',
-  contested: 'bg-red-100 text-red-700',
+  draft: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300',
+  sent_mise_dispo: 'bg-orange-100 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400',
+  active: 'bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400',
+  sent_restitution: 'bg-orange-100 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400',
+  partially_returned: 'bg-yellow-100 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400',
+  archived: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400',
+  cancelled: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-500',
+  contested: 'bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400',
 };

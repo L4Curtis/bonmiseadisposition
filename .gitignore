@@ -13,6 +13,9 @@ build/
 .env.local
 .env.*.local
 *.local
+# Also catch nested .env files (e.g. backend/.env)
+**/.env
+backend/.env
 
 # Logs
 logs/

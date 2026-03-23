@@ -120,22 +120,59 @@ Bon, BonEquipment, Signature, Contestation, NotificationLog, AuditLog
 - **Frontend** : masquage cote client aussi (double protection), `onFocus` vide le champ masque
 
 ### Auth
-- **JWT httpOnly secure cookies** : access 15min, refresh 8h
+- **JWT httpOnly secure cookies** : access 15min (`path: /api`), refresh 8h (`path: /api/auth/refresh`)
 - **Guards NestJS** : `@Roles('admin')`, `@Roles('admin', 'technician')`, `@UseGuards(JwtAuthGuard, RolesGuard)`
+- **mustChangePassword enforced serveur** : `JwtAuthGuard.handleRequest()` retourne `403` pour tout endpoint sauf `/auth/change-password`, `/auth/logout`, `/auth/me`, `/auth/refresh`
 - **SSO Entra ID** : verification email obligatoire a la signature (sauf mode presentiel)
 - **Visibilite bons** : collaborateur ne voit que les siens (filtre par email)
 - **Login local** : `admin@local` / `admin` (bcrypt), desactivable dans config
 
 ### Rate limiting
 - `@nestjs/throttler` : 10 req/60s sur `POST /api/signature/:token/sign` et `POST /api/bons/:id/sign-it`
+- 5 req/60s sur `PATCH /api/filiales/:id/logo` et `PATCH /api/filiales/:id/stamp` (anti-DoS upload)
 - Config globale : 60 req/60s
+
+### CSRF
+- Middleware `csrfMiddleware` dans `main.ts` : exige `X-Requested-With: XMLHttpRequest` sur tous les POST/PUT/PATCH/DELETE
+- Exceptions : `POST /api/auth/callback` (OAuth state param) et `POST /api/auth/local-login`
+- Frontend `api.ts` : header `CSRF_HEADER` ajouté a tous les appels fetch (y compris refresh et uploads FormData)
+- **Ne jamais supprimer ce header** dans de nouveaux appels fetch frontend
+
+### Validation des entrees
+- **Tout endpoint `@Body()` doit utiliser un DTO** avec decorateurs `class-validator` (`@IsString`, `@IsUUID`, `@MaxLength`, `@IsIn`, etc.)
+- **Jamais** `@Body('field') field: string` sans DTO pour les operations d'ecriture
+- `passwordHash` jamais retourné dans les reponses API users → utiliser `safeSelect` dans `users.service.ts`
+- Pagination plafonnee a 100 (`Math.min(limit, 100)`) pour les logs d'audit
+
+### Upload fichiers
+- **SVG interdit** : risque XSS stored. Multer accepte uniquement JPEG/PNG/GIF/WebP
+- Anciens SVGs servis avec `Content-Disposition: attachment` pour bloquer l'execution
+- Rate limit 5/min sur les endpoints upload
+
+### SMB / Chemins fichiers
+- `isSafeExportPath()` dans `smb.service.ts` valide que le chemin n'est pas un repertoire systeme (`/etc`, `/proc`, `/bin`, etc.)
+- Toujours appeler avant ecriture fichier
+
+### Acces aux donnees sensibles
+- **Logs d'audit** : `@Roles('admin')` uniquement (pas technician)
+- **Templates email** : lecture `@Roles('admin', 'technician')`, ecriture/suppression `@Roles('admin')` uniquement
+- **Config sensible** (entra/ldap/smtp/smb) : lecture `@Roles('admin')` uniquement
 
 ### Docker
 - Images `node:20-alpine` (surface minimale)
-- User non-root (`nestjs:nodejs`)
+- Backend : user non-root (`nestjs:nodejs`)
+- Frontend : user non-root (`nginx-app`), port `8080`
 - Backend + DB sur reseau Docker `internal`, non exposes sur l'hote
-- Seul le frontend est expose (port configurable, defaut 5147)
+- Seul le frontend est expose (port configurable, defaut `5147:8080`)
 - Healthchecks sur chaque container
+
+### Variables d'environnement requises en production
+```
+ENCRYPTION_KEY=<openssl rand -hex 32>   # jamais changer apres 1er lancement
+JWT_SECRET=<openssl rand -hex 32>       # different de ENCRYPTION_KEY
+POSTGRES_PASSWORD=<openssl rand -base64 24>
+FRONTEND_URL=https://bons.groupelivio.local
+```
 
 ---
 

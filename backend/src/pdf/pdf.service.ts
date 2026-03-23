@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { readFileSync, existsSync } from 'fs';
+import { existsSync } from 'fs';
+import { readFile } from 'fs/promises';
 import { join } from 'path';
 import * as PDFDocument from 'pdfkit';
 import { PrismaService } from '../prisma/prisma.service';
@@ -7,6 +8,51 @@ import { PrismaService } from '../prisma/prisma.service';
 export interface SigImages {
   it: string | null;
   collab: string | null;
+}
+
+/** Shape of the bon object expected by PDF generation methods. */
+export interface BonForPdf {
+  id: string;
+  reference: string;
+  civilite: string;
+  status: string;
+  dateMiseDisposition: Date | string;
+  dateRestitution?: Date | string | null;
+  notes?: string | null;
+  filiale: {
+    displayName?: string;
+    name?: string;
+    logoPath?: string | null;
+    address?: string | null;
+    siret?: string | null;
+  };
+  collaborateur: {
+    displayName?: string;
+    department?: string | null;
+  };
+  collaborateurEmail?: string;
+  createdBy?: {
+    displayName?: string;
+  };
+  equipments: Array<{
+    id: string;
+    catalogItem?: { brand: string; model: string } | null;
+    customLabel?: string | null;
+    serialNumber?: string | null;
+    inventoryNumber?: string | null;
+    notes?: string | null;
+    returnedAt?: Date | string | null;
+    notReturned?: boolean;
+    notReturnedReason?: string | null;
+  }>;
+  signatures?: Array<{
+    type: string;
+    signed: boolean;
+    signedAt?: Date | string | null;
+    signatureImagePath?: string | null;
+  }>;
+  /** Used by avenant generation to filter equipment */
+  _avenantEquipmentIds?: string[];
 }
 
 // ─── Couleurs ──────────────────────────────────────────────────────────────────
@@ -29,7 +75,7 @@ export class PdfService {
    * snapshotType = PdfSnapshotType enum value
    */
   async generateAndSave(
-    bon: any,
+    bon: BonForPdf,
     snapshotType: string, // PdfSnapshotType enum value
     sigImages: SigImages,
     filename: string,
@@ -58,7 +104,7 @@ export class PdfService {
 
   /** Génère le PDF sans le sauvegarder (appel à la demande). */
   async generateBonPdf(
-    bon: any,
+    bon: BonForPdf,
     sigImages: SigImages = { it: null, collab: null },
     documentType: 'mise_disposition' | 'restitution' | 'cloture' | 'avenant' = 'mise_disposition',
   ): Promise<Buffer> {
@@ -68,7 +114,7 @@ export class PdfService {
   // ─── Rendering (PDFKit) ────────────────────────────────────────────────────
 
   private async renderPdf(
-    bon: any,
+    bon: BonForPdf,
     sigImages: SigImages,
     documentType: 'mise_disposition' | 'restitution' | 'cloture' | 'avenant' = 'mise_disposition',
   ): Promise<Buffer> {
@@ -78,6 +124,9 @@ export class PdfService {
       cloture: `Procès-verbal d'équipements non restitués - ${bon.reference}`,
       avenant: `Avenant — Équipement(s) retrouvé(s) - ${bon.reference}`,
     };
+
+    // Pre-load logo buffer asynchronously before synchronous PDF build
+    const logoBuffer = await this.getLogoBuffer(bon.filiale?.logoPath || null);
 
     return new Promise((resolve, reject) => {
       const doc = new PDFDocument({
@@ -96,7 +145,7 @@ export class PdfService {
       doc.on('error', reject);
 
       try {
-        this.buildPdf(doc, bon, sigImages, documentType);
+        this.buildPdf(doc, bon, sigImages, documentType, logoBuffer);
         doc.end();
       } catch (err) {
         reject(err);
@@ -106,9 +155,10 @@ export class PdfService {
 
   private buildPdf(
     doc: PDFKit.PDFDocument,
-    bon: any,
+    bon: BonForPdf,
     sigImages: SigImages,
     documentType: 'mise_disposition' | 'restitution' | 'cloture' | 'avenant' = 'mise_disposition',
+    logoBuffer: Buffer | null = null,
   ): void {
     const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
     const leftX = doc.page.margins.left;
@@ -119,7 +169,6 @@ export class PdfService {
     const headerY = doc.y;
 
     // Logo (left)
-    const logoBuffer = this.getLogoBuffer(bon.filiale?.logoPath || null);
     if (logoBuffer) {
       try {
         doc.image(logoBuffer, leftX, headerY, { height: 40, width: 120 });
@@ -445,13 +494,13 @@ export class PdfService {
 
   // ─── Utility methods ─────────────────────────────────────────────────────────
 
-  private getLogoBuffer(logoPath: string | null): Buffer | null {
+  private async getLogoBuffer(logoPath: string | null): Promise<Buffer | null> {
     if (!logoPath) return null;
     const filename = logoPath.split('/').pop() || '';
     const fullPath = join(process.cwd(), 'data', 'uploads', filename);
     if (!existsSync(fullPath)) return null;
     try {
-      return readFileSync(fullPath);
+      return await readFile(fullPath);
     } catch {
       return null;
     }

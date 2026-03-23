@@ -9,23 +9,25 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 
 @Controller('admin/templates')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('admin', 'technician')
 export class TemplatesController {
   constructor(private readonly templatesService: TemplatesService) {}
 
   @Get()
+  @Roles('admin', 'technician')
   findAll() {
     return this.templatesService.getAll();
   }
 
   /** Export all templates as JSON (custom or default) */
   @Get('export')
+  @Roles('admin', 'technician')
   exportAll() {
     return this.templatesService.exportAll();
   }
 
   /** Import templates from a JSON payload */
   @Post('import')
+  @Roles('admin')
   async importAll(
     @Body() body: { templates: { id: string; html: string }[] },
     @CurrentUser() user: any,
@@ -38,6 +40,7 @@ export class TemplatesController {
 
   /** Get current HTML for a template (custom or default) */
   @Get(':id/html')
+  @Roles('admin', 'technician')
   async getHtml(@Param('id') id: string) {
     const html = await this.templatesService.getTemplateHtml(id);
     const tpl = this.templatesService.getTemplateById(id);
@@ -52,12 +55,14 @@ export class TemplatesController {
 
   /** Get rendered preview HTML with sample data */
   @Get(':id/preview')
+  @Roles('admin', 'technician')
   async getPreview(@Param('id') id: string) {
     return { html: await this.templatesService.getPreviewHtml(id) };
   }
 
   /** Save a custom template */
   @Patch(':id')
+  @Roles('admin')
   async update(
     @Param('id') id: string,
     @Body() body: { html: string },
@@ -72,6 +77,7 @@ export class TemplatesController {
 
   /** Reset a template to its default */
   @Delete(':id')
+  @Roles('admin')
   async reset(@Param('id') id: string) {
     await this.templatesService.resetTemplate(id);
     return { success: true };

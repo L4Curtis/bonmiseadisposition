@@ -57,7 +57,7 @@ export class AdminService {
         port: parseInt(port),
         secure: secure === 'true',
         auth: user && pass ? { user, pass } : undefined,
-        tls: { rejectUnauthorized: false },
+        tls: { rejectUnauthorized: process.env.NODE_ENV === 'production' },
       });
 
       await transporter.verify();

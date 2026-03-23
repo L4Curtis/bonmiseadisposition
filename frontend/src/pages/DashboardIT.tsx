@@ -1,11 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '@/lib/api';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   FileText, Clock, CheckCircle, AlertTriangle, Plus,
-  ArchiveIcon, Building2, TrendingUp,
+  Building2, CalendarDays, ArrowRight,
 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { BON_STATUS_LABELS, BON_STATUS_COLORS, type BonStatus } from '@/types';
+import { formatDate } from '@/lib/utils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -30,14 +33,86 @@ interface RecentBon {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function formatDate(d: string | undefined | null) {
-  if (!d) return '—';
-  return new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-}
-
 function isOverdue(bon: RecentBon) {
   if (!['sent_mise_dispo', 'sent_restitution'].includes(bon.status)) return false;
   return new Date(bon.updatedAt) < new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+}
+
+// ─── Skeleton Components ──────────────────────────────────────────────────────
+
+function StatCardSkeleton() {
+  return (
+    <div className="relative rounded-xl border border-border bg-card p-5 shadow-sm">
+      <div className="flex items-start justify-between">
+        <div className="space-y-3 flex-1">
+          <Skeleton className="h-3 w-32" />
+          <Skeleton className="h-8 w-16" />
+        </div>
+        <Skeleton className="h-10 w-10 rounded-lg shrink-0" />
+      </div>
+    </div>
+  );
+}
+
+function RecentListSkeleton() {
+  return (
+    <div className="divide-y divide-border/60">
+      {Array.from({ length: 5 }).map((_, i) => (
+        <div key={i} className="flex items-center gap-4 px-5 py-3.5">
+          <Skeleton className="h-5 w-24 rounded" />
+          <Skeleton className="h-4 w-36" />
+          <Skeleton className="h-5 w-20 rounded-full ml-auto" />
+          <Skeleton className="h-4 w-20" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function FilialeSkeleton() {
+  return (
+    <div className="divide-y divide-border/60">
+      {Array.from({ length: 4 }).map((_, i) => (
+        <div key={i} className="px-5 py-3.5 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <Skeleton className="h-3.5 w-32" />
+            <Skeleton className="h-5 w-8 rounded-full" />
+          </div>
+          <Skeleton className="h-1.5 w-full rounded-full" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Stat Card ────────────────────────────────────────────────────────────────
+
+interface StatCardProps {
+  label: string;
+  value: number;
+  icon: React.ElementType;
+  iconBg: string;
+  iconColor: string;
+  onClick: () => void;
+}
+
+function StatCard({ label, value, icon: Icon, iconBg, iconColor, onClick }: StatCardProps) {
+  return (
+    <button
+      className="group w-full text-left rounded-xl border border-border bg-card p-5 shadow-sm hover:shadow-md hover:border-border transition-all duration-150"
+      onClick={onClick}
+    >
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-sm text-muted-foreground leading-none mb-3">{label}</p>
+          <p className="text-3xl font-bold text-foreground tabular-nums">{value}</p>
+        </div>
+        <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${iconBg} shrink-0`}>
+          <Icon className={`h-5 w-5 ${iconColor}`} />
+        </div>
+      </div>
+    </button>
+  );
 }
 
 // ─── Composant ────────────────────────────────────────────────────────────────
@@ -58,140 +133,141 @@ export function DashboardIT() {
     }).finally(() => setLoading(false));
   }, []);
 
-  const statCards = [
+  const statCards: StatCardProps[] = [
+    {
+      label: 'Total bons en cours',
+      value: stats?.total ?? 0,
+      icon: FileText,
+      iconBg: 'bg-blue-100 dark:bg-blue-900/20',
+      iconColor: 'text-blue-600 dark:text-blue-400',
+      onClick: () => navigate('/bons'),
+    },
     {
       label: 'En attente de signature',
-      value: stats?.waitingSignature ?? '—',
+      value: stats?.waitingSignature ?? 0,
       icon: Clock,
-      color: 'text-orange-600',
-      bg: 'bg-orange-50',
-      border: 'border-orange-100',
+      iconBg: 'bg-amber-100 dark:bg-amber-900/20',
+      iconColor: 'text-amber-600 dark:text-amber-400',
       onClick: () => navigate('/bons?status=sent_mise_dispo'),
     },
     {
       label: 'Bons actifs',
-      value: stats?.active ?? '—',
+      value: stats?.active ?? 0,
       icon: CheckCircle,
-      color: 'text-green-600',
-      bg: 'bg-green-50',
-      border: 'border-green-100',
+      iconBg: 'bg-emerald-100 dark:bg-emerald-900/20',
+      iconColor: 'text-emerald-600 dark:text-emerald-400',
       onClick: () => navigate('/bons?status=active'),
     },
     {
       label: 'En retard (> 7 j)',
-      value: stats?.overdue ?? '—',
+      value: stats?.overdue ?? 0,
       icon: AlertTriangle,
-      color: 'text-red-600',
-      bg: 'bg-red-50',
-      border: 'border-red-100',
+      iconBg: 'bg-red-100 dark:bg-red-900/20',
+      iconColor: 'text-red-600 dark:text-red-400',
       onClick: () => navigate('/bons'),
-    },
-    {
-      label: 'Bons en cours',
-      value: stats?.total ?? '—',
-      icon: FileText,
-      color: 'text-blue-600',
-      bg: 'bg-blue-50',
-      border: 'border-blue-100',
-      onClick: () => navigate('/bons'),
-    },
-    {
-      label: 'Archivés ce mois',
-      value: stats?.archivedThisMonth ?? '—',
-      icon: ArchiveIcon,
-      color: 'text-slate-600',
-      bg: 'bg-slate-50',
-      border: 'border-slate-100',
-      onClick: () => navigate('/bons?status=archived'),
     },
   ];
 
+  const maxFiliale = stats?.byFiliale?.length
+    ? Math.max(...stats.byFiliale.map((f) => f.count), 1)
+    : 1;
+
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+
+      {/* ── Page header ── */}
+      <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Tableau de bord</h1>
-          <p className="text-sm text-slate-400 mt-0.5">Vue d'ensemble des bons de mise à disposition</p>
+          <h2 className="text-2xl font-bold text-foreground tracking-tight">Tableau de bord</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Vue d&apos;ensemble de l&apos;activité</p>
         </div>
-        <button
-          onClick={() => navigate('/bons/new')}
-          className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 transition-colors"
-        >
-          <Plus className="h-4 w-4" /> Nouveau bon
-        </button>
+        <div className="flex items-center gap-3">
+          <div className="hidden sm:flex items-center gap-1.5 text-xs text-muted-foreground/70 border border-border rounded-lg px-3 py-2 bg-card">
+            <CalendarDays className="h-3.5 w-3.5" />
+            <span>{new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })}</span>
+          </div>
+          <Button onClick={() => navigate('/bons/new')} className="gap-1.5">
+            <Plus className="h-4 w-4" />
+            Nouveau bon
+          </Button>
+        </div>
       </div>
 
-      {/* Stat cards */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-        {statCards.map(({ label, value, icon: Icon, color, bg, border, onClick }) => (
-          <button
-            key={label}
-            className={`text-left rounded-xl border ${border} bg-white p-4 shadow-sm hover:shadow-md transition-shadow`}
-            onClick={onClick}
-          >
-            <div className="flex items-center justify-between gap-2">
-              <div className={`rounded-full ${bg} p-2.5 shrink-0`}>
-                <Icon className={`h-4 w-4 ${color}`} />
-              </div>
-            </div>
-            <p className="mt-3 text-2xl font-bold text-slate-900">{value}</p>
-            <p className="mt-0.5 text-xs text-slate-500 leading-tight">{label}</p>
-          </button>
-        ))}
+      {/* ── KPI cards ── */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {loading
+          ? Array.from({ length: 4 }).map((_, i) => <StatCardSkeleton key={i} />)
+          : statCards.map((card) => <StatCard key={card.label} {...card} />)
+        }
       </div>
 
+      {/* ── Bottom grid ── */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Bons récents */}
-        <div className="lg:col-span-2 rounded-xl border bg-white shadow-sm">
-          <div className="flex items-center justify-between border-b px-5 py-3.5">
-            <div className="flex items-center gap-2">
-              <TrendingUp className="h-4 w-4 text-slate-400" />
-              <h2 className="font-semibold text-slate-900 text-sm">Activité récente</h2>
-            </div>
-            <button onClick={() => navigate('/bons')} className="text-xs text-blue-600 hover:underline">
+
+        {/* Bons récents – spans 2/3 */}
+        <div className="lg:col-span-2 rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+          <div className="flex items-center justify-between border-b border-border/60 px-5 py-4">
+            <h3 className="text-sm font-semibold text-foreground">Bons récents</h3>
+            <button
+              onClick={() => navigate('/bons')}
+              className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+            >
               Voir tout
+              <ArrowRight className="h-3.5 w-3.5" />
             </button>
           </div>
 
           {loading ? (
-            <div className="flex justify-center py-10">
-              <div className="h-6 w-6 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
-            </div>
+            <RecentListSkeleton />
           ) : recent.length === 0 ? (
-            <div className="p-8 text-center text-sm text-slate-400">
-              <FileText className="h-8 w-8 mx-auto mb-2 opacity-40" />
-              <p>Aucun bon créé pour l'instant</p>
-              <button className="mt-2 text-blue-600 hover:underline" onClick={() => navigate('/bons/new')}>
-                Créer le premier bon
-              </button>
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted mb-4">
+                <FileText className="h-6 w-6 text-muted-foreground/70" />
+              </div>
+              <p className="text-sm font-medium text-foreground/80">Aucun bon créé pour l&apos;instant</p>
+              <p className="mt-1 text-xs text-muted-foreground/70">Commencez par créer un premier bon de mise à disposition.</p>
+              <Button variant="outline" size="sm" onClick={() => navigate('/bons/new')} className="mt-4 gap-1.5">
+                <Plus className="h-3.5 w-3.5" />
+                Créer un bon
+              </Button>
             </div>
           ) : (
-            <div className="divide-y">
+            <div className="divide-y divide-border/60">
               {recent.map((bon) => {
                 const late = isOverdue(bon);
                 return (
                   <button
                     key={bon.id}
-                    className="w-full text-left flex items-center gap-3 px-5 py-3 hover:bg-slate-50 transition-colors"
+                    className="group w-full text-left flex items-center gap-4 px-5 py-3.5 hover:bg-muted/40 transition-colors cursor-pointer"
                     onClick={() => navigate(`/bons/${bon.id}`)}
                   >
+                    {/* Reference badge */}
+                    <span className="shrink-0 font-mono text-xs font-semibold text-foreground/80 bg-muted group-hover:bg-muted rounded px-2 py-1 transition-colors">
+                      {bon.reference}
+                    </span>
+
+                    {/* Collaborateur */}
+                    <span className="flex-1 min-w-0 text-sm text-foreground/80 truncate">
+                      {bon.collaborateur.displayName}
+                    </span>
+
+                    {/* Status badge */}
+                    <span className={`shrink-0 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${BON_STATUS_COLORS[bon.status]}`}>
+                      {BON_STATUS_LABELS[bon.status]}
+                    </span>
+
+                    {/* Overdue indicator */}
                     {late && (
-                      <AlertTriangle className="h-3.5 w-3.5 text-red-400 shrink-0" />
+                      <span className="shrink-0 inline-flex items-center gap-1 text-xs font-medium text-red-600 dark:text-red-400">
+                        <AlertTriangle className="h-3 w-3" />
+                        En retard
+                      </span>
                     )}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-xs font-semibold text-slate-700">{bon.reference}</span>
-                        <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${BON_STATUS_COLORS[bon.status]}`}>
-                          {BON_STATUS_LABELS[bon.status]}
-                        </span>
-                        {late && <span className="text-xs text-red-500">En retard</span>}
-                      </div>
-                      <div className="text-xs text-slate-500 mt-0.5 truncate">
-                        {bon.collaborateur.displayName} · {bon.filiale.displayName}
-                      </div>
-                    </div>
-                    <span className="text-xs text-slate-400 shrink-0">{formatDate(bon.dateMiseDisposition)}</span>
+
+                    {/* Date */}
+                    <span className="shrink-0 text-xs text-muted-foreground/70">
+                      {formatDate(bon.dateMiseDisposition)}
+                    </span>
                   </button>
                 );
               })}
@@ -199,37 +275,39 @@ export function DashboardIT() {
           )}
         </div>
 
-        {/* Par filiale */}
-        <div className="rounded-xl border bg-white shadow-sm">
-          <div className="flex items-center gap-2 border-b px-5 py-3.5">
-            <Building2 className="h-4 w-4 text-slate-400" />
-            <h2 className="font-semibold text-slate-900 text-sm">Bons actifs par filiale</h2>
+        {/* Par filiale – spans 1/3 */}
+        <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+          <div className="flex items-center gap-2 border-b border-border/60 px-5 py-4">
+            <Building2 className="h-4 w-4 text-muted-foreground/70" />
+            <h3 className="text-sm font-semibold text-foreground">Bons actifs par filiale</h3>
           </div>
 
           {loading ? (
-            <div className="flex justify-center py-10">
-              <div className="h-6 w-6 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
-            </div>
+            <FilialeSkeleton />
           ) : !stats?.byFiliale?.length ? (
-            <div className="p-6 text-center text-xs text-slate-400">Aucune donnée</div>
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <Building2 className="h-8 w-8 text-muted-foreground/70 mb-2" />
+              <p className="text-xs text-muted-foreground/70">Aucune donnée disponible</p>
+            </div>
           ) : (
-            <div className="divide-y">
+            <div className="divide-y divide-border/60">
               {stats.byFiliale.map((f) => {
-                const maxCount = Math.max(...stats.byFiliale.map((x) => x.count), 1);
-                const pct = Math.round((f.count / maxCount) * 100);
+                const pct = Math.round((f.count / maxFiliale) * 100);
                 return (
                   <button
                     key={f.id}
-                    className="w-full text-left px-5 py-3 hover:bg-slate-50 transition-colors"
+                    className="w-full text-left px-5 py-3.5 hover:bg-muted/40 transition-colors"
                     onClick={() => navigate(`/bons?filialeId=${f.id}`)}
                   >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs text-slate-700 font-medium truncate">{f.name}</span>
-                      <span className="text-xs font-bold text-slate-900 ml-2">{f.count}</span>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm text-foreground/80 font-medium truncate pr-2">{f.name}</span>
+                      <span className="shrink-0 inline-flex items-center justify-center rounded-full bg-muted px-2 py-0.5 text-xs font-bold text-foreground/80 min-w-[2rem]">
+                        {f.count}
+                      </span>
                     </div>
-                    <div className="w-full bg-slate-100 rounded-full h-1.5">
+                    <div className="w-full bg-muted rounded-full h-1">
                       <div
-                        className="bg-blue-500 h-1.5 rounded-full transition-all"
+                        className="bg-blue-500 h-1 rounded-full transition-all duration-500"
                         style={{ width: `${pct}%` }}
                       />
                     </div>
@@ -239,6 +317,7 @@ export function DashboardIT() {
             </div>
           )}
         </div>
+
       </div>
     </div>
   );

@@ -16,7 +16,8 @@ export class AuditService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findAll(filters: AuditFilters) {
-    const { bonId, userEmail, action, dateFrom, dateTo, page = 1, limit = 50 } = filters;
+    const { bonId, userEmail, action, dateFrom, dateTo, page = 1 } = filters;
+    const limit = Math.min(filters.limit ?? 50, 100);
 
     const where: any = {};
 

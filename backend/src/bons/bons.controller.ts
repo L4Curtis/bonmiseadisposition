@@ -20,6 +20,13 @@ import { SignatureService } from '../signature/signature.service';
 import { ContestationService } from '../contestation/contestation.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateBonDto, UpdateBonDto } from './dto/bon.dto';
+import {
+  CreateContestationDto,
+  InitiateRestitutionDto,
+  InitiateInPersonDto,
+  DeclareNotReturnedDto,
+  MarkFoundDto,
+} from './dto/actions.dto';
 import { SignItDto } from '../signature/dto/sign.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -51,11 +58,11 @@ export class BonsController {
   @Roles('admin', 'technician', 'collaborator')
   async createContestation(
     @Param('id') id: string,
-    @Body('message') message: string,
+    @Body() dto: CreateContestationDto,
     @CurrentUser() user: any,
   ) {
     await this.verifyCollaboratorAccess(id, user);
-    return this.contestationService.create(id, user.id, message);
+    return this.contestationService.create(id, user.id, dto.message);
   }
 
   /** POST /bons/:id/resend — IT renvoie le lien de signature */
@@ -134,40 +141,37 @@ export class BonsController {
   @Post(':id/initiate-restitution')
   initiateRestitution(
     @Param('id') id: string,
-    @Body('returnedEquipmentIds') returnedEquipmentIds: string[],
+    @Body() dto: InitiateRestitutionDto,
     @CurrentUser() user: any,
   ) {
-    return this.bonsService.initiateRestitution(id, user?.id, returnedEquipmentIds);
+    return this.bonsService.initiateRestitution(id, user?.id, dto.returnedEquipmentIds);
   }
 
   @Post(':id/initiate-inperson')
   initiateInPerson(
     @Param('id') id: string,
-    @Body('type') type: 'mise_disposition' | 'restitution',
+    @Body() dto: InitiateInPersonDto,
     @CurrentUser() user: any,
   ) {
-    return this.bonsService.initiateInPersonSignature(id, type, user.id);
+    return this.bonsService.initiateInPersonSignature(id, dto.type, user.id);
   }
 
   @Post(':id/declare-not-returned')
   declareNotReturned(
     @Param('id') id: string,
-    @Body('equipmentIds') equipmentIds: string[],
-    @Body('reason') reason: string,
-    @Body('signatureDataUrl') signatureDataUrl: string | undefined,
+    @Body() dto: DeclareNotReturnedDto,
     @CurrentUser() user: any,
   ) {
-    return this.bonsService.declareNotReturned(id, equipmentIds, reason, user.id, signatureDataUrl);
+    return this.bonsService.declareNotReturned(id, dto.equipmentIds, dto.reason, user.id, dto.signatureDataUrl);
   }
 
   @Post(':id/mark-found')
   markFound(
     @Param('id') id: string,
-    @Body('equipmentIds') equipmentIds: string[],
-    @Body('signatureDataUrl') signatureDataUrl: string | undefined,
+    @Body() dto: MarkFoundDto,
     @CurrentUser() user: any,
   ) {
-    return this.bonsService.markFound(id, equipmentIds, user.id, signatureDataUrl);
+    return this.bonsService.markFound(id, dto.equipmentIds, user.id, dto.signatureDataUrl);
   }
 
   @Get(':id/pdf-snapshots')
