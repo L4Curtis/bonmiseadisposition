@@ -371,6 +371,118 @@ Voir **docs/phase6-security.md** pour details complets.
 
 ---
 
+## 14. Systeme de notifications (toasts) — comment ca fonctionne
+
+Les notifications visuelles dans l'app sont des **toasts** (bandeaux bas-droite, duree 3s).
+
+### Ou c'est implementé
+- **Hook** : `frontend/src/hooks/use-toast.ts` — state global, file d'attente, `dismiss()` apres 3000ms
+- **Composant** : `frontend/src/components/ui/toaster.tsx` — rendu, provider `duration={3000}`
+- **Appel** : `import { toast } from '@/hooks/use-toast'`
+
+### Variantes disponibles
+```typescript
+toast({ title: 'Succes', description: 'Message detaille.', variant: 'success' })   // vert
+toast({ title: 'Erreur', description: 'Ce qui a foiré.', variant: 'destructive' }) // rouge
+toast({ title: 'Info', description: 'Info neutre.' })                               // neutre
+```
+
+### Convention dans le code
+- **Succes** : `variant: 'success'` — confirmation creation/sauvegarde/envoi
+- **Erreur** : `variant: 'destructive'` — echec API, validation, permission
+- **Neutre** : sans variant — info non critique
+
+### Points importants
+- Duree fixe 3s (non modifiable par composant)
+- Pas de toast bloquant (pas de `confirm()`) — pour les actions destructives, utiliser `<ConfirmModal>`
+- `ConfirmModal` : `frontend/src/pages/bons/detail/ConfirmModal.tsx` — modal avec bouton "Confirmer" + prop `danger` pour rouge
+- **Ne pas abuser** : 1 toast par action utilisateur maximum
+
+---
+
+## 15. Panneau audit — fonctionnement et conventions
+
+### But
+Tracer toutes les actions significatives sur les bons, les connexions et les operations admin.
+
+### Acces
+- Route : `/admin/audit`
+- Auth : `@Roles('admin')` uniquement (pas les techniciens)
+- Composant frontend : `frontend/src/pages/admin/AuditLogs.tsx`
+- Endpoint : `GET /api/audit?page=&limit=&userEmail=&action=&dateFrom=&dateTo=`
+
+### Structure d'un log d'audit (modele `AuditLog`)
+| Champ | Type | Description |
+|-------|------|-------------|
+| `id` | UUID | Identifiant |
+| `action` | string | Code action (voir liste ci-dessous) |
+| `userId` | UUID? | ID utilisateur authentifie (null si anonyme) |
+| `userEmail` | string? | Email brut (pour login_failed sans userId) |
+| `bonId` | UUID? | ID du bon concerne (null si action auth) |
+| `ipAddress` | string? | IP reelle du client |
+| `userAgent` | string? | User-agent navigateur |
+| `details` | JSON? | Donnees contextuelles libres |
+| `createdAt` | DateTime | Timestamp auto |
+
+### Actions auditees — liste complete
+**Auth :**
+- `login_sso` — connexion via Entra ID (SSO)
+- `login_local_success` — connexion locale reussie
+- `login_local_failed` — tentative de connexion echouee (brute-force)
+- `logout` — deconnexion
+- `password_changed` — changement de mot de passe
+
+**Bons — cycle de vie :**
+- `bon_created` — creation d'un bon (brouillon)
+- `bon_sent` — bon envoye au collaborateur (1er envoi)
+- `bon_cancelled` — bon annule
+- `restitution_initiated` — restitution initiee par IT
+- `declare_not_returned` — materiel declare non rendu
+- `mark_found` — materiel retrouve
+- `reminder_sent` — lien de signature renvoye manuellement
+
+**Signatures :**
+- `signed_it_cachet` — cachet IT appose
+- `signed_mise_disposition` — collaborateur a signe la mise a disposition
+- `signed_restitution` — collaborateur a signe la restitution
+- `signed_pv_cloture` — collaborateur a signe le PV de cloture
+
+**Contestations :**
+- `bon_contested` — collaborateur a cree une contestation
+- `contestation_resolved` — contestation acceptee par IT
+- `contestation_rejected` — contestation refusee par IT
+
+**Admin (pas encore logue — a implementer) :**
+- `config_updated` — configuration modifiee dans le panneau admin
+- `ldap_sync` — synchronisation LDAP manuelle declenchee
+
+### Comment creer un audit log dans le backend
+```typescript
+await this.prisma.auditLog.create({
+  data: {
+    bonId: id,          // optionnel
+    userId: user.id,    // optionnel si anonyme
+    action: 'nom_action',
+    details: { key: 'value' },  // optionnel, contexte
+    ipAddress: ip,      // optionnel
+  },
+});
+```
+
+### Regles de nommage des actions
+- Format `snake_case` exclusivement
+- Prefixe par entite : `bon_`, `signed_`, `login_`, `contestation_`, etc.
+- Pas de majuscules, pas de tirets
+- Toujours ajouter le label correspondant dans `ACTION_LABELS` (`AuditLogs.tsx`) apres chaque nouvelle action
+
+### Filtres disponibles dans l'interface
+- Par email utilisateur (recherche partielle)
+- Par type d'action (dropdown, alimente dynamiquement depuis `/api/audit/actions`)
+- Par plage de dates (from / to)
+- Pagination : 50 par page
+
+---
+
 ## 13. Repo et liens
 
 - **GitHub** : https://github.com/L4Curtis/bonmiseadisposition

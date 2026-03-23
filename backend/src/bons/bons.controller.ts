@@ -12,7 +12,7 @@ import {
   UseGuards,
   ForbiddenException,
 } from '@nestjs/common';
-import { Throttle } from '@nestjs/throttler';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { Response, Request } from 'express';
 import { BonsService } from './bons.service';
 import { PdfService } from '../pdf/pdf.service';
@@ -67,8 +67,10 @@ export class BonsController {
 
   /** POST /bons/:id/resend — IT renvoie le lien de signature */
   @Post(':id/resend')
-  resend(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.bonsService.resendSignatureLink(id, user.id);
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  resend(@Param('id') id: string, @Body() body: { force?: boolean }, @CurrentUser() user: any) {
+    return this.bonsService.resendSignatureLink(id, user.id, body?.force === true);
   }
 
   // Static routes BEFORE parameterized routes
@@ -129,8 +131,8 @@ export class BonsController {
   }
 
   @Delete(':id')
-  cancel(@Param('id') id: string) {
-    return this.bonsService.cancel(id);
+  cancel(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.bonsService.cancel(id, user?.id);
   }
 
   @Post(':id/send')

@@ -65,6 +65,9 @@ export function BonDetailPage() {
   /** Modal équipement retrouvé */
   const [showMarkFoundModal, setShowMarkFoundModal] = useState(false);
 
+  /** Confirmation renvoi lien récent — contient la date d'envoi si < 1h */
+  const [resendConfirmSentAt, setResendConfirmSentAt] = useState<string | null>(null);
+
   /** PDF snapshots disponibles */
   const [pdfSnapshots, setPdfSnapshots] = useState<PdfSnapshotInfo[]>([]);
 
@@ -139,12 +142,23 @@ export function BonDetailPage() {
     } finally { setActionLoading(null); }
   };
 
-  const doResend = async () => {
+  const doResend = async (force = false) => {
     setActionLoading('resend');
     try {
-      await api.post(`/bons/${id}/resend`);
+      await api.post(`/bons/${id}/resend`, force ? { force: true } : undefined);
       toast({ title: 'Lien renvoyé', description: 'Le lien de signature a été renvoyé avec succès.' });
+      setResendConfirmSentAt(null);
+      load();
     } catch (e: any) {
+      if ((e as any)?.status === 409) {
+        try {
+          const parsed = JSON.parse(e.message);
+          if (parsed.code === 'token_recent') {
+            setResendConfirmSentAt(parsed.sentAt);
+            return;
+          }
+        } catch { /* not JSON, fall through */ }
+      }
       toast({ title: 'Erreur', description: e?.message ?? 'Erreur lors du renvoi', variant: 'destructive' });
     } finally { setActionLoading(null); }
   };
@@ -721,6 +735,20 @@ export function BonDetailPage() {
           isArchived={bon.status === 'archived'}
         />
       )}
+
+      {/* Confirmation renvoi lien récent (< 1h) */}
+      {resendConfirmSentAt && (() => {
+        const minutesAgo = Math.floor((Date.now() - new Date(resendConfirmSentAt).getTime()) / 60000);
+        const label = minutesAgo < 1 ? 'il y a moins d\'une minute' : `il y a ${minutesAgo} minute${minutesAgo > 1 ? 's' : ''}`;
+        return (
+          <ConfirmModal
+            title="Lien récemment envoyé"
+            message={`Un lien de signature a déjà été envoyé ${label}. Le collaborateur l'a peut-être reçu. Renvoyer quand même ?`}
+            onConfirm={() => doResend(true)}
+            onCancel={() => setResendConfirmSentAt(null)}
+          />
+        );
+      })()}
     </div>
   );
 }

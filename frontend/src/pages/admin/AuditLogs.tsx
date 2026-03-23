@@ -38,17 +38,32 @@ interface AuditResponse {
 // ─── Action label mapping ─────────────────────────────────────────────────────
 
 const ACTION_LABELS: Record<string, { label: string; color: string }> = {
-  bon_created:           { label: 'Bon cree',             color: 'bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400' },
-  bon_sent:              { label: 'Bon envoye',           color: 'bg-indigo-100 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400' },
-  bon_cancelled:         { label: 'Bon annule',           color: 'bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400' },
-  bon_signed:            { label: 'Bon signe',            color: 'bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400' },
-  bon_signed_in_person:  { label: 'Signe presentiel',     color: 'bg-amber-100 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400' },
-  it_cachet_signed:      { label: 'Cachet IT',            color: 'bg-muted text-foreground/80' },
-  restitution_initiated: { label: 'Restitution initiee',  color: 'bg-purple-100 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400' },
-  bon_archived:          { label: 'Bon archive',          color: 'bg-muted text-muted-foreground' },
-  reminder_sent:         { label: 'Rappel envoye',        color: 'bg-orange-100 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400' },
-  config_updated:        { label: 'Config modifiee',      color: 'bg-yellow-100 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400' },
-  ldap_sync:             { label: 'Sync LDAP',            color: 'bg-cyan-100 dark:bg-cyan-900/20 text-cyan-700 dark:text-cyan-400' },
+  // Auth
+  login_sso:                 { label: 'Connexion SSO',           color: 'bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400' },
+  login_local_success:       { label: 'Connexion locale',        color: 'bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400' },
+  login_local_failed:        { label: 'Tentative echouee',       color: 'bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400' },
+  logout:                    { label: 'Deconnexion',             color: 'bg-muted text-muted-foreground' },
+  password_changed:          { label: 'Mot de passe modifie',    color: 'bg-yellow-100 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400' },
+  // Bons — cycle de vie
+  bon_created:               { label: 'Bon cree',                color: 'bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400' },
+  bon_sent:                  { label: 'Bon envoye',              color: 'bg-indigo-100 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400' },
+  bon_cancelled:             { label: 'Bon annule',              color: 'bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400' },
+  restitution_initiated:     { label: 'Restitution initiee',     color: 'bg-purple-100 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400' },
+  declare_not_returned:      { label: 'Materiel non rendu',      color: 'bg-orange-100 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400' },
+  mark_found:                { label: 'Materiel retrouve',       color: 'bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400' },
+  reminder_sent:             { label: 'Rappel envoye',           color: 'bg-orange-100 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400' },
+  // Signatures
+  signed_mise_disposition:   { label: 'Signe — Mise a dispo',    color: 'bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400' },
+  signed_restitution:        { label: 'Signe — Restitution',     color: 'bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400' },
+  signed_pv_cloture:         { label: 'Signe — PV cloture',      color: 'bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400' },
+  signed_it_cachet:          { label: 'Cachet IT',               color: 'bg-muted text-foreground/80' },
+  // Contestations
+  bon_contested:             { label: 'Contestation creee',      color: 'bg-amber-100 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400' },
+  contestation_resolved:     { label: 'Contestation acceptee',   color: 'bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400' },
+  contestation_rejected:     { label: 'Contestation refusee',    color: 'bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400' },
+  // Admin
+  config_updated:            { label: 'Config modifiee',         color: 'bg-yellow-100 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400' },
+  ldap_sync:                 { label: 'Sync LDAP',               color: 'bg-cyan-100 dark:bg-cyan-900/20 text-cyan-700 dark:text-cyan-400' },
 };
 
 function actionBadge(action: string) {

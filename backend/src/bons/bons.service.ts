@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateBonDto, UpdateBonDto } from './dto/bon.dto';
 import { SignatureService } from '../signature/signature.service';
@@ -244,7 +244,7 @@ export class BonsService {
     });
     if (!collaborateur) throw new NotFoundException('Collaborateur introuvable');
 
-    return this.prisma.bon.create({
+    const bon = await this.prisma.bon.create({
       data: {
         reference,
         filialeId: dto.filialeId,
@@ -270,6 +270,10 @@ export class BonsService {
       },
       include: BON_INCLUDE,
     });
+    await this.prisma.auditLog.create({
+      data: { bonId: bon.id, userId, action: 'bon_created' },
+    });
+    return bon;
   }
 
   async update(id: string, dto: UpdateBonDto) {
@@ -315,15 +319,19 @@ export class BonsService {
     return this.prisma.bon.update({ where: { id }, data, include: BON_INCLUDE });
   }
 
-  async cancel(id: string) {
+  async cancel(id: string, userId?: string) {
     const bon = await this.findOne(id);
     if (['archived', 'cancelled'].includes(bon.status))
       throw new BadRequestException('Ce bon ne peut pas être annulé');
-    return this.prisma.bon.update({
+    const updated = await this.prisma.bon.update({
       where: { id },
       data: { status: 'cancelled' },
       include: BON_INCLUDE,
     });
+    await this.prisma.auditLog.create({
+      data: { bonId: id, userId: userId ?? null, action: 'bon_cancelled' },
+    });
+    return updated;
   }
 
   async send(id: string, initiatedById?: string) {
@@ -355,6 +363,9 @@ export class BonsService {
       .sendMiseDispositionRequest(updated, sig.token)
       .catch(() => {/* email errors are logged in NotificationService */});
 
+    await this.prisma.auditLog.create({
+      data: { bonId: id, userId: initiatedById ?? null, action: 'bon_sent' },
+    });
     return updated;
   }
 
@@ -405,6 +416,9 @@ export class BonsService {
       .sendRestitutionRequest(updated, sig.token)
       .catch(() => {});
 
+    await this.prisma.auditLog.create({
+      data: { bonId: id, userId: initiatedById ?? null, action: 'restitution_initiated' },
+    });
     return updated;
   }
 
@@ -672,13 +686,32 @@ export class BonsService {
    * Renvoi manuel du lien de signature (depuis BonDetail par l'IT).
    * Génère un nouveau token et renvoie l'email correspondant.
    */
-  async resendSignatureLink(bonId: string, initiatedById: string) {
+  async resendSignatureLink(bonId: string, initiatedById: string, force = false) {
     const bon = await this.findOne(bonId);
 
     if (!['sent_mise_dispo', 'sent_restitution', 'partially_returned'].includes(bon.status))
       throw new BadRequestException(
         'Le renvoi est possible uniquement pour les bons en attente de signature',
       );
+
+    // Guard: if a valid token was sent less than 1 hour ago, require explicit confirmation
+    if (!force) {
+      const recentSig = await this.prisma.signature.findFirst({
+        where: {
+          bonId,
+          signed: false,
+          tokenExpiresAt: { gt: new Date(1000) }, // exclude invalidated tokens (epoch)
+          createdAt: { gt: new Date(Date.now() - 60 * 60 * 1000) },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (recentSig) {
+        throw new ConflictException({
+          code: 'token_recent',
+          sentAt: recentSig.createdAt.toISOString(),
+        });
+      }
+    }
 
     // Check if there's a pending pv_cloture signature (PV awaiting collab co-signature)
     const hasPendingPvCloture = (bon as any).signatures?.some(
