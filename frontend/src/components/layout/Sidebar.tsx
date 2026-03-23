@@ -94,7 +94,7 @@ const SidebarNavLink = React.forwardRef<
       className={cn(
         'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-150',
         isActive
-          ? 'bg-white/10 text-white'
+          ? 'nav-item-active text-white'
           : 'text-slate-400 hover:bg-white/5 hover:text-slate-200',
       )}
       {...props}
@@ -147,12 +147,11 @@ export function Sidebar() {
   return (
     <TooltipProvider delayDuration={300}>
       <aside
-        className="flex w-56 flex-col"
-        style={{ backgroundColor: 'hsl(222 47% 11%)' }}
+        className="flex w-56 flex-col bg-[hsl(var(--sidebar-bg))]"
       >
         {/* Logo */}
         <div className="flex h-14 items-center gap-3 border-b border-white/10 px-4">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white text-xs font-bold tracking-tight shadow-sm">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg btn-gradient text-white text-xs font-bold tracking-tight shadow-sm">
             GL
           </div>
           <div>
@@ -171,7 +170,7 @@ export function Sidebar() {
         {/* User block */}
         <div className="border-t border-white/10 p-3">
           <div className="flex items-center gap-2.5 rounded-lg px-2 py-2">
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-600/20 text-blue-400 text-xs font-semibold">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[hsl(var(--primary)/0.20)] text-[hsl(var(--primary))] text-xs font-semibold">
               {user?.displayName?.slice(0, 2).toUpperCase() || '??'}
             </div>
             <div className="min-w-0">

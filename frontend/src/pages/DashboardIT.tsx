@@ -94,18 +94,19 @@ interface StatCardProps {
   iconBg: string;
   iconColor: string;
   onClick: () => void;
+  className?: string;
 }
 
-function StatCard({ label, value, icon: Icon, iconBg, iconColor, onClick }: StatCardProps) {
+function StatCard({ label, value, icon: Icon, iconBg, iconColor, onClick, className }: StatCardProps) {
   return (
     <button
-      className="group w-full text-left rounded-xl border border-border bg-card p-5 shadow-sm hover:shadow-md hover:border-border transition-all duration-150"
+      className={`group w-full text-left rounded-xl border border-border bg-card p-5 card-elevated hover:shadow-card-hover hover:border-primary/25 transition-all duration-150 ${className ?? ''}`}
       onClick={onClick}
     >
       <div className="flex items-start justify-between">
         <div>
           <p className="text-sm text-muted-foreground leading-none mb-3">{label}</p>
-          <p className="text-3xl font-bold text-foreground tabular-nums">{value}</p>
+          <p className="text-3xl font-extrabold tracking-tight text-foreground tabular-nums">{value}</p>
         </div>
         <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${iconBg} shrink-0`}>
           <Icon className={`h-5 w-5 ${iconColor}`} />
@@ -138,8 +139,8 @@ export function DashboardIT() {
       label: 'Total bons en cours',
       value: stats?.total ?? 0,
       icon: FileText,
-      iconBg: 'bg-blue-100 dark:bg-blue-900/20',
-      iconColor: 'text-blue-600 dark:text-blue-400',
+      iconBg: 'bg-[hsl(var(--primary)/0.10)] dark:bg-[hsl(var(--primary)/0.15)]',
+      iconColor: 'text-[hsl(var(--primary))]',
       onClick: () => navigate('/bons'),
     },
     {
@@ -197,7 +198,7 @@ export function DashboardIT() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {loading
           ? Array.from({ length: 4 }).map((_, i) => <StatCardSkeleton key={i} />)
-          : statCards.map((card) => <StatCard key={card.label} {...card} />)
+          : statCards.map((card, index) => <StatCard key={card.label} {...card} className={`animate-fade-in-up-${index + 1}`} />)
         }
       </div>
 
@@ -205,7 +206,7 @@ export function DashboardIT() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
 
         {/* Bons récents – spans 2/3 */}
-        <div className="lg:col-span-2 rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+        <div className="lg:col-span-2 rounded-xl border border-border bg-card card-elevated overflow-hidden">
           <div className="flex items-center justify-between border-b border-border px-5 py-4">
             <h3 className="text-sm font-semibold text-foreground">Bons récents</h3>
             <button
@@ -276,7 +277,7 @@ export function DashboardIT() {
         </div>
 
         {/* Par filiale – spans 1/3 */}
-        <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+        <div className="rounded-xl border border-border bg-card card-elevated overflow-hidden">
           <div className="flex items-center gap-2 border-b border-border px-5 py-4">
             <Building2 className="h-4 w-4 text-muted-foreground/70" />
             <h3 className="text-sm font-semibold text-foreground">Bons actifs par filiale</h3>
@@ -307,7 +308,7 @@ export function DashboardIT() {
                     </div>
                     <div className="w-full bg-muted rounded-full h-1">
                       <div
-                        className="bg-blue-500 h-1 rounded-full transition-all duration-500"
+                        className="bg-[hsl(var(--primary))] h-1.5 rounded-full transition-all duration-500"
                         style={{ width: `${pct}%` }}
                       />
                     </div>

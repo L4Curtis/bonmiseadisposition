@@ -55,13 +55,38 @@ const config: Config = {
           from: { height: 'var(--radix-accordion-content-height)' },
           to: { height: '0' },
         },
+        'fade-in-up': {
+          from: { opacity: '0', transform: 'translateY(8px)' },
+          to: { opacity: '1', transform: 'translateY(0)' },
+        },
+        'fade-in': {
+          from: { opacity: '0' },
+          to: { opacity: '1' },
+        },
       },
       animation: {
         'accordion-down': 'accordion-down 0.2s ease-out',
         'accordion-up': 'accordion-up 0.2s ease-out',
+        'fade-in-up': 'fade-in-up 0.25s ease-out both',
+        'fade-in-up-1': 'fade-in-up 0.25s 0.05s ease-out both',
+        'fade-in-up-2': 'fade-in-up 0.25s 0.10s ease-out both',
+        'fade-in-up-3': 'fade-in-up 0.25s 0.15s ease-out both',
+        'fade-in-up-4': 'fade-in-up 0.25s 0.20s ease-out both',
+        'fade-in': 'fade-in 0.20s ease-out both',
+      },
+      boxShadow: {
+        'card': 'var(--shadow-card)',
+        'card-hover': 'var(--shadow-card-hover)',
+        'card-colored': 'var(--shadow-card-colored)',
       },
     },
   },
+  safelist: [
+    'animate-fade-in-up-1',
+    'animate-fade-in-up-2',
+    'animate-fade-in-up-3',
+    'animate-fade-in-up-4',
+  ],
   plugins: [tailwindAnimate],
 };
 

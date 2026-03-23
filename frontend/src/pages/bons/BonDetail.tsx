@@ -265,7 +265,7 @@ export function BonDetailPage() {
   if (loading) {
     return (
       <div className="flex justify-center py-16" aria-live="polite">
-        <div className="h-7 w-7 animate-spin motion-reduce:animate-none rounded-full border-4 border-blue-600 border-t-transparent" role="status">
+        <div className="h-7 w-7 animate-spin motion-reduce:animate-none rounded-full border-4 border-[hsl(var(--primary))] border-t-transparent" role="status">
           <span className="sr-only">Chargement du bon</span>
         </div>
       </div>
@@ -311,7 +311,7 @@ export function BonDetailPage() {
     sigType === 'restitution' ? 'restitution' : 'mise_disposition';
 
   return (
-    <div className="space-y-4 max-w-4xl">
+    <div className="space-y-5 max-w-4xl">
       {/* Header */}
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-3">
@@ -458,7 +458,7 @@ export function BonDetailPage() {
 
       {/* Info grid */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Card>
+        <Card className="card-accent-top">
           <CardHeader><CardTitle className="text-sm">Collaborateur</CardTitle></CardHeader>
           <CardContent className="space-y-2 text-sm">
             <div className="flex gap-2">
@@ -478,7 +478,7 @@ export function BonDetailPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="card-accent-top">
           <CardHeader><CardTitle className="text-sm">Filiale & Dates</CardTitle></CardHeader>
           <CardContent className="space-y-2 text-sm">
             <div className="flex gap-2">

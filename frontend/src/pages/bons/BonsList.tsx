@@ -167,7 +167,7 @@ export function BonsListPage() {
       {/* Filter bar */}
       <div className="flex flex-wrap items-center gap-2">
         {/* Search input */}
-        <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 flex-1 min-w-52 focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-400 transition-all">
+        <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 flex-1 min-w-52 focus-within:ring-2 focus-within:ring-[hsl(var(--primary)/0.20)] focus-within:border-[hsl(var(--primary)/0.60)] transition-all">
           <Search className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
           <input
             className="flex-1 text-sm outline-none placeholder:text-muted-foreground/70 bg-transparent text-foreground"
@@ -192,7 +192,7 @@ export function BonsListPage() {
 
         {/* Status dropdown */}
         <select
-          className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground/80 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all cursor-pointer"
+          className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground/80 focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.20)] focus:border-[hsl(var(--primary)/0.60)] transition-all cursor-pointer"
           value={statusFilter}
           onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
           aria-label="Filtrer par statut"
@@ -204,7 +204,7 @@ export function BonsListPage() {
 
         {/* Filiale dropdown */}
         <select
-          className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground/80 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all cursor-pointer"
+          className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground/80 focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.20)] focus:border-[hsl(var(--primary)/0.60)] transition-all cursor-pointer"
           value={filialeFilter}
           onChange={(e) => { setFilialeFilter(e.target.value); setPage(1); }}
           aria-label="Filtrer par filiale"
@@ -253,7 +253,7 @@ export function BonsListPage() {
       </div>
 
       {/* Table container */}
-      <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
+      <div className="bg-card rounded-xl border border-border card-elevated overflow-hidden">
         {loading ? (
           <TableSkeleton />
         ) : bons.length === 0 ? (
@@ -287,7 +287,7 @@ export function BonsListPage() {
                   setFilialeFilter('');
                   setPage(1);
                 }}
-                className="mt-3 text-sm text-blue-600 hover:text-blue-800 font-medium transition-colors"
+                className="mt-3 text-sm text-[hsl(var(--primary))] hover:opacity-80 font-medium transition-colors"
               >
                 Réinitialiser les filtres
               </button>
@@ -357,7 +357,7 @@ export function BonsListPage() {
 
                     {/* Equipment count */}
                     <td className="px-4 py-3.5 text-center hidden sm:table-cell">
-                      <span className="inline-block text-xs bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 font-medium px-2 py-0.5 rounded-full">
+                      <span className="inline-block text-xs bg-[hsl(var(--primary)/0.08)] dark:bg-[hsl(var(--primary)/0.15)] text-[hsl(var(--primary))] font-medium px-2 py-0.5 rounded-full">
                         {bon.equipments.length}
                       </span>
                     </td>
@@ -373,7 +373,7 @@ export function BonsListPage() {
 
                     {/* Action */}
                     <td className="px-4 py-3.5 text-right">
-                      <span className="text-xs text-muted-foreground/70 group-hover:text-blue-600 font-medium transition-colors">
+                      <span className="text-xs text-muted-foreground/70 group-hover:text-[hsl(var(--primary))] font-medium transition-colors">
                         Voir
                       </span>
                     </td>

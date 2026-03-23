@@ -184,7 +184,7 @@ export function Header() {
               </Avatar>
               <span className="hidden sm:inline font-medium text-xs">{user?.displayName}</span>
               {availableViews.length > 1 && (
-                <span className="hidden sm:inline rounded-full bg-blue-100 dark:bg-blue-900/30 px-1.5 py-0.5 text-[10px] text-blue-600 dark:text-blue-400 font-medium">
+                <span className="hidden sm:inline rounded-full bg-[hsl(var(--primary)/0.10)] dark:bg-[hsl(var(--primary)/0.15)] px-1.5 py-0.5 text-[10px] text-[hsl(var(--primary))] font-medium">
                   {UI_VIEW_LABELS[activeView]}
                 </span>
               )}

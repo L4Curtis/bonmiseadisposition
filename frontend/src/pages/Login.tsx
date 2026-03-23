@@ -66,7 +66,7 @@ export function LoginPage() {
 
   if (setupRequired === null) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background" aria-live="polite">
+      <div className="flex h-screen items-center justify-center bg-[hsl(231_45%_5%)]" aria-live="polite">
         <Spinner className="h-8 w-8 text-primary motion-reduce:animate-none" />
         <span className="sr-only">Chargement en cours</span>
       </div>
@@ -74,17 +74,22 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100">
-      <div className="w-full max-w-md px-4">
-        <Card className="shadow-lg border-0">
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[hsl(231_45%_5%)]">
+      {/* Blobs animés */}
+      <div aria-hidden="true" className="pointer-events-none absolute -top-32 -left-24 h-80 w-80 rounded-full" style={{ background: 'hsl(var(--primary))', filter: 'blur(80px)', opacity: 0.20, animation: 'blob-drift 12s ease-in-out infinite' }} />
+      <div aria-hidden="true" className="pointer-events-none absolute -bottom-24 -right-16 h-96 w-96 rounded-full" style={{ background: 'hsl(217 91% 60%)', filter: 'blur(90px)', opacity: 0.15, animation: 'blob-drift 16s 4s ease-in-out infinite' }} />
+      <div aria-hidden="true" className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 h-64 w-64 rounded-full" style={{ background: 'hsl(243 75% 59%)', filter: 'blur(100px)', opacity: 0.10, animation: 'blob-drift 20s 8s ease-in-out infinite' }} />
+
+      <div className="relative w-full max-w-md px-4">
+        <Card className="animate-fade-in border border-white/10 bg-white/5 backdrop-blur-xl shadow-card-colored">
           <CardContent className="p-8">
             {/* Brand */}
             <div className="mb-8 text-center">
-              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-white font-bold text-lg">
+              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl btn-gradient text-white font-bold text-lg shadow-card-colored">
                 GL
               </div>
-              <h1 className="text-xl font-bold text-slate-900">Bons de Mise à Disposition</h1>
-              <p className="mt-1 text-sm text-muted-foreground">Groupe Livio — Service IT</p>
+              <h1 className="text-xl font-bold text-white">Bons de Mise à Disposition</h1>
+              <p className="mt-1 text-sm text-white/60">Groupe Livio — Service IT</p>
             </div>
 
             {/* Error banner */}
@@ -113,7 +118,7 @@ export function LoginPage() {
             {localAuthEnabled && (
               <div className="mt-5">
                 <button
-                  className="flex w-full items-center justify-center gap-1.5 text-sm text-muted-foreground hover:text-slate-600 transition-colors"
+                  className="flex w-full items-center justify-center gap-1.5 text-sm text-white/50 hover:text-white/80 transition-colors"
                   onClick={() => setShowLocal((v) => !v)}
                 >
                   {showLocal ? (
@@ -173,7 +178,7 @@ export function LoginPage() {
               </div>
             )}
 
-            <p className="mt-6 text-center text-xs text-muted-foreground">
+            <p className="mt-6 text-center text-xs text-white/40">
               Authentification sécurisée via Microsoft Entra ID
             </p>
           </CardContent>
