@@ -214,7 +214,7 @@ export function SignaturePage() {
     try {
       const res = await fetch(`/api/signature/${token}/sign`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
         credentials: 'include',
         body: JSON.stringify({ signatureDataUrl: dataUrl, mentionLuApprouve: true }),
       });

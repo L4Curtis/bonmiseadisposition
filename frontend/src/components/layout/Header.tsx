@@ -75,7 +75,7 @@ function ChangePasswordDialog({
     try {
       const res = await fetch('/api/auth/change-password', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
         body: JSON.stringify({ currentPassword: form.current, newPassword: form.next }),
         credentials: 'include',
       });
