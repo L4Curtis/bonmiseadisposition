@@ -119,7 +119,7 @@ proxy_set_header X-Forwarded-Proto $scheme;
 ### Étape 6 — Premier accès
 
 1. Ouvrir `https://bons.groupelivio.local`
-2. Connexion locale : `admin@local` / `Admin123!` (mot de passe temporaire)
+2. Connexion locale : `admin@local` / `admin` (mot de passe temporaire)
 3. **Changer le mot de passe immédiatement** (obligatoire au premier login)
 4. **Admin → Configuration** : renseigner LDAP, Entra ID, SMTP
 5. **Admin → Filiales** : créer les filiales

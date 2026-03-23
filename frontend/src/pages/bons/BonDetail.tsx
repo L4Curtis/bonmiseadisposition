@@ -490,7 +490,7 @@ export function BonDetailPage() {
         <Card>
           <CardHeader><CardTitle className="text-sm">Signatures</CardTitle></CardHeader>
           <CardContent className="space-y-3">
-            {bon.signatures.map((sig) => (
+            {bon.signatures.filter(sig => sig.signed || new Date(sig.tokenExpiresAt).getTime() > 1000).map((sig) => (
               <div
                 key={sig.id}
                 className={`flex items-start gap-3 rounded-lg p-3 ${sig.signed ? 'bg-green-50 dark:bg-green-900/20 border border-green-100 dark:border-green-900/30' : 'bg-orange-50 dark:bg-orange-900/20 border border-orange-100 dark:border-orange-900/30'}`}
