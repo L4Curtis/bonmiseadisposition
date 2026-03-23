@@ -22,7 +22,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from '@/hooks/use-toast';
-import { Plus, Pencil, Trash2, Package, ChevronDown, ChevronRight, X, Search } from 'lucide-react';
+import { Plus, Pencil, Trash2, Package, ChevronDown, ChevronRight, X, Search, Check } from 'lucide-react';
 
 const CATEGORIES: Record<string, string> = {
   pc_portable: 'PC Portable',
@@ -70,6 +70,13 @@ function CatalogItemForm({ item, onSave, onCancel }: {
     model: item?.model || '',
     description: item?.description || '',
   });
+  const [saved, setSaved] = useState(false);
+
+  const handleSave = () => {
+    onSave(form);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
 
   return (
     <div className="rounded-lg border bg-muted/40 p-3 space-y-3">
@@ -101,7 +108,15 @@ function CatalogItemForm({ item, onSave, onCancel }: {
         </div>
       </div>
       <div className="flex gap-2">
-        <Button size="sm" onClick={() => onSave(form)}>Enregistrer</Button>
+        <Button
+          size="sm"
+          disabled={saved}
+          className={saved ? 'bg-green-600 hover:bg-green-600 text-white' : ''}
+          onClick={handleSave}
+        >
+          {saved ? <Check className="h-3 w-3" /> : null}
+          {saved ? 'Enregistré' : 'Enregistrer'}
+        </Button>
         <Button size="sm" variant="outline" onClick={onCancel}>Annuler</Button>
       </div>
     </div>
@@ -250,7 +265,10 @@ export function CataloguePage() {
   };
 
   const createPack = async () => {
-    if (!newPackName.trim()) return;
+    if (!newPackName.trim()) {
+      toast({ title: 'Veuillez saisir un nom pour le pack', variant: 'destructive' });
+      return;
+    }
     try {
       await api.post('/equipment/packs', { name: newPackName });
       toast({ title: 'Pack cree', variant: 'success' });

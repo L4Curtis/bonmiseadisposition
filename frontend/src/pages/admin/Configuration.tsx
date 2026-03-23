@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/hooks/use-toast';
-import { CheckCircle, XCircle, Loader2 } from 'lucide-react';
+import { CheckCircle, XCircle, Loader2, Check } from 'lucide-react';
 
 type TestResult = { success: boolean; message: string } | null;
 
@@ -136,6 +136,7 @@ function ConfigSection({
 }) {
   const [values, setValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -165,6 +166,8 @@ function ConfigSection({
       }
       await api.put(`/admin/config/${category}`, toSave);
       toast({ title: 'Configuration enregistrée', variant: 'success' });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
     } catch {
       toast({ title: 'Erreur lors de la sauvegarde', variant: 'destructive' });
     } finally {
@@ -240,9 +243,14 @@ function ConfigSection({
         )}
 
         <div className="flex items-center gap-3 pt-2">
-          <Button onClick={save} disabled={saving} size="sm">
-            {saving ? <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none" /> : null}
-            Enregistrer
+          <Button
+            onClick={save}
+            disabled={saving || saved}
+            size="sm"
+            className={saved ? 'bg-green-600 hover:bg-green-600 text-white' : ''}
+          >
+            {saving ? <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none" /> : saved ? <Check className="h-3 w-3" /> : null}
+            {saved ? 'Enregistré' : 'Enregistrer'}
           </Button>
           {onTest && testLabel && (
             <TestButton onTest={onTest} label={testLabel} />

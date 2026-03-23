@@ -730,7 +730,7 @@ export class BonsService {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('bon_reference_lock'))`;
       const result = await tx.$queryRaw<[{ max_ref: string | null }]>`
         SELECT MAX(reference) as max_ref
-        FROM "Bon"
+        FROM "bons"
         WHERE reference LIKE ${prefix}
       `;
       const lastRef = result[0]?.max_ref;

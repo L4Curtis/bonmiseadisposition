@@ -49,7 +49,7 @@ export class AuthService {
     return url;
   }
 
-  async handleCallback(code: string, state: string): Promise<{ accessToken: string; refreshToken: string }> {
+  async handleCallback(code: string, state: string): Promise<{ accessToken: string; refreshToken: string; user: { id: string; email: string } }> {
     const msalClient = await this.getMsalClient();
     const redirectUri = await this.configService.get('entra', 'redirect_uri');
 
@@ -105,7 +105,7 @@ export class AuthService {
       { secret: jwtSecret, expiresIn: '8h' },
     );
 
-    return { accessToken, refreshToken };
+    return { accessToken, refreshToken, user: { id: user.id, email: user.email } };
   }
 
   async createTokensForUser(user: { id: string; email: string; role: string }): Promise<{ accessToken: string; refreshToken: string }> {

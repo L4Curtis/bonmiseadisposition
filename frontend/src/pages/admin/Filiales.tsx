@@ -33,6 +33,13 @@ function FilialeForm({
     address: '',
     siret: '',
   });
+  const [saved, setSaved] = useState(false);
+
+  const handleSave = () => {
+    onSave(form);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
 
   return (
     <div className="rounded-lg border bg-muted/40 p-4 space-y-3">
@@ -55,8 +62,14 @@ function FilialeForm({
         </div>
       </div>
       <div className="flex gap-2">
-        <Button size="sm" onClick={() => onSave(form)}>
-          <Check className="h-3 w-3" /> Enregistrer
+        <Button
+          size="sm"
+          disabled={saved}
+          className={saved ? 'bg-green-600 hover:bg-green-600 text-white' : ''}
+          onClick={handleSave}
+        >
+          <Check className="h-3 w-3" />
+          {saved ? 'Enregistré' : 'Enregistrer'}
         </Button>
         <Button size="sm" variant="outline" onClick={onCancel}>
           <X className="h-3 w-3" /> Annuler

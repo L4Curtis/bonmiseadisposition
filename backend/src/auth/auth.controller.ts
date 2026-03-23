@@ -61,11 +61,22 @@ export class AuthController {
     const returnTo = req.cookies['auth_return_to'];
     res.clearCookie('auth_return_to');
 
+    const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
+      ?? (req.headers['x-real-ip'] as string)
+      ?? req.socket?.remoteAddress
+      ?? 'unknown';
     try {
-      const { accessToken, refreshToken } = await this.authService.handleCallback(code, state);
+      const { accessToken, refreshToken, user } = await this.authService.handleCallback(code, state);
       this.authService.setAuthCookies(res, accessToken, refreshToken);
-      // Redirect to returnTo if valid, otherwise root (frontend redirects by role: IT→/dashboard, collab→/mes-bons)
-      // Use strict validation to prevent open redirect via //evil.com
+      await this.prisma.auditLog.create({
+        data: {
+          userId: user?.id,
+          userEmail: user?.email,
+          action: 'login_sso',
+          ipAddress: ip,
+          userAgent: req.headers['user-agent'] ?? 'unknown',
+        },
+      }).catch(() => { /* non-blocking */ });
       const destination =
         returnTo && /^\/[^/]/.test(returnTo) ? `${frontendUrl}${returnTo}` : `${frontendUrl}/`;
       return res.redirect(destination);
@@ -96,7 +107,10 @@ export class AuthController {
   @Post('logout')
   @UseGuards(JwtAuthGuard)
   async logout(@CurrentUser() user: any, @Req() req: Request, @Res() res: Response) {
-    const ip = (req.headers['x-real-ip'] as string) ?? req.socket?.remoteAddress ?? 'unknown';
+    const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
+      ?? (req.headers['x-real-ip'] as string)
+      ?? req.socket?.remoteAddress
+      ?? 'unknown';
     await this.prisma.auditLog.create({
       data: {
         userId: user?.id,
@@ -134,7 +148,10 @@ export class AuthController {
     if (localAuthEnabled === 'false') {
       throw new ForbiddenException('Authentification locale désactivée');
     }
-    const ip = (req.headers['x-real-ip'] as string) ?? req.socket?.remoteAddress ?? 'unknown';
+    const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
+      ?? (req.headers['x-real-ip'] as string)
+      ?? req.socket?.remoteAddress
+      ?? 'unknown';
     const ua = req.headers['user-agent'] ?? 'unknown';
     try {
       const { accessToken, refreshToken, mustChangePassword } = await this.authService.localLogin(dto.email, dto.password);
@@ -160,7 +177,10 @@ export class AuthController {
     @Res() res: Response,
   ) {
     await this.authService.changePassword(user.id, dto.currentPassword, dto.newPassword);
-    const ip = (req.headers['x-real-ip'] as string) ?? req.socket?.remoteAddress ?? 'unknown';
+    const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
+      ?? (req.headers['x-real-ip'] as string)
+      ?? req.socket?.remoteAddress
+      ?? 'unknown';
     await this.prisma.auditLog.create({
       data: { userId: user?.id, userEmail: user?.email, action: 'password_changed', ipAddress: ip, userAgent: req.headers['user-agent'] ?? 'unknown' },
     }).catch(() => { /* non-blocking */ });
