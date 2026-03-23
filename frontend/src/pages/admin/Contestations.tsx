@@ -237,7 +237,7 @@ export function ContestationsPage() {
       {/* Table */}
       <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
         {loading ? (
-          <div className="divide-y divide-border/60">
+          <div className="divide-y divide-border">
             {Array.from({ length: 5 }).map((_, i) => (
               <div key={i} className="flex items-center gap-4 px-4 py-3">
                 <Skeleton className="h-4 w-24" />

@@ -56,7 +56,7 @@ function StatCardSkeleton() {
 
 function RecentListSkeleton() {
   return (
-    <div className="divide-y divide-border/60">
+    <div className="divide-y divide-border">
       {Array.from({ length: 5 }).map((_, i) => (
         <div key={i} className="flex items-center gap-4 px-5 py-3.5">
           <Skeleton className="h-5 w-24 rounded" />
@@ -71,7 +71,7 @@ function RecentListSkeleton() {
 
 function FilialeSkeleton() {
   return (
-    <div className="divide-y divide-border/60">
+    <div className="divide-y divide-border">
       {Array.from({ length: 4 }).map((_, i) => (
         <div key={i} className="px-5 py-3.5 space-y-2.5">
           <div className="flex items-center justify-between">
@@ -206,7 +206,7 @@ export function DashboardIT() {
 
         {/* Bons récents – spans 2/3 */}
         <div className="lg:col-span-2 rounded-xl border border-border bg-card shadow-sm overflow-hidden">
-          <div className="flex items-center justify-between border-b border-border/60 px-5 py-4">
+          <div className="flex items-center justify-between border-b border-border px-5 py-4">
             <h3 className="text-sm font-semibold text-foreground">Bons récents</h3>
             <button
               onClick={() => navigate('/bons')}
@@ -232,7 +232,7 @@ export function DashboardIT() {
               </Button>
             </div>
           ) : (
-            <div className="divide-y divide-border/60">
+            <div className="divide-y divide-border">
               {recent.map((bon) => {
                 const late = isOverdue(bon);
                 return (
@@ -277,7 +277,7 @@ export function DashboardIT() {
 
         {/* Par filiale – spans 1/3 */}
         <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
-          <div className="flex items-center gap-2 border-b border-border/60 px-5 py-4">
+          <div className="flex items-center gap-2 border-b border-border px-5 py-4">
             <Building2 className="h-4 w-4 text-muted-foreground/70" />
             <h3 className="text-sm font-semibold text-foreground">Bons actifs par filiale</h3>
           </div>
@@ -290,7 +290,7 @@ export function DashboardIT() {
               <p className="text-xs text-muted-foreground/70">Aucune donnée disponible</p>
             </div>
           ) : (
-            <div className="divide-y divide-border/60">
+            <div className="divide-y divide-border">
               {stats.byFiliale.map((f) => {
                 const pct = Math.round((f.count / maxFiliale) * 100);
                 return (

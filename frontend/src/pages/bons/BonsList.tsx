@@ -43,7 +43,7 @@ const STATUS_OPTIONS: { value: string; label: string }[] = [
 
 function TableSkeleton() {
   return (
-    <div className="divide-y divide-border/60">
+    <div className="divide-y divide-border">
       {Array.from({ length: 8 }).map((_, i) => (
         <div key={i} className="flex items-center gap-4 px-4 py-3.5">
           <Skeleton className="h-5 w-28 rounded" />
@@ -321,7 +321,7 @@ export function BonsListPage() {
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border/60">
+              <tbody className="divide-y divide-border">
                 {bons.map((bon) => (
                   <tr
                     key={bon.id}

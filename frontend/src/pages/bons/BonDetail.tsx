@@ -645,7 +645,7 @@ export function BonDetailPage() {
             {pdfSnapshots.map((snap) => (
               <div
                 key={snap.type}
-                className="flex items-center justify-between p-3 rounded-lg border border-border/60 hover:bg-muted/40"
+                className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-muted/40"
               >
                 <div>
                   <p className="text-sm font-medium text-foreground">
