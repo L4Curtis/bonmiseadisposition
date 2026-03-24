@@ -116,7 +116,9 @@ export class BonsController {
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
+  @Roles('admin', 'technician', 'collaborator')
+  async findOne(@Param('id') id: string, @CurrentUser() user: any) {
+    await this.verifyCollaboratorAccess(id, user);
     return this.bonsService.findOne(id);
   }
 

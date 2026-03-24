@@ -22,6 +22,7 @@ import { BonsListPage } from '@/pages/bons/BonsList';
 import { BonCreatePage } from '@/pages/bons/BonCreate';
 import { BonDetailPage } from '@/pages/bons/BonDetail';
 import { SignaturePage } from '@/pages/signature/SignaturePage';
+import { BonDetailCollaborateurPage } from '@/pages/bons/BonDetailCollaborateur';
 
 function ProtectedRoute({
   children,
@@ -81,6 +82,9 @@ function AppRoutes() {
 
         <Route path="mes-bons" element={
           <ProtectedRoute><PortailCollaborateur /></ProtectedRoute>
+        } />
+        <Route path="mes-bons/:id" element={
+          <ProtectedRoute><BonDetailCollaborateurPage /></ProtectedRoute>
         } />
 
         {/* Bons */}

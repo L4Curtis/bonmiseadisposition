@@ -116,8 +116,10 @@ export class BonsService {
       sent_mise_dispo: 'En attente signature',
       active: 'Actif',
       sent_restitution: 'Restitution en attente',
+      partially_returned: 'Restitution partielle',
       archived: 'Archivé',
       cancelled: 'Annulé',
+      contested: 'Contesté',
     };
 
     const headers = [
@@ -646,6 +648,14 @@ export class BonsService {
       );
     }
 
+    // Pour la restitution en présentiel, marquer tous les équipements non encore traités comme rendus
+    if (type === 'restitution') {
+      await this.prisma.bonEquipment.updateMany({
+        where: { bonId: id, returnedAt: null, notReturned: false },
+        data: { returnedAt: new Date() },
+      });
+    }
+
     // Update bon status
     const newStatus = type === 'mise_disposition' ? 'sent_mise_dispo' : 'sent_restitution';
     const updated = await this.prisma.bon.update({
@@ -755,20 +765,17 @@ export class BonsService {
 
   private async generateReference(): Promise<string> {
     const year = new Date().getFullYear();
-    const prefix = `BON-${year}-%`;
+    const yearPrefix = `BON-${year}-`;
     // Advisory lock sérialise les générations concurrentes au niveau PostgreSQL.
-    // hashtext() produit un entier stable à partir d'une chaîne, sans collision pratique
-    // pour cette clé unique. Pas de changement de schéma requis.
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('bon_reference_lock'))`;
-      const result = await tx.$queryRaw<[{ max_ref: string | null }]>`
-        SELECT MAX(reference) as max_ref
-        FROM "bons"
-        WHERE reference LIKE ${prefix}
-      `;
-      const lastRef = result[0]?.max_ref;
-      const nextNum = lastRef
-        ? parseInt(lastRef.split('-')[2], 10) + 1
+      const lastBon = await tx.bon.findFirst({
+        where: { reference: { startsWith: yearPrefix } },
+        orderBy: { reference: 'desc' },
+        select: { reference: true },
+      });
+      const nextNum = lastBon
+        ? parseInt(lastBon.reference.split('-')[2], 10) + 1
         : 1;
       return `BON-${year}-${String(nextNum).padStart(4, '0')}`;
     });

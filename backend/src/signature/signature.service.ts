@@ -415,6 +415,14 @@ export class SignatureService {
     return currentStatus;
   }
 
+  /** Invalidate all unsigned tokens for a bon (used when bon enters contested state) */
+  async invalidateUnsignedTokens(bonId: string): Promise<void> {
+    await this.prisma.signature.updateMany({
+      where: { bonId, signed: false, tokenExpiresAt: { gt: new Date(1000) } },
+      data: { tokenExpiresAt: new Date(0) },
+    });
+  }
+
   /**
    * Save an IT signature for PV cloture context (called by BonsService).
    * Creates a signed it_cachet Signature record without the full signItCachet flow.

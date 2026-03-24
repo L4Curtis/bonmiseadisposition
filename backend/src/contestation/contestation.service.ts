@@ -1,12 +1,14 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notification/notification.service';
+import { SignatureService } from '../signature/signature.service';
 
 @Injectable()
 export class ContestationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
+    private readonly signatureService: SignatureService,
   ) {}
 
   // ─── Créer une contestation (collaborateur) ──────────────────────────────────
@@ -51,6 +53,10 @@ export class ContestationService {
       where: { id: bonId },
       data: { status: 'contested' },
     });
+
+    // Invalider tous les tokens de signature en attente pour éviter qu'un ancien lien
+    // permette de signer pendant ou après la contestation
+    await this.signatureService.invalidateUnsignedTokens(bonId);
 
     // Notifier les IT staff par email (fire and forget)
     this.notificationService

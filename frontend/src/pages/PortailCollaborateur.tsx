@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '@/lib/api';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
@@ -11,7 +12,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { FileText, Clock, CheckCircle2, Archive, ExternalLink, AlertOctagon, XCircle } from 'lucide-react';
+import { FileText, Clock, CheckCircle2, Archive, ExternalLink, AlertOctagon, XCircle, ChevronRight } from 'lucide-react';
 import { BON_STATUS_LABELS, BON_STATUS_COLORS, type BonStatus } from '@/types';
 import { contestationSchema, validate } from '@/lib/validation';
 import { formatDateLong } from '@/lib/utils';
@@ -35,6 +36,13 @@ interface BonCollab {
   filiale: { displayName: string };
   equipments: { id: string }[];
   signatures: SignatureInfo[];
+}
+
+/** Check if a bon has an unsigned, non-expired token for pv_cloture */
+function hasPendingPvCloture(bon: BonCollab): boolean {
+  return bon.signatures?.some(
+    (s) => s.type === 'pv_cloture' && !s.signed && new Date(s.tokenExpiresAt) > new Date(),
+  ) ?? false;
 }
 
 // ─── Loading skeleton ────────────────────────────────────────────────────────
@@ -115,7 +123,7 @@ function ContestationDialog({
             <Label htmlFor="contestation-msg">Motif de contestation</Label>
             <textarea
               id="contestation-msg"
-              className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring resize-none"
+              className="w-full rounded-lg border bg-background text-foreground px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring resize-none"
               rows={5}
               placeholder="Ex: Les équipements listés ne correspondent pas à ce que j'ai reçu..."
               value={message}
@@ -145,6 +153,7 @@ function ContestationDialog({
 // ─── Page principale ─────────────────────────────────────────────────────────
 
 export function PortailCollaborateur() {
+  const navigate = useNavigate();
   const [bons, setBons] = useState<BonCollab[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -185,10 +194,18 @@ export function PortailCollaborateur() {
     </div>
   );
 
-  const pending = bons.filter((b) => ['sent_mise_dispo', 'sent_restitution'].includes(b.status));
+  // Bons à signer : sent_mise_dispo, sent_restitution, et partially_returned avec PV en attente
+  const pending = bons.filter((b) =>
+    ['sent_mise_dispo', 'sent_restitution'].includes(b.status) ||
+    (b.status === 'partially_returned' && hasPendingPvCloture(b)),
+  );
   const active = bons.filter((b) => b.status === 'active');
   const contested = bons.filter((b) => b.status === 'contested');
-  const others = bons.filter((b) => !['sent_mise_dispo', 'sent_restitution', 'active', 'contested'].includes(b.status));
+  const activeStatuses = new Set(['sent_mise_dispo', 'sent_restitution', 'active', 'contested']);
+  const others = bons.filter((b) =>
+    !activeStatuses.has(b.status) &&
+    !(b.status === 'partially_returned' && hasPendingPvCloture(b)),
+  );
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -216,18 +233,31 @@ export function PortailCollaborateur() {
               </h2>
               <div className="space-y-3">
                 {pending.map((bon) => {
-                  const pendingSig = bon.signatures?.find((s) => !s.signed);
-                  const sigType = bon.status === 'sent_restitution' ? 'restitution' : 'mise à disposition';
+                  const pendingSig = bon.signatures?.find((s) => !s.signed && new Date(s.tokenExpiresAt) > new Date());
+                  const isPvCloture = bon.status === 'partially_returned';
+                  const sigType = isPvCloture
+                    ? 'procès-verbal d\'équipements non restitués'
+                    : bon.status === 'sent_restitution' ? 'restitution' : 'mise à disposition';
                   return (
-                    <Card key={bon.id} className="border-orange-200 bg-orange-50/50">
+                    <Card key={bon.id} className="border-orange-200 dark:border-orange-900/30 bg-orange-50/50 dark:bg-orange-950/10">
                       <CardContent className="p-4 space-y-3">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-sm font-semibold text-foreground">{bon.reference}</span>
-                          <span className={'inline-flex rounded-full px-2 py-0.5 text-xs font-medium ' + BON_STATUS_COLORS[bon.status]}>
-                            {BON_STATUS_LABELS[bon.status]}
-                          </span>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-sm font-semibold text-foreground">{bon.reference}</span>
+                            <span className={'inline-flex rounded-full px-2 py-0.5 text-xs font-medium ' + BON_STATUS_COLORS[bon.status]}>
+                              {BON_STATUS_LABELS[bon.status]}
+                            </span>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => navigate(`/mes-bons/${bon.id}`)}
+                            className="text-muted-foreground hover:text-foreground"
+                          >
+                            Détails <ChevronRight className="ml-1 h-3.5 w-3.5" />
+                          </Button>
                         </div>
-                        <p className="text-sm text-orange-700">
+                        <p className="text-sm text-orange-700 dark:text-orange-400">
                           Bon de <strong>{sigType}</strong> en attente de signature.
                         </p>
                         {pendingSig ? (
@@ -255,7 +285,7 @@ export function PortailCollaborateur() {
               </h2>
               <div className="space-y-2">
                 {active.map((bon) => (
-                  <Card key={bon.id}>
+                  <Card key={bon.id} className="cursor-pointer hover:border-primary/30 transition-colors" onClick={() => navigate(`/mes-bons/${bon.id}`)}>
                     <CardContent className="p-4">
                       <div className="flex items-start justify-between gap-2">
                         <div>
@@ -270,7 +300,7 @@ export function PortailCollaborateur() {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => setContestingBon(bon)}
+                            onClick={(e) => { e.stopPropagation(); setContestingBon(bon); }}
                             className="text-destructive border-destructive/30 hover:bg-destructive/5"
                           >
                             <AlertOctagon className="mr-1.5 h-3.5 w-3.5" /> Contester
@@ -292,7 +322,7 @@ export function PortailCollaborateur() {
               </h2>
               <div className="space-y-2">
                 {contested.map((bon) => (
-                  <Card key={bon.id} className="border-destructive/20 bg-destructive/5">
+                  <Card key={bon.id} className="border-destructive/20 bg-destructive/5 cursor-pointer hover:border-destructive/40 transition-colors" onClick={() => navigate(`/mes-bons/${bon.id}`)}>
                     <CardContent className="p-4">
                       <div className="flex items-start justify-between">
                         <div>
@@ -321,17 +351,22 @@ export function PortailCollaborateur() {
                 <CardContent className="p-0">
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm" aria-label="Historique des bons">
-                      <thead className="bg-muted/40/80 border-b">
+                      <thead className="bg-muted/40 border-b">
                         <tr>
                           <th className="px-4 py-2.5 text-left font-medium text-muted-foreground text-xs uppercase tracking-wider">Référence</th>
                           <th className="px-4 py-2.5 text-left font-medium text-muted-foreground text-xs uppercase tracking-wider">Filiale</th>
                           <th className="px-4 py-2.5 text-left font-medium text-muted-foreground text-xs uppercase tracking-wider">Statut</th>
                           <th className="px-4 py-2.5 text-left font-medium text-muted-foreground text-xs uppercase tracking-wider">Date</th>
+                          <th className="px-4 py-2.5 w-10"></th>
                         </tr>
                       </thead>
                       <tbody>
                         {others.map((bon) => (
-                          <tr key={bon.id} className="border-b last:border-0 hover:bg-muted/40/80">
+                          <tr
+                            key={bon.id}
+                            className="border-b last:border-0 hover:bg-muted/40 cursor-pointer"
+                            onClick={() => navigate(`/mes-bons/${bon.id}`)}
+                          >
                             <td className="px-4 py-2.5 font-mono text-xs font-semibold">{bon.reference}</td>
                             <td className="px-4 py-2.5 text-muted-foreground">{bon.filiale.displayName}</td>
                             <td className="px-4 py-2.5">
@@ -340,6 +375,9 @@ export function PortailCollaborateur() {
                               </span>
                             </td>
                             <td className="px-4 py-2.5 text-muted-foreground text-xs">{formatDateLong(bon.dateMiseDisposition)}</td>
+                            <td className="px-4 py-2.5">
+                              <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                            </td>
                           </tr>
                         ))}
                       </tbody>

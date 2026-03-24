@@ -127,7 +127,7 @@ function ResolveDialog({
               </button>
               <button
                 onClick={() => setAction('rejected')}
-                className={`flex-1 flex items-center justify-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors ${action === 'rejected' ? 'border-red-400 bg-red-50 text-red-700' : 'border-border text-muted-foreground hover:bg-muted/40'}`}
+                className={`flex-1 flex items-center justify-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors ${action === 'rejected' ? 'border-red-400 dark:border-red-700 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400' : 'border-border text-muted-foreground hover:bg-muted/40'}`}
               >
                 <XCircle className="h-4 w-4" /> Rejeter
               </button>
@@ -138,7 +138,7 @@ function ResolveDialog({
             <Label htmlFor="resolution-msg">Réponse au collaborateur (optionnel)</Label>
             <textarea
               id="resolution-msg"
-              className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring resize-none"
+              className="w-full rounded-lg border bg-background text-foreground px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring resize-none"
               rows={3}
               placeholder="Expliquez votre décision..."
               value={resolutionMessage}
