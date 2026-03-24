@@ -22,9 +22,10 @@ export class AuthController {
   async login(@Query('returnTo') returnTo: string | undefined, @Res() res: Response) {
     try {
       const state = crypto.randomBytes(16).toString('hex');
-      const loginUrl = await this.authService.getLoginUrl(state);
+      const { url: loginUrl, codeVerifier } = await this.authService.getLoginUrl(state);
       const isProduction = process.env.NODE_ENV === 'production';
       res.cookie('oauth_state', state, { httpOnly: true, secure: isProduction, sameSite: 'lax', maxAge: 10 * 60 * 1000 });
+      res.cookie('oauth_code_verifier', codeVerifier, { httpOnly: true, secure: isProduction, sameSite: 'lax', maxAge: 10 * 60 * 1000 });
       // Store returnTo (safe relative paths only — reject double-slash to prevent //evil.com redirect)
       if (returnTo && /^\/[^/]/.test(returnTo)) {
         res.cookie('auth_return_to', returnTo, { httpOnly: true, secure: isProduction, sameSite: 'lax', maxAge: 10 * 60 * 1000 });
@@ -57,6 +58,10 @@ export class AuthController {
 
     res.clearCookie('oauth_state');
 
+    // Read and clear PKCE code verifier
+    const codeVerifier = req.cookies['oauth_code_verifier'];
+    res.clearCookie('oauth_code_verifier');
+
     // Read and clear returnTo
     const returnTo = req.cookies['auth_return_to'];
     res.clearCookie('auth_return_to');
@@ -66,7 +71,7 @@ export class AuthController {
       ?? req.socket?.remoteAddress
       ?? 'unknown';
     try {
-      const { accessToken, refreshToken, user } = await this.authService.handleCallback(code, state);
+      const { accessToken, refreshToken, user } = await this.authService.handleCallback(code, state, codeVerifier);
       this.authService.setAuthCookies(res, accessToken, refreshToken);
       await this.prisma.auditLog.create({
         data: {
@@ -92,15 +97,8 @@ export class AuthController {
     const refreshToken = req.cookies['refresh_token'];
     if (!refreshToken) throw new UnauthorizedException();
 
-    const accessToken = await this.authService.refreshAccessToken(refreshToken);
-    const isProduction = process.env.NODE_ENV === 'production';
-    res.cookie('access_token', accessToken, {
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: 'lax',
-      maxAge: 15 * 60 * 1000,
-      path: '/api', // Must match the path set during initial login
-    });
+    const tokens = await this.authService.refreshAccessToken(refreshToken);
+    this.authService.setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
     return res.json({ ok: true });
   }
 
@@ -112,10 +110,14 @@ export class AuthController {
       ?? (req.headers['x-real-ip'] as string)
       ?? req.socket?.remoteAddress
       ?? 'unknown';
-    // Revoke the access token so it cannot be reused after logout
+    // Revoke both tokens so they cannot be reused after logout
     const accessToken = req.cookies?.['access_token'];
     if (accessToken) {
-      this.authService.revokeAccessToken(accessToken);
+      this.authService.revokeToken(accessToken);
+    }
+    const logoutRefreshToken = req.cookies?.['refresh_token'];
+    if (logoutRefreshToken) {
+      this.authService.revokeToken(logoutRefreshToken, 8 * 60 * 60 * 1000);
     }
     await this.prisma.auditLog.create({
       data: {

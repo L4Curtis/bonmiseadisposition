@@ -23,11 +23,10 @@ export class AuthService {
     setInterval(() => this.cleanupRevokedTokens(), 5 * 60 * 1000);
   }
 
-  /** Revoke an access token so it cannot be used after logout */
-  revokeAccessToken(token: string): void {
+  /** Revoke a token so it cannot be reused (access or refresh) */
+  revokeToken(token: string, ttlMs: number = 15 * 60 * 1000): void {
     const hash = crypto.createHash('sha256').update(token).digest('hex');
-    // Keep in blacklist until the token would have expired (15 min from now as max)
-    const expiresAt = Date.now() + 15 * 60 * 1000;
+    const expiresAt = Date.now() + ttlMs;
     this.revokedTokens.set(hash, expiresAt);
   }
 
@@ -65,21 +64,27 @@ export class AuthService {
     });
   }
 
-  async getLoginUrl(state: string): Promise<string> {
+  async getLoginUrl(state: string): Promise<{ url: string; codeVerifier: string }> {
     const msalClient = await this.getMsalClient();
     const redirectUri = await this.configService.get('entra', 'redirect_uri');
+
+    // PKCE: generate code verifier and challenge (RFC 7636)
+    const codeVerifier = crypto.randomBytes(32).toString('base64url');
+    const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
 
     const url = await msalClient.getAuthCodeUrl({
       scopes: ['openid', 'profile', 'email', 'User.Read'],
       redirectUri: redirectUri || 'http://localhost:4000/api/auth/callback',
       state,
       responseMode: 'query',
+      codeChallenge,
+      codeChallengeMethod: 'S256',
     });
 
-    return url;
+    return { url, codeVerifier };
   }
 
-  async handleCallback(code: string, state: string): Promise<{ accessToken: string; refreshToken: string; user: { id: string; email: string } }> {
+  async handleCallback(code: string, state: string, codeVerifier?: string): Promise<{ accessToken: string; refreshToken: string; user: { id: string; email: string } }> {
     const msalClient = await this.getMsalClient();
     const redirectUri = await this.configService.get('entra', 'redirect_uri');
 
@@ -88,6 +93,7 @@ export class AuthService {
       scopes: ['openid', 'profile', 'email', 'User.Read'],
       redirectUri: redirectUri || 'http://localhost:4000/api/auth/callback',
       state,
+      ...(codeVerifier ? { codeVerifier } : {}),
     };
 
     const response = await msalClient.acquireTokenByCode(tokenRequest);
@@ -146,18 +152,33 @@ export class AuthService {
     return { accessToken, refreshToken };
   }
 
-  async refreshAccessToken(refreshToken: string): Promise<string> {
+  async refreshAccessToken(refreshToken: string): Promise<{ accessToken: string; refreshToken: string }> {
     const jwtSecret = this.getJwtSecret();
 
     try {
+      // Check if the refresh token has been revoked (rotation replay detection)
+      if (this.isTokenRevoked(refreshToken)) {
+        throw new UnauthorizedException('Refresh token has been revoked');
+      }
+
       const payload = this.jwtService.verify(refreshToken, { secret: jwtSecret });
       if (payload.type !== 'refresh') throw new UnauthorizedException();
+
+      // Revoke old refresh token (8h TTL to match refresh token lifetime)
+      this.revokeToken(refreshToken, 8 * 60 * 60 * 1000);
 
       const user = await this.prisma.user.findUniqueOrThrow({ where: { id: payload.sub } });
       const newPayload = { sub: user.id, email: user.email, role: user.role };
 
-      return this.jwtService.sign(newPayload, { secret: jwtSecret, expiresIn: '15m' });
-    } catch {
+      const newAccessToken = this.jwtService.sign(newPayload, { secret: jwtSecret, expiresIn: '15m' });
+      const newRefreshToken = this.jwtService.sign(
+        { sub: user.id, type: 'refresh' },
+        { secret: jwtSecret, expiresIn: '8h' },
+      );
+
+      return { accessToken: newAccessToken, refreshToken: newRefreshToken };
+    } catch (err) {
+      if (err instanceof UnauthorizedException) throw err;
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
   }
@@ -290,7 +311,7 @@ export class AuthService {
     const hash = await bcrypt.hash(newPassword, 12);
     await this.prisma.user.update({
       where: { id: userId },
-      data: { passwordHash: hash, mustChangePassword: false },
+      data: { passwordHash: hash, mustChangePassword: false, passwordChangedAt: new Date() },
     });
   }
 

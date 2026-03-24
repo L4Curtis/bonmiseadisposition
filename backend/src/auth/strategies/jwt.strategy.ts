@@ -46,6 +46,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         role: true,
         isLocalAccount: true,
         mustChangePassword: true,
+        passwordChangedAt: true,
         active: true,
         // passwordHash intentionally excluded
       },
@@ -53,6 +54,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
     if (!user || !user.active) {
       throw new UnauthorizedException();
+    }
+
+    // Password expiration: force change after 90 days for local accounts
+    if (user.isLocalAccount && user.passwordChangedAt && !user.mustChangePassword) {
+      const daysSinceChange = (Date.now() - user.passwordChangedAt.getTime()) / (1000 * 60 * 60 * 24);
+      if (daysSinceChange > 90) {
+        (user as any).mustChangePassword = true;
+      }
     }
 
     return user;

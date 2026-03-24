@@ -51,7 +51,7 @@ model User {
   id              String    @id @default(uuid())
   samAccountName  String    @unique @map("sam_account_name")
   displayName     String    @map("display_name")
-  email           String
+  email           String    @unique
   department      String?
   company         String?
   title           String?
@@ -64,6 +64,7 @@ model User {
   passwordHash    String?   @map("password_hash")
   isLocalAccount      Boolean   @default(false) @map("is_local_account")
   mustChangePassword  Boolean   @default(false) @map("must_change_password")
+  passwordChangedAt   DateTime? @map("password_changed_at")
   createdAt           DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
