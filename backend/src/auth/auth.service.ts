@@ -105,8 +105,8 @@ export class AuthService {
     const email = response.account.username;
     const displayName = response.account.name || email;
 
-    // Find or create user in DB
-    let user = await this.prisma.user.findFirst({ where: { email } });
+    // Find or create user in DB (email has unique constraint)
+    let user = await this.prisma.user.findUnique({ where: { email } });
 
     if (!user) {
       // Create minimal user record — LDAP sync will enrich it later
@@ -326,7 +326,7 @@ export class AuthService {
       await this.configService.set('general', 'local_auth_enabled', 'true');
     }
 
-    const existing = await this.prisma.user.findFirst({ where: { email: 'admin@local' } });
+    const existing = await this.prisma.user.findUnique({ where: { email: 'admin@local' } });
 
     if (existing) {
       // Admin exists — do NOT reset the password (avoid reverting a custom password on restart)

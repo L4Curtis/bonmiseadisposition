@@ -1,7 +1,8 @@
-import { IsString, IsBoolean, IsOptional, IsIn, MaxLength } from 'class-validator';
+import { IsString, IsBoolean, IsOptional, IsIn, MaxLength, Matches } from 'class-validator';
 
 export class SignDto {
   @IsString()
+  @Matches(/^data:image\//, { message: 'La signature doit être une image valide (data:image/...)' })
   @MaxLength(500000, { message: 'La signature est trop volumineuse (max ~375 Ko)' })
   signatureDataUrl: string; // Base64 PNG data URL from canvas
 
@@ -9,17 +10,9 @@ export class SignDto {
   mentionLuApprouve: boolean;
 }
 
-export class InitiateInPersonDto {
-  @IsIn(['mise_disposition', 'restitution'])
-  type: 'mise_disposition' | 'restitution';
-
-  @IsOptional()
-  @IsString()
-  collaborateurEmail?: string;
-}
-
 export class SignItDto {
   @IsString()
+  @Matches(/^data:image\//, { message: 'La signature doit être une image valide (data:image/...)' })
   @MaxLength(500000, { message: 'La signature est trop volumineuse (max ~375 Ko)' })
   signatureDataUrl: string;
 

@@ -227,7 +227,7 @@ export class NotificationService {
       data: {
         bonId: bon.id,
         recipientEmail: bon.collaborateurEmail,
-        type: 'restitution_request',
+        type: 'pv_cloture_request',
         status: ok ? 'sent' : 'failed',
         errorMessage: ok ? null : "SMTP non configuré ou erreur d'envoi",
       },
@@ -330,6 +330,8 @@ export class NotificationService {
       },
     });
 
+    const appUrl = await this.getAppUrl();
+
     for (const bon of pendingBons) {
       const reminderCount = bon.notifications.filter((n) => n.type === 'reminder').length;
       if (reminderCount >= maxReminders) continue;
@@ -337,7 +339,6 @@ export class NotificationService {
       const sig = bon.signatures.find((s) => !s.signed);
       if (!sig) continue;
 
-      const appUrl = await this.getAppUrl();
       const filialeNom = bon.filiale?.displayName ?? '';
       const isRestitution = bon.status === 'sent_restitution';
 

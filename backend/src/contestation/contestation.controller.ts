@@ -13,6 +13,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { AuthUser } from '../auth/auth-user.interface';
 import { ResolveContestationDto } from './dto/resolve-contestation.dto';
 
 @Controller('contestations')
@@ -35,14 +36,14 @@ export class ContestationController {
     return this.contestationService.findAll({
       status,
       page: page ? parseInt(page) : 1,
-      limit: limit ? parseInt(limit) : 20,
+      limit: Math.min(limit ? parseInt(limit) : 20, 100),
     });
   }
 
   /** PATCH /api/contestations/:id/review — prise en charge */
   @Patch(':id/review')
   @Roles('admin', 'technician')
-  markInReview(@Param('id') id: string, @CurrentUser() user: any) {
+  markInReview(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.contestationService.markInReview(id, user.id);
   }
 

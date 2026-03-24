@@ -1,5 +1,6 @@
 import { Injectable, ExecutionContext, UnauthorizedException, ForbiddenException } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { AuthUser } from '../auth-user.interface';
 
 // Routes accessible even when mustChangePassword is true
 const MUST_CHANGE_EXEMPTIONS = [
@@ -11,11 +12,12 @@ const MUST_CHANGE_EXEMPTIONS = [
 
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
-  handleRequest(err: any, user: any, info: any, context: ExecutionContext) {
+  handleRequest(err: any, user: any, _info: any, context: ExecutionContext) {
     if (err || !user) {
       throw err || new UnauthorizedException('Authentication required');
     }
-    if (user.mustChangePassword) {
+    const authUser = user as AuthUser;
+    if (authUser.mustChangePassword) {
       const request = context.switchToHttp().getRequest();
       const isExempted = MUST_CHANGE_EXEMPTIONS.some((p) => request.path.startsWith(p));
       if (!isExempted) {

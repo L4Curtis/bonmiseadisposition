@@ -6,6 +6,7 @@ import * as crypto from 'crypto';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
+import { AuthUser } from './auth-user.interface';
 import { AppConfigService } from '../config/config.service';
 import { LocalLoginDto } from './dto/local-login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
@@ -105,7 +106,7 @@ export class AuthController {
   @Post('logout')
   @UseGuards(JwtAuthGuard, ThrottlerGuard)
   @Throttle({ default: { limit: 10, ttl: 60000 } })
-  async logout(@CurrentUser() user: any, @Req() req: Request, @Res() res: Response) {
+  async logout(@CurrentUser() user: AuthUser, @Req() req: Request, @Res() res: Response) {
     const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
       ?? (req.headers['x-real-ip'] as string)
       ?? req.socket?.remoteAddress
@@ -134,7 +135,7 @@ export class AuthController {
 
   @Get('me')
   @UseGuards(JwtAuthGuard)
-  async me(@CurrentUser() user: any) {
+  async me(@CurrentUser() user: AuthUser) {
     return user;
   }
 
@@ -181,7 +182,7 @@ export class AuthController {
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   async changePassword(
     @Body() dto: ChangePasswordDto,
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Req() req: Request,
     @Res() res: Response,
   ) {

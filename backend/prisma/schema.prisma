@@ -279,6 +279,7 @@ model Contestation {
 enum NotificationType {
   mise_dispo_request
   restitution_request
+  pv_cloture_request
   reminder
   confirmation
   contestation_alert

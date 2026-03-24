@@ -32,6 +32,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { AuthUser } from '../auth/auth-user.interface';
 
 @Controller('bons')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -49,7 +50,7 @@ export class BonsController {
 
   @Get('mes-bons')
   @Roles('admin', 'technician', 'collaborator')
-  getMyBons(@CurrentUser() user: any) {
+  getMyBons(@CurrentUser() user: AuthUser) {
     return this.bonsService.findByCollaborateur(user.id);
   }
 
@@ -59,7 +60,7 @@ export class BonsController {
   async createContestation(
     @Param('id') id: string,
     @Body() dto: CreateContestationDto,
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
   ) {
     await this.verifyCollaboratorAccess(id, user);
     return this.contestationService.create(id, user.id, dto.message);
@@ -69,7 +70,7 @@ export class BonsController {
   @Post(':id/resend')
   @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
-  resend(@Param('id') id: string, @Body() body: { force?: boolean }, @CurrentUser() user: any) {
+  resend(@Param('id') id: string, @Body() body: { force?: boolean }, @CurrentUser() user: AuthUser) {
     return this.bonsService.resendSignatureLink(id, user.id, body?.force === true);
   }
 
@@ -117,13 +118,13 @@ export class BonsController {
 
   @Get(':id')
   @Roles('admin', 'technician', 'collaborator')
-  async findOne(@Param('id') id: string, @CurrentUser() user: any) {
+  async findOne(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     await this.verifyCollaboratorAccess(id, user);
     return this.bonsService.findOne(id);
   }
 
   @Post()
-  create(@Body() dto: CreateBonDto, @CurrentUser() user: any) {
+  create(@Body() dto: CreateBonDto, @CurrentUser() user: AuthUser) {
     return this.bonsService.create(dto, user.id);
   }
 
@@ -133,12 +134,12 @@ export class BonsController {
   }
 
   @Delete(':id')
-  cancel(@Param('id') id: string, @CurrentUser() user: any) {
+  cancel(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.bonsService.cancel(id, user?.id);
   }
 
   @Post(':id/send')
-  send(@Param('id') id: string, @CurrentUser() user: any) {
+  send(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.bonsService.send(id, user?.id);
   }
 
@@ -146,7 +147,7 @@ export class BonsController {
   initiateRestitution(
     @Param('id') id: string,
     @Body() dto: InitiateRestitutionDto,
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
   ) {
     return this.bonsService.initiateRestitution(id, user?.id, dto.returnedEquipmentIds);
   }
@@ -155,7 +156,7 @@ export class BonsController {
   initiateInPerson(
     @Param('id') id: string,
     @Body() dto: InitiateInPersonDto,
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
   ) {
     return this.bonsService.initiateInPersonSignature(id, dto.type, user.id);
   }
@@ -164,7 +165,7 @@ export class BonsController {
   declareNotReturned(
     @Param('id') id: string,
     @Body() dto: DeclareNotReturnedDto,
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
   ) {
     return this.bonsService.declareNotReturned(id, dto.equipmentIds, dto.reason, user.id, dto.signatureDataUrl);
   }
@@ -173,14 +174,14 @@ export class BonsController {
   markFound(
     @Param('id') id: string,
     @Body() dto: MarkFoundDto,
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
   ) {
     return this.bonsService.markFound(id, dto.equipmentIds, user.id, dto.signatureDataUrl);
   }
 
   @Get(':id/pdf-snapshots')
   @Roles('admin', 'technician', 'collaborator')
-  async getPdfSnapshots(@Param('id') id: string, @CurrentUser() user: any) {
+  async getPdfSnapshots(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     await this.verifyCollaboratorAccess(id, user);
     const snapshots = await this.prisma.pdfSnapshot.findMany({
       where: { bonId: id },
@@ -197,7 +198,7 @@ export class BonsController {
     @Query('type') type: 'mise_disposition' | 'restitution' = 'mise_disposition',
     @Query('stage') stage?: string,
     @Res() res?: Response,
-    @CurrentUser() user?: any,
+    @CurrentUser() user?: AuthUser,
   ) {
     await this.verifyCollaboratorAccess(id, user);
     const bon = await this.bonsService.findOne(id);
@@ -249,7 +250,7 @@ export class BonsController {
   }
 
   /** Verify collaborator can only access their own bons */
-  private async verifyCollaboratorAccess(bonId: string, user: any): Promise<void> {
+  private async verifyCollaboratorAccess(bonId: string, user?: AuthUser): Promise<void> {
     if (!user || user.role !== 'collaborator') return;
     const bon = await this.prisma.bon.findUnique({
       where: { id: bonId },
@@ -265,7 +266,7 @@ export class BonsController {
   async signIt(
     @Param('id') id: string,
     @Body() body: SignItDto,
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Req() req: Request,
   ) {
     // Use X-Real-IP (set by nginx to $remote_addr) — cannot be spoofed by clients

@@ -16,6 +16,7 @@ import { NotificationService } from '../notification/notification.service';
 import { SignDto } from './dto/sign.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { AuthUser } from '../auth/auth-user.interface';
 
 @Controller('signature')
 export class SignatureController {
@@ -42,7 +43,7 @@ export class SignatureController {
   async sign(
     @Param('token') token: string,
     @Body() dto: SignDto,
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
     @Req() req: Request,
   ) {
     // Use X-Real-IP (set by nginx to $remote_addr) — cannot be spoofed by clients
