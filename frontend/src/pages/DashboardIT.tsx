@@ -131,7 +131,7 @@ export function DashboardIT() {
     ]).then(([s, r]) => {
       setStats(s);
       setRecent(r);
-    }).finally(() => setLoading(false));
+    }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
   const statCards: StatCardProps[] = [

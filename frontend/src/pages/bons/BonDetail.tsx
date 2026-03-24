@@ -295,7 +295,7 @@ export function BonDetailPage() {
   const isActive = bon.status === 'active';
   const isPartiallyReturned = bon.status === 'partially_returned';
   const canInitiateRestitution = isActive || isPartiallyReturned;
-  const isCancellable = !['archived', 'cancelled'].includes(bon.status);
+  const isCancellable = !['archived', 'cancelled', 'contested'].includes(bon.status);
   const isItStaff = currentUser?.isItStaff ?? false;
   const isSentWaiting = ['sent_mise_dispo', 'sent_restitution'].includes(bon.status);
   const showEquipmentStatus = ['sent_restitution', 'partially_returned', 'archived'].includes(bon.status);

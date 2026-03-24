@@ -323,7 +323,7 @@ export class BonsService {
 
   async cancel(id: string, userId?: string) {
     const bon = await this.findOne(id);
-    if (['archived', 'cancelled'].includes(bon.status))
+    if (['archived', 'cancelled', 'contested'].includes(bon.status))
       throw new BadRequestException('Ce bon ne peut pas être annulé');
     const updated = await this.prisma.bon.update({
       where: { id },
@@ -608,24 +608,43 @@ export class BonsService {
         `Bon ${updatedBon.reference} (archivé) — avenant IT généré pour équipement retrouvé`,
       );
     } else {
-      // ── Bon partially_returned: update PV, send new pv_cloture token to collab ──
-      const filename = `${updatedBon.reference}_${collabName}_cloture_equipements_manquants.pdf`;
-      const sigImages: SigImages = { it: signatureDataUrl || null, collab: null };
-      const pdfBuffer = await this.pdfService.generateAndSave(
-        updatedBon,
-        'cloture_equipements_manquants',
-        sigImages,
-        filename,
-      );
-      this.smbService.exportPdf(updatedBon, filename, pdfBuffer).catch(() => {});
+      // Check if all not-returned equipment is now resolved
+      const stillNotReturned = await this.prisma.bonEquipment.count({
+        where: { bonId: id, notReturned: true },
+      });
 
-      // Create new pv_cloture token (invalidates old unsigned one)
-      const pvSig = await this.signatureService.generateToken(id, 'pv_cloture', userId, false);
-      this.notificationService.sendPvClotureRequest(updatedBon, pvSig.token).catch(() => {});
+      if (stillNotReturned === 0) {
+        // ── All equipment found → advance to sent_restitution ──────────────
+        await this.prisma.bon.update({
+          where: { id },
+          data: { status: 'sent_restitution' as any },
+        });
 
-      this.logger.log(
-        `Bon ${updatedBon.reference} — PV mis à jour (équipement retrouvé), renvoyé au collaborateur`,
-      );
+        const sig = await this.signatureService.generateToken(id, 'restitution', userId, false);
+        this.notificationService.sendRestitutionRequest(updatedBon, sig.token).catch(() => {});
+
+        this.logger.log(
+          `Bon ${updatedBon.reference} — tous les équipements retrouvés, passage en restitution`,
+        );
+      } else {
+        // ── Still has not-returned items: regenerate PV, send pv_cloture ──
+        const filename = `${updatedBon.reference}_${collabName}_cloture_equipements_manquants.pdf`;
+        const sigImages: SigImages = { it: signatureDataUrl || null, collab: null };
+        const pdfBuffer = await this.pdfService.generateAndSave(
+          updatedBon,
+          'cloture_equipements_manquants',
+          sigImages,
+          filename,
+        );
+        this.smbService.exportPdf(updatedBon, filename, pdfBuffer).catch(() => {});
+
+        const pvSig = await this.signatureService.generateToken(id, 'pv_cloture', userId, false);
+        this.notificationService.sendPvClotureRequest(updatedBon, pvSig.token).catch(() => {});
+
+        this.logger.log(
+          `Bon ${updatedBon.reference} — PV mis à jour (équipement retrouvé), renvoyé au collaborateur`,
+        );
+      }
     }
 
     return this.findOne(id);
@@ -664,7 +683,7 @@ export class BonsService {
       include: BON_INCLUDE,
     });
 
-    // Generate in-person token (24h validity)
+    // Generate in-person token (7-day validity, same as remote)
     const sig = await this.signatureService.generateToken(id, type, initiatedById, true);
 
     return { bon: updated, token: sig.token };

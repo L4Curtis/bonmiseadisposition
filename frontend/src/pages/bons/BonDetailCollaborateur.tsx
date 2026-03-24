@@ -232,7 +232,7 @@ export function BonDetailCollaborateurPage() {
     );
   }
 
-  const canContest = ['active', 'sent_restitution'].includes(bon.status);
+  const canContest = bon.status === 'active';
   const showEquipmentStatus = ['sent_restitution', 'partially_returned', 'archived'].includes(bon.status);
 
   return (

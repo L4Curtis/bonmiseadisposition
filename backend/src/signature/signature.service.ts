@@ -296,8 +296,8 @@ export class SignatureService {
       },
     });
 
-    if (['cancelled', 'archived'].includes(bon.status as string)) {
-      throw new BadRequestException('Ce bon est clôturé et ne peut plus être modifié');
+    if (['cancelled', 'archived', 'contested'].includes(bon.status as string)) {
+      throw new BadRequestException('Ce bon est clôturé ou contesté et ne peut plus être modifié');
     }
 
     if (!signatureDataUrl.startsWith('data:image/png;base64,')) {

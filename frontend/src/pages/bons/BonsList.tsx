@@ -104,7 +104,7 @@ export function BonsListPage() {
   };
 
   useEffect(() => {
-    api.get<Filiale[]>('/filiales/active').then(setFiliales);
+    api.get<Filiale[]>('/filiales/active').then(setFiliales).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -128,6 +128,7 @@ export function BonsListPage() {
         setBons(data.bons);
         setTotal(data.total);
       })
+      .catch(() => {})
       .finally(() => setLoading(false));
   }, [search, statusFilter, filialeFilter, page]);
 

@@ -25,7 +25,7 @@ export class ContestationService {
     if (!bon) throw new NotFoundException('Bon introuvable');
     if (bon.collaborateurId !== userId)
       throw new ForbiddenException('Vous ne pouvez contester que vos propres bons');
-    if (!['active', 'sent_restitution'].includes(bon.status))
+    if (bon.status !== 'active')
       throw new BadRequestException('Ce bon ne peut pas être contesté dans son statut actuel');
 
     // Vérifier qu'il n'y a pas déjà une contestation ouverte pour ce bon
