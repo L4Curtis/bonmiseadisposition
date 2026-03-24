@@ -90,7 +90,7 @@ export function DeclareNotReturnedModal({
                     key={eq.id}
                     className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
                       selected.has(eq.id)
-                        ? 'bg-red-50 border-red-300'
+                        ? 'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-800'
                         : 'hover:bg-muted/40 border-border'
                     }`}
                   >
@@ -116,7 +116,7 @@ export function DeclareNotReturnedModal({
                   Motif *
                 </label>
                 <textarea
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-red-500 focus:ring-1 focus:ring-red-500"
+                  className="mt-1 w-full rounded-lg border border-border bg-background text-foreground px-3 py-2 text-sm focus:border-red-500 focus:ring-1 focus:ring-red-500"
                   rows={2}
                   placeholder="Perte, vol, casse, non restitu\u00e9 par le collaborateur\u2026"
                   value={reason}
@@ -148,7 +148,7 @@ export function DeclareNotReturnedModal({
                     ref={canvasRef}
                     width={560}
                     height={120}
-                    className="w-full cursor-crosshair block"
+                    className="w-full cursor-crosshair block text-foreground"
                     style={{ touchAction: 'none' }}
                     onMouseDown={onMouseDown}
                     onMouseMove={onMouseMove}
@@ -157,7 +157,7 @@ export function DeclareNotReturnedModal({
                   />
                   {isEmpty && (
                     <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                      <p className="text-slate-300 text-sm select-none">Signez ici&hellip;</p>
+                      <p className="text-muted-foreground/40 text-sm select-none">Signez ici&hellip;</p>
                     </div>
                   )}
                 </div>
@@ -166,7 +166,7 @@ export function DeclareNotReturnedModal({
           )}
 
           {error && (
-            <div role="alert" className="flex items-start gap-2 rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+            <div role="alert" className="flex items-start gap-2 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/30 p-3 text-sm text-red-700 dark:text-red-400">
               <XCircle className="h-4 w-4 shrink-0 mt-0.5" />
               <span>{error}</span>
             </div>

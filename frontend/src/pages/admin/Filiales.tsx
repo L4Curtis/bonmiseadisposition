@@ -162,12 +162,18 @@ export function FilialesPage() {
   const uploadFile = async (id: string, type: 'logo' | 'stamp', file: File) => {
     const form = new FormData();
     form.append('file', file);
-    await fetch(`/api/filiales/${id}/${type}`, {
-      method: 'PATCH',
-      body: form,
-      credentials: 'include',
-      headers: { 'X-Requested-With': 'XMLHttpRequest' },
-    });
+    try {
+      const res = await fetch(`/api/filiales/${id}/${type}`, {
+        method: 'PATCH',
+        body: form,
+        credentials: 'include',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      });
+      if (!res.ok) throw new Error('Upload échoué');
+      toast({ title: `${type === 'logo' ? 'Logo' : 'Cachet'} mis à jour`, variant: 'success' });
+    } catch {
+      toast({ title: 'Erreur lors de l\'upload', variant: 'destructive' });
+    }
     fetchFiliales();
   };
 

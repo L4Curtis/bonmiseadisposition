@@ -76,7 +76,7 @@ function useSignatureCanvas() {
     ctx.lineWidth = 2.5;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-    ctx.strokeStyle = '#1e293b';
+    ctx.strokeStyle = getComputedStyle(canvas).getPropertyValue('color') || '#1e293b';
     const pos = getPos(canvas, e.clientX, e.clientY);
     ctx.lineTo(pos.x, pos.y);
     ctx.stroke();
@@ -107,7 +107,7 @@ function useSignatureCanvas() {
       ctx.lineWidth = 2.5;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
-      ctx.strokeStyle = '#1e293b';
+      ctx.strokeStyle = getComputedStyle(canvas).getPropertyValue('color') || '#1e293b';
       const pos = getPos(canvas, e.touches[0].clientX, e.touches[0].clientY);
       ctx.lineTo(pos.x, pos.y);
       ctx.stroke();
@@ -465,7 +465,7 @@ export function SignaturePage() {
                     ref={canvasRef}
                     width={600}
                     height={180}
-                    className="w-full cursor-crosshair block"
+                    className="w-full cursor-crosshair block text-foreground"
                     style={{ touchAction: 'none' }}
                     onMouseDown={onMouseDown}
                     onMouseMove={onMouseMove}

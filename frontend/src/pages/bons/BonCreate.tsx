@@ -401,7 +401,7 @@ export function BonCreatePage() {
               <CardTitle className="text-base">Équipements</CardTitle>
               <div className="flex gap-2">
                 {/* Import depuis pack */}
-                {packs.filter((p: any) => p.active !== false).length > 0 && (
+                {packs.filter((p) => (p as Pack & { active?: boolean }).active !== false).length > 0 && (
                   <select
                     className="rounded-md border bg-card px-2 py-1 text-xs text-muted-foreground"
                     value=""
@@ -411,7 +411,7 @@ export function BonCreatePage() {
                     }}
                   >
                     <option value="">Importer un pack...</option>
-                    {packs.filter((p: any) => p.active !== false).map((p) => (
+                    {packs.filter((p) => (p as Pack & { active?: boolean }).active !== false).map((p) => (
                       <option key={p.id} value={p.id}>
                         <Package className="h-3 w-3" /> {p.name}
                       </option>

@@ -38,8 +38,9 @@ export function ItSignModal({ bonId, reference, pdfType, description, onClose, o
     try {
       await api.post(`/bons/${bonId}/sign-it`, { signatureDataUrl: dataUrl, pdfType });
       await onSigned();
-    } catch (e: any) {
-      setError(e?.message ?? 'Erreur lors de la signature IT');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Erreur lors de la signature IT';
+      setError(msg);
       setSubmitting(false);
     }
   };
@@ -50,8 +51,8 @@ export function ItSignModal({ bonId, reference, pdfType, description, onClose, o
     <Dialog open onOpenChange={(open) => { if (!open && !submitting) onClose(); }}>
       <DialogContent className="sm:max-w-lg p-0 overflow-hidden">
         {/* Dark header */}
-        <div className="bg-slate-800 px-5 py-4 flex items-center gap-3">
-          <Stamp className="h-5 w-5 text-slate-300" />
+        <div className="bg-slate-800 dark:bg-slate-900 px-5 py-4 flex items-center gap-3">
+          <Stamp className="h-5 w-5 text-slate-300 dark:text-slate-400" />
           <div>
             <DialogHeader className="p-0 text-left">
               <DialogTitle className="text-white text-sm">
@@ -87,7 +88,7 @@ export function ItSignModal({ bonId, reference, pdfType, description, onClose, o
                 ref={canvasRef}
                 width={600}
                 height={150}
-                className="w-full cursor-crosshair block"
+                className="w-full cursor-crosshair block text-foreground"
                 style={{ touchAction: 'none' }}
                 onMouseDown={onMouseDown}
                 onMouseMove={onMouseMove}
@@ -96,14 +97,14 @@ export function ItSignModal({ bonId, reference, pdfType, description, onClose, o
               />
               {isEmpty && (
                 <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                  <p className="text-slate-300 text-sm select-none">Signez ici&hellip;</p>
+                  <p className="text-muted-foreground/40 text-sm select-none">Signez ici&hellip;</p>
                 </div>
               )}
             </div>
           </div>
 
           {error && (
-            <div role="alert" className="flex items-start gap-2 rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+            <div role="alert" className="flex items-start gap-2 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/30 p-3 text-sm text-red-700 dark:text-red-400">
               <XCircle className="h-4 w-4 shrink-0 mt-0.5" />
               <span>{error}</span>
             </div>
@@ -115,7 +116,7 @@ export function ItSignModal({ bonId, reference, pdfType, description, onClose, o
             </Button>
             <Button
               size="sm"
-              className="flex-1 bg-slate-800 hover:bg-slate-900 text-white"
+              className="flex-1 bg-slate-800 dark:bg-slate-700 hover:bg-slate-900 dark:hover:bg-slate-600 text-white"
               onClick={handleSubmit}
               disabled={submitting || isEmpty}
             >

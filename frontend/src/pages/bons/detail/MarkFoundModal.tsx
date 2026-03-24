@@ -91,7 +91,7 @@ export function MarkFoundModal({
                     key={eq.id}
                     className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
                       selected.has(eq.id)
-                        ? 'bg-green-50 border-green-300'
+                        ? 'bg-green-50 dark:bg-green-900/20 border-green-300 dark:border-green-800'
                         : 'hover:bg-muted/40 border-border'
                     }`}
                   >
@@ -145,7 +145,7 @@ export function MarkFoundModal({
                     ref={canvasRef}
                     width={560}
                     height={120}
-                    className="w-full cursor-crosshair block"
+                    className="w-full cursor-crosshair block text-foreground"
                     style={{ touchAction: 'none' }}
                     onMouseDown={onMouseDown}
                     onMouseMove={onMouseMove}
@@ -154,7 +154,7 @@ export function MarkFoundModal({
                   />
                   {isEmpty && (
                     <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                      <p className="text-slate-300 text-sm select-none">Signez ici&hellip;</p>
+                      <p className="text-muted-foreground/40 text-sm select-none">Signez ici&hellip;</p>
                     </div>
                   )}
                 </div>
@@ -163,7 +163,7 @@ export function MarkFoundModal({
           )}
 
           {error && (
-            <div role="alert" className="flex items-start gap-2 rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+            <div role="alert" className="flex items-start gap-2 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/30 p-3 text-sm text-red-700 dark:text-red-400">
               <XCircle className="h-4 w-4 shrink-0 mt-0.5" />
               <span>{error}</span>
             </div>

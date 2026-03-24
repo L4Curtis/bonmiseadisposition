@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useUiView, UI_VIEW_LABELS, UI_VIEW_ICON_MAP, type UiView } from '@/contexts/UiViewContext';
+import type { User } from '@/types';
 import { LogOut, KeyRound, Sun, Moon } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
@@ -62,12 +63,12 @@ function ChangePasswordDialog({
       setError('Les mots de passe ne correspondent pas');
       return;
     }
-    if (form.next.length < 8) {
-      setError('Minimum 8 caractères');
+    if (form.next.length < 12) {
+      setError('Minimum 12 caractères');
       return;
     }
-    if (!/[A-Z]/.test(form.next) || !/[0-9]/.test(form.next)) {
-      setError('Le mot de passe doit contenir au moins une majuscule et un chiffre');
+    if (!/[A-Z]/.test(form.next) || !/[a-z]/.test(form.next) || !/[0-9]/.test(form.next) || !/[@$!%*?&_#^+=\-.]/.test(form.next)) {
+      setError('Le mot de passe doit contenir une majuscule, une minuscule, un chiffre et un caractère spécial');
       return;
     }
     setLoading(true);
@@ -157,7 +158,7 @@ export function Header() {
   const { theme, toggleTheme } = useTheme();
   const { activeView, setActiveView, availableViews } = useUiView();
   const [showChangePwd, setShowChangePwd] = useState(false);
-  const isLocal = (user as any)?.isLocalAccount;
+  const isLocal = !!(user as User & { isLocalAccount?: boolean })?.isLocalAccount;
 
   return (
     <>
@@ -189,7 +190,7 @@ export function Header() {
                 </span>
               )}
               {isLocal && (
-                <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">local</span>
+                <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">local</span>
               )}
             </button>
           </DropdownMenuTrigger>

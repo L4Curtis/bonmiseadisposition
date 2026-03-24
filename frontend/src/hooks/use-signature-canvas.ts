@@ -43,7 +43,7 @@ export function useSignatureCanvas(): SignatureCanvasReturn {
     ctx.lineWidth = 2.5;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-    ctx.strokeStyle = '#1e293b';
+    ctx.strokeStyle = getComputedStyle(canvas).getPropertyValue('color') || '#1e293b';
     const pos = getPos(canvas, e.clientX, e.clientY);
     ctx.lineTo(pos.x, pos.y);
     ctx.stroke();
@@ -79,7 +79,7 @@ export function useSignatureCanvas(): SignatureCanvasReturn {
       ctx.lineWidth = 2.5;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
-      ctx.strokeStyle = '#1e293b';
+      ctx.strokeStyle = getComputedStyle(canvas).getPropertyValue('color') || '#1e293b';
       const pos = getPos(canvas, e.touches[0].clientX, e.touches[0].clientY);
       ctx.lineTo(pos.x, pos.y);
       ctx.stroke();

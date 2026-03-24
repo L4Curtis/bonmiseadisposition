@@ -48,7 +48,7 @@ export function LoginPage() {
     try {
       const res = await fetch('/api/auth/local-login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
         body: JSON.stringify({ email: localEmail, password: localPassword }),
         credentials: 'include',
       });
