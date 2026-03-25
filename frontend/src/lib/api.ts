@@ -11,6 +11,8 @@ class ApiError extends Error {
 
 const CSRF_HEADER = { 'X-Requested-With': 'XMLHttpRequest' };
 
+let refreshPromise: Promise<void> | null = null;
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
     headers: { 'Content-Type': 'application/json', ...CSRF_HEADER, ...options?.headers },
@@ -19,26 +21,30 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   });
 
   if (res.status === 401) {
-    // Try to refresh token
-    const refreshed = await fetch(`${BASE_URL}/auth/refresh`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: CSRF_HEADER,
-    });
-    if (refreshed.ok) {
-      // Retry original request
-      const retryRes = await fetch(`${BASE_URL}${path}`, {
-        headers: { 'Content-Type': 'application/json', ...CSRF_HEADER, ...options?.headers },
+    // Deduplicate concurrent refresh calls
+    if (!refreshPromise) {
+      refreshPromise = fetch(`${BASE_URL}/auth/refresh`, {
+        method: 'POST',
         credentials: 'include',
-        ...options,
+        headers: CSRF_HEADER,
+      }).then((refreshed) => {
+        if (!refreshed.ok) {
+          window.location.href = '/login';
+          throw new ApiError(401, 'Session expired');
+        }
+      }).finally(() => {
+        refreshPromise = null;
       });
-      if (!retryRes.ok) throw new ApiError(retryRes.status, await retryRes.text());
-      return retryRes.json();
-    } else {
-      // Refresh failed — redirect to login
-      window.location.href = '/login';
-      throw new ApiError(401, 'Session expired');
     }
+    await refreshPromise;
+    // Retry original request
+    const retryRes = await fetch(`${BASE_URL}${path}`, {
+      headers: { 'Content-Type': 'application/json', ...CSRF_HEADER, ...options?.headers },
+      credentials: 'include',
+      ...options,
+    });
+    if (!retryRes.ok) throw new ApiError(retryRes.status, await retryRes.text());
+    return retryRes.json();
   }
 
   if (!res.ok) {

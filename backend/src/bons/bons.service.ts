@@ -5,25 +5,43 @@ import { SignatureService } from '../signature/signature.service';
 import { NotificationService } from '../notification/notification.service';
 import { PdfService, SigImages } from '../pdf/pdf.service';
 import { SmbService } from '../smb/smb.service';
+import { STATUS_LABELS } from '../common/status-labels';
 
-const BON_INCLUDE = {
-  filiale: true,
-  collaborateur: {
-    select: { id: true, displayName: true, email: true, department: true },
-  },
-  createdBy: {
-    select: { id: true, displayName: true, email: true },
-  },
-  equipments: {
-    orderBy: { order: 'asc' as const },
-    include: {
-      catalogItem: {
-        select: { id: true, brand: true, model: true, category: true },
+// Explicit select to avoid loading large Bytes columns (pdfMiseDispoSnapshot, pdfRestitutionSnapshot).
+// Use as query option spread: { where, ...BON_SELECT, orderBy, ... }
+const BON_SELECT = {
+  select: {
+    id: true,
+    reference: true,
+    filialeId: true,
+    collaborateurId: true,
+    collaborateurEmail: true,
+    createdById: true,
+    civilite: true,
+    status: true,
+    dateMiseDisposition: true,
+    dateRestitution: true,
+    notes: true,
+    createdAt: true,
+    updatedAt: true,
+    filiale: true,
+    collaborateur: {
+      select: { id: true, displayName: true, email: true, department: true },
+    },
+    createdBy: {
+      select: { id: true, displayName: true, email: true },
+    },
+    equipments: {
+      orderBy: { order: 'asc' as const },
+      include: {
+        catalogItem: {
+          select: { id: true, brand: true, model: true, category: true },
+        },
       },
     },
+    signatures: true,
   },
-  signatures: true,
-};
+} as const;
 
 @Injectable()
 export class BonsService {
@@ -102,6 +120,7 @@ export class BonsService {
     const bons = await this.prisma.bon.findMany({
       where,
       orderBy: { createdAt: 'desc' },
+      take: 5000,
       include: {
         filiale: { select: { displayName: true } },
         collaborateur: { select: { displayName: true, email: true, department: true } },
@@ -111,17 +130,6 @@ export class BonsService {
       },
     });
 
-    const STATUS_LABELS: Record<string, string> = {
-      draft: 'Brouillon',
-      sent_mise_dispo: 'En attente signature',
-      active: 'Actif',
-      sent_restitution: 'Restitution en attente',
-      partially_returned: 'Restitution partielle',
-      archived: 'Archivé',
-      cancelled: 'Annulé',
-      contested: 'Contesté',
-    };
-
     const headers = [
       'Référence', 'Statut', 'Filiale', 'Collaborateur', 'Email collaborateur',
       'Service', 'Date mise à disposition', 'Date restitution', 'Nb équipements',
@@ -129,7 +137,14 @@ export class BonsService {
       'Date signature mise à dispo', 'Date signature restitution',
     ];
 
-    const escape = (v: string) => `"${String(v).replace(/"/g, '""')}"`;
+    const escape = (v: string) => {
+      let s = String(v).replace(/"/g, '""');
+      // CSV injection protection: prefix formula-triggering characters with a single quote
+      if (/^[=+\-@\t\r]/.test(s)) {
+        s = "'" + s;
+      }
+      return `"${s}"`;
+    };
 
     const rows = bons.map((b) => {
       const sigMise = b.signatures.find((s) => s.type === 'mise_disposition');
@@ -194,7 +209,7 @@ export class BonsService {
     const [bons, total] = await Promise.all([
       this.prisma.bon.findMany({
         where,
-        include: BON_INCLUDE,
+        ...BON_SELECT,
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
@@ -208,7 +223,7 @@ export class BonsService {
   async findOne(id: string) {
     const bon = await this.prisma.bon.findUnique({
       where: { id },
-      include: BON_INCLUDE,
+      ...BON_SELECT,
     });
     if (!bon) throw new NotFoundException('Bon introuvable');
     return bon;
@@ -270,7 +285,7 @@ export class BonsService {
           })),
         },
       },
-      include: BON_INCLUDE,
+      ...BON_SELECT,
     });
     await this.prisma.auditLog.create({
       data: { bonId: bon.id, userId, action: 'bon_created' },
@@ -318,17 +333,19 @@ export class BonsService {
       };
     }
 
-    return this.prisma.bon.update({ where: { id }, data, include: BON_INCLUDE });
+    return this.prisma.bon.update({ where: { id }, data, ...BON_SELECT });
   }
 
   async cancel(id: string, userId?: string) {
     const bon = await this.findOne(id);
     if (['archived', 'cancelled', 'contested'].includes(bon.status))
       throw new BadRequestException('Ce bon ne peut pas être annulé');
+    // Invalidate all unsigned signature tokens
+    await this.signatureService.invalidateUnsignedTokens(id);
     const updated = await this.prisma.bon.update({
       where: { id },
       data: { status: 'cancelled' },
-      include: BON_INCLUDE,
+      ...BON_SELECT,
     });
     await this.prisma.auditLog.create({
       data: { bonId: id, userId: userId ?? null, action: 'bon_cancelled' },
@@ -349,7 +366,7 @@ export class BonsService {
     const updated = await this.prisma.bon.update({
       where: { id },
       data: { status: 'sent_mise_dispo' },
-      include: BON_INCLUDE,
+      ...BON_SELECT,
     });
 
     // Generate signature token
@@ -402,7 +419,7 @@ export class BonsService {
     const updated = await this.prisma.bon.update({
       where: { id },
       data: { status: newStatus as any },
-      include: BON_INCLUDE,
+      ...BON_SELECT,
     });
 
     // Generate signature token for restitution (even partial — to sign what's been returned)
@@ -490,11 +507,7 @@ export class BonsService {
       // Reload bon with fresh signatures
       const updatedBon = await this.prisma.bon.findUniqueOrThrow({
         where: { id },
-        include: {
-          ...BON_INCLUDE,
-          signatures: true,
-          createdBy: { select: { id: true, displayName: true, email: true } },
-        },
+        ...BON_SELECT,
       });
 
       // Generate PV PDF with IT signature only (collab not yet signed)
@@ -578,11 +591,7 @@ export class BonsService {
     // Reload bon with fresh data + signatures
     const updatedBon = await this.prisma.bon.findUniqueOrThrow({
       where: { id },
-      include: {
-        ...BON_INCLUDE,
-        signatures: true,
-        createdBy: { select: { id: true, displayName: true, email: true } },
-      },
+      ...BON_SELECT,
     });
 
     const collabName = this.smbService.sanitizeName(
@@ -680,7 +689,7 @@ export class BonsService {
     const updated = await this.prisma.bon.update({
       where: { id },
       data: { status: newStatus as any },
-      include: BON_INCLUDE,
+      ...BON_SELECT,
     });
 
     // Generate in-person token (7-day validity, same as remote)
@@ -691,7 +700,7 @@ export class BonsService {
 
   async getRecentBons(limit = 10) {
     return this.prisma.bon.findMany({
-      include: BON_INCLUDE,
+      ...BON_SELECT,
       orderBy: { createdAt: 'desc' },
       take: limit,
     });
@@ -703,11 +712,9 @@ export class BonsService {
         collaborateurId: userId,
         status: { notIn: ['cancelled'] },
       },
-      include: {
-        ...BON_INCLUDE,
-        signatures: true,
-      },
+      ...BON_SELECT,
       orderBy: { createdAt: 'desc' },
+      take: 100,
     });
   }
 

@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException, Logger, OnModuleDestroy } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Response, Request } from 'express';
 import * as bcrypt from 'bcryptjs';
@@ -8,11 +8,12 @@ import { AppConfigService } from '../config/config.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
-export class AuthService {
+export class AuthService implements OnModuleDestroy {
   private readonly logger = new Logger(AuthService.name);
 
   // In-memory blacklist for revoked JWT access tokens (token hash → expiry timestamp)
   private readonly revokedTokens = new Map<string, number>();
+  private readonly cleanupInterval: NodeJS.Timeout;
 
   constructor(
     private readonly configService: AppConfigService,
@@ -20,11 +21,18 @@ export class AuthService {
     private readonly jwtService: JwtService,
   ) {
     // Periodically clean up expired entries every 5 minutes
-    setInterval(() => this.cleanupRevokedTokens(), 5 * 60 * 1000);
+    this.cleanupInterval = setInterval(() => this.cleanupRevokedTokens(), 5 * 60 * 1000);
+  }
+
+  onModuleDestroy(): void {
+    clearInterval(this.cleanupInterval);
   }
 
   /** Revoke a token so it cannot be reused (access or refresh) */
   revokeToken(token: string, ttlMs: number = 15 * 60 * 1000): void {
+    if (this.revokedTokens.size >= 10000) {
+      this.cleanupRevokedTokens();
+    }
     const hash = crypto.createHash('sha256').update(token).digest('hex');
     const expiresAt = Date.now() + ttlMs;
     this.revokedTokens.set(hash, expiresAt);
@@ -84,7 +92,7 @@ export class AuthService {
     return { url, codeVerifier };
   }
 
-  async handleCallback(code: string, state: string, codeVerifier?: string): Promise<{ accessToken: string; refreshToken: string; user: { id: string; email: string } }> {
+  async handleCallback(code: string, state: string, codeVerifier: string): Promise<{ accessToken: string; refreshToken: string; user: { id: string; email: string } }> {
     const msalClient = await this.getMsalClient();
     const redirectUri = await this.configService.get('entra', 'redirect_uri');
 
@@ -93,7 +101,7 @@ export class AuthService {
       scopes: ['openid', 'profile', 'email', 'User.Read'],
       redirectUri: redirectUri || 'http://localhost:4000/api/auth/callback',
       state,
-      ...(codeVerifier ? { codeVerifier } : {}),
+      codeVerifier,
     };
 
     const response = await msalClient.acquireTokenByCode(tokenRequest);
@@ -168,6 +176,9 @@ export class AuthService {
       this.revokeToken(refreshToken, 8 * 60 * 60 * 1000);
 
       const user = await this.prisma.user.findUniqueOrThrow({ where: { id: payload.sub } });
+      if (!user.active) {
+        throw new UnauthorizedException('Account is inactive');
+      }
       const newPayload = { sub: user.id, email: user.email, role: user.role };
 
       const newAccessToken = this.jwtService.sign(newPayload, { secret: jwtSecret, expiresIn: '15m' });
@@ -337,7 +348,11 @@ export class AuthService {
           where: { id: existing.id },
           data: { isLocalAccount: true, passwordHash: hash, role: 'admin', isItStaff: true, mustChangePassword: true },
         });
-        this.logger.warn(`Default local admin upgraded: admin@local — temporary password: ${tempPassword} (changement requis au premier login)`);
+        if (process.env.DEFAULT_ADMIN_PASSWORD) {
+          this.logger.warn('Default local admin upgraded: admin@local (mot de passe = DEFAULT_ADMIN_PASSWORD, changement requis au premier login)');
+        } else {
+          this.logger.warn(`Default local admin upgraded: admin@local — temporary password: ${tempPassword} (changement requis au premier login)`);
+        }
       }
       return;
     }
@@ -359,7 +374,11 @@ export class AuthService {
           active: true,
         },
       });
-      this.logger.warn(`Default local admin created: admin@local — temporary password: ${tempPassword} (changement requis au premier login)`);
+      if (process.env.DEFAULT_ADMIN_PASSWORD) {
+        this.logger.warn('Default local admin created: admin@local (mot de passe = DEFAULT_ADMIN_PASSWORD, changement requis au premier login)');
+      } else {
+        this.logger.warn(`Default local admin created: admin@local — temporary password: ${tempPassword} (changement requis au premier login)`);
+      }
     } catch {
       this.logger.warn('Could not create default local admin (already exists)');
     }

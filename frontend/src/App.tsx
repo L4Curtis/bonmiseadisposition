@@ -1,3 +1,4 @@
+import React, { Suspense, lazy } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { ThemeProvider } from '@/contexts/ThemeContext';
@@ -6,23 +7,25 @@ import { Layout } from '@/components/layout/Layout';
 import { Toaster } from '@/components/ui/toaster';
 import { LoginPage } from '@/pages/Login';
 import { ChangePasswordPage } from '@/pages/ChangePassword';
-import { DashboardIT } from '@/pages/DashboardIT';
-import { PortailCollaborateur } from '@/pages/PortailCollaborateur';
 import { UnauthorizedPage } from '@/pages/Unauthorized';
-import { AdminLayout } from '@/pages/admin/AdminLayout';
-import { ConfigurationPage } from '@/pages/admin/Configuration';
-import { LdapSyncPage } from '@/pages/admin/LdapSync';
-import { FilialesPage } from '@/pages/admin/Filiales';
-import { CataloguePage } from '@/pages/admin/Catalogue';
-import { UtilisateursPage } from '@/pages/admin/Utilisateurs';
-import { AuditLogsPage } from '@/pages/admin/AuditLogs';
-import { ContestationsPage } from '@/pages/admin/Contestations';
-import { TemplatesPage } from '@/pages/admin/Templates';
-import { BonsListPage } from '@/pages/bons/BonsList';
-import { BonCreatePage } from '@/pages/bons/BonCreate';
-import { BonDetailPage } from '@/pages/bons/BonDetail';
-import { SignaturePage } from '@/pages/signature/SignaturePage';
-import { BonDetailCollaborateurPage } from '@/pages/bons/BonDetailCollaborateur';
+
+// Lazy-loaded pages (code splitting)
+const DashboardIT = lazy(() => import('@/pages/DashboardIT').then(m => ({ default: m.DashboardIT })));
+const PortailCollaborateur = lazy(() => import('@/pages/PortailCollaborateur').then(m => ({ default: m.PortailCollaborateur })));
+const AdminLayout = lazy(() => import('@/pages/admin/AdminLayout').then(m => ({ default: m.AdminLayout })));
+const ConfigurationPage = lazy(() => import('@/pages/admin/Configuration').then(m => ({ default: m.ConfigurationPage })));
+const LdapSyncPage = lazy(() => import('@/pages/admin/LdapSync').then(m => ({ default: m.LdapSyncPage })));
+const FilialesPage = lazy(() => import('@/pages/admin/Filiales').then(m => ({ default: m.FilialesPage })));
+const CataloguePage = lazy(() => import('@/pages/admin/Catalogue').then(m => ({ default: m.CataloguePage })));
+const UtilisateursPage = lazy(() => import('@/pages/admin/Utilisateurs').then(m => ({ default: m.UtilisateursPage })));
+const AuditLogsPage = lazy(() => import('@/pages/admin/AuditLogs').then(m => ({ default: m.AuditLogsPage })));
+const ContestationsPage = lazy(() => import('@/pages/admin/Contestations').then(m => ({ default: m.ContestationsPage })));
+const TemplatesPage = lazy(() => import('@/pages/admin/Templates').then(m => ({ default: m.TemplatesPage })));
+const BonsListPage = lazy(() => import('@/pages/bons/BonsList').then(m => ({ default: m.BonsListPage })));
+const BonCreatePage = lazy(() => import('@/pages/bons/BonCreate').then(m => ({ default: m.BonCreatePage })));
+const BonDetailPage = lazy(() => import('@/pages/bons/BonDetail').then(m => ({ default: m.BonDetailPage })));
+const SignaturePage = lazy(() => import('@/pages/signature/SignaturePage').then(m => ({ default: m.SignaturePage })));
+const BonDetailCollaborateurPage = lazy(() => import('@/pages/bons/BonDetailCollaborateur').then(m => ({ default: m.BonDetailCollaborateurPage })));
 
 function ProtectedRoute({
   children,
@@ -54,6 +57,7 @@ function AppRoutes() {
   if (loading) return <LoadingSpinner />;
 
   return (
+    <Suspense fallback={<LoadingSpinner />}>
     <Routes>
       {/* Route publique — pas de JWT requis */}
       <Route path="/signer/:token" element={<SignaturePage />} />
@@ -137,18 +141,64 @@ function AppRoutes() {
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </Suspense>
   );
+}
+
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; error: Error | null }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('Application error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex h-screen items-center justify-center bg-background">
+          <div className="max-w-md space-y-4 text-center p-8">
+            <h1 className="text-2xl font-bold text-foreground">Une erreur est survenue</h1>
+            <p className="text-muted-foreground">
+              L'application a rencontré un problème inattendu.
+            </p>
+            <button
+              onClick={() => {
+                this.setState({ hasError: false, error: null });
+                window.location.href = '/';
+              }}
+              className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              Retour à l'accueil
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <UiViewProvider>
-          <AppRoutes />
-          <Toaster />
-        </UiViewProvider>
-      </AuthProvider>
-    </ThemeProvider>
+    <ErrorBoundary>
+      <ThemeProvider>
+        <AuthProvider>
+          <UiViewProvider>
+            <AppRoutes />
+            <Toaster />
+          </UiViewProvider>
+        </AuthProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }

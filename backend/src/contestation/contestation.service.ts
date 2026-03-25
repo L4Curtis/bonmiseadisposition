@@ -63,13 +63,13 @@ export class ContestationService {
       .sendContestationAlert(bon, contestation.user, message)
       .catch(() => {});
 
-    // Log d'audit
+    // Log d'audit (previousStatus stored for restoration on resolution)
     await this.prisma.auditLog.create({
       data: {
         bonId,
         userId,
         action: 'bon_contested',
-        details: { message: message.substring(0, 200) },
+        details: { message: message.substring(0, 200), previousStatus: bon.status },
       },
     });
 
@@ -136,11 +136,19 @@ export class ContestationService {
       },
     });
 
-    // Si résolu (accepté), le bon retourne en "active" ; si rejeté, aussi
-    // Dans les deux cas on rétablit le statut "active" (la contestation est traitée)
+    // Restore the bon to its status before the contestation was opened.
+    // The previous status is stored in the audit log entry for 'bon_contested'.
+    const contestedAuditEntry = await this.prisma.auditLog.findFirst({
+      where: { bonId: contestation.bonId, action: 'bon_contested' },
+      orderBy: { createdAt: 'desc' },
+      select: { details: true },
+    });
+    const previousStatus =
+      (contestedAuditEntry?.details as any)?.previousStatus ?? 'active';
+
     await this.prisma.bon.update({
       where: { id: contestation.bonId },
-      data: { status: 'active' },
+      data: { status: previousStatus },
     });
 
     // Notifier le collaborateur du résultat

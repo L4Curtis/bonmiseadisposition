@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as fs from 'fs';
+import { mkdir, writeFile, unlink } from 'fs/promises';
 import * as path from 'path';
 import { AppConfigService } from '../config/config.service';
 
@@ -36,15 +37,24 @@ export class SmbService {
         return;
       }
 
+      const filialeName = this.sanitizeName(bon.filiale?.displayName || bon.filiale?.name || 'Sans-filiale');
       const year = new Date(bon.createdAt).getFullYear().toString();
       const collabName = this.sanitizeName(bon.collaborateur?.displayName || 'INCONNU');
       const dirName = `${bon.reference}_${collabName}`;
 
-      const targetDir = path.join(smbPath, year, dirName);
-      fs.mkdirSync(targetDir, { recursive: true });
-      fs.writeFileSync(path.join(targetDir, filename), pdfBuffer);
+      // Sanitize filename to prevent path traversal (e.g. "../../../etc/passwd")
+      const safeFilename = path.basename(filename);
+      if (!safeFilename || safeFilename !== filename) {
+        this.logger.error(`SMB: nom de fichier rejeté (path traversal détecté): ${filename}`);
+        return;
+      }
 
-      this.logger.log(`PDF exporté vers: ${year}/${dirName}/${filename}`);
+      // Structure: {smbPath}/{filiale}/{year}/{bonRef_collabName}/{filename}
+      const targetDir = path.join(smbPath, filialeName, year, dirName);
+      await mkdir(targetDir, { recursive: true });
+      await writeFile(path.join(targetDir, safeFilename), pdfBuffer);
+
+      this.logger.log(`PDF exporté vers: ${filialeName}/${year}/${dirName}/${filename}`);
     } catch (err) {
       this.logger.error(`Échec export SMB: ${(err as Error).message}`);
     }
@@ -75,8 +85,8 @@ export class SmbService {
 
       // Try writing a test file
       const testFile = path.join(smbPath, `.smb-test-${Date.now()}`);
-      fs.writeFileSync(testFile, 'test');
-      fs.unlinkSync(testFile);
+      await writeFile(testFile, 'test');
+      await unlink(testFile);
 
       return { success: true, message: `Accès en écriture vérifié sur ${smbPath}` };
     } catch (err) {

@@ -20,6 +20,7 @@ import { SignatureService } from '../signature/signature.service';
 import { ContestationService } from '../contestation/contestation.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateBonDto, UpdateBonDto } from './dto/bon.dto';
+import { QueryBonsDto } from './dto/query-bons.dto';
 import {
   CreateContestationDto,
   InitiateRestitutionDto,
@@ -87,11 +88,10 @@ export class BonsController {
 
   @Get('export')
   async exportCsv(
-    @Query('status') status?: string,
-    @Query('filialeId') filialeId?: string,
-    @Query('search') search?: string,
+    @Query() dto: QueryBonsDto,
     @Res() res?: Response,
   ) {
+    const { status, filialeId, search } = dto;
     const csv = await this.bonsService.getExportData({ status, filialeId, search });
     const filename = `bons-export-${new Date().toISOString().slice(0, 10)}.csv`;
     res!.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -100,13 +100,8 @@ export class BonsController {
   }
 
   @Get()
-  findAll(
-    @Query('status') status?: string,
-    @Query('filialeId') filialeId?: string,
-    @Query('search') search?: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-  ) {
+  findAll(@Query() dto: QueryBonsDto) {
+    const { status, filialeId, search, page, limit } = dto;
     return this.bonsService.findAll({
       status,
       filialeId,
@@ -129,53 +124,60 @@ export class BonsController {
   }
 
   @Put(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateBonDto) {
+  async update(@Param('id') id: string, @Body() dto: UpdateBonDto, @CurrentUser() user: AuthUser) {
+    await this.verifyCollaboratorAccess(id, user);
     return this.bonsService.update(id, dto);
   }
 
   @Delete(':id')
-  cancel(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+  async cancel(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    await this.verifyCollaboratorAccess(id, user);
     return this.bonsService.cancel(id, user?.id);
   }
 
   @Post(':id/send')
-  send(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+  async send(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    await this.verifyCollaboratorAccess(id, user);
     return this.bonsService.send(id, user?.id);
   }
 
   @Post(':id/initiate-restitution')
-  initiateRestitution(
+  async initiateRestitution(
     @Param('id') id: string,
     @Body() dto: InitiateRestitutionDto,
     @CurrentUser() user: AuthUser,
   ) {
+    await this.verifyCollaboratorAccess(id, user);
     return this.bonsService.initiateRestitution(id, user?.id, dto.returnedEquipmentIds);
   }
 
   @Post(':id/initiate-inperson')
-  initiateInPerson(
+  async initiateInPerson(
     @Param('id') id: string,
     @Body() dto: InitiateInPersonDto,
     @CurrentUser() user: AuthUser,
   ) {
+    await this.verifyCollaboratorAccess(id, user);
     return this.bonsService.initiateInPersonSignature(id, dto.type, user.id);
   }
 
   @Post(':id/declare-not-returned')
-  declareNotReturned(
+  async declareNotReturned(
     @Param('id') id: string,
     @Body() dto: DeclareNotReturnedDto,
     @CurrentUser() user: AuthUser,
   ) {
+    await this.verifyCollaboratorAccess(id, user);
     return this.bonsService.declareNotReturned(id, dto.equipmentIds, dto.reason, user.id, dto.signatureDataUrl);
   }
 
   @Post(':id/mark-found')
-  markFound(
+  async markFound(
     @Param('id') id: string,
     @Body() dto: MarkFoundDto,
     @CurrentUser() user: AuthUser,
   ) {
+    await this.verifyCollaboratorAccess(id, user);
     return this.bonsService.markFound(id, dto.equipmentIds, user.id, dto.signatureDataUrl);
   }
 
@@ -249,15 +251,27 @@ export class BonsController {
     res!.send(pdf);
   }
 
-  /** Verify collaborator can only access their own bons */
+  /** Verify access: collaborators see only their bons, technicians see only their filiale's bons */
   private async verifyCollaboratorAccess(bonId: string, user?: AuthUser): Promise<void> {
-    if (!user || user.role !== 'collaborator') return;
+    if (!user) return;
+    // Admins have full access
+    if (user.role === 'admin') return;
+
     const bon = await this.prisma.bon.findUnique({
       where: { id: bonId },
-      select: { collaborateurId: true },
+      select: { collaborateurId: true, filialeId: true },
     });
-    if (bon && bon.collaborateurId !== user.id) {
-      throw new ForbiddenException('Accès refusé à ce bon');
+    if (!bon) return;
+
+    if (user.role === 'collaborator') {
+      if (bon.collaborateurId !== user.id) {
+        throw new ForbiddenException('Accès refusé à ce bon');
+      }
+    } else if (user.role === 'technician') {
+      // Technicians can only access bons of their own filiale
+      if (user.filialeId && user.filialeId !== bon.filialeId) {
+        throw new ForbiddenException('Accès refusé : ce bon appartient à une autre filiale');
+      }
     }
   }
 
@@ -269,6 +283,7 @@ export class BonsController {
     @CurrentUser() user: AuthUser,
     @Req() req: Request,
   ) {
+    await this.verifyCollaboratorAccess(id, user);
     // Use X-Real-IP (set by nginx to $remote_addr) — cannot be spoofed by clients
     const ip =
       (req.headers['x-real-ip'] as string)?.trim() ??

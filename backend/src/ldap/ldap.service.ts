@@ -251,36 +251,42 @@ export class LdapService {
     // Load all filiales for company matching
     const filiales = await this.prisma.filiale.findMany({ where: { active: true } });
 
-    for (const lu of ldapUsers) {
-      const filiale = filiales.find(
-        (f) => f.name.toLowerCase() === (lu.company || '').toLowerCase(),
+    // Batch upsert in chunks of 50 to avoid N+1 individual queries
+    const BATCH_SIZE = 50;
+    for (let i = 0; i < ldapUsers.length; i += BATCH_SIZE) {
+      const batch = ldapUsers.slice(i, i + BATCH_SIZE);
+      await this.prisma.$transaction(
+        batch.map((lu) => {
+          const filiale = filiales.find(
+            (f) => f.name.toLowerCase() === (lu.company || '').toLowerCase(),
+          );
+          return this.prisma.user.upsert({
+            where: { samAccountName: lu.sAMAccountName },
+            update: {
+              displayName: lu.displayName,
+              email: lu.mail,
+              department: lu.department,
+              company: lu.company,
+              title: lu.title,
+              filialeId: filiale?.id ?? null,
+              lastLdapSync: new Date(),
+              active: true,
+            },
+            create: {
+              samAccountName: lu.sAMAccountName,
+              displayName: lu.displayName,
+              email: lu.mail,
+              department: lu.department,
+              company: lu.company,
+              title: lu.title,
+              filialeId: filiale?.id ?? null,
+              lastLdapSync: new Date(),
+              active: true,
+              role: 'collaborator',
+            },
+          });
+        }),
       );
-
-      await this.prisma.user.upsert({
-        where: { samAccountName: lu.sAMAccountName },
-        update: {
-          displayName: lu.displayName,
-          email: lu.mail,
-          department: lu.department,
-          company: lu.company,
-          title: lu.title,
-          filialeId: filiale?.id ?? null,
-          lastLdapSync: new Date(),
-          active: true,
-        },
-        create: {
-          samAccountName: lu.sAMAccountName,
-          displayName: lu.displayName,
-          email: lu.mail,
-          department: lu.department,
-          company: lu.company,
-          title: lu.title,
-          filialeId: filiale?.id ?? null,
-          lastLdapSync: new Date(),
-          active: true,
-          role: 'collaborator',
-        },
-      });
     }
   }
 }

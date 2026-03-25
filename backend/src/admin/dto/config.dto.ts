@@ -21,3 +21,7 @@ export class BulkSetConfigDto {
 
   encryptedKeys?: string[];
 }
+
+export class BulkConfigValuesDto {
+  [key: string]: string;
+}

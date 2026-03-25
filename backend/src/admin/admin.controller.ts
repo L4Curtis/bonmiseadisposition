@@ -2,6 +2,7 @@
   Controller, Get, Put, Post, Delete, Body, Param, UseGuards, BadRequestException, ForbiddenException,
 } from '@nestjs/common';
 import { AdminService } from './admin.service';
+import { BulkConfigValuesDto } from './dto/config.dto';
 import { LdapService } from '../ldap/ldap.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -52,7 +53,7 @@ export class AdminController {
   @Roles('admin')
   async setConfig(
     @Param('category') category: string,
-    @Body() body: Record<string, string>,
+    @Body() body: BulkConfigValuesDto,
     @CurrentUser() user: any,
   ) {
     // Valider la catégorie

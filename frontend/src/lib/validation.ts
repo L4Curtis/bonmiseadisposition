@@ -6,7 +6,7 @@ export const loginSchema = z.object({
   email: z
     .string()
     .min(1, "L'email est requis")
-    .email('Format email invalide'),
+    .regex(/^[^\s@]+@[^\s@]+$/, 'Format email invalide'),
   password: z
     .string()
     .min(1, 'Le mot de passe est requis'),
@@ -66,7 +66,7 @@ export const bonCreateSchema = z.object({
 export const contestationSchema = z.object({
   message: z
     .string()
-    .min(10, 'Veuillez détailler le motif (au moins 10 caractères)')
+    .min(1, 'Veuillez détailler le motif')
     .max(2000, 'Maximum 2000 caractères'),
 });
 

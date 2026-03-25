@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   CreateCatalogItemDto, UpdateCatalogItemDto,
@@ -55,6 +55,17 @@ export class EquipmentService {
 
   async removeCatalogItem(id: string) {
     await this.findOneCatalog(id);
+    const activeBonCount = await this.prisma.bonEquipment.count({
+      where: {
+        catalogItemId: id,
+        bon: { status: { notIn: ['cancelled', 'archived'] } },
+      },
+    });
+    if (activeBonCount > 0) {
+      throw new BadRequestException(
+        `Cet équipement est référencé sur ${activeBonCount} bon(s) actif(s) et ne peut pas être désactivé.`,
+      );
+    }
     return this.prisma.equipmentCatalog.update({ where: { id }, data: { active: false } });
   }
 
@@ -122,23 +133,25 @@ export class EquipmentService {
     await this.findOnePack(id);
     const { items, ...packData } = dto;
 
-    if (items !== undefined) {
-      // Replace all items
-      await this.prisma.equipmentPackItem.deleteMany({ where: { packId: id } });
-      await this.prisma.equipmentPackItem.createMany({
-        data: items.map((item, index) => ({
-          packId: id,
-          catalogItemId: item.catalogItemId,
-          quantity: item.quantity ?? 1,
-          order: item.order ?? index,
-        })),
-      });
-    }
+    // Atomic transaction: delete old items + create new + update pack metadata
+    return this.prisma.$transaction(async (tx) => {
+      if (items !== undefined) {
+        await tx.equipmentPackItem.deleteMany({ where: { packId: id } });
+        await tx.equipmentPackItem.createMany({
+          data: items.map((item, index) => ({
+            packId: id,
+            catalogItemId: item.catalogItemId,
+            quantity: item.quantity ?? 1,
+            order: item.order ?? index,
+          })),
+        });
+      }
 
-    return this.prisma.equipmentPack.update({
-      where: { id },
-      data: packData,
-      include: { items: { include: { catalogItem: true } } },
+      return tx.equipmentPack.update({
+        where: { id },
+        data: packData,
+        include: { items: { include: { catalogItem: true } } },
+      });
     });
   }
 

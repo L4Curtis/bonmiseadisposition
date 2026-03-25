@@ -11,15 +11,14 @@ export class EncryptionService implements OnModuleInit {
     if (!rawKey) {
       throw new Error('ENCRYPTION_KEY environment variable is required');
     }
-    const isProduction = process.env.NODE_ENV === 'production';
-    if (isProduction && rawKey.length < 32) {
+    if (rawKey.length < 32) {
       throw new Error(
-        'ENCRYPTION_KEY trop faible pour la production. ' +
-        'Utilisez au moins 32 caractères (ex: openssl rand -hex 32)',
+        'ENCRYPTION_KEY trop faible (min 32 caractères). ' +
+        'Générez avec : openssl rand -hex 32',
       );
     }
-    // Derive a 32-byte key from the env var using SHA-256
-    this.key = crypto.createHash('sha256').update(rawKey).digest();
+    // Derive a 32-byte key using PBKDF2 (100k iterations) instead of raw SHA-256
+    this.key = crypto.pbkdf2Sync(rawKey, 'bon-mise-disposition-salt-v1', 100_000, 32, 'sha256');
   }
 
   encrypt(plaintext: string): string {
@@ -35,9 +34,15 @@ export class EncryptionService implements OnModuleInit {
   }
 
   decrypt(ciphertext: string): string {
+    if (!ciphertext || typeof ciphertext !== 'string') {
+      throw new Error('Invalid ciphertext: empty or non-string');
+    }
     const parts = ciphertext.split(':');
     if (parts.length !== 3) throw new Error('Invalid ciphertext format');
     const [ivHex, authTagHex, encryptedHex] = parts;
+    if (!/^[0-9a-f]+$/i.test(ivHex) || !/^[0-9a-f]+$/i.test(authTagHex) || !/^[0-9a-f]+$/i.test(encryptedHex)) {
+      throw new Error('Invalid ciphertext: non-hex component');
+    }
     const iv = Buffer.from(ivHex, 'hex');
     const authTag = Buffer.from(authTagHex, 'hex');
     const encrypted = Buffer.from(encryptedHex, 'hex');

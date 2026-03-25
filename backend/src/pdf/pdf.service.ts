@@ -4,6 +4,7 @@ import { readFile } from 'fs/promises';
 import { join } from 'path';
 import * as PDFDocument from 'pdfkit';
 import { PrismaService } from '../prisma/prisma.service';
+import { STATUS_LABELS } from '../common/status-labels';
 
 export interface SigImages {
   it: string | null;
@@ -302,12 +303,30 @@ export class PdfService {
     doc.y = tableY + 18;
 
     // Table rows
+    const ROW_HEIGHT = 16;
+    const PAGE_BOTTOM = doc.page.height - doc.page.margins.bottom;
+
     if (equipments.length === 0) {
       doc.font('Helvetica').fontSize(8).fillColor(LIGHT_GRAY);
       doc.text('Aucun équipement enregistré', leftX, doc.y + 6, { width: pageWidth, align: 'center' });
       doc.y += 24;
     } else {
       equipments.forEach((eq: any, i: number) => {
+        // Page overflow: add new page and redraw table header if needed
+        if (doc.y + ROW_HEIGHT > PAGE_BOTTOM - 40) {
+          doc.addPage();
+          // Redraw table header on new page
+          const newHeaderY = doc.y;
+          doc.rect(leftX, newHeaderY, pageWidth, 18).fill(HEADER_BG);
+          doc.font('Helvetica-Bold').fontSize(7).fillColor('#ffffff');
+          let hColX = leftX + 4;
+          headers.forEach((h, hi) => {
+            doc.text(h.toUpperCase(), hColX, newHeaderY + 5, { width: colWidths[hi] - 8 });
+            hColX += colWidths[hi];
+          });
+          doc.y = newHeaderY + 18;
+        }
+
         const rowY = doc.y;
         const label = eq.catalogItem
           ? `${eq.catalogItem.brand} ${eq.catalogItem.model}`
@@ -315,18 +334,18 @@ export class PdfService {
 
         // Alternate row background
         if (i % 2 === 1) {
-          doc.rect(leftX, rowY, pageWidth, 16).fill(ROW_ALT);
+          doc.rect(leftX, rowY, pageWidth, ROW_HEIGHT).fill(ROW_ALT);
         }
 
         // Build statut text for restitution/cloture
         let statutText = '';
         if (hasStatutCol) {
           if (eq.returnedAt) {
-            statutText = '\u2713 Rendu';
+            statutText = 'V Rendu';
           } else if (eq.notReturned) {
-            statutText = `\u2717 Non rendu: ${eq.notReturnedReason || ''}`;
+            statutText = `X Non rendu: ${eq.notReturnedReason || ''}`;
           } else {
-            statutText = '\u231B En attente';
+            statutText = '... En attente';
           }
         }
 
@@ -345,9 +364,9 @@ export class PdfService {
         });
 
         // Row bottom border
-        doc.moveTo(leftX, rowY + 16).lineTo(leftX + pageWidth, rowY + 16)
+        doc.moveTo(leftX, rowY + ROW_HEIGHT).lineTo(leftX + pageWidth, rowY + ROW_HEIGHT)
           .lineWidth(0.5).strokeColor(BORDER).stroke();
-        doc.y = rowY + 16;
+        doc.y = rowY + ROW_HEIGHT;
       });
     }
 
@@ -532,16 +551,6 @@ export class PdfService {
   }
 
   private getStatusLabel(status: string): string {
-    const labels: Record<string, string> = {
-      draft: 'Brouillon',
-      sent_mise_dispo: 'En attente signature',
-      active: 'Actif',
-      sent_restitution: 'Restitution en attente',
-      partially_returned: 'Partiellement restitué',
-      archived: 'Archivé',
-      cancelled: 'Annulé',
-      contested: 'Contesté',
-    };
-    return labels[status] || status;
+    return STATUS_LABELS[status] || status;
   }
 }

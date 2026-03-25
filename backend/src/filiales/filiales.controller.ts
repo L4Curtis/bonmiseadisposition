@@ -69,6 +69,9 @@ export class FilialesController {
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @UseInterceptors(FileInterceptor('file'))
   uploadLogo(@Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
+    if (!file) {
+      return { error: 'Aucun fichier fourni' };
+    }
     return this.filialesService.updateLogo(id, file.filename);
   }
 
@@ -78,6 +81,9 @@ export class FilialesController {
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @UseInterceptors(FileInterceptor('file'))
   uploadStamp(@Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
+    if (!file) {
+      return { error: 'Aucun fichier fourni' };
+    }
     return this.filialesService.updateStamp(id, file.filename);
   }
 

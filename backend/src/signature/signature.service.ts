@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
+import { readFile, writeFile, mkdir } from 'fs/promises';
 import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { EncryptionService } from '../config/encryption.service';
@@ -145,57 +146,65 @@ export class SignatureService {
       throw new BadRequestException('Format de signature invalide');
     }
 
-    // Save encrypted signature file
+    // Save encrypted signature file (outside transaction — file system op)
     const signatureImagePath = await this.saveSignatureFile(
       sig.bon.id,
       sig.type,
       signatureDataUrl,
     );
 
-    // Update signature record
-    const updatedSig = await this.prisma.signature.update({
-      where: { token },
-      data: {
-        signed: true,
-        signatureImagePath,
-        signedAt: new Date(),
-        signerEmail,
-        signerIp,
-        signerUserAgent,
-        mentionLuApprouve,
-      },
-    });
-
-    // Update bon status
+    // Atomic transaction: update signature + bon status + audit log
     const newStatus = this.getNextBonStatus(sig.bon.status as string, sig.type as string);
-    const updatedBon = await this.prisma.bon.update({
-      where: { id: sig.bon.id },
-      data: { status: newStatus as any },
-      include: {
-        filiale: true,
-        collaborateur: { select: { id: true, displayName: true, email: true } },
-        equipments: {
-          orderBy: { order: 'asc' },
-          include: { catalogItem: true },
-        },
-        signatures: true,
-      },
-    });
+    const { updatedSig, updatedBon } = await this.prisma.$transaction(async (tx) => {
+      // Re-check signature not already signed (prevent race condition)
+      const freshSig = await tx.signature.findUnique({ where: { token }, select: { signed: true } });
+      if (freshSig?.signed) {
+        throw new BadRequestException('Ce document a déjà été signé (concurrent)');
+      }
 
-    // Audit log
-    await this.prisma.auditLog.create({
-      data: {
-        bonId: sig.bon.id,
-        userEmail: signerEmail,
-        action: `signed_${sig.type}`,
-        details: {
-          isInPerson: sig.isInPerson,
+      const txUpdatedSig = await tx.signature.update({
+        where: { token },
+        data: {
+          signed: true,
+          signatureImagePath,
+          signedAt: new Date(),
+          signerEmail,
+          signerIp,
+          signerUserAgent,
           mentionLuApprouve,
-          newStatus,
         },
-        ipAddress: signerIp,
-        userAgent: signerUserAgent,
-      },
+      });
+
+      const txUpdatedBon = await tx.bon.update({
+        where: { id: sig.bon.id },
+        data: { status: newStatus as any },
+        include: {
+          filiale: true,
+          collaborateur: { select: { id: true, displayName: true, email: true } },
+          equipments: {
+            orderBy: { order: 'asc' },
+            include: { catalogItem: true },
+          },
+          signatures: true,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          bonId: sig.bon.id,
+          userEmail: signerEmail,
+          action: `signed_${sig.type}`,
+          details: {
+            isInPerson: sig.isInPerson,
+            mentionLuApprouve,
+            newStatus,
+          },
+          ipAddress: signerIp,
+          userAgent: signerUserAgent,
+        },
+      });
+
+      return { updatedSig: txUpdatedSig, updatedBon: txUpdatedBon };
     });
 
     this.logger.log(
@@ -286,6 +295,31 @@ export class SignatureService {
     signerUserAgent: string,
     pdfType?: 'mise_disposition' | 'restitution',
   ) {
+    // Idempotency: if a signed it_cachet exists created within the last 10 seconds, return it
+    const recentItCachet = await this.prisma.signature.findFirst({
+      where: {
+        bonId,
+        type: 'it_cachet' as any,
+        signed: true,
+        signedAt: { gt: new Date(Date.now() - 10_000) },
+      },
+      orderBy: { signedAt: 'desc' },
+    });
+
+    if (recentItCachet) {
+      this.logger.warn(`signItCachet idempotency hit for bon ${bonId} — returning existing record`);
+      const existingBon = await this.prisma.bon.findUniqueOrThrow({
+        where: { id: bonId },
+        include: {
+          filiale: true,
+          collaborateur: { select: { id: true, displayName: true, email: true } },
+          equipments: { orderBy: { order: 'asc' }, include: { catalogItem: true } },
+          signatures: true,
+        },
+      });
+      return { ok: true, bon: existingBon, signature: recentItCachet };
+    }
+
     const bon = await this.prisma.bon.findUniqueOrThrow({
       where: { id: bonId },
       include: {
@@ -370,9 +404,17 @@ export class SignatureService {
   /** Get decrypted signature image for PDF generation */
   async getSignatureImageDecrypted(signatureImagePath: string): Promise<string | null> {
     try {
-      const fullPath = path.join(process.cwd(), 'data', 'signatures', signatureImagePath);
+      // Path traversal protection: reject directory traversal attempts
+      const basename = path.basename(signatureImagePath);
+      if (basename !== signatureImagePath || signatureImagePath.includes('..') || signatureImagePath.includes('/') || signatureImagePath.includes('\\')) {
+        this.logger.warn(`Path traversal attempt blocked: ${signatureImagePath}`);
+        return null;
+      }
+      const fullPath = path.join(this.UPLOADS_DIR, basename);
+      // Verify resolved path stays within UPLOADS_DIR
+      if (!fullPath.startsWith(this.UPLOADS_DIR)) return null;
       if (!fs.existsSync(fullPath)) return null;
-      const encrypted = fs.readFileSync(fullPath, 'utf8');
+      const encrypted = await readFile(fullPath, 'utf8');
       return this.encryption.decrypt(encrypted);
     } catch {
       return null;
@@ -391,7 +433,7 @@ export class SignatureService {
       const encrypted = this.encryption.encrypt(base64);
       const filename = `${bonId}_${type}_${Date.now()}.enc`;
       const filepath = path.join(this.UPLOADS_DIR, filename);
-      fs.writeFileSync(filepath, encrypted, 'utf8');
+      await writeFile(filepath, encrypted, 'utf8');
       return filename;
     } catch (err) {
       this.logger.error(`Échec sauvegarde signature (bon=${bonId}, type=${type}): ${(err as Error).message}`);
@@ -400,18 +442,24 @@ export class SignatureService {
   }
 
   private getNextBonStatus(currentStatus: string, signatureType: string): string {
-    if (signatureType === 'mise_disposition') {
-      // After mise_dispo signature → active
-      return 'active';
+    // Validate transitions: only advance from expected states
+    const validTransitions: Record<string, { from: string[]; to: string }> = {
+      mise_disposition: { from: ['sent_mise_dispo'], to: 'active' },
+      restitution: { from: ['sent_restitution', 'partially_returned'], to: 'archived' },
+      pv_cloture: { from: ['partially_returned'], to: 'archived' },
+    };
+
+    const transition = validTransitions[signatureType];
+    if (transition && transition.from.includes(currentStatus)) {
+      return transition.to;
     }
-    if (signatureType === 'restitution') {
-      // After restitution signature → archived
-      return 'archived';
+
+    if (transition && !transition.from.includes(currentStatus)) {
+      this.logger.warn(
+        `Invalid status transition: ${currentStatus} → ${transition.to} via ${signatureType}. Keeping current status.`,
+      );
     }
-    if (signatureType === 'pv_cloture') {
-      // After PV cloture collab signature → archived
-      return 'archived';
-    }
+
     return currentStatus;
   }
 

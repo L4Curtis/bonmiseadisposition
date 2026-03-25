@@ -19,6 +19,9 @@ function escapeHtml(str: string): string {
 export class NotificationService {
   private readonly logger = new Logger(NotificationService.name);
 
+  private cachedTransporter: nodemailer.Transporter | null = null;
+  private transporterCacheKey: string | null = null;
+
   constructor(
     private readonly configService: AppConfigService,
     private readonly prisma: PrismaService,
@@ -26,6 +29,12 @@ export class NotificationService {
   ) {}
 
   // ─── Transport ──────────────────────────────────────────────────────────────
+
+  /** Invalidate the cached SMTP transporter (call after SMTP settings change). */
+  invalidateTransporterCache(): void {
+    this.cachedTransporter = null;
+    this.transporterCacheKey = null;
+  }
 
   private async getTransporter(): Promise<nodemailer.Transporter | null> {
     const host = await this.configService.get('smtp', 'host');
@@ -36,13 +45,21 @@ export class NotificationService {
 
     if (!host) return null;
 
-    return nodemailer.createTransport({
+    // Build a cache key from current SMTP settings to detect config changes
+    const cacheKey = JSON.stringify({ host, port, user, pass, secure });
+    if (this.cachedTransporter && this.transporterCacheKey === cacheKey) {
+      return this.cachedTransporter;
+    }
+
+    this.cachedTransporter = nodemailer.createTransport({
       host,
       port: port ? parseInt(port) : 587,
       secure: secure === 'true',
       auth: user ? { user, pass: pass || '' } : undefined,
       tls: { rejectUnauthorized: process.env.NODE_ENV === 'production' },
     });
+    this.transporterCacheKey = cacheKey;
+    return this.cachedTransporter;
   }
 
   private async getFromAddress(): Promise<string> {
@@ -254,7 +271,7 @@ export class NotificationService {
       CONTESTATION_MESSAGE: escapeHtml(message),
     });
 
-    await Promise.all(
+    await Promise.allSettled(
       itStaff.map((staff) =>
         this.sendEmail(
           staff.email,
@@ -289,11 +306,113 @@ export class NotificationService {
       RESOLUTION_MESSAGE: resolutionMessage ? escapeHtml(resolutionMessage) : '',
     });
 
-    await this.sendEmail(
+    const ok = await this.sendEmail(
       collaborateur.email,
       `[${bon.reference}] Réponse à votre contestation — ${filialeNom}`,
       html,
     );
+
+    await this.prisma.notificationLog.create({
+      data: {
+        bonId: bon.id,
+        recipientEmail: collaborateur.email,
+        type: 'contestation_resolution',
+        status: ok ? 'sent' : 'failed',
+        errorMessage: ok ? null : "SMTP non configuré ou erreur d'envoi",
+      },
+    });
+  }
+
+  // ─── Cancel / MarkFound ──────────────────────────────────────────────────────
+
+  async sendCancellationNotice(bon: any): Promise<void> {
+    const filialeNom = bon.filiale?.displayName ?? bon.filiale?.name ?? '';
+    const collabName = bon.collaborateur?.displayName ?? '';
+    const civilite = bon.civilite === 'mme' ? 'Madame' : 'Monsieur';
+
+    const html = `<!DOCTYPE html>
+<html lang="fr"><head><meta charset="UTF-8"></head>
+<body style="font-family:sans-serif;color:#374151;max-width:600px;margin:0 auto;padding:24px">
+  <h2 style="color:#dc2626">Bon annulé — ${escapeHtml(bon.reference)}</h2>
+  <p>${escapeHtml(civilite)} ${escapeHtml(collabName)},</p>
+  <p>Nous vous informons que le bon de mise à disposition <strong>${escapeHtml(bon.reference)}</strong>
+  (${escapeHtml(filialeNom)}) a été <strong>annulé</strong>.</p>
+  <p>Si vous avez des questions, veuillez contacter votre service informatique.</p>
+  <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0">
+  <p style="font-size:12px;color:#94a3b8">Groupe Livio — notification automatique</p>
+</body></html>`;
+
+    const ok = await this.sendEmail(
+      bon.collaborateurEmail,
+      `Bon ${escapeHtml(bon.reference)} — annulé`,
+      html,
+    );
+
+    await this.prisma.notificationLog.create({
+      data: {
+        bonId: bon.id,
+        recipientEmail: bon.collaborateurEmail,
+        type: 'cancellation',
+        status: ok ? 'sent' : 'failed',
+        errorMessage: ok ? null : "SMTP non configuré ou erreur d'envoi",
+      },
+    });
+  }
+
+  async sendMarkFoundNotice(bon: any, equipmentIds: string[]): Promise<void> {
+    const filialeNom = bon.filiale?.displayName ?? bon.filiale?.name ?? '';
+    const collabName = bon.collaborateur?.displayName ?? '';
+    const civilite = bon.civilite === 'mme' ? 'Madame' : 'Monsieur';
+
+    const foundEquipments: any[] = (bon.equipments ?? []).filter((eq: any) =>
+      equipmentIds.includes(eq.id),
+    );
+
+    const equipLines = foundEquipments
+      .map((eq: any) => {
+        const label = eq.catalogItem
+          ? escapeHtml(`${eq.catalogItem.brand} ${eq.catalogItem.model}`)
+          : escapeHtml(eq.customLabel || 'Équipement');
+        const serial = eq.serialNumber
+          ? ` (N° série : ${escapeHtml(eq.serialNumber)})`
+          : '';
+        return `<li style="padding:6px 0;font-size:14px;color:#374151;list-style:none">${label}${serial}</li>`;
+      })
+      .join('\n');
+
+    const equipList = equipLines
+      ? equipLines
+      : '<li style="padding:6px 0;font-size:14px;color:#94a3b8;list-style:none">Voir le bon en ligne</li>';
+
+    const html = `<!DOCTYPE html>
+<html lang="fr"><head><meta charset="UTF-8"></head>
+<body style="font-family:sans-serif;color:#374151;max-width:600px;margin:0 auto;padding:24px">
+  <h2 style="color:#16a34a">Équipement(s) retrouvé(s) — ${escapeHtml(bon.reference)}</h2>
+  <p>${escapeHtml(civilite)} ${escapeHtml(collabName)},</p>
+  <p>Nous vous informons que le ou les équipements suivants, précédemment signalés comme non restitués
+  sur le bon <strong>${escapeHtml(bon.reference)}</strong> (${escapeHtml(filialeNom)}),
+  ont été <strong>retrouvés</strong> :</p>
+  <ul style="padding:0;margin:16px 0">${equipList}</ul>
+  <p>Si vous avez des questions, veuillez contacter votre service informatique.</p>
+  <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0">
+  <p style="font-size:12px;color:#94a3b8">Groupe Livio — notification automatique</p>
+</body></html>`;
+
+    const ok = await this.sendEmail(
+      bon.collaborateurEmail,
+      `Bon ${escapeHtml(bon.reference)} — équipement(s) retrouvé(s)`,
+      html,
+    );
+
+    await this.prisma.notificationLog.create({
+      data: {
+        bonId: bon.id,
+        recipientEmail: bon.collaborateurEmail,
+        type: 'mark_found',
+        status: ok ? 'sent' : 'failed',
+        errorMessage: ok ? null : "SMTP non configuré ou erreur d'envoi",
+      },
+    });
   }
 
   // ─── Cron: Rappels quotidiens ────────────────────────────────────────────────
@@ -333,39 +452,43 @@ export class NotificationService {
     const appUrl = await this.getAppUrl();
 
     for (const bon of pendingBons) {
-      const reminderCount = bon.notifications.filter((n) => n.type === 'reminder').length;
-      if (reminderCount >= maxReminders) continue;
+      try {
+        const reminderCount = bon.notifications.filter((n) => n.type === 'reminder').length;
+        if (reminderCount >= maxReminders) continue;
 
-      const sig = bon.signatures.find((s) => !s.signed);
-      if (!sig) continue;
+        const sig = bon.signatures.find((s) => !s.signed);
+        if (!sig) continue;
 
-      const filialeNom = bon.filiale?.displayName ?? '';
-      const isRestitution = bon.status === 'sent_restitution';
+        const filialeNom = bon.filiale?.displayName ?? '';
+        const isRestitution = bon.status === 'sent_restitution';
 
-      const html = await this.templatesService.renderTemplate('reminder', {
-        TYPE_LABEL: isRestitution ? 'restitution' : 'mise à disposition',
-        REFERENCE: escapeHtml(bon.reference),
-        SIGNER_URL: `${appUrl}/signer/${sig.token}`,
-        REMINDER_NUMBER: String(reminderCount + 1),
-        MAX_REMINDERS: String(maxReminders),
-        FILIALE_NOM: escapeHtml(filialeNom),
-      });
+        const html = await this.templatesService.renderTemplate('reminder', {
+          TYPE_LABEL: isRestitution ? 'restitution' : 'mise à disposition',
+          REFERENCE: escapeHtml(bon.reference),
+          SIGNER_URL: `${appUrl}/signer/${sig.token}`,
+          REMINDER_NUMBER: String(reminderCount + 1),
+          MAX_REMINDERS: String(maxReminders),
+          FILIALE_NOM: escapeHtml(filialeNom),
+        });
 
-      const ok = await this.sendEmail(
-        bon.collaborateurEmail,
-        `[RAPPEL] [${bon.reference}] Bon de ${isRestitution ? 'restitution' : 'mise à disposition'} à signer — ${filialeNom}`,
-        html,
-      );
+        const ok = await this.sendEmail(
+          bon.collaborateurEmail,
+          `[RAPPEL] [${bon.reference}] Bon de ${isRestitution ? 'restitution' : 'mise à disposition'} à signer — ${filialeNom}`,
+          html,
+        );
 
-      await this.prisma.notificationLog.create({
-        data: {
-          bonId: bon.id,
-          recipientEmail: bon.collaborateurEmail,
-          type: 'reminder',
-          status: ok ? 'sent' : 'failed',
-          reminderNumber: reminderCount + 1,
-        },
-      });
+        await this.prisma.notificationLog.create({
+          data: {
+            bonId: bon.id,
+            recipientEmail: bon.collaborateurEmail,
+            type: 'reminder',
+            status: ok ? 'sent' : 'failed',
+            reminderNumber: reminderCount + 1,
+          },
+        });
+      } catch (err) {
+        this.logger.error(`Erreur rappel bon ${bon.id} (${bon.reference}): ${err}`);
+      }
     }
 
     this.logger.log(`Cron rappels terminé — ${pendingBons.length} bons traités`);

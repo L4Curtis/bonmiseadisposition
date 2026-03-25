@@ -10,6 +10,8 @@ export interface User {
   title?: string;
   filialeId?: string;
   isItStaff: boolean;
+  isLocalAccount: boolean;
+  mustChangePassword: boolean;
   role: UserRole;
   active: boolean;
   filiale?: Filiale;
@@ -21,6 +23,8 @@ export interface Filiale {
   displayName: string;
   logoPath?: string;
   stampPath?: string;
+  address?: string | null;
+  siret?: string | null;
   active: boolean;
 }
 

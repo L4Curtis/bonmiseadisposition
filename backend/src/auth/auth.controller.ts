@@ -11,6 +11,13 @@ import { AppConfigService } from '../config/config.service';
 import { LocalLoginDto } from './dto/local-login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 
+function extractClientIp(req: Request): string {
+  return (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
+    ?? (req.headers['x-real-ip'] as string)
+    ?? req.socket?.remoteAddress
+    ?? 'unknown';
+}
+
 @Controller('auth')
 export class AuthController {
   constructor(
@@ -67,10 +74,7 @@ export class AuthController {
     const returnTo = req.cookies['auth_return_to'];
     res.clearCookie('auth_return_to');
 
-    const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
-      ?? (req.headers['x-real-ip'] as string)
-      ?? req.socket?.remoteAddress
-      ?? 'unknown';
+    const ip = extractClientIp(req);
     try {
       const { accessToken, refreshToken, user } = await this.authService.handleCallback(code, state, codeVerifier);
       this.authService.setAuthCookies(res, accessToken, refreshToken);
@@ -107,10 +111,7 @@ export class AuthController {
   @UseGuards(JwtAuthGuard, ThrottlerGuard)
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   async logout(@CurrentUser() user: AuthUser, @Req() req: Request, @Res() res: Response) {
-    const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
-      ?? (req.headers['x-real-ip'] as string)
-      ?? req.socket?.remoteAddress
-      ?? 'unknown';
+    const ip = extractClientIp(req);
     // Revoke both tokens so they cannot be reused after logout
     const accessToken = req.cookies?.['access_token'];
     if (accessToken) {
@@ -157,10 +158,7 @@ export class AuthController {
     if (localAuthEnabled === 'false') {
       throw new ForbiddenException('Authentification locale désactivée');
     }
-    const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
-      ?? (req.headers['x-real-ip'] as string)
-      ?? req.socket?.remoteAddress
-      ?? 'unknown';
+    const ip = extractClientIp(req);
     const ua = req.headers['user-agent'] ?? 'unknown';
     try {
       const { accessToken, refreshToken, mustChangePassword } = await this.authService.localLogin(dto.email, dto.password);
@@ -187,10 +185,7 @@ export class AuthController {
     @Res() res: Response,
   ) {
     await this.authService.changePassword(user.id, dto.currentPassword, dto.newPassword);
-    const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
-      ?? (req.headers['x-real-ip'] as string)
-      ?? req.socket?.remoteAddress
-      ?? 'unknown';
+    const ip = extractClientIp(req);
     await this.prisma.auditLog.create({
       data: { userId: user?.id, userEmail: user?.email, action: 'password_changed', ipAddress: ip, userAgent: req.headers['user-agent'] ?? 'unknown' },
     }).catch(() => { /* non-blocking */ });

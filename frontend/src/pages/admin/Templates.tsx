@@ -105,7 +105,7 @@ function PreviewDialog({
           </DialogTitle>
           <DialogDescription>{template?.description}</DialogDescription>
         </DialogHeader>
-        <div className="flex-1 overflow-auto rounded-md border bg-white">
+        <div className="flex-1 overflow-auto rounded-md border bg-white dark:bg-card">
           {loading ? (
             <div className="flex flex-col gap-3 p-8 w-full">
               <Skeleton className="h-16 w-full rounded-t-lg" />
@@ -241,7 +241,7 @@ function EditDialog({
 
           {/* Preview */}
           {tab === 'preview' && (
-            <div className="flex-1 bg-white overflow-auto">
+            <div className="flex-1 bg-white dark:bg-card overflow-auto">
               <AutoIframe srcDoc={html} title="Aperçu" />
             </div>
           )}

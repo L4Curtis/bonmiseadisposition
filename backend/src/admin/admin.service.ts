@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { AppConfigService } from '../config/config.service';
+import { EncryptionService } from '../config/encryption.service';
 import { PrismaService } from '../prisma/prisma.service';
 import * as nodemailer from 'nodemailer';
 
@@ -7,6 +8,7 @@ import * as nodemailer from 'nodemailer';
 export class AdminService {
   constructor(
     private readonly configService: AppConfigService,
+    private readonly encryption: EncryptionService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -29,17 +31,34 @@ export class AdminService {
     encryptedKeys: string[] = [],
     updatedById?: string,
   ) {
-    for (const [key, value] of Object.entries(values)) {
-      if (value === undefined || value === null) continue;
-      await this.configService.set(category, key, value, {
-        encrypted: encryptedKeys.includes(key),
-        updatedById,
-      });
-    }
+    const entries = Object.entries(values).filter(
+      ([, v]) => v !== undefined && v !== null,
+    );
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const [key, value] of entries) {
+        const shouldEncrypt = encryptedKeys.includes(key);
+        const storedValue = shouldEncrypt
+          ? this.encryption.encrypt(value)
+          : value;
+        await tx.appConfig.upsert({
+          where: { category_key: { category, key } },
+          update: { value: storedValue, encrypted: shouldEncrypt, updatedById },
+          create: { category, key, value: storedValue, encrypted: shouldEncrypt, updatedById },
+        });
+      }
+    });
+
     this.configService.invalidateCache(category);
   }
 
   async testSmtp(testEmail?: string): Promise<{ success: boolean; message: string }> {
+    if (testEmail !== undefined && testEmail !== '') {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(testEmail)) {
+        throw new BadRequestException('Adresse email invalide');
+      }
+    }
     try {
       const host = await this.configService.get('smtp', 'host');
       const port = await this.configService.get('smtp', 'port');
@@ -114,19 +133,27 @@ export class AdminService {
       }
 
       // Test: try to get an app token from the Microsoft identity platform
-      const response = await fetch(
-        `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({
-            grant_type: 'client_credentials',
-            client_id: clientId,
-            client_secret: clientSecret,
-            scope: 'https://graph.microsoft.com/.default',
-          }),
-        },
-      );
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10_000);
+      let response: Response;
+      try {
+        response = await fetch(
+          `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+              grant_type: 'client_credentials',
+              client_id: clientId,
+              client_secret: clientSecret,
+              scope: 'https://graph.microsoft.com/.default',
+            }),
+            signal: controller.signal,
+          },
+        );
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
       if (response.ok) {
         return { success: true, message: 'Connexion Entra ID réussie' };

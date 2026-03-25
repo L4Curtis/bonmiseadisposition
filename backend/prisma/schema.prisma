@@ -179,6 +179,9 @@ model Bon {
   auditLogs     AuditLog[]
   pdfSnapshots  PdfSnapshot[]
 
+  @@index([status])
+  @@index([collaborateurId])
+  @@index([filialeId])
   @@map("bons")
 }
 
@@ -236,6 +239,7 @@ model Signature {
   initiatedBy        User?         @relation("SignatureInitiatedBy", fields: [initiatedById], references: [id])
   createdAt          DateTime      @default(now()) @map("created_at")
 
+  @@index([bonId, type, signed])
   @@map("signatures")
 }
 
@@ -283,6 +287,9 @@ enum NotificationType {
   reminder
   confirmation
   contestation_alert
+  contestation_resolution
+  cancellation
+  mark_found
 }
 
 enum NotificationStatus {
@@ -302,6 +309,7 @@ model NotificationLog {
   errorMessage   String?            @map("error_message")
   reminderNumber Int?               @map("reminder_number")
 
+  @@index([bonId, type])
   @@map("notification_logs")
 }
 
@@ -318,5 +326,7 @@ model AuditLog {
   userAgent String?  @map("user_agent")
   createdAt DateTime @default(now()) @map("created_at")
 
+  @@index([bonId, createdAt])
+  @@index([userEmail, action, createdAt])
   @@map("audit_logs")
 }

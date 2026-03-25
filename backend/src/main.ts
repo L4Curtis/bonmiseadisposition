@@ -13,11 +13,11 @@ import { join } from 'path';
 
 // CSRF mitigation: require X-Requested-With header on state-changing requests.
 // Exemptions: OAuth callback (uses state param) and local-login (no auth cookie yet).
-const CSRF_EXEMPT_PATHS = ['/api/auth/callback', '/api/auth/local-login'];
+const CSRF_EXEMPT_PATHS = new Set(['/api/auth/callback', '/api/auth/local-login']);
 function csrfMiddleware(req: Request, res: Response, next: NextFunction) {
   const stateChangingMethods = ['POST', 'PUT', 'PATCH', 'DELETE'];
   if (!stateChangingMethods.includes(req.method)) return next();
-  if (CSRF_EXEMPT_PATHS.some((p) => req.path.startsWith(p))) return next();
+  if (CSRF_EXEMPT_PATHS.has(req.path)) return next();
   const requestedWith = req.headers['x-requested-with'];
   if (!requestedWith || requestedWith !== 'XMLHttpRequest') {
     return res.status(403).json({ message: 'CSRF protection: header X-Requested-With manquant' });
@@ -36,7 +36,6 @@ async function bootstrap() {
   // Limite de taille des requêtes JSON (signatures base64 incluses)
   app.use(express.json({ limit: '2mb' }));
   app.use(cookieParser());
-  app.use(csrfMiddleware);
   app.use(
     helmet({
       contentSecurityPolicy: {
@@ -57,6 +56,7 @@ async function bootstrap() {
       },
     }),
   );
+  app.use(csrfMiddleware);
 
   const isProduction = process.env.NODE_ENV === 'production';
   const frontendUrl = process.env.FRONTEND_URL;
@@ -78,6 +78,7 @@ async function bootstrap() {
   );
 
   app.setGlobalPrefix('api');
+  app.enableShutdownHooks();
 
   await app.listen(4000);
   logger.log('Backend running on http://localhost:4000');

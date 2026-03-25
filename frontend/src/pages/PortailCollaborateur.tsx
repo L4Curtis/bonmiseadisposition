@@ -15,7 +15,7 @@ interface SignatureInfo {
   type: string;
   signed: boolean;
   token: string;
-  tokenExpiresAt: string;
+  tokenExpiresAt: string | null | undefined;
 }
 
 interface BonCollab {
@@ -33,7 +33,7 @@ interface BonCollab {
 /** Check if a bon has an unsigned, non-expired token for pv_cloture */
 function hasPendingPvCloture(bon: BonCollab): boolean {
   return bon.signatures?.some(
-    (s) => s.type === 'pv_cloture' && !s.signed && new Date(s.tokenExpiresAt) > new Date(),
+    (s) => s.type === 'pv_cloture' && !s.signed && !!s.tokenExpiresAt && new Date(s.tokenExpiresAt) > new Date(),
   ) ?? false;
 }
 
@@ -141,7 +141,7 @@ export function PortailCollaborateur() {
               </h2>
               <div className="space-y-3">
                 {pending.map((bon) => {
-                  const pendingSig = bon.signatures?.find((s) => !s.signed && new Date(s.tokenExpiresAt) > new Date());
+                  const pendingSig = bon.signatures?.find((s) => !s.signed && !!s.tokenExpiresAt && new Date(s.tokenExpiresAt) > new Date());
                   const isPvCloture = bon.status === 'partially_returned';
                   const sigType = isPvCloture
                     ? 'procès-verbal d\'équipements non restitués'

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '@/lib/api';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -134,7 +134,7 @@ export function DashboardIT() {
     }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
-  const statCards: StatCardProps[] = [
+  const statCards: StatCardProps[] = useMemo(() => [
     {
       label: 'Total bons en cours',
       value: stats?.total ?? 0,
@@ -167,7 +167,7 @@ export function DashboardIT() {
       iconColor: 'text-red-600 dark:text-red-400',
       onClick: () => navigate('/bons'),
     },
-  ];
+  ], [stats, navigate]);
 
   const maxFiliale = stats?.byFiliale?.length
     ? Math.max(...stats.byFiliale.map((f) => f.count), 1)

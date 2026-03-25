@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateFilialeDto, UpdateFilialeDto } from './dto/filiale.dto';
 import { existsSync, unlinkSync } from 'fs';
@@ -51,6 +51,14 @@ export class FilialesService {
 
   async remove(id: string) {
     const filiale = await this.findOne(id);
+    // Check for existing references before hard-delete
+    const bonCount = await this.prisma.bon.count({ where: { filialeId: id } });
+    const userCount = await this.prisma.user.count({ where: { filialeId: id } });
+    if (bonCount > 0 || userCount > 0) {
+      throw new BadRequestException(
+        `Impossible de supprimer : ${bonCount} bon(s) et ${userCount} utilisateur(s) sont rattachés à cette filiale. Désactivez-la plutôt.`,
+      );
+    }
     if (filiale.logoPath) this.deleteFile(filiale.logoPath);
     if (filiale.stampPath) this.deleteFile(filiale.stampPath);
     return this.prisma.filiale.delete({ where: { id } });

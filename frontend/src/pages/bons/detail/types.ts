@@ -4,13 +4,13 @@ import type { BonStatus } from '@/types';
 
 export interface SignatureInfo {
   id: string;
-  type: string;
+  type: 'mise_disposition' | 'restitution' | 'it_cachet' | 'pv_cloture';
   signed: boolean;
-  signedAt?: string;
+  signedAt?: string | Date;
   signerEmail?: string;
   isInPerson: boolean;
   mentionLuApprouve: boolean;
-  tokenExpiresAt: string;
+  tokenExpiresAt: string | Date;
 }
 
 export interface BonDetailData {
