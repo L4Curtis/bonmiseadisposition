@@ -6,6 +6,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { AuthUser } from '../auth/auth-user.interface';
 
 @Controller('admin/templates')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -30,7 +31,7 @@ export class TemplatesController {
   @Roles('admin')
   async importAll(
     @Body() body: { templates: { id: string; html: string }[] },
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
   ) {
     if (!Array.isArray(body?.templates)) {
       throw new BadRequestException('Le corps doit contenir un tableau "templates"');
@@ -66,7 +67,7 @@ export class TemplatesController {
   async update(
     @Param('id') id: string,
     @Body() body: { html: string },
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
   ) {
     if (typeof body?.html !== 'string' || !body.html.trim()) {
       throw new BadRequestException('Le champ "html" est requis');

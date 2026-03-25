@@ -61,7 +61,7 @@ type DeleteTarget =
 
 function CatalogItemForm({ item, onSave, onCancel }: {
   item?: CatalogItem;
-  onSave: (data: any) => void;
+  onSave: (data: { category: string; brand: string; model: string; description: string }) => void;
   onCancel: () => void;
 }) {
   const [form, setForm] = useState({
@@ -224,7 +224,7 @@ export function CataloguePage() {
 
   useEffect(() => { fetchData(); }, []);
 
-  const createItem = async (data: any) => {
+  const createItem = async (data: { category: string; brand: string; model: string; description: string }) => {
     try {
       await api.post('/equipment/catalog', data);
       toast({ title: 'Equipement ajoute au catalogue', variant: 'success' });
@@ -235,7 +235,7 @@ export function CataloguePage() {
     }
   };
 
-  const updateItem = async (id: string, data: any) => {
+  const updateItem = async (id: string, data: { category: string; brand: string; model: string; description: string }) => {
     try {
       await api.put(`/equipment/catalog/${id}`, data);
       toast({ title: 'Equipement mis a jour', variant: 'success' });

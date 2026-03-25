@@ -5,6 +5,7 @@ import { join } from 'path';
 import * as PDFDocument from 'pdfkit';
 import { PrismaService } from '../prisma/prisma.service';
 import { STATUS_LABELS } from '../common/status-labels';
+import { PdfSnapshotType } from '../common/types';
 
 export interface SigImages {
   it: string | null;
@@ -93,9 +94,9 @@ export class PdfService {
 
     // Upsert into PdfSnapshot table
     await this.prisma.pdfSnapshot.upsert({
-      where: { bonId_type: { bonId: bon.id, type: snapshotType as any } },
+      where: { bonId_type: { bonId: bon.id, type: snapshotType as PdfSnapshotType } },
       update: { data: pdf, filename },
-      create: { bonId: bon.id, type: snapshotType as any, data: pdf, filename },
+      create: { bonId: bon.id, type: snapshotType as PdfSnapshotType, data: pdf, filename },
     });
 
     this.logger.log(`PDF snapshot ${snapshotType} sauvegardé pour le bon ${bon.reference}`);
@@ -270,15 +271,16 @@ export class PdfService {
 
     const allEquipments = bon.equipments || [];
     // Filter equipment per document type
-    let equipments: any[];
+    type PdfEquipment = BonForPdf['equipments'][number];
+    let equipments: PdfEquipment[];
     if (documentType === 'cloture') {
-      equipments = allEquipments.filter((eq: any) => eq.notReturned === true);
+      equipments = allEquipments.filter((eq) => eq.notReturned === true);
     } else if (documentType === 'avenant') {
       // Show only the equipment just found (passed via _avenantEquipmentIds)
       const foundIds: string[] = bon._avenantEquipmentIds || [];
       equipments = foundIds.length > 0
-        ? allEquipments.filter((eq: any) => foundIds.includes(eq.id))
-        : allEquipments.filter((eq: any) => eq.returnedAt && !eq.notReturned);
+        ? allEquipments.filter((eq) => foundIds.includes(eq.id))
+        : allEquipments.filter((eq) => eq.returnedAt && !eq.notReturned);
     } else {
       equipments = allEquipments;
     }
@@ -311,7 +313,7 @@ export class PdfService {
       doc.text('Aucun équipement enregistré', leftX, doc.y + 6, { width: pageWidth, align: 'center' });
       doc.y += 24;
     } else {
-      equipments.forEach((eq: any, i: number) => {
+      equipments.forEach((eq, i) => {
         // Page overflow: add new page and redraw table header if needed
         if (doc.y + ROW_HEIGHT > PAGE_BOTTOM - 40) {
           doc.addPage();
@@ -392,10 +394,11 @@ export class PdfService {
     doc.y += 6;
 
     // Signature dates — use the latest it_cachet
-    const allSigs: any[] = bon.signatures || [];
-    const itSigs = allSigs.filter((s: any) => s.signed && s.type === 'it_cachet' && s.signatureImagePath);
+    type PdfSignature = NonNullable<BonForPdf['signatures']>[number];
+    const allSigs: PdfSignature[] = bon.signatures || [];
+    const itSigs = allSigs.filter((s) => s.signed && s.type === 'it_cachet' && s.signatureImagePath);
     const itSig = itSigs.length > 0 ? itSigs[itSigs.length - 1] : null; // latest
-    const collabSig = allSigs.find((s: any) => s.signed && s.signatureImagePath && s.type !== 'it_cachet');
+    const collabSig = allSigs.find((s) => s.signed && s.signatureImagePath && s.type !== 'it_cachet');
     const itDate = itSig?.signedAt ? this.formatDate(itSig.signedAt) : '_______________';
     const collabDate = collabSig?.signedAt ? this.formatDate(collabSig.signedAt) : '_______________';
 

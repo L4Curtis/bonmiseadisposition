@@ -225,8 +225,8 @@ export function SignaturePage() {
       }
 
       setSigned(true);
-    } catch (e: any) {
-      setSubmitError(e.message ?? 'Une erreur est survenue lors de la signature.');
+    } catch (e: unknown) {
+      setSubmitError(e instanceof Error ? e.message : 'Une erreur est survenue lors de la signature.');
     } finally {
       setSubmitting(false);
     }

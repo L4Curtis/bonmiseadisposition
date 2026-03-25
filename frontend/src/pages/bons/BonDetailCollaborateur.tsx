@@ -86,7 +86,7 @@ export function BonDetailCollaborateurPage() {
           .then(setPdfSnapshots)
           .catch(() => setPdfSnapshots([]));
       })
-      .catch((e: any) => setLoadError(e?.message ?? 'Erreur lors du chargement du bon'))
+      .catch((e: unknown) => setLoadError(e instanceof Error ? e.message : 'Erreur lors du chargement du bon'))
       .finally(() => setLoading(false));
   };
 

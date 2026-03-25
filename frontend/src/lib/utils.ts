@@ -16,7 +16,7 @@ export function formatDate(d: string | null | undefined): string {
   });
 }
 
-export function formatDateLong(d: string | null | undefined): string {
+export function formatDateLong(d: string | Date | null | undefined): string {
   if (!d) return '—';
   return new Date(d).toLocaleDateString('fr-FR', {
     day: '2-digit',
@@ -25,7 +25,7 @@ export function formatDateLong(d: string | null | undefined): string {
   });
 }
 
-export function formatDateTime(d: string | null | undefined): string {
+export function formatDateTime(d: string | Date | null | undefined): string {
   if (!d) return '—';
   return new Date(d).toLocaleString('fr-FR', {
     day: '2-digit',

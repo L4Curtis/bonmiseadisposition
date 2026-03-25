@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 export interface AuditFilters {
@@ -19,7 +20,7 @@ export class AuditService {
     const { bonId, userEmail, action, dateFrom, dateTo, page = 1 } = filters;
     const limit = Math.min(filters.limit ?? 50, 100);
 
-    const where: any = {};
+    const where: Prisma.AuditLogWhereInput = {};
 
     if (bonId) where.bonId = bonId;
     if (action) where.action = { contains: action, mode: 'insensitive' };

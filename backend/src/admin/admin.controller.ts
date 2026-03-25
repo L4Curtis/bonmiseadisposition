@@ -8,6 +8,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { AuthUser } from '../auth/auth-user.interface';
 import { AppConfigService } from '../config/config.service';
 import { SmbService } from '../smb/smb.service';
 
@@ -40,7 +41,7 @@ export class AdminController {
   private static readonly ADMIN_ONLY_CATEGORIES = ['entra', 'ldap', 'smtp', 'smb'];
 
   @Get('config/:category')
-  async getConfig(@Param('category') category: string, @CurrentUser() user: any) {
+  async getConfig(@Param('category') category: string, @CurrentUser() user: AuthUser) {
     if (AdminController.ADMIN_ONLY_CATEGORIES.includes(category) && user?.role !== 'admin') {
       throw new ForbiddenException('Accès réservé aux administrateurs');
     }
@@ -54,7 +55,7 @@ export class AdminController {
   async setConfig(
     @Param('category') category: string,
     @Body() body: BulkConfigValuesDto,
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
   ) {
     // Valider la catégorie
     if (!ALLOWED_CATEGORIES.includes(category)) {

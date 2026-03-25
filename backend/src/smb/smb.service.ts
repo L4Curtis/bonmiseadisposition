@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import { mkdir, writeFile, unlink } from 'fs/promises';
 import * as path from 'path';
 import { AppConfigService } from '../config/config.service';
+import { SmbBon } from '../common/types';
 
 @Injectable()
 export class SmbService {
@@ -18,7 +19,7 @@ export class SmbService {
    * On Linux/Docker, the SMB share should be mounted as a volume.
    */
   async exportPdf(
-    bon: any,
+    bon: SmbBon,
     filename: string,
     pdfBuffer: Buffer,
   ): Promise<void> {
@@ -38,7 +39,7 @@ export class SmbService {
       }
 
       const filialeName = this.sanitizeName(bon.filiale?.displayName || bon.filiale?.name || 'Sans-filiale');
-      const year = new Date(bon.createdAt).getFullYear().toString();
+      const year = new Date(bon.createdAt ?? new Date()).getFullYear().toString();
       const collabName = this.sanitizeName(bon.collaborateur?.displayName || 'INCONNU');
       const dirName = `${bon.reference}_${collabName}`;
 

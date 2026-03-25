@@ -118,6 +118,7 @@ export function BonDetailPage() {
         isActive={isActive}
         isPartiallyReturned={isPartiallyReturned}
         isCancellable={isCancellable}
+        canInitiateRestitution={isActive || isPartiallyReturned}
         isItStaff={isItStaff}
         isSentWaiting={isSentWaiting}
         hasPendingPvCloture={hasPendingPvCloture}

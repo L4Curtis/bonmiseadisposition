@@ -11,8 +11,9 @@ import { readFile, writeFile, mkdir } from 'fs/promises';
 import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { EncryptionService } from '../config/encryption.service';
-import { PdfService, SigImages } from '../pdf/pdf.service';
+import { PdfService, SigImages, BonForPdf } from '../pdf/pdf.service';
 import { SmbService } from '../smb/smb.service';
+import { BonStatus, SignatureEntry } from '../common/types';
 
 @Injectable()
 export class SignatureService {
@@ -41,7 +42,7 @@ export class SignatureService {
   ) {
     // Invalidate previous unsigned tokens of same type
     await this.prisma.signature.updateMany({
-      where: { bonId, type: type as any, signed: false },
+      where: { bonId, type, signed: false },
       data: { tokenExpiresAt: new Date(0) }, // expire immediately
     });
 
@@ -53,7 +54,7 @@ export class SignatureService {
     return this.prisma.signature.create({
       data: {
         bonId,
-        type: type as any,
+        type,
         token,
         tokenExpiresAt,
         isInPerson,
@@ -154,7 +155,7 @@ export class SignatureService {
     );
 
     // Atomic transaction: update signature + bon status + audit log
-    const newStatus = this.getNextBonStatus(sig.bon.status as string, sig.type as string);
+    const newStatus = this.getNextBonStatus(sig.bon.status, sig.type);
     const { updatedSig, updatedBon } = await this.prisma.$transaction(async (tx) => {
       // Re-check signature not already signed (prevent race condition)
       const freshSig = await tx.signature.findUnique({ where: { token }, select: { signed: true } });
@@ -177,7 +178,7 @@ export class SignatureService {
 
       const txUpdatedBon = await tx.bon.update({
         where: { id: sig.bon.id },
-        data: { status: newStatus as any },
+        data: { status: newStatus as BonStatus },
         include: {
           filiale: true,
           collaborateur: { select: { id: true, displayName: true, email: true } },
@@ -225,7 +226,7 @@ export class SignatureService {
   }
 
   /** Génère et sauvegarde en DB le snapshot PDF au moment de la signature */
-  private async generatePdfSnapshot(bon: any, snapshotType: string): Promise<void> {
+  private async generatePdfSnapshot(bon: BonForPdf, snapshotType: string): Promise<void> {
     const sigImages = await this.buildSigImagesForSnapshot(bon, snapshotType);
     const collabName = this.smbService.sanitizeName(bon.collaborateur?.displayName || 'INCONNU');
     const filename = `${bon.reference}_${collabName}_${snapshotType}.pdf`;
@@ -238,7 +239,7 @@ export class SignatureService {
   }
 
   /** Build SigImages with only the relevant signatures for a given snapshot type */
-  private async buildSigImagesForSnapshot(bon: any, snapshotType: string): Promise<SigImages> {
+  private async buildSigImagesForSnapshot(bon: BonForPdf, snapshotType: string): Promise<SigImages> {
     const sigImages: SigImages = { it: null, collab: null };
     const signatures = bon.signatures || [];
 
@@ -270,7 +271,7 @@ export class SignatureService {
   }
 
   /** Resolve decrypted SigImages for a list of signatures (used by BonsController for on-the-fly PDF) */
-  async getSignatureImagesForBon(signatures: any[]): Promise<SigImages> {
+  async getSignatureImagesForBon(signatures: SignatureEntry[]): Promise<SigImages> {
     const sigImages: SigImages = { it: null, collab: null };
     for (const sig of signatures || []) {
       if (!sig.signed || !sig.signatureImagePath) continue;
@@ -299,7 +300,7 @@ export class SignatureService {
     const recentItCachet = await this.prisma.signature.findFirst({
       where: {
         bonId,
-        type: 'it_cachet' as any,
+        type: 'it_cachet',
         signed: true,
         signedAt: { gt: new Date(Date.now() - 10_000) },
       },
@@ -330,7 +331,7 @@ export class SignatureService {
       },
     });
 
-    if (['cancelled', 'archived', 'contested'].includes(bon.status as string)) {
+    if (['cancelled', 'archived', 'contested'].includes(bon.status)) {
       throw new BadRequestException('Ce bon est clôturé ou contesté et ne peut plus être modifié');
     }
 
@@ -340,7 +341,7 @@ export class SignatureService {
 
     // Invalidate any existing unsigned it_cachet tokens
     await this.prisma.signature.updateMany({
-      where: { bonId, type: 'it_cachet' as any, signed: false },
+      where: { bonId, type: 'it_cachet', signed: false },
       data: { tokenExpiresAt: new Date(0) },
     });
 
@@ -351,7 +352,7 @@ export class SignatureService {
     const itSig = await this.prisma.signature.create({
       data: {
         bonId,
-        type: 'it_cachet' as any,
+        type: 'it_cachet',
         token: crypto.randomUUID(),
         tokenExpiresAt: new Date(0),
         signed: true,
@@ -378,7 +379,7 @@ export class SignatureService {
       },
     });
 
-    this.logger.log(`Bon ${(bon as any).reference} — cachet IT signé par ${signerEmail}`);
+    this.logger.log(`Bon ${bon.reference} — cachet IT signé par ${signerEmail}`);
 
     // Reload bon with fresh signatures list
     const updatedBon = await this.prisma.bon.findUniqueOrThrow({
@@ -392,7 +393,7 @@ export class SignatureService {
     });
 
     // Regenerate PDF snapshot with IT signature (fire & forget)
-    const isRestitution = pdfType === 'restitution' || ['sent_restitution', 'partially_returned'].includes(bon.status as string);
+    const isRestitution = pdfType === 'restitution' || ['sent_restitution', 'partially_returned'].includes(bon.status);
     const itSnapshotType = isRestitution ? 'signature_it_restitution' : 'signature_it_mise_disposition';
     this.generatePdfSnapshot(updatedBon, itSnapshotType).catch((err) =>
       this.logger.error(`Échec snapshot PDF IT cachet: ${err.message}`),
@@ -441,7 +442,7 @@ export class SignatureService {
     }
   }
 
-  private getNextBonStatus(currentStatus: string, signatureType: string): string {
+  private getNextBonStatus(currentStatus: string, signatureType: string): BonStatus | string {
     // Validate transitions: only advance from expected states
     const validTransitions: Record<string, { from: string[]; to: string }> = {
       mise_disposition: { from: ['sent_mise_dispo'], to: 'active' },
@@ -488,7 +489,7 @@ export class SignatureService {
     await this.prisma.signature.create({
       data: {
         bonId,
-        type: 'it_cachet' as any,
+        type: 'it_cachet',
         token: crypto.randomUUID(),
         tokenExpiresAt: new Date(0),
         signed: true,

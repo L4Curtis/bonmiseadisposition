@@ -3,7 +3,7 @@ import * as crypto from 'crypto';
 
 @Injectable()
 export class EncryptionService implements OnModuleInit {
-  private key: Buffer;
+  private key!: Buffer;
   private readonly algorithm = 'aes-256-gcm';
 
   onModuleInit() {

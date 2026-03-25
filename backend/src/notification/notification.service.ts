@@ -4,6 +4,7 @@ import * as nodemailer from 'nodemailer';
 import { AppConfigService } from '../config/config.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { TemplatesService } from '../templates/templates.service';
+import { NotificationBon } from '../common/types';
 
 /** Escape user-supplied strings before embedding in HTML email templates */
 function escapeHtml(str: string): string {
@@ -91,7 +92,7 @@ export class NotificationService {
 
   // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-  private buildEquipList(equipments: any[]): string {
+  private buildEquipList(equipments: NonNullable<NotificationBon['equipments']>): string {
     const items = (equipments ?? [])
       .sort((a, b) => a.order - b.order)
       .map((eq) => {
@@ -108,7 +109,7 @@ export class NotificationService {
       : '<li style="padding:8px 0;font-size:14px;color:#94a3b8;list-style:none">Voir le bon en ligne</li>';
   }
 
-  private buildNotReturnedList(equipments: any[]): string {
+  private buildNotReturnedList(equipments: NonNullable<NotificationBon['equipments']>): string {
     const items = (equipments ?? [])
       .filter((eq) => eq.notReturned)
       .sort((a, b) => a.order - b.order)
@@ -129,10 +130,10 @@ export class NotificationService {
 
   // ─── Email Templates ────────────────────────────────────────────────────────
 
-  async sendMiseDispositionRequest(bon: any, token: string): Promise<void> {
+  async sendMiseDispositionRequest(bon: NotificationBon, token: string): Promise<void> {
     const appUrl = await this.getAppUrl();
     const filialeNom = bon.filiale?.displayName ?? bon.filiale?.name ?? '';
-    const dateMise = new Date(bon.dateMiseDisposition).toLocaleDateString('fr-FR', {
+    const dateMise = new Date(bon.dateMiseDisposition ?? new Date()).toLocaleDateString('fr-FR', {
       day: '2-digit', month: 'long', year: 'numeric',
     });
 
@@ -163,7 +164,7 @@ export class NotificationService {
     });
   }
 
-  async sendRestitutionRequest(bon: any, token: string): Promise<void> {
+  async sendRestitutionRequest(bon: NotificationBon, token: string): Promise<void> {
     const appUrl = await this.getAppUrl();
     const filialeNom = bon.filiale?.displayName ?? bon.filiale?.name ?? '';
 
@@ -193,7 +194,7 @@ export class NotificationService {
     });
   }
 
-  async sendSignatureConfirmation(bon: any, type: 'mise_disposition' | 'restitution'): Promise<void> {
+  async sendSignatureConfirmation(bon: NotificationBon, type: 'mise_disposition' | 'restitution'): Promise<void> {
     const filialeNom = bon.filiale?.displayName ?? bon.filiale?.name ?? '';
     const templateId = type === 'restitution' ? 'confirmation_restitution' : 'confirmation_mise_disposition';
     const typLabel = type === 'restitution' ? 'restitution' : 'mise à disposition';
@@ -221,7 +222,7 @@ export class NotificationService {
     });
   }
 
-  async sendPvClotureRequest(bon: any, token: string): Promise<void> {
+  async sendPvClotureRequest(bon: NotificationBon, token: string): Promise<void> {
     const appUrl = await this.getAppUrl();
     const filialeNom = bon.filiale?.displayName ?? bon.filiale?.name ?? '';
 
@@ -253,7 +254,7 @@ export class NotificationService {
 
   // ─── Contestation ────────────────────────────────────────────────────────────
 
-  async sendContestationAlert(bon: any, contestingUser: any, message: string): Promise<void> {
+  async sendContestationAlert(bon: NotificationBon, contestingUser: { displayName?: string; email?: string }, message: string): Promise<void> {
     const filialeNom = bon.filiale?.displayName ?? '';
     const reference = bon.reference ?? '';
     const userName = contestingUser?.displayName ?? contestingUser?.email ?? '';
@@ -292,8 +293,8 @@ export class NotificationService {
   }
 
   async sendContestationResolution(
-    bon: any,
-    collaborateur: any,
+    bon: NotificationBon,
+    collaborateur: { email: string },
     action: 'resolved' | 'rejected',
     resolutionMessage?: string,
   ): Promise<void> {
@@ -325,7 +326,7 @@ export class NotificationService {
 
   // ─── Cancel / MarkFound ──────────────────────────────────────────────────────
 
-  async sendCancellationNotice(bon: any): Promise<void> {
+  async sendCancellationNotice(bon: NotificationBon): Promise<void> {
     const filialeNom = bon.filiale?.displayName ?? bon.filiale?.name ?? '';
     const collabName = bon.collaborateur?.displayName ?? '';
     const civilite = bon.civilite === 'mme' ? 'Madame' : 'Monsieur';
@@ -359,17 +360,17 @@ export class NotificationService {
     });
   }
 
-  async sendMarkFoundNotice(bon: any, equipmentIds: string[]): Promise<void> {
+  async sendMarkFoundNotice(bon: NotificationBon, equipmentIds: string[]): Promise<void> {
     const filialeNom = bon.filiale?.displayName ?? bon.filiale?.name ?? '';
     const collabName = bon.collaborateur?.displayName ?? '';
     const civilite = bon.civilite === 'mme' ? 'Madame' : 'Monsieur';
 
-    const foundEquipments: any[] = (bon.equipments ?? []).filter((eq: any) =>
+    const foundEquipments = (bon.equipments ?? []).filter((eq) =>
       equipmentIds.includes(eq.id),
     );
 
     const equipLines = foundEquipments
-      .map((eq: any) => {
+      .map((eq) => {
         const label = eq.catalogItem
           ? escapeHtml(`${eq.catalogItem.brand} ${eq.catalogItem.model}`)
           : escapeHtml(eq.customLabel || 'Équipement');

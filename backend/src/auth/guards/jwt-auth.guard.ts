@@ -12,11 +12,11 @@ const MUST_CHANGE_EXEMPTIONS = [
 
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
-  handleRequest(err: any, user: any, _info: any, context: ExecutionContext) {
+  handleRequest<TUser = AuthUser>(err: Error | null, user: TUser | false, _info: unknown, context: ExecutionContext): TUser {
     if (err || !user) {
       throw err || new UnauthorizedException('Authentication required');
     }
-    const authUser = user as AuthUser;
+    const authUser = user as unknown as AuthUser;
     if (authUser.mustChangePassword) {
       const request = context.switchToHttp().getRequest();
       const isExempted = MUST_CHANGE_EXEMPTIONS.some((p) => request.path.startsWith(p));

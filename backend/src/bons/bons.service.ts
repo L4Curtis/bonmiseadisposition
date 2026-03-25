@@ -1,11 +1,13 @@
 import { Injectable, NotFoundException, BadRequestException, ConflictException, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateBonDto, UpdateBonDto } from './dto/bon.dto';
+import { CreateBonDto, UpdateBonDto, BonEquipmentDto } from './dto/bon.dto';
 import { SignatureService } from '../signature/signature.service';
 import { NotificationService } from '../notification/notification.service';
 import { PdfService, SigImages } from '../pdf/pdf.service';
 import { SmbService } from '../smb/smb.service';
 import { STATUS_LABELS } from '../common/status-labels';
+import { BonStatus, Civilite } from '../common/types';
 
 // Explicit select to avoid loading large Bytes columns (pdfMiseDispoSnapshot, pdfRestitutionSnapshot).
 // Use as query option spread: { where, ...BON_SELECT, orderBy, ... }
@@ -106,8 +108,8 @@ export class BonsService {
 
   async getExportData(filters: { status?: string; filialeId?: string; search?: string }) {
     const { status, filialeId, search } = filters;
-    const where: any = {};
-    if (status) where.status = status;
+    const where: Prisma.BonWhereInput = {};
+    if (status) where.status = status as BonStatus;
     if (filialeId) where.filialeId = filialeId;
     if (search) {
       where.OR = [
@@ -153,7 +155,7 @@ export class BonsService {
         .map((e) =>
           e.catalogItem
             ? `${e.catalogItem.brand} ${e.catalogItem.model}`
-            : (e as any).customLabel ?? '',
+            : e.customLabel ?? '',
         )
         .join(' | ');
       return [
@@ -186,9 +188,9 @@ export class BonsService {
     limit?: number;
   }) {
     const { status, filialeId, search, page = 1, limit = 20 } = filters;
-    const where: any = {};
+    const where: Prisma.BonWhereInput = {};
 
-    if (status) where.status = status;
+    if (status) where.status = status as BonStatus;
     if (filialeId) where.filialeId = filialeId;
     if (search) {
       where.OR = [
@@ -232,7 +234,7 @@ export class BonsService {
   async create(dto: CreateBonDto, userId: string) {
     const reference = await this.generateReference();
 
-    let equipments: any[] = dto.equipments || [];
+    let equipments: Array<{ catalogItemId?: string; customLabel?: string; serialNumber?: string; inventoryNumber?: string; notes?: string; order?: number }> = dto.equipments || [];
 
     // Import from pack if specified
     if (dto.packId) {
@@ -268,7 +270,7 @@ export class BonsService {
         collaborateurId: dto.collaborateurId,
         collaborateurEmail: collaborateur.email,
         createdById: userId,
-        civilite: dto.civilite as any,
+        civilite: dto.civilite as Civilite,
         dateMiseDisposition: new Date(dto.dateMiseDisposition),
         dateRestitution: dto.dateRestitution
           ? new Date(dto.dateRestitution)
@@ -300,7 +302,7 @@ export class BonsService {
         'Seuls les brouillons peuvent être modifiés',
       );
 
-    const data: any = {};
+    const data: Prisma.BonUncheckedUpdateInput = {};
     if (dto.filialeId) data.filialeId = dto.filialeId;
     if (dto.collaborateurId) {
       const collab = await this.prisma.user.findUnique({
@@ -310,7 +312,7 @@ export class BonsService {
       data.collaborateurId = dto.collaborateurId;
       data.collaborateurEmail = collab.email;
     }
-    if (dto.civilite) data.civilite = dto.civilite;
+    if (dto.civilite) data.civilite = dto.civilite as Civilite;
     if (dto.dateMiseDisposition)
       data.dateMiseDisposition = new Date(dto.dateMiseDisposition);
     if (dto.dateRestitution !== undefined)
@@ -414,11 +416,11 @@ export class BonsService {
     });
 
     const allReturned = remaining === 0;
-    const newStatus = allReturned ? 'sent_restitution' : 'partially_returned';
+    const newStatus: BonStatus = allReturned ? 'sent_restitution' : 'partially_returned';
 
     const updated = await this.prisma.bon.update({
       where: { id },
-      data: { status: newStatus as any },
+      data: { status: newStatus },
       ...BON_SELECT,
     });
 
@@ -488,7 +490,7 @@ export class BonsService {
       // Always update status to partially_returned while waiting for PV signature
       await tx.bon.update({
         where: { id },
-        data: { status: 'partially_returned' as any },
+        data: { status: 'partially_returned' },
       });
 
       return count;
@@ -626,7 +628,7 @@ export class BonsService {
         // ── All equipment found → advance to sent_restitution ──────────────
         await this.prisma.bon.update({
           where: { id },
-          data: { status: 'sent_restitution' as any },
+          data: { status: 'sent_restitution' },
         });
 
         const sig = await this.signatureService.generateToken(id, 'restitution', userId, false);
@@ -685,10 +687,10 @@ export class BonsService {
     }
 
     // Update bon status
-    const newStatus = type === 'mise_disposition' ? 'sent_mise_dispo' : 'sent_restitution';
+    const newStatus: BonStatus = type === 'mise_disposition' ? 'sent_mise_dispo' : 'sent_restitution';
     const updated = await this.prisma.bon.update({
       where: { id },
-      data: { status: newStatus as any },
+      data: { status: newStatus },
       ...BON_SELECT,
     });
 
@@ -750,8 +752,8 @@ export class BonsService {
     }
 
     // Check if there's a pending pv_cloture signature (PV awaiting collab co-signature)
-    const hasPendingPvCloture = (bon as any).signatures?.some(
-      (s: any) => s.type === 'pv_cloture' && !s.signed && new Date() < new Date(s.tokenExpiresAt),
+    const hasPendingPvCloture = bon.signatures?.some(
+      (s) => s.type === 'pv_cloture' && !s.signed && new Date() < new Date(s.tokenExpiresAt),
     );
 
     if (hasPendingPvCloture) {

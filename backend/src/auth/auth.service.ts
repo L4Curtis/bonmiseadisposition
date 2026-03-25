@@ -130,7 +130,10 @@ export class AuthService implements OnModuleDestroy {
     }
 
     // Check group membership for role elevation
-    const groups: string[] = (response.idTokenClaims as any)?.groups || [];
+    interface IdTokenClaimsWithGroups {
+      groups?: string[];
+    }
+    const groups: string[] = (response.idTokenClaims as IdTokenClaimsWithGroups)?.groups || [];
     await this.syncUserRoleFromGroups(user.id, groups);
 
     // Re-fetch with updated role

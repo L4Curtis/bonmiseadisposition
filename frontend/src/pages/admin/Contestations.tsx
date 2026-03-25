@@ -96,8 +96,8 @@ function ResolveDialog({
         variant: action === 'resolved' ? 'success' : 'default',
       });
       onSuccess();
-    } catch (e: any) {
-      setError(e?.message ?? 'Erreur lors du traitement');
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Erreur lors du traitement');
     } finally {
       setLoading(false);
     }

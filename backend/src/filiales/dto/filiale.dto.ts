@@ -2,10 +2,10 @@ import { IsString, IsOptional, IsBoolean } from 'class-validator';
 
 export class CreateFilialeDto {
   @IsString()
-  name: string;
+  name!: string;
 
   @IsString()
-  displayName: string;
+  displayName!: string;
 
   @IsOptional()
   @IsString()

@@ -29,6 +29,7 @@ import {
   MarkFoundDto,
 } from './dto/actions.dto';
 import { SignItDto } from '../signature/dto/sign.dto';
+import { PdfSnapshotType } from '../common/types';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -208,7 +209,7 @@ export class BonsController {
     // If specific stage requested, serve from PdfSnapshot table
     if (stage) {
       const pdfSnapshot = await this.prisma.pdfSnapshot.findUnique({
-        where: { bonId_type: { bonId: (bon as any).id, type: stage as any } },
+        where: { bonId_type: { bonId: bon.id, type: stage as PdfSnapshotType } },
       });
       if (pdfSnapshot) {
         res!.setHeader('Content-Type', 'application/pdf');
@@ -218,11 +219,11 @@ export class BonsController {
     }
 
     // Default: serve best available snapshot
-    const snapshotType = type === 'restitution'
+    const snapshotType: PdfSnapshotType = type === 'restitution'
       ? 'signature_collab_restitution'
       : 'signature_collab_mise_disposition';
     const pdfSnapshot = await this.prisma.pdfSnapshot.findUnique({
-      where: { bonId_type: { bonId: (bon as any).id, type: snapshotType as any } },
+      where: { bonId_type: { bonId: bon.id, type: snapshotType } },
     });
 
     if (pdfSnapshot) {
@@ -231,11 +232,15 @@ export class BonsController {
       return res!.send(Buffer.from(pdfSnapshot.data));
     }
 
-    // Fallback: legacy snapshot columns
+    // Fallback: query legacy snapshot columns directly (not in BON_SELECT)
+    const legacyBon = await this.prisma.bon.findUnique({
+      where: { id: bon.id },
+      select: { pdfMiseDispoSnapshot: true, pdfRestitutionSnapshot: true },
+    });
     const legacySnapshot =
       type === 'restitution'
-        ? (bon as any).pdfRestitutionSnapshot
-        : (bon as any).pdfMiseDispoSnapshot;
+        ? legacyBon?.pdfRestitutionSnapshot
+        : legacyBon?.pdfMiseDispoSnapshot;
 
     if (legacySnapshot) {
       res!.setHeader('Content-Type', 'application/pdf');
@@ -246,7 +251,7 @@ export class BonsController {
     // Generate on-the-fly
     res!.setHeader('Content-Type', 'application/pdf');
     res!.setHeader('Content-Disposition', `attachment; filename="bon-${bon.reference}.pdf"`);
-    const sigImages = await this.signatureService.getSignatureImagesForBon((bon as any).signatures || []);
+    const sigImages = await this.signatureService.getSignatureImagesForBon(bon.signatures || []);
     const pdf = await this.pdfService.generateBonPdf(bon, sigImages, type);
     res!.send(pdf);
   }

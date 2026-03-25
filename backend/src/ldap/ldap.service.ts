@@ -41,8 +41,8 @@ export class LdapService {
       await this.bindClient(client);
       client.destroy();
       return { success: true, message: 'Connexion LDAP réussie' };
-    } catch (err: any) {
-      return { success: false, message: err.message || 'Erreur de connexion LDAP' };
+    } catch (err: unknown) {
+      return { success: false, message: err instanceof Error ? err.message : 'Erreur de connexion LDAP' };
     }
   }
 
@@ -116,14 +116,15 @@ export class LdapService {
       };
 
       this.logger.log(`LDAP sync complete: ${users.length} users processed`);
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
       this.syncStatus = {
         lastSync: new Date(),
         lastSyncSuccess: false,
         lastSyncCount: null,
-        lastSyncError: err.message,
+        lastSyncError: errMsg,
       };
-      this.logger.error(`LDAP sync failed: ${err.message}`);
+      this.logger.error(`LDAP sync failed: ${errMsg}`);
     } finally {
       client?.destroy();
     }
@@ -187,11 +188,21 @@ export class LdapService {
 
           // Lecture via entry.attributes (tableau ldapjs, fiable quelle que soit la version)
           // entry.object peut avoir des problèmes de casse ou de structure selon la version
-          const attrs: any[] = (entry as any).attributes || [];
+          interface LdapEntryAttribute {
+            type?: string;
+            attribute?: string;
+            vals?: string[];
+            values?: string[];
+            _vals?: string[];
+          }
+          interface LdapSearchEntryExt {
+            attributes?: LdapEntryAttribute[];
+          }
+          const attrs: LdapEntryAttribute[] = (entry as unknown as LdapSearchEntryExt).attributes || [];
           const attrMap: Record<string, string> = {};
           for (const attr of attrs) {
             const type: string = (attr.type || attr.attribute || '').toLowerCase();
-            const vals: any[] = attr.vals || attr.values || attr._vals || [];
+            const vals: string[] = attr.vals || attr.values || attr._vals || [];
             if (type && vals.length > 0) {
               attrMap[type] = String(vals[0]);
             }

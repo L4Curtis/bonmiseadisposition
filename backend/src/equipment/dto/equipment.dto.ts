@@ -17,13 +17,13 @@ export enum EquipmentCategoryEnum {
 
 export class CreateCatalogItemDto {
   @IsEnum(EquipmentCategoryEnum)
-  category: EquipmentCategoryEnum;
+  category!: EquipmentCategoryEnum;
 
   @IsString()
-  brand: string;
+  brand!: string;
 
   @IsString()
-  model: string;
+  model!: string;
 
   @IsOptional()
   @IsString()
@@ -54,7 +54,7 @@ export class UpdateCatalogItemDto {
 
 export class PackItemDto {
   @IsString()
-  catalogItemId: string;
+  catalogItemId!: string;
 
   @IsOptional()
   @IsInt()
@@ -68,7 +68,7 @@ export class PackItemDto {
 
 export class CreatePackDto {
   @IsString()
-  name: string;
+  name!: string;
 
   @IsOptional()
   @IsString()

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { UserRole } from '../common/types';
 
 @Injectable()
 export class UsersService {
@@ -31,7 +32,7 @@ export class UsersService {
       where: {
         active: true,
         filialeId: options?.filialeId,
-        role: options?.role as any,
+        role: options?.role as UserRole | undefined,
       },
       select: this.safeSelect,
       orderBy: { displayName: 'asc' },

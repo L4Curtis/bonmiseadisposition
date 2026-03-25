@@ -222,8 +222,8 @@ export function BonCreatePage() {
   useEffect(() => {
     Promise.all([
       api.get<Filiale[]>('/filiales/active'),
-      api.get<{ items: CatalogItem[] }>('/equipment/catalog').then((d: any) =>
-        Array.isArray(d) ? d : d.items || d
+      api.get<CatalogItem[]>('/equipment/catalog').then((d) =>
+        Array.isArray(d) ? d : []
       ),
       api.get<Pack[]>('/equipment/packs'),
     ]).then(([f, items, p]) => {
@@ -304,8 +304,8 @@ export function BonCreatePage() {
         })),
       });
       navigate(`/bons/${bon.id}`);
-    } catch (err: any) {
-      setError(err?.message || 'Erreur lors de la création');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Erreur lors de la création');
     } finally {
       setSubmitting(false);
     }

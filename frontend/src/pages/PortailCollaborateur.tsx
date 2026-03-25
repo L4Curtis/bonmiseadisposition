@@ -72,7 +72,7 @@ export function PortailCollaborateur() {
     setLoadError(null);
     api.get<BonCollab[]>('/bons/mes-bons')
       .then(setBons)
-      .catch((e: any) => { setBons([]); setLoadError(e?.message ?? 'Erreur lors du chargement'); })
+      .catch((e: unknown) => { setBons([]); setLoadError(e instanceof Error ? e.message : 'Erreur lors du chargement'); })
       .finally(() => setLoading(false));
   };
 

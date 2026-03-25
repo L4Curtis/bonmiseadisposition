@@ -361,8 +361,8 @@ export function TemplatesPage() {
       const result = await api.post<{ imported: number; skipped: number }>('/admin/templates/import', data);
       toast({ title: 'Import réussi', description: `${result.imported} template(s) importé(s), ${result.skipped} ignoré(s).` });
       load();
-    } catch (err: any) {
-      toast({ title: 'Erreur', description: err?.message ?? "Fichier invalide.", variant: 'destructive' });
+    } catch (err: unknown) {
+      toast({ title: 'Erreur', description: err instanceof Error ? err.message : "Fichier invalide.", variant: 'destructive' });
     } finally {
       setImporting(false);
     }

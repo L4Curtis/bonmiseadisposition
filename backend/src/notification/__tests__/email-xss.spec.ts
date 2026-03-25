@@ -13,11 +13,20 @@ function escapeHtml(str: string): string {
     .replace(/'/g, '&#039;');
 }
 
+interface TestEquipment {
+  order: number;
+  catalogItem?: { brand: string; model: string } | null;
+  customLabel?: string | null;
+  serialNumber?: string | null;
+  notReturned?: boolean;
+  notReturnedReason?: string | null;
+}
+
 // Replicate buildEquipList logic (post-fix version that escapes user input)
-function buildEquipList(equipments: any[]): string {
+function buildEquipList(equipments: TestEquipment[]): string {
   const items = (equipments ?? [])
-    .sort((a: any, b: any) => a.order - b.order)
-    .map((eq: any) => {
+    .sort((a, b) => a.order - b.order)
+    .map((eq) => {
       const label = eq.catalogItem
         ? escapeHtml(`${eq.catalogItem.brand} ${eq.catalogItem.model}`)
         : escapeHtml(eq.customLabel || 'Équipement');
@@ -31,11 +40,11 @@ function buildEquipList(equipments: any[]): string {
     : '<li style="padding:8px 0;font-size:14px;color:#94a3b8;list-style:none">Voir le bon en ligne</li>';
 }
 
-function buildNotReturnedList(equipments: any[]): string {
+function buildNotReturnedList(equipments: TestEquipment[]): string {
   const items = (equipments ?? [])
-    .filter((eq: any) => eq.notReturned)
-    .sort((a: any, b: any) => a.order - b.order)
-    .map((eq: any) => {
+    .filter((eq) => eq.notReturned)
+    .sort((a, b) => a.order - b.order)
+    .map((eq) => {
       const label = eq.catalogItem
         ? escapeHtml(`${eq.catalogItem.brand} ${eq.catalogItem.model}`)
         : escapeHtml(eq.customLabel || 'Équipement');
@@ -83,7 +92,7 @@ describe('escapeHtml', () => {
 describe('buildEquipList XSS prevention', () => {
   it('should escape XSS payload in customLabel', () => {
     const equipment = [
-      { order: 0, customLabel: '<img src=x onerror=alert(1)>', serialNumber: null },
+      { order: 0, customLabel: '<img src=x onerror=alert(1)>', serialNumber: null as string | null },
     ];
     const html = buildEquipList(equipment);
     expect(html).not.toContain('<img');
@@ -104,7 +113,7 @@ describe('buildEquipList XSS prevention', () => {
       {
         order: 0,
         catalogItem: { brand: '<b>Evil</b>', model: '<script>xss</script>' },
-        serialNumber: null,
+        serialNumber: null as string | null,
       },
     ];
     const html = buildEquipList(equipment);
@@ -131,7 +140,7 @@ describe('buildNotReturnedList XSS prevention', () => {
         order: 0,
         notReturned: true,
         customLabel: 'Laptop',
-        serialNumber: null,
+        serialNumber: null as string | null,
         notReturnedReason: '<img src=x onerror=steal()>',
       },
     ];
@@ -163,8 +172,8 @@ describe('buildNotReturnedList XSS prevention', () => {
         order: 0,
         notReturned: true,
         customLabel: 'Item',
-        serialNumber: null,
-        notReturnedReason: null,
+        serialNumber: null as string | null,
+        notReturnedReason: null as string | null,
       },
     ];
     const html = buildNotReturnedList(equipment);

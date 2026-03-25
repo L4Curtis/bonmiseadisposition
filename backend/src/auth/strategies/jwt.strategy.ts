@@ -16,7 +16,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         (req: Request) => req?.cookies?.['access_token'] || null,
       ]),
       ignoreExpiration: false,
-      secretOrKeyProvider: async (_req: any, _rawJwtToken: any, done: any) => {
+      secretOrKeyProvider: async (_req: Request, _rawJwtToken: string, done: (err: Error | null, secret?: string) => void) => {
         done(null, authService.getJwtSecret());
       },
       passReqToCallback: true,
@@ -60,7 +60,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     if (user.isLocalAccount && user.passwordChangedAt && !user.mustChangePassword) {
       const daysSinceChange = (Date.now() - user.passwordChangedAt.getTime()) / (1000 * 60 * 60 * 24);
       if (daysSinceChange > 90) {
-        (user as any).mustChangePassword = true;
+        return { ...user, mustChangePassword: true };
       }
     }
 

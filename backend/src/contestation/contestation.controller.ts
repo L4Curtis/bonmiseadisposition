@@ -53,7 +53,7 @@ export class ContestationController {
   resolve(
     @Param('id') id: string,
     @Body() body: ResolveContestationDto,
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
   ) {
     return this.contestationService.resolve(id, user.id, body.action, body.resolutionMessage);
   }

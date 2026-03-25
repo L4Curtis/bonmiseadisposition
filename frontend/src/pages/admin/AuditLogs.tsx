@@ -110,7 +110,7 @@ export function AuditLogsPage() {
 
     api.get<AuditResponse>(`/audit?${params}`)
       .then(setData)
-      .catch((e: any) => setLoadError(e?.message ?? 'Erreur lors du chargement des logs'))
+      .catch((e: unknown) => setLoadError(e instanceof Error ? e.message : 'Erreur lors du chargement des logs'))
       .finally(() => setLoading(false));
   }, [userEmail, action, dateFrom, dateTo, page]);
 

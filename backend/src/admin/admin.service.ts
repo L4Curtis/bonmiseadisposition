@@ -100,8 +100,8 @@ export class AdminService {
       }
 
       return { success: true, message: 'Connexion SMTP réussie (serveur joignable)' };
-    } catch (err: any) {
-      return { success: false, message: err.message || 'Erreur de connexion SMTP' };
+    } catch (err: unknown) {
+      return { success: false, message: err instanceof Error ? err.message : 'Erreur de connexion SMTP' };
     }
   }
 
@@ -158,11 +158,11 @@ export class AdminService {
       if (response.ok) {
         return { success: true, message: 'Connexion Entra ID réussie' };
       } else {
-        const body = await response.json() as any;
+        const body = await response.json() as { error_description?: string };
         return { success: false, message: body.error_description || 'Erreur Entra ID' };
       }
-    } catch (err: any) {
-      return { success: false, message: err.message || 'Erreur de connexion Entra ID' };
+    } catch (err: unknown) {
+      return { success: false, message: err instanceof Error ? err.message : 'Erreur de connexion Entra ID' };
     }
   }
 }

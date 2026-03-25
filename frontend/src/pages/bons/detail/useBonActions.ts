@@ -31,7 +31,7 @@ export function useBonActions(id: string | undefined) {
           .then(setPdfSnapshots)
           .catch(() => setPdfSnapshots([]));
       })
-      .catch((e: any) => setLoadError(e?.message ?? 'Erreur lors du chargement du bon'))
+      .catch((e: unknown) => setLoadError(e instanceof Error ? e.message : 'Erreur lors du chargement du bon'))
       .finally(() => setLoading(false));
   };
 
@@ -81,7 +81,7 @@ export function useBonActions(id: string | undefined) {
   const doInPerson = async (type: 'mise_disposition' | 'restitution') => {
     setActionLoading('inperson');
     try {
-      const res = await api.post<{ bon: any; token: string }>(`/bons/${id}/initiate-inperson`, { type });
+      const res = await api.post<{ bon: BonDetailData; token: string }>(`/bons/${id}/initiate-inperson`, { type });
       setInPersonModal({ type, token: res.token });
       load();
     } finally { setActionLoading(null); }
@@ -94,17 +94,17 @@ export function useBonActions(id: string | undefined) {
       toast({ title: 'Lien renvoyé', description: 'Le lien de signature a été renvoyé avec succès.' });
       setResendConfirmSentAt(null);
       load();
-    } catch (e: any) {
-      if ((e as any)?.status === 409) {
+    } catch (e: unknown) {
+      if ((e as { status?: number })?.status === 409) {
         try {
-          const parsed = JSON.parse(e.message);
+          const parsed = JSON.parse((e as Error).message);
           if (parsed.code === 'token_recent') {
             setResendConfirmSentAt(parsed.sentAt);
             return;
           }
         } catch { /* not JSON, fall through */ }
       }
-      toast({ title: 'Erreur', description: e?.message ?? 'Erreur lors du renvoi', variant: 'destructive' });
+      toast({ title: 'Erreur', description: e instanceof Error ? e.message : 'Erreur lors du renvoi', variant: 'destructive' });
     } finally { setActionLoading(null); }
   };
 

@@ -4,17 +4,17 @@ export class SignDto {
   @IsString()
   @Matches(/^data:image\//, { message: 'La signature doit être une image valide (data:image/...)' })
   @MaxLength(500000, { message: 'La signature est trop volumineuse (max ~375 Ko)' })
-  signatureDataUrl: string; // Base64 PNG data URL from canvas
+  signatureDataUrl!: string; // Base64 PNG data URL from canvas
 
   @IsBoolean()
-  mentionLuApprouve: boolean;
+  mentionLuApprouve!: boolean;
 }
 
 export class SignItDto {
   @IsString()
   @Matches(/^data:image\//, { message: 'La signature doit être une image valide (data:image/...)' })
   @MaxLength(500000, { message: 'La signature est trop volumineuse (max ~375 Ko)' })
-  signatureDataUrl: string;
+  signatureDataUrl!: string;
 
   @IsOptional()
   @IsIn(['mise_disposition', 'restitution'])

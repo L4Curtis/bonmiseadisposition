@@ -1,4 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { BonStatus } from '../common/types';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 import { SignatureService } from '../signature/signature.service';
@@ -81,8 +83,8 @@ export class ContestationService {
   async findAll(filters: { status?: string; page?: number; limit?: number }) {
     const { status, page = 1, limit = 20 } = filters;
 
-    const where: any = {};
-    if (status) where.status = status;
+    const where: Prisma.ContestationWhereInput = {};
+    if (status) where.status = status as Prisma.EnumContestationStatusFilter;
 
     const [contestations, total] = await Promise.all([
       this.prisma.contestation.findMany({
@@ -144,11 +146,11 @@ export class ContestationService {
       select: { details: true },
     });
     const previousStatus =
-      (contestedAuditEntry?.details as any)?.previousStatus ?? 'active';
+      (contestedAuditEntry?.details as { previousStatus?: string } | null)?.previousStatus ?? 'active';
 
     await this.prisma.bon.update({
       where: { id: contestation.bonId },
-      data: { status: previousStatus },
+      data: { status: previousStatus as BonStatus },
     });
 
     // Notifier le collaborateur du résultat
