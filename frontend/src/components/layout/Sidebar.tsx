@@ -14,6 +14,8 @@ import {
   MessageSquareWarning,
   Server,
   Mail,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
 import {
   Tooltip,
@@ -34,7 +36,6 @@ type NavGroup = {
   items: NavItem[];
 };
 
-// Navigation technicien : opérations + référentiel (sans accès système admin)
 const technicienNavGroups: NavGroup[] = [
   {
     title: 'Opérations',
@@ -54,17 +55,15 @@ const technicienNavGroups: NavGroup[] = [
   },
 ];
 
-// Navigation admin : tout (technicien + section système)
 const adminNavGroups: NavGroup[] = [
   ...technicienNavGroups,
   {
-    title: 'Système',
+    title: 'Administration',
     items: [
-      { to: '/admin/email-templates', icon: Mail, label: 'Modèles d\'emails' },
-      { to: '/admin/pdf-templates', icon: FileText, label: 'Modèles PDF' },
-      { to: '/admin/ldap', icon: Server, label: 'Active Directory' },
-      { to: '/admin/audit', icon: ScrollText, label: 'Journal d\'audit' },
       { to: '/admin/configuration', icon: Settings, label: 'Configuration' },
+      { to: '/admin/templates', icon: Mail, label: 'Modèles' },
+      { to: '/admin/ldap-sync', icon: Server, label: 'Active Directory' },
+      { to: '/admin/audit', icon: ScrollText, label: 'Journal d\'audit' },
     ],
   },
 ];
@@ -78,9 +77,8 @@ const collaboratorNavGroups: NavGroup[] = [
   },
 ];
 
-/**
- * Wrapper forwardRef around NavLink compatible with TooltipTrigger asChild (Radix Slot).
- */
+const STORAGE_KEY = 'sidebar-collapsed';
+
 const SidebarNavLink = React.forwardRef<
   HTMLAnchorElement,
   { to: string; children: React.ReactNode; className?: string }
@@ -93,7 +91,7 @@ const SidebarNavLink = React.forwardRef<
       ref={ref}
       to={to}
       className={cn(
-        'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-150',
+        'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium whitespace-nowrap transition-colors duration-150',
         isActive
           ? 'nav-item-active text-white'
           : 'text-slate-400 hover:bg-white/5 hover:text-slate-200',
@@ -106,10 +104,13 @@ const SidebarNavLink = React.forwardRef<
 });
 SidebarNavLink.displayName = 'SidebarNavLink';
 
-function SidebarSection({ group, isFirst }: { group: NavGroup; isFirst: boolean }) {
+function SidebarSection({ group, isFirst, collapsed }: { group: NavGroup; isFirst: boolean; collapsed: boolean }) {
   return (
     <div className={cn('space-y-0.5', !isFirst && 'mt-4 border-t border-white/5 pt-4')}>
-      <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-slate-500 select-none">
+      <p className={cn(
+        'mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest select-none whitespace-nowrap transition-opacity duration-200',
+        collapsed ? 'opacity-0' : 'opacity-100 text-slate-500',
+      )}>
         {group.title}
       </p>
       {group.items.map(({ to, icon: Icon, label, badge }) => (
@@ -125,7 +126,7 @@ function SidebarSection({ group, isFirst }: { group: NavGroup; isFirst: boolean 
               )}
             </SidebarNavLink>
           </TooltipTrigger>
-          <TooltipContent side="right" className="hidden">
+          <TooltipContent side="right" className={collapsed ? '' : 'hidden'}>
             {label}
           </TooltipContent>
         </Tooltip>
@@ -137,6 +138,23 @@ function SidebarSection({ group, isFirst }: { group: NavGroup; isFirst: boolean 
 export function Sidebar() {
   const { user } = useAuth();
   const { activeView } = useUiView();
+  const [collapsed, setCollapsed] = React.useState(() => {
+    try {
+      return localStorage.getItem(STORAGE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const toggle = () => {
+    const next = !collapsed;
+    setCollapsed(next);
+    try {
+      localStorage.setItem(STORAGE_KEY, String(next));
+    } catch {
+      // localStorage indisponible
+    }
+  };
 
   const navGroups =
     activeView === 'administrateur' ? adminNavGroups
@@ -148,37 +166,77 @@ export function Sidebar() {
   return (
     <TooltipProvider delayDuration={300}>
       <aside
-        className="flex w-56 flex-col bg-[hsl(var(--sidebar-bg))]"
+        className={cn(
+          'flex shrink-0 flex-col bg-[hsl(var(--sidebar-bg))] overflow-hidden transition-[width] duration-200 ease-in-out',
+          collapsed ? 'w-[3.75rem]' : 'w-56',
+        )}
       >
         {/* Logo */}
-        <div className="flex h-14 items-center gap-3 border-b border-white/10 px-4">
+        <div className="flex h-14 items-center gap-3 border-b border-white/10 px-4 whitespace-nowrap">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg btn-gradient text-white text-xs font-bold tracking-tight shadow-sm">
             GL
           </div>
-          <div>
+          <div className={cn(
+            'flex-1 min-w-0 transition-opacity duration-200',
+            collapsed ? 'opacity-0' : 'opacity-100',
+          )}>
             <p className="text-sm font-semibold text-white leading-none">Bons IT</p>
             <p className="text-[10px] text-slate-400 mt-0.5 leading-none">Groupe Livio</p>
           </div>
         </div>
 
         {/* Navigation */}
-        <nav aria-label="Navigation principale" className="flex-1 overflow-y-auto p-2.5 pt-3">
+        <nav aria-label="Navigation principale" className="flex-1 overflow-y-auto overflow-x-hidden p-2.5 pt-3">
           {navGroups.map((group, index) => (
-            <SidebarSection key={group.title} group={group} isFirst={index === 0} />
+            <SidebarSection key={group.title} group={group} isFirst={index === 0} collapsed={collapsed} />
           ))}
         </nav>
 
-        {/* User block */}
-        <div className="border-t border-white/10 p-3">
-          <div className="flex items-center gap-2.5 rounded-lg px-2 py-2">
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[hsl(var(--primary)/0.20)] text-[hsl(var(--primary))] text-xs font-semibold">
-              {user?.displayName?.slice(0, 2).toUpperCase() || '??'}
-            </div>
-            <div className="min-w-0">
-              <p className="text-xs font-medium text-slate-200 truncate leading-none">{user?.displayName}</p>
-              <p className="text-[10px] text-slate-500 mt-0.5 leading-none">{viewLabel}</p>
-            </div>
-          </div>
+        {/* User block + Toggle */}
+        <div className="border-t border-white/10 p-2">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="flex items-center gap-2.5 rounded-lg px-2 py-2">
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[hsl(var(--primary)/0.20)] text-[hsl(var(--primary))] text-xs font-semibold">
+                  {user?.displayName?.slice(0, 2).toUpperCase() || '??'}
+                </div>
+                <div className={cn(
+                  'min-w-0 whitespace-nowrap transition-opacity duration-200',
+                  collapsed ? 'opacity-0' : 'opacity-100',
+                )}>
+                  <p className="text-xs font-medium text-slate-200 truncate leading-none">{user?.displayName}</p>
+                  <p className="text-[10px] text-slate-500 mt-0.5 leading-none">{viewLabel}</p>
+                </div>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="right" className={collapsed ? '' : 'hidden'}>
+              {user?.displayName} — {viewLabel}
+            </TooltipContent>
+          </Tooltip>
+
+          {/* Toggle collapse */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={toggle}
+                className="flex items-center gap-3 w-full rounded-lg px-3 py-2 text-slate-400 hover:bg-white/5 hover:text-slate-200 transition-colors duration-150 whitespace-nowrap"
+                aria-label={collapsed ? 'Agrandir la barre latérale' : 'Réduire la barre latérale'}
+              >
+                {collapsed
+                  ? <PanelLeftOpen className="h-4 w-4 shrink-0" />
+                  : <PanelLeftClose className="h-4 w-4 shrink-0" />
+                }
+                <span className={cn(
+                  'text-xs transition-opacity duration-200',
+                  collapsed ? 'opacity-0' : 'opacity-100',
+                )}>Réduire</span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right" className={collapsed ? '' : 'hidden'}>
+              Agrandir
+            </TooltipContent>
+          </Tooltip>
         </div>
       </aside>
     </TooltipProvider>

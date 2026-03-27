@@ -1,5 +1,5 @@
 import React, { Suspense, lazy } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { UiViewProvider, useUiView } from '@/contexts/UiViewContext';
@@ -13,7 +13,6 @@ import { UnauthorizedPage } from '@/pages/Unauthorized';
 const DashboardIT = lazy(() => import('@/pages/DashboardIT').then(m => ({ default: m.DashboardIT })));
 const PortailCollaborateur = lazy(() => import('@/pages/PortailCollaborateur').then(m => ({ default: m.PortailCollaborateur })));
 const AdminLayout = lazy(() => import('@/pages/admin/AdminLayout').then(m => ({ default: m.AdminLayout })));
-const ConfigurationPage = lazy(() => import('@/pages/admin/Configuration').then(m => ({ default: m.ConfigurationPage })));
 const LdapSyncPage = lazy(() => import('@/pages/admin/LdapSync').then(m => ({ default: m.LdapSyncPage })));
 const FilialesPage = lazy(() => import('@/pages/admin/Filiales').then(m => ({ default: m.FilialesPage })));
 const CataloguePage = lazy(() => import('@/pages/admin/Catalogue').then(m => ({ default: m.CataloguePage })));
@@ -27,6 +26,16 @@ const BonCreatePage = lazy(() => import('@/pages/bons/BonCreate').then(m => ({ d
 const BonDetailPage = lazy(() => import('@/pages/bons/BonDetail').then(m => ({ default: m.BonDetailPage })));
 const SignaturePage = lazy(() => import('@/pages/signature/SignaturePage').then(m => ({ default: m.SignaturePage })));
 const BonDetailCollaborateurPage = lazy(() => import('@/pages/bons/BonDetailCollaborateur').then(m => ({ default: m.BonDetailCollaborateurPage })));
+
+// Configuration sub-pages
+const ConfigGeneralPage = lazy(() => import('@/pages/admin/configuration/ConfigGeneralPage').then(m => ({ default: m.ConfigGeneralPage })));
+const ConfigLdapPage = lazy(() => import('@/pages/admin/configuration/ConfigLdapPage').then(m => ({ default: m.ConfigLdapPage })));
+const ConfigEntraPage = lazy(() => import('@/pages/admin/configuration/ConfigEntraPage').then(m => ({ default: m.ConfigEntraPage })));
+const ConfigSmtpPage = lazy(() => import('@/pages/admin/configuration/ConfigSmtpPage').then(m => ({ default: m.ConfigSmtpPage })));
+const ConfigRappelsPage = lazy(() => import('@/pages/admin/configuration/ConfigRappelsPage').then(m => ({ default: m.ConfigRappelsPage })));
+const ConfigTokensPage = lazy(() => import('@/pages/admin/configuration/ConfigTokensPage').then(m => ({ default: m.ConfigTokensPage })));
+const ConfigSmbPage = lazy(() => import('@/pages/admin/configuration/ConfigSmbPage').then(m => ({ default: m.ConfigSmbPage })));
+const ConfigMonitoringPage = lazy(() => import('@/pages/admin/configuration/ConfigMonitoringPage').then(m => ({ default: m.ConfigMonitoringPage })));
 
 function ProtectedRoute({
   children,
@@ -124,22 +133,42 @@ function AppRoutes() {
           <Route path="catalogue" element={<CataloguePage />} />
           <Route path="utilisateurs" element={<UtilisateursPage />} />
 
-          {/* Réservé admin uniquement — configuration système sensible */}
+          {/* Configuration — sous-pages (admin only) */}
           <Route path="configuration" element={
-            <ProtectedRoute requiredRoles={['admin']}><ConfigurationPage /></ProtectedRoute>
-          } />
-          <Route path="ldap" element={
+            <ProtectedRoute requiredRoles={['admin']}><Outlet /></ProtectedRoute>
+          }>
+            <Route index element={<Navigate to="general" replace />} />
+            <Route path="general" element={<ConfigGeneralPage />} />
+            <Route path="ldap" element={<ConfigLdapPage />} />
+            <Route path="entra" element={<ConfigEntraPage />} />
+            <Route path="smtp" element={<ConfigSmtpPage />} />
+            <Route path="rappels" element={<ConfigRappelsPage />} />
+            <Route path="tokens" element={<ConfigTokensPage />} />
+            <Route path="smb" element={<ConfigSmbPage />} />
+            <Route path="monitoring" element={<ConfigMonitoringPage />} />
+          </Route>
+
+          {/* Templates — sous-pages (admin only) */}
+          <Route path="templates" element={
+            <ProtectedRoute requiredRoles={['admin']}><Outlet /></ProtectedRoute>
+          }>
+            <Route index element={<Navigate to="email" replace />} />
+            <Route path="email" element={<TemplatesPage />} />
+            <Route path="pdf" element={<PdfTemplatesPage />} />
+          </Route>
+
+          {/* Pages simples (admin only) */}
+          <Route path="ldap-sync" element={
             <ProtectedRoute requiredRoles={['admin']}><LdapSyncPage /></ProtectedRoute>
           } />
           <Route path="audit" element={
             <ProtectedRoute requiredRoles={['admin']}><AuditLogsPage /></ProtectedRoute>
           } />
-          <Route path="email-templates" element={
-            <ProtectedRoute requiredRoles={['admin']}><TemplatesPage /></ProtectedRoute>
-          } />
-          <Route path="pdf-templates" element={
-            <ProtectedRoute requiredRoles={['admin']}><PdfTemplatesPage /></ProtectedRoute>
-          } />
+
+          {/* Redirects de compatibilité anciennes routes */}
+          <Route path="ldap" element={<Navigate to="/admin/ldap-sync" replace />} />
+          <Route path="email-templates" element={<Navigate to="/admin/templates/email" replace />} />
+          <Route path="pdf-templates" element={<Navigate to="/admin/templates/pdf" replace />} />
         </Route>
       </Route>
 
