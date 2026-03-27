@@ -524,7 +524,9 @@ export class BonsService {
         sigImages,
         filename,
       );
-      this.smbService.exportPdf(updatedBon, filename, pdfBuffer).catch(() => {});
+      this.smbService.exportPdf(updatedBon, filename, pdfBuffer).catch((err) =>
+        this.logger.error(`Échec export SMB [${updatedBon.reference}]: ${(err as Error).message}`),
+      );
 
       // Create pv_cloture token for collab co-signature
       const pvSig = await this.signatureService.generateToken(id, 'pv_cloture', userId, false);
@@ -613,7 +615,9 @@ export class BonsService {
         sigImages,
         filename,
       );
-      this.smbService.exportPdf(updatedBon, filename, pdfBuffer).catch(() => {});
+      this.smbService.exportPdf(updatedBon, filename, pdfBuffer).catch((err) =>
+        this.logger.error(`Échec export SMB [${updatedBon.reference}]: ${(err as Error).message}`),
+      );
 
       this.logger.log(
         `Bon ${updatedBon.reference} (archivé) — avenant IT généré pour équipement retrouvé`,
@@ -647,7 +651,9 @@ export class BonsService {
           sigImages,
           filename,
         );
-        this.smbService.exportPdf(updatedBon, filename, pdfBuffer).catch(() => {});
+        this.smbService.exportPdf(updatedBon, filename, pdfBuffer).catch((err) =>
+          this.logger.error(`Échec export SMB [${updatedBon.reference}]: ${(err as Error).message}`),
+        );
 
         const pvSig = await this.signatureService.generateToken(id, 'pv_cloture', userId, false);
         this.notificationService.sendPvClotureRequest(updatedBon, pvSig.token).catch(() => {});

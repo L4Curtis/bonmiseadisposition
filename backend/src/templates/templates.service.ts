@@ -21,6 +21,7 @@ export const VARIABLE_DESCRIPTIONS: Record<string, string> = {
   SIGNER_URL: 'Lien de signature',
   EQUIP_LIST: 'Liste des équipements (balises <li>)',
   NOT_RETURNED_LIST: 'Liste des équipements non restitués (balises <li>)',
+  REMAINING_SECTION: 'Section HTML des équipements restants (restitution partielle, vide si complète)',
   USER_NAME: 'Nom du collaborateur contestant',
   CONTESTATION_MESSAGE: 'Message de contestation',
   RESOLUTION_MESSAGE: 'Message de résolution du service IT',
@@ -49,7 +50,7 @@ const TEMPLATES: TemplateDefinition[] = [
     category: 'signature',
     recipient: 'Collaborateur',
     headerColor: '#7c3aed',
-    variables: vars('COLLAB_CIVILITE', 'COLLAB_NAME', 'FILIALE_NOM', 'REFERENCE', 'SIGNER_URL', 'EQUIP_LIST'),
+    variables: vars('COLLAB_CIVILITE', 'COLLAB_NAME', 'FILIALE_NOM', 'REFERENCE', 'SIGNER_URL', 'EQUIP_LIST', 'REMAINING_SECTION'),
   },
   {
     id: 'confirmation_mise_disposition',
@@ -144,6 +145,12 @@ const PREVIEW_VARS: Record<string, string> = {
   SIGNER_URL: '#',
   EQUIP_LIST: PREVIEW_EQUIP_LIST,
   NOT_RETURNED_LIST: PREVIEW_NOT_RETURNED_LIST,
+  REMAINING_SECTION: `<p style="margin:0 0 10px;font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.08em">Éléments restants sur ce bon (2)</p>
+      <div style="background-color:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:0 20px;margin-bottom:28px">
+        <ul style="margin:0;padding:4px 0;list-style:none"><li style="padding:8px 0;border-bottom:1px solid #f1f5f9;font-size:14px;color:#374151;line-height:1.5;list-style:none">Logitech MX Master 3S</li>
+        <li style="padding:8px 0;border-bottom:1px solid #f1f5f9;font-size:14px;color:#374151;line-height:1.5;list-style:none">Jabra Evolve2 75<span style="color:#94a3b8;font-size:12px;margin-left:6px">(N° série : SN-CA-2026-007)</span></li></ul>
+      </div>
+      <p style="margin:0 0 28px;font-size:13px;color:#64748b;line-height:1.6;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 14px">Ces équipements ne font pas partie de cette restitution et restent attribués.</p>`,
   CONTESTATION_MESSAGE: "Je conteste ce bon car l'écran référencé n'est pas celui qui m'a été remis. Le modèle indiqué est un Dell U2723QE mais j'ai reçu un U2422H.",
   RESOLUTION_MESSAGE: 'Après vérification, le bon a été corrigé avec le numéro de série correct. Le matériel référencé correspond bien à celui remis.',
   TYPE_LABEL: 'mise à disposition',
@@ -375,10 +382,11 @@ export class TemplatesService {
       <p style="margin:0 0 24px;font-size:15px;color:#475569;line-height:1.75">
         Le service informatique de <strong style="color:#0f172a">{{FILIALE_NOM}}</strong> vous invite à signer le bon de <strong style="color:#0f172a">restitution</strong> pour le matériel suivant. Ce document atteste la restitution des équipements listés ci-dessous.
       </p>
-      ${sectionLabel('Équipements à restituer')}
+      ${sectionLabel('Équipements restitués')}
       ${equipList('{{EQUIP_LIST}}')}
+      {{REMAINING_SECTION}}
       <p style="margin:0 0 28px;font-size:15px;color:#475569;line-height:1.75">
-        Après signature, ce bon sera archivé et vous en recevrez une confirmation par email.
+        Après signature, vous en recevrez une confirmation par email.
       </p>
       ${ctaButton('{{SIGNER_URL}}', 'Signer le bon de restitution', '#5b21b6', '#7c3aed')}
       ${infoBox('#f5f3ff', '#ddd6fe', '#5b21b6', '<strong>Lien valable 7 jours</strong> &middot; Authentification Microsoft requise &middot; La signature électronique a valeur légale')}

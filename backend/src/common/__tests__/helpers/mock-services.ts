@@ -56,10 +56,14 @@ export function createMockPdfService() {
 
 export function createMockSmbService() {
   return {
-    exportPdf: jest.fn().mockResolvedValue(undefined),
+    exportPdf: jest.fn().mockResolvedValue({ success: true }),
     testConnection: jest
       .fn()
       .mockResolvedValue({ success: true, message: 'ok' }),
+    getStatus: jest.fn().mockResolvedValue({ enabled: false }),
+    getFailedExports: jest.fn().mockResolvedValue([]),
+    retryOne: jest.fn().mockResolvedValue({ success: true }),
+    retryAllFailed: jest.fn().mockResolvedValue({ retried: 0, succeeded: 0, failed: 0 }),
     sanitizeName: jest.fn().mockImplementation((name: string) =>
       name
         .normalize('NFD')
@@ -105,6 +109,32 @@ export function createMockEncryptionService() {
     decrypt: jest
       .fn()
       .mockImplementation((data: string) => data.replace('encrypted:', '')),
+  };
+}
+
+// ── PdfTemplatesService ──────────────────────────────────────────────────────
+
+export function createMockPdfTemplatesService() {
+  // Lazy-import to avoid circular dependency at module load time
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { DEFAULT_CONFIGS } = require('../../../pdf/pdf-template-config');
+  const defaultConfig = DEFAULT_CONFIGS['mise_disposition'];
+
+  return {
+    getAll: jest.fn().mockResolvedValue([]),
+    getTemplateById: jest.fn().mockReturnValue({
+      id: 'mise_disposition',
+      name: 'Bon de mise à disposition',
+      description: 'Modèle PDF mise à disposition',
+      documentType: 'mise_disposition',
+      variables: [],
+    }),
+    getDefaultConfig: jest.fn().mockReturnValue(defaultConfig),
+    getTemplateConfig: jest.fn().mockResolvedValue(defaultConfig),
+    updateTemplate: jest.fn().mockResolvedValue(undefined),
+    resetTemplate: jest.fn().mockResolvedValue(undefined),
+    exportAll: jest.fn().mockResolvedValue({ exportedAt: '', templates: [] }),
+    importAll: jest.fn().mockResolvedValue({ imported: 0, skipped: 0 }),
   };
 }
 

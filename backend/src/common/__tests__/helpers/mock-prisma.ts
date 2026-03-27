@@ -108,11 +108,22 @@ export function createMockPrismaService(): MockPrismaService {
       upsert: jest.fn(),
     },
 
+    // ── SmbExport ──────────────────────────────────────────────────────────────
+    smbExport: {
+      findMany: jest.fn(),
+      findUnique: jest.fn(),
+      findFirst: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      count: jest.fn(),
+    },
+
     // ── AppConfig ──────────────────────────────────────────────────────────────
     appConfig: {
       findMany: jest.fn(),
       findUnique: jest.fn(),
       upsert: jest.fn(),
+      deleteMany: jest.fn(),
     },
 
     // ── Filiale ────────────────────────────────────────────────────────────────

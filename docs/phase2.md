@@ -191,7 +191,7 @@ Ajout des 5 nouveaux modules : `AdminModule`, `LdapModule`, `FilialesModule`, `E
 | `/admin/filiales` | `Filiales.tsx` | admin, tech | CRUD filiales + upload logo/cachet |
 | `/admin/utilisateurs` | `Utilisateurs.tsx` | admin, tech | Liste + recherche autocomplete |
 | `/admin/contestations` | `Contestations.tsx` | admin, tech | Gestion contestations |
-| `/admin/templates` | `Templates.tsx` | admin, tech | Gestion templates email |
+| `/admin/email-templates` | `Templates.tsx` | admin, tech | Gestion templates email |
 | `/admin/audit` | `AuditLogs.tsx` | admin, tech | Journal d'audit |
 
 **Navigation sidebar principale** (réorganisée Phase 2026-03-21) :

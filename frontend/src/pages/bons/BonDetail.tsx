@@ -142,8 +142,6 @@ export function BonDetailPage() {
       {bon.signatures && bon.signatures.length > 0 && (
         <BonSignatures
           signatures={bon.signatures}
-          pdfLoading={pdfLoading}
-          onDownloadPdf={actions.downloadPdf}
         />
       )}
 

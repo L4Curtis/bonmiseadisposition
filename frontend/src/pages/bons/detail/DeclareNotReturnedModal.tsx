@@ -46,7 +46,7 @@ export function DeclareNotReturnedModal({
   const handleSubmit = () => {
     setError(null);
     if (selected.size === 0) {
-      setError('S\u00e9lectionnez au moins un \u00e9quipement.');
+      setError('Sélectionnez au moins un équipement.');
       return;
     }
     if (!reason.trim()) {
@@ -55,7 +55,7 @@ export function DeclareNotReturnedModal({
     }
     const dataUrl = getDataUrl();
     if (!dataUrl) {
-      setError('Le cachet IT est obligatoire pour certifier ce proc\u00e8s-verbal.');
+      setError('Le cachet IT est obligatoire pour certifier ce procès-verbal.');
       return;
     }
     onConfirm(Array.from(selected), reason, dataUrl);
@@ -68,10 +68,10 @@ export function DeclareNotReturnedModal({
         <div className="bg-red-600 px-5 py-4">
           <DialogHeader className="p-0 text-left">
             <DialogTitle className="text-white text-sm flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4" /> D\u00e9clarer des \u00e9quipements non rendus
+              <AlertTriangle className="h-4 w-4" /> Déclarer des équipements non rendus
             </DialogTitle>
             <DialogDescription className="text-red-100 text-xs mt-1">
-              Un proc\u00e8s-verbal sera g\u00e9n\u00e9r\u00e9 et certifi\u00e9 par votre cachet IT.
+              Un procès-verbal sera généré et certifié par votre cachet IT.
             </DialogDescription>
           </DialogHeader>
         </div>
@@ -79,7 +79,7 @@ export function DeclareNotReturnedModal({
         <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
           {unresolvedEquipments.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-4">
-              Tous les \u00e9quipements ont \u00e9t\u00e9 trait\u00e9s.
+              Tous les équipements ont été traités.
             </p>
           ) : (
             <>
@@ -118,7 +118,7 @@ export function DeclareNotReturnedModal({
                 <textarea
                   className="mt-1 w-full rounded-lg border border-border bg-background text-foreground px-3 py-2 text-sm focus:border-red-500 focus:ring-1 focus:ring-red-500"
                   rows={2}
-                  placeholder="Perte, vol, casse, non restitu\u00e9 par le collaborateur\u2026"
+                  placeholder="Perte, vol, casse, non restitué par le collaborateur…"
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
                 />
@@ -186,7 +186,7 @@ export function DeclareNotReturnedModal({
             {loading ? (
               <><Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" /> En cours&hellip;</>
             ) : (
-              <><Pen className="h-3.5 w-3.5" /> Certifier et d\u00e9clarer ({selected.size})</>
+              <><Pen className="h-3.5 w-3.5" /> Certifier et déclarer ({selected.size})</>
             )}
           </Button>
         </DialogFooter>

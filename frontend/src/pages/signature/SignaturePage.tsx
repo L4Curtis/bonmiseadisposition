@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { CheckCircle, XCircle, Clock, Loader2, Pen, Trash2 } from 'lucide-react';
+import { useSignatureCanvas } from '@/hooks/use-signature-canvas';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -40,107 +41,6 @@ interface SignatureResponse {
     isInPerson: boolean | null;
     tokenExpiresAt: string;
   };
-}
-
-// ─── Canvas Hook ─────────────────────────────────────────────────────────────
-
-function useSignatureCanvas() {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const isDrawing = useRef(false);
-  const [isEmpty, setIsEmpty] = useState(true);
-
-  const getPos = (canvas: HTMLCanvasElement, clientX: number, clientY: number) => {
-    const rect = canvas.getBoundingClientRect();
-    return {
-      x: (clientX - rect.left) * (canvas.width / rect.width),
-      y: (clientY - rect.top) * (canvas.height / rect.height),
-    };
-  };
-
-  // ── Mouse events (React synthetic — fiables en StrictMode) ──
-  const onMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    isDrawing.current = true;
-    const ctx = canvas.getContext('2d')!;
-    const pos = getPos(canvas, e.clientX, e.clientY);
-    ctx.beginPath();
-    ctx.moveTo(pos.x, pos.y);
-  };
-
-  const onMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isDrawing.current) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d')!;
-    ctx.lineWidth = 2.5;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.strokeStyle = getComputedStyle(canvas).getPropertyValue('color') || '#1e293b';
-    const pos = getPos(canvas, e.clientX, e.clientY);
-    ctx.lineTo(pos.x, pos.y);
-    ctx.stroke();
-    setIsEmpty(false);
-  };
-
-  const onMouseUp = () => { isDrawing.current = false; };
-  const onMouseLeave = () => { isDrawing.current = false; };
-
-  // ── Touch events (addEventListener requis pour passive:false) ──
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const touchStart = (e: TouchEvent) => {
-      e.preventDefault();
-      isDrawing.current = true;
-      const ctx = canvas.getContext('2d')!;
-      const pos = getPos(canvas, e.touches[0].clientX, e.touches[0].clientY);
-      ctx.beginPath();
-      ctx.moveTo(pos.x, pos.y);
-    };
-
-    const touchMove = (e: TouchEvent) => {
-      if (!isDrawing.current) return;
-      e.preventDefault();
-      const ctx = canvas.getContext('2d')!;
-      ctx.lineWidth = 2.5;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      ctx.strokeStyle = getComputedStyle(canvas).getPropertyValue('color') || '#1e293b';
-      const pos = getPos(canvas, e.touches[0].clientX, e.touches[0].clientY);
-      ctx.lineTo(pos.x, pos.y);
-      ctx.stroke();
-      setIsEmpty(false);
-    };
-
-    const touchEnd = () => { isDrawing.current = false; };
-
-    canvas.addEventListener('touchstart', touchStart, { passive: false });
-    canvas.addEventListener('touchmove', touchMove, { passive: false });
-    canvas.addEventListener('touchend', touchEnd);
-
-    return () => {
-      canvas.removeEventListener('touchstart', touchStart);
-      canvas.removeEventListener('touchmove', touchMove);
-      canvas.removeEventListener('touchend', touchEnd);
-    };
-  }, []);
-
-  const clear = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    canvas.getContext('2d')!.clearRect(0, 0, canvas.width, canvas.height);
-    setIsEmpty(true);
-  }, []);
-
-  const getDataUrl = useCallback((): string | null => {
-    const canvas = canvasRef.current;
-    if (!canvas || isEmpty) return null;
-    return canvas.toDataURL('image/png');
-  }, [isEmpty]);
-
-  return { canvasRef, isEmpty, clear, getDataUrl, onMouseDown, onMouseMove, onMouseUp, onMouseLeave };
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -318,9 +218,10 @@ export function SignaturePage() {
   const bon = data.bon;
   const sig = data.signature;
   const isPvCloture = sig.type === 'pv_cloture';
+  const isRestitution = sig.type === 'restitution';
   const sigType = isPvCloture
     ? 'procès-verbal d\'équipements non restitués'
-    : sig.type === 'restitution' ? 'restitution' : 'mise à disposition';
+    : isRestitution ? 'restitution' : 'mise à disposition';
   const civiliteLabel = bon.civilite === 'mme' ? 'Madame' : 'Monsieur';
   const isInPerson = sig.isInPerson;
 
@@ -354,54 +255,62 @@ export function SignaturePage() {
         </div>
 
         {/* Equipment list */}
-        <div className="rounded-xl bg-card border border-border shadow-sm">
-          <div className="px-5 py-3 border-b">
-            <h2 className="font-semibold text-sm text-foreground">
-              {isPvCloture
-                ? `Équipements non restitués (${bon.equipments.filter(e => e.notReturned).length})`
-                : `Équipements (${bon.equipments.length})`}
-            </h2>
-            {isPvCloture && (
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Les équipements ci-dessous ont été déclarés non restitués par le service informatique.
-              </p>
-            )}
-          </div>
-          <table className="w-full text-sm" aria-label="Liste des équipements">
-            <thead className="bg-muted/50">
-              <tr>
-                <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground">#</th>
-                <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground">Désignation</th>
-                <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground">N° Série</th>
-                {isPvCloture && <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground">Motif</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {bon.equipments
-                .sort((a, b) => a.order - b.order)
-                .filter(eq => !isPvCloture || eq.notReturned)
-                .map((eq, i) => {
-                  const label = eq.catalogItem
-                    ? `${eq.catalogItem.brand} ${eq.catalogItem.model}`
-                    : eq.customLabel || '—';
-                  return (
-                    <tr key={eq.id} className={`border-t ${isPvCloture ? 'bg-red-50 dark:bg-red-900/10' : ''}`}>
-                      <td className="px-4 py-2 text-muted-foreground/70">{i + 1}</td>
-                      <td className="px-4 py-2 font-medium">{label}</td>
-                      <td className="px-4 py-2 font-mono text-xs text-muted-foreground">
-                        {eq.serialNumber || <span className="text-muted-foreground/30">—</span>}
-                      </td>
-                      {isPvCloture && (
-                        <td className="px-4 py-2 text-xs text-red-700 italic">
-                          {eq.notReturnedReason || '—'}
+        <EquipmentTable
+          equipments={bon.equipments}
+          isPvCloture={isPvCloture}
+          isRestitution={isRestitution}
+        />
+
+        {/* Remaining equipment (restitution only) */}
+        {isRestitution && (() => {
+          const remaining = bon.equipments
+            .filter(eq => !eq.returnedAt && !eq.notReturned)
+            .sort((a, b) => a.order - b.order);
+          if (remaining.length === 0) return null;
+          return (
+            <div className="rounded-xl bg-card border border-border shadow-sm">
+              <div className="px-5 py-3 border-b">
+                <h2 className="font-semibold text-sm text-foreground">
+                  Éléments restants sur ce bon ({remaining.length})
+                </h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Ces équipements ne font pas partie de cette restitution et restent attribués.
+                </p>
+              </div>
+              <table className="w-full text-sm" aria-label="Équipements restants">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground">#</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground">Désignation</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground">N° Série</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground">Statut</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {remaining.map((eq, i) => {
+                    const label = eq.catalogItem
+                      ? `${eq.catalogItem.brand} ${eq.catalogItem.model}`
+                      : eq.customLabel || '—';
+                    return (
+                      <tr key={eq.id} className="border-t">
+                        <td className="px-4 py-2 text-muted-foreground/70">{i + 1}</td>
+                        <td className="px-4 py-2 font-medium">{label}</td>
+                        <td className="px-4 py-2 font-mono text-xs text-muted-foreground">
+                          {eq.serialNumber || <span className="text-muted-foreground/30">—</span>}
                         </td>
-                      )}
-                    </tr>
-                  );
-                })}
-            </tbody>
-          </table>
-        </div>
+                        <td className="px-4 py-2">
+                          <span className="inline-flex items-center rounded-full bg-blue-50 dark:bg-blue-900/20 px-2 py-0.5 text-xs font-medium text-blue-700 dark:text-blue-400">
+                            En service
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          );
+        })()}
 
         {/* Signature section (user is always authenticated at this point) */}
         <div className="rounded-xl bg-card border border-border shadow-sm overflow-hidden">
@@ -542,6 +451,79 @@ function Row({ label, value }: { label: string; value: string }) {
     <div className="flex gap-3">
       <span className="text-muted-foreground w-32 shrink-0">{label}</span>
       <span className="text-foreground font-medium">{value}</span>
+    </div>
+  );
+}
+
+function EquipmentTable({
+  equipments,
+  isPvCloture,
+  isRestitution,
+}: {
+  equipments: BonInfo['equipments'];
+  isPvCloture: boolean;
+  isRestitution: boolean;
+}) {
+  const filtered = equipments
+    .sort((a, b) => a.order - b.order)
+    .filter(eq => {
+      if (isPvCloture) return eq.notReturned;
+      if (isRestitution) return !!eq.returnedAt;
+      return true;
+    });
+
+  return (
+    <div className="rounded-xl bg-card border border-border shadow-sm">
+      <div className="px-5 py-3 border-b">
+        <h2 className="font-semibold text-sm text-foreground">
+          {isPvCloture
+            ? `Équipements non restitués (${filtered.length})`
+            : isRestitution
+              ? `Équipements restitués (${filtered.length})`
+              : `Équipements (${filtered.length})`}
+        </h2>
+        {isPvCloture && (
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Les équipements ci-dessous ont été déclarés non restitués par le service informatique.
+          </p>
+        )}
+        {isRestitution && (
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Les équipements ci-dessous sont en cours de restitution.
+          </p>
+        )}
+      </div>
+      <table className="w-full text-sm" aria-label="Liste des équipements">
+        <thead className="bg-muted/50">
+          <tr>
+            <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground">#</th>
+            <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground">Désignation</th>
+            <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground">N° Série</th>
+            {isPvCloture && <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground">Motif</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {filtered.map((eq, i) => {
+            const label = eq.catalogItem
+              ? `${eq.catalogItem.brand} ${eq.catalogItem.model}`
+              : eq.customLabel || '—';
+            return (
+              <tr key={eq.id} className={`border-t ${isPvCloture ? 'bg-red-50 dark:bg-red-900/10' : ''}`}>
+                <td className="px-4 py-2 text-muted-foreground/70">{i + 1}</td>
+                <td className="px-4 py-2 font-medium">{label}</td>
+                <td className="px-4 py-2 font-mono text-xs text-muted-foreground">
+                  {eq.serialNumber || <span className="text-muted-foreground/30">—</span>}
+                </td>
+                {isPvCloture && (
+                  <td className="px-4 py-2 text-xs text-red-700 italic">
+                    {eq.notReturnedReason || '—'}
+                  </td>
+                )}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }

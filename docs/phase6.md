@@ -83,7 +83,7 @@ Avant, les techniciens pouvaient accéder aux pages de configuration système vi
 | `/admin/configuration` | admin + technicien | **admin uniquement** |
 | `/admin/ldap` | admin + technicien | **admin uniquement** |
 | `/admin/audit` | admin + technicien | **admin uniquement** |
-| `/admin/templates` | admin + technicien | **admin uniquement** |
+| `/admin/email-templates` | admin + technicien | **admin uniquement** |
 
 Routes toujours accessibles aux techniciens : `contestations`, `filiales`, `catalogue`, `utilisateurs`.
 
@@ -147,7 +147,7 @@ La contrainte `@unique` sur `reference` reste le dernier filet de sécurité.
 
 - [ ] Technicien connecté → `/admin/configuration` → redirect `/unauthorized`
 - [ ] Technicien connecté → `/admin/ldap` → redirect `/unauthorized`
-- [ ] Technicien connecté → `/admin/templates` → redirect `/unauthorized`
+- [ ] Technicien connecté → `/admin/email-templates` → redirect `/unauthorized`
 - [ ] Technicien connecté → `/admin/contestations` → accessible ✓
 - [ ] Admin connecté → tous les `/admin/*` accessibles ✓
 

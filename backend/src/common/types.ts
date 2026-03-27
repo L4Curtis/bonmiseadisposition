@@ -65,6 +65,7 @@ export interface NotificationBon {
     catalogItem?: { brand: string; model: string } | null;
     customLabel?: string | null;
     serialNumber?: string | null;
+    returnedAt?: Date | string | null;
     notReturned?: boolean;
     notReturnedReason?: string | null;
   }>;
@@ -82,6 +83,7 @@ export interface NotificationBon {
  * Minimal bon shape expected by SmbService.exportPdf.
  */
 export interface SmbBon {
+  id?: string;
   reference: string;
   createdAt?: Date | string;
   filiale?: { displayName?: string; name?: string } | null;

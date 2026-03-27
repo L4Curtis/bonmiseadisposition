@@ -168,13 +168,30 @@ export class NotificationService {
     const appUrl = await this.getAppUrl();
     const filialeNom = bon.filiale?.displayName ?? bon.filiale?.name ?? '';
 
+    // Only list equipment being returned (returnedAt set), not all bon equipment
+    const returnedEquipments = (bon.equipments ?? []).filter((eq) => eq.returnedAt);
+    const remainingEquipments = (bon.equipments ?? []).filter((eq) => !eq.returnedAt && !eq.notReturned);
+    const equipList = returnedEquipments.length > 0
+      ? this.buildEquipList(returnedEquipments)
+      : this.buildEquipList(bon.equipments ?? []);
+
+    // Build remaining equipment section HTML for partial restitution
+    const remainingSection = remainingEquipments.length > 0
+      ? `<p style="margin:0 0 10px;font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.08em">Éléments restants sur ce bon (${remainingEquipments.length})</p>
+      <div style="background-color:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:0 20px;margin-bottom:28px">
+        <ul style="margin:0;padding:4px 0;list-style:none">${this.buildEquipList(remainingEquipments)}</ul>
+      </div>
+      <p style="margin:0 0 28px;font-size:13px;color:#64748b;line-height:1.6;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 14px">Ces équipements ne font pas partie de cette restitution et restent attribués.</p>`
+      : '';
+
     const html = await this.templatesService.renderTemplate('restitution_request', {
       COLLAB_CIVILITE: bon.civilite === 'mme' ? 'Madame' : 'Monsieur',
       COLLAB_NAME: escapeHtml(bon.collaborateur?.displayName ?? ''),
       FILIALE_NOM: escapeHtml(filialeNom),
       REFERENCE: escapeHtml(bon.reference),
       SIGNER_URL: `${appUrl}/signer/${token}`,
-      EQUIP_LIST: this.buildEquipList(bon.equipments ?? []),
+      EQUIP_LIST: equipList,
+      REMAINING_SECTION: remainingSection,
     });
 
     const ok = await this.sendEmail(

@@ -60,22 +60,22 @@ export interface PendingItAction {
 export function equipmentLabel(eq: EquipmentItem): string {
   return eq.catalogItem
     ? `${eq.catalogItem.brand} ${eq.catalogItem.model}`
-    : eq.customLabel || '\u2014';
+    : eq.customLabel || '—';
 }
 
 export const SNAPSHOT_LABELS: Record<string, string> = {
-  signature_it_mise_disposition: 'Cachet IT \u2014 Mise \u00e0 disposition',
-  signature_collab_mise_disposition: 'Signature collab \u2014 Mise \u00e0 disposition',
-  signature_it_restitution: 'Cachet IT \u2014 Restitution',
-  signature_collab_restitution: 'Signature collab \u2014 Restitution',
-  cloture_equipements_manquants: 'PV \u2014 \u00c9quipements non restitu\u00e9s',
-  avenant_equipement_retrouve: 'Avenant \u2014 \u00c9quipement(s) retrouv\u00e9(s)',
+  signature_it_mise_disposition: 'Cachet IT — Mise à disposition',
+  signature_collab_mise_disposition: 'Signature collab — Mise à disposition',
+  signature_it_restitution: 'Cachet IT — Restitution',
+  signature_collab_restitution: 'Signature collab — Restitution',
+  cloture_equipements_manquants: 'PV — Équipements non restitués',
+  avenant_equipement_retrouve: 'Avenant — Équipement(s) retrouvé(s)',
 };
 
 export function sigTypeLabel(type: string): string {
-  if (type === 'mise_disposition') return 'Mise \u00e0 disposition';
+  if (type === 'mise_disposition') return 'Mise à disposition';
   if (type === 'restitution') return 'Restitution';
   if (type === 'it_cachet') return 'Cachet IT';
-  if (type === 'pv_cloture') return 'PV \u00e9quipements non restitu\u00e9s';
+  if (type === 'pv_cloture') return 'PV équipements non restitués';
   return type;
 }

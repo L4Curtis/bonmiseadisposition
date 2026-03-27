@@ -72,7 +72,7 @@ export class SignatureService {
           include: {
             filiale: true,
             collaborateur: { select: { id: true, displayName: true, email: true, department: true } },
-            createdBy: { select: { id: true, displayName: true } },
+            createdBy: { select: { id: true, displayName: true, email: true } },
             equipments: {
               orderBy: { order: 'asc' },
               include: {
@@ -112,7 +112,8 @@ export class SignatureService {
         bon: {
           include: {
             filiale: true,
-            collaborateur: { select: { id: true, displayName: true, email: true } },
+            collaborateur: { select: { id: true, displayName: true, email: true, department: true } },
+            createdBy: { select: { id: true, displayName: true, email: true } },
             equipments: {
               orderBy: { order: 'asc' },
               include: { catalogItem: true },
@@ -181,7 +182,8 @@ export class SignatureService {
         data: { status: newStatus as BonStatus },
         include: {
           filiale: true,
-          collaborateur: { select: { id: true, displayName: true, email: true } },
+          collaborateur: { select: { id: true, displayName: true, email: true, department: true } },
+          createdBy: { select: { id: true, displayName: true, email: true } },
           equipments: {
             orderBy: { order: 'asc' },
             include: { catalogItem: true },
@@ -313,7 +315,8 @@ export class SignatureService {
         where: { id: bonId },
         include: {
           filiale: true,
-          collaborateur: { select: { id: true, displayName: true, email: true } },
+          collaborateur: { select: { id: true, displayName: true, email: true, department: true } },
+          createdBy: { select: { id: true, displayName: true, email: true } },
           equipments: { orderBy: { order: 'asc' }, include: { catalogItem: true } },
           signatures: true,
         },
@@ -325,7 +328,8 @@ export class SignatureService {
       where: { id: bonId },
       include: {
         filiale: true,
-        collaborateur: { select: { id: true, displayName: true, email: true } },
+        collaborateur: { select: { id: true, displayName: true, email: true, department: true } },
+        createdBy: { select: { id: true, displayName: true, email: true } },
         equipments: { orderBy: { order: 'asc' }, include: { catalogItem: true } },
         signatures: true,
       },
@@ -386,7 +390,8 @@ export class SignatureService {
       where: { id: bonId },
       include: {
         filiale: true,
-        collaborateur: { select: { id: true, displayName: true, email: true } },
+        collaborateur: { select: { id: true, displayName: true, email: true, department: true } },
+        createdBy: { select: { id: true, displayName: true, email: true } },
         equipments: { orderBy: { order: 'asc' }, include: { catalogItem: true } },
         signatures: true,
       },
@@ -446,13 +451,19 @@ export class SignatureService {
     // Validate transitions: only advance from expected states
     const validTransitions: Record<string, { from: string[]; to: string }> = {
       mise_disposition: { from: ['sent_mise_dispo'], to: 'active' },
-      restitution: { from: ['sent_restitution', 'partially_returned'], to: 'archived' },
+      restitution: { from: ['sent_restitution'], to: 'archived' },
       pv_cloture: { from: ['partially_returned'], to: 'archived' },
     };
 
     const transition = validTransitions[signatureType];
     if (transition && transition.from.includes(currentStatus)) {
       return transition.to;
+    }
+
+    // Restitution partielle : le collaborateur signe mais des équipements restent en attente
+    // → on reste en partially_returned pour permettre de traiter le reste
+    if (signatureType === 'restitution' && currentStatus === 'partially_returned') {
+      return 'partially_returned';
     }
 
     if (transition && !transition.from.includes(currentStatus)) {

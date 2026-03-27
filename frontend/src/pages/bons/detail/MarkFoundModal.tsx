@@ -47,12 +47,12 @@ export function MarkFoundModal({
   const handleSubmit = () => {
     setError(null);
     if (selected.size === 0) {
-      setError('S\u00e9lectionnez au moins un \u00e9quipement retrouv\u00e9.');
+      setError('Sélectionnez au moins un équipement retrouvé.');
       return;
     }
     const dataUrl = getDataUrl();
     if (!dataUrl) {
-      setError('Le cachet IT est obligatoire pour mettre \u00e0 jour le PV.');
+      setError('Le cachet IT est obligatoire pour mettre à jour le PV.');
       return;
     }
     onConfirm(Array.from(selected), dataUrl);
@@ -65,12 +65,12 @@ export function MarkFoundModal({
         <div className="bg-green-600 px-5 py-4">
           <DialogHeader className="p-0 text-left">
             <DialogTitle className="text-white text-sm flex items-center gap-2">
-              <PackageCheck className="h-4 w-4" /> \u00c9quipement(s) retrouv\u00e9(s)
+              <PackageCheck className="h-4 w-4" /> Équipement(s) retrouvé(s)
             </DialogTitle>
             <DialogDescription className="text-green-100 text-xs mt-1">
               {isArchived
-                ? "Un avenant IT sera g\u00e9n\u00e9r\u00e9. Le collaborateur n'aura pas \u00e0 re-signer."
-                : 'Le PV sera mis \u00e0 jour et renvoy\u00e9 au collaborateur pour signature.'}
+                ? "Un avenant IT sera généré. Le collaborateur n'aura pas à re-signer."
+                : 'Le PV sera mis à jour et renvoyé au collaborateur pour signature.'}
             </DialogDescription>
           </DialogHeader>
         </div>
@@ -78,12 +78,12 @@ export function MarkFoundModal({
         <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
           {notReturnedEquipments.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-4">
-              Aucun \u00e9quipement non rendu.
+              Aucun équipement non rendu.
             </p>
           ) : (
             <>
               <p className="text-sm text-muted-foreground">
-                S\u00e9lectionnez les \u00e9quipements qui ont \u00e9t\u00e9 retrouv\u00e9s :
+                Sélectionnez les équipements qui ont été retrouvés :
               </p>
               <div className="space-y-2">
                 {notReturnedEquipments.map((eq) => (
@@ -129,7 +129,7 @@ export function MarkFoundModal({
                     <p className="text-xs text-muted-foreground/70 mt-0.5">
                       {isArchived
                         ? 'Apposez votre cachet pour certifier cet avenant'
-                        : 'Apposez votre cachet pour valider la mise \u00e0 jour du PV'}
+                        : 'Apposez votre cachet pour valider la mise à jour du PV'}
                     </p>
                   </div>
                   <button
@@ -183,9 +183,9 @@ export function MarkFoundModal({
             {loading ? (
               <><Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" /> En cours&hellip;</>
             ) : isArchived ? (
-              <><PackageCheck className="h-3.5 w-3.5" /> G\u00e9n\u00e9rer l&apos;avenant ({selected.size})</>
+              <><PackageCheck className="h-3.5 w-3.5" /> Générer l&apos;avenant ({selected.size})</>
             ) : (
-              <><PackageCheck className="h-3.5 w-3.5" /> Mettre \u00e0 jour le PV ({selected.size})</>
+              <><PackageCheck className="h-3.5 w-3.5" /> Mettre à jour le PV ({selected.size})</>
             )}
           </Button>
         </DialogFooter>

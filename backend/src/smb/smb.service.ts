@@ -1,19 +1,43 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import * as fs from 'fs';
 import { mkdir, writeFile, unlink } from 'fs/promises';
 import * as path from 'path';
 import { AppConfigService } from '../config/config.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { SmbBon } from '../common/types';
+
+export interface SmbExportResult {
+  success: boolean;
+  skipped?: boolean;
+  error?: string;
+}
+
+export interface SmbStatus {
+  enabled: boolean;
+  total?: number;
+  success?: number;
+  failed?: number;
+  pending?: number;
+  lastSuccessAt?: Date | null;
+}
+
+const MAX_RETRIES = 3;
+const FAILURE_ALERT_THRESHOLD = 3;
 
 @Injectable()
 export class SmbService {
   private readonly logger = new Logger(SmbService.name);
+  private lastAlertSentAt: Date | null = null;
 
-  constructor(private readonly configService: AppConfigService) {}
+  constructor(
+    private readonly configService: AppConfigService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   /**
    * Export a PDF buffer to the configured path (UNC or local).
-   * Directory structure: {path}/{year}/{bonRef_CollabName}/{filename}
+   * Tracks each export attempt in the smb_exports table.
    *
    * On Windows, UNC paths (\\server\share) are handled natively by fs.
    * On Linux/Docker, the SMB share should be mounted as a volume.
@@ -22,42 +46,68 @@ export class SmbService {
     bon: SmbBon,
     filename: string,
     pdfBuffer: Buffer,
-  ): Promise<void> {
+  ): Promise<SmbExportResult> {
+    const enabled = await this.configService.get('smb', 'enabled');
+    if (enabled !== 'true') return { success: true, skipped: true };
+
+    const smbPath = await this.configService.get('smb', 'path');
+    if (!smbPath) {
+      this.logger.warn('SMB active mais aucun chemin configuré');
+      return { success: false, error: 'Aucun chemin configuré' };
+    }
+
+    if (!this.isSafeExportPath(smbPath)) {
+      this.logger.error(`SMB: chemin rejeté (répertoire système ou invalide): ${smbPath}`);
+      return { success: false, error: 'Chemin rejeté' };
+    }
+
+    // Sanitize filename to prevent path traversal
+    const safeFilename = path.basename(filename);
+    if (!safeFilename || safeFilename !== filename) {
+      this.logger.error(`SMB: nom de fichier rejeté (path traversal détecté): ${filename}`);
+      return { success: false, error: 'Nom de fichier invalide' };
+    }
+
+    // Create tracking record
+    const bonId = 'id' in bon ? (bon as { id: string }).id : undefined;
+    const record = bonId
+      ? await this.prisma.smbExport.create({
+          data: { bonId, filename: safeFilename, status: 'pending' },
+        })
+      : null;
+
     try {
-      const enabled = await this.configService.get('smb', 'enabled');
-      if (enabled !== 'true') return;
-
-      const smbPath = await this.configService.get('smb', 'path');
-      if (!smbPath) {
-        this.logger.warn('SMB active mais aucun chemin configuré');
-        return;
-      }
-
-      if (!this.isSafeExportPath(smbPath)) {
-        this.logger.error(`SMB: chemin rejeté (répertoire système ou invalide): ${smbPath}`);
-        return;
-      }
-
       const filialeName = this.sanitizeName(bon.filiale?.displayName || bon.filiale?.name || 'Sans-filiale');
       const year = new Date(bon.createdAt ?? new Date()).getFullYear().toString();
       const collabName = this.sanitizeName(bon.collaborateur?.displayName || 'INCONNU');
       const dirName = `${bon.reference}_${collabName}`;
 
-      // Sanitize filename to prevent path traversal (e.g. "../../../etc/passwd")
-      const safeFilename = path.basename(filename);
-      if (!safeFilename || safeFilename !== filename) {
-        this.logger.error(`SMB: nom de fichier rejeté (path traversal détecté): ${filename}`);
-        return;
-      }
-
-      // Structure: {smbPath}/{filiale}/{year}/{bonRef_collabName}/{filename}
       const targetDir = path.join(smbPath, filialeName, year, dirName);
       await mkdir(targetDir, { recursive: true });
       await writeFile(path.join(targetDir, safeFilename), pdfBuffer);
 
-      this.logger.log(`PDF exporté vers: ${filialeName}/${year}/${dirName}/${filename}`);
+      this.logger.log(`PDF exporté vers: ${filialeName}/${year}/${dirName}/${safeFilename}`);
+
+      if (record) {
+        await this.prisma.smbExport.update({
+          where: { id: record.id },
+          data: { status: 'success', lastAttemptAt: new Date() },
+        });
+      }
+
+      return { success: true };
     } catch (err) {
-      this.logger.error(`Échec export SMB: ${(err as Error).message}`);
+      const errorMsg = (err as Error).message;
+      this.logger.error(`Échec export SMB [${bon.reference}/${safeFilename}]: ${errorMsg}`);
+
+      if (record) {
+        await this.prisma.smbExport.update({
+          where: { id: record.id },
+          data: { status: 'failed', errorMessage: errorMsg, lastAttemptAt: new Date() },
+        });
+      }
+
+      return { success: false, error: errorMsg };
     }
   }
 
@@ -75,7 +125,6 @@ export class SmbService {
         return { success: false, message: `Chemin rejeté (répertoire système ou invalide): ${smbPath}` };
       }
 
-      // Verify path exists (or try to create it)
       if (!fs.existsSync(smbPath)) {
         try {
           fs.mkdirSync(smbPath, { recursive: true });
@@ -84,7 +133,6 @@ export class SmbService {
         }
       }
 
-      // Try writing a test file
       const testFile = path.join(smbPath, `.smb-test-${Date.now()}`);
       await writeFile(testFile, 'test');
       await unlink(testFile);
@@ -95,16 +143,233 @@ export class SmbService {
     }
   }
 
+  // ─── Monitoring ─────────────────────────────────────────────────────────────
+
+  async getStatus(): Promise<SmbStatus> {
+    const enabled = await this.configService.get('smb', 'enabled');
+    if (enabled !== 'true') return { enabled: false };
+
+    const [total, success, failed, pending, lastSuccess] = await Promise.all([
+      this.prisma.smbExport.count(),
+      this.prisma.smbExport.count({ where: { status: 'success' } }),
+      this.prisma.smbExport.count({ where: { status: 'failed' } }),
+      this.prisma.smbExport.count({ where: { status: 'pending' } }),
+      this.prisma.smbExport.findFirst({
+        where: { status: 'success' },
+        orderBy: { lastAttemptAt: 'desc' },
+        select: { lastAttemptAt: true },
+      }),
+    ]);
+
+    return {
+      enabled: true,
+      total,
+      success,
+      failed,
+      pending,
+      lastSuccessAt: lastSuccess?.lastAttemptAt ?? null,
+    };
+  }
+
+  async getFailedExports(): Promise<Array<{
+    id: string;
+    bonId: string;
+    filename: string;
+    errorMessage: string | null;
+    retryCount: number;
+    lastAttemptAt: Date | null;
+    createdAt: Date;
+    bonReference: string;
+  }>> {
+    const enabled = await this.configService.get('smb', 'enabled');
+    if (enabled !== 'true') return [];
+
+    const exports = await this.prisma.smbExport.findMany({
+      where: { status: 'failed' },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      include: { bon: { select: { reference: true } } },
+    });
+
+    return exports.map((e) => ({
+      id: e.id,
+      bonId: e.bonId,
+      filename: e.filename,
+      errorMessage: e.errorMessage,
+      retryCount: e.retryCount,
+      lastAttemptAt: e.lastAttemptAt,
+      createdAt: e.createdAt,
+      bonReference: e.bon.reference,
+    }));
+  }
+
+  // ─── Retry ──────────────────────────────────────────────────────────────────
+
+  async retryOne(exportId: string): Promise<SmbExportResult> {
+    const enabled = await this.configService.get('smb', 'enabled');
+    if (enabled !== 'true') return { success: false, error: 'SMB non activé' };
+
+    const record = await this.prisma.smbExport.findUnique({
+      where: { id: exportId },
+      include: {
+        bon: {
+          include: {
+            filiale: { select: { displayName: true, name: true } },
+            collaborateur: { select: { displayName: true } },
+            pdfSnapshots: { orderBy: { createdAt: 'desc' } },
+          },
+        },
+      },
+    });
+
+    if (!record) return { success: false, error: 'Export introuvable' };
+    if (record.status === 'success') return { success: true };
+
+    const snapshot = record.bon.pdfSnapshots.find((s) => record.filename.includes(s.filename))
+      ?? record.bon.pdfSnapshots[0];
+
+    if (!snapshot) return { success: false, error: 'Aucun snapshot PDF trouvé pour ce bon' };
+
+    return this.retryExport(record.id, record.bon, record.filename, Buffer.from(snapshot.data));
+  }
+
+  async retryAllFailed(): Promise<{ retried: number; succeeded: number; failed: number }> {
+    const enabled = await this.configService.get('smb', 'enabled');
+    if (enabled !== 'true') return { retried: 0, succeeded: 0, failed: 0 };
+
+    const failedExports = await this.prisma.smbExport.findMany({
+      where: { status: 'failed', retryCount: { lt: MAX_RETRIES } },
+      include: {
+        bon: {
+          include: {
+            filiale: { select: { displayName: true, name: true } },
+            collaborateur: { select: { displayName: true } },
+            pdfSnapshots: { orderBy: { createdAt: 'desc' } },
+          },
+        },
+      },
+      take: 50,
+    });
+
+    let succeeded = 0;
+    let failed = 0;
+
+    for (const record of failedExports) {
+      const snapshot = record.bon.pdfSnapshots.find((s) => record.filename.includes(s.filename))
+        ?? record.bon.pdfSnapshots[0];
+      if (!snapshot) {
+        failed++;
+        continue;
+      }
+
+      const result = await this.retryExport(record.id, record.bon, record.filename, Buffer.from(snapshot.data));
+      if (result.success) succeeded++;
+      else failed++;
+    }
+
+    return { retried: failedExports.length, succeeded, failed };
+  }
+
+  /** Cron: retry failed exports every 6 hours */
+  @Cron('0 */6 * * *')
+  async cronRetryFailedExports(): Promise<void> {
+    const enabled = await this.configService.get('smb', 'enabled');
+    if (enabled !== 'true') return;
+
+    const failedCount = await this.prisma.smbExport.count({
+      where: { status: 'failed', retryCount: { lt: MAX_RETRIES } },
+    });
+
+    if (failedCount === 0) return;
+
+    this.logger.log(`Cron SMB retry: ${failedCount} exports échoués à réessayer`);
+    const result = await this.retryAllFailed();
+    this.logger.log(`Cron SMB retry terminé: ${result.succeeded} réussis, ${result.failed} échoués sur ${result.retried}`);
+
+    // Alert admin if failures persist
+    if (result.failed > 0) {
+      await this.alertAdminIfNeeded();
+    }
+  }
+
+  // ─── Private helpers ────────────────────────────────────────────────────────
+
+  private async retryExport(
+    exportId: string,
+    bon: SmbBon,
+    filename: string,
+    pdfBuffer: Buffer,
+  ): Promise<SmbExportResult> {
+    const smbPath = await this.configService.get('smb', 'path');
+    if (!smbPath || !this.isSafeExportPath(smbPath)) {
+      return { success: false, error: 'Chemin SMB invalide' };
+    }
+
+    await this.prisma.smbExport.update({
+      where: { id: exportId },
+      data: { retryCount: { increment: 1 } },
+    });
+
+    try {
+      const filialeName = this.sanitizeName(bon.filiale?.displayName || bon.filiale?.name || 'Sans-filiale');
+      const year = new Date(bon.createdAt ?? new Date()).getFullYear().toString();
+      const collabName = this.sanitizeName(bon.collaborateur?.displayName || 'INCONNU');
+      const dirName = `${bon.reference}_${collabName}`;
+      const safeFilename = path.basename(filename);
+
+      const targetDir = path.join(smbPath, filialeName, year, dirName);
+      await mkdir(targetDir, { recursive: true });
+      await writeFile(path.join(targetDir, safeFilename), pdfBuffer);
+
+      await this.prisma.smbExport.update({
+        where: { id: exportId },
+        data: { status: 'success', lastAttemptAt: new Date(), errorMessage: null },
+      });
+
+      this.logger.log(`SMB retry réussi: ${bon.reference}/${safeFilename}`);
+      return { success: true };
+    } catch (err) {
+      const errorMsg = (err as Error).message;
+      await this.prisma.smbExport.update({
+        where: { id: exportId },
+        data: { status: 'failed', errorMessage: errorMsg, lastAttemptAt: new Date() },
+      });
+      this.logger.error(`SMB retry échoué [${bon.reference}/${filename}]: ${errorMsg}`);
+      return { success: false, error: errorMsg };
+    }
+  }
+
+  private async alertAdminIfNeeded(): Promise<void> {
+    // Throttle: max 1 alert per 24h
+    if (this.lastAlertSentAt && Date.now() - this.lastAlertSentAt.getTime() < 24 * 60 * 60 * 1000) {
+      return;
+    }
+
+    const recentFailures = await this.prisma.smbExport.count({
+      where: {
+        status: 'failed',
+        createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+      },
+    });
+
+    if (recentFailures < FAILURE_ALERT_THRESHOLD) return;
+
+    // Log a prominent warning — admins monitoring logs will see it
+    this.logger.warn(
+      `⚠ SMB ALERT: ${recentFailures} exports échoués dans les dernières 24h. ` +
+      `Vérifiez la configuration SMB et l'accès au partage réseau via Administration > Configuration.`,
+    );
+
+    this.lastAlertSentAt = new Date();
+  }
+
   /**
    * Validate that an SMB/export path is not a system-critical directory.
-   * Prevents misconfigured admin from writing to /etc, /proc, /bin, etc.
    */
   private isSafeExportPath(exportPath: string): boolean {
     if (!exportPath || typeof exportPath !== 'string') return false;
     const resolved = path.resolve(exportPath);
-    // Must be an absolute path
     if (!path.isAbsolute(resolved)) return false;
-    // Block system-critical directories
     const blocked = ['/etc', '/proc', '/sys', '/dev', '/root', '/bin', '/sbin', '/usr/bin', '/usr/sbin', '/lib', '/lib64', '/boot'];
     return !blocked.some((b) => resolved === b || resolved.startsWith(b + path.sep));
   }
@@ -113,10 +378,10 @@ export class SmbService {
   sanitizeName(name: string): string {
     return name
       .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '') // Remove diacritics
-      .replace(/[^a-zA-Z0-9\s-]/g, '') // Keep only alphanumeric, spaces, hyphens
-      .replace(/\s+/g, '-')            // Spaces to hyphens
-      .replace(/-+/g, '-')             // Collapse multiple hyphens
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9\s-]/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
       .trim();
   }
 }

@@ -497,9 +497,9 @@ describe('SignatureService', () => {
       expect(newStatus).toBe('archived');
     });
 
-    it('should transition partially_returned to archived for restitution', async () => {
+    it('should keep partially_returned for restitution (partial — equipment still pending)', async () => {
       const newStatus = await signAndGetStatusUpdate('partially_returned', 'restitution');
-      expect(newStatus).toBe('archived');
+      expect(newStatus).toBe('partially_returned');
     });
 
     it('should transition partially_returned to archived for pv_cloture', async () => {

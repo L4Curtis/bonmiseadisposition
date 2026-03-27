@@ -45,7 +45,7 @@ export function ItSignModal({ bonId, reference, pdfType, description, onClose, o
     }
   };
 
-  const typLabel = pdfType === 'restitution' ? 'restitution' : 'mise \u00e0 disposition';
+  const typLabel = pdfType === 'restitution' ? 'restitution' : 'mise à disposition';
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !submitting) onClose(); }}>

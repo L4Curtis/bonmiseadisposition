@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { api } from '@/lib/api';
 import { toast } from '@/hooks/use-toast';
 import type { BonDetailData, PdfSnapshotInfo, PendingItAction } from './types';
@@ -21,15 +21,25 @@ export function useBonActions(id: string | undefined) {
   const [showMarkFoundModal, setShowMarkFoundModal] = useState(false);
   const [resendConfirmSentAt, setResendConfirmSentAt] = useState<string | null>(null);
 
+  const snapshotRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const loadSnapshots = (bonId: string) => {
+    api.get<PdfSnapshotInfo[]>(`/bons/${bonId}/pdf-snapshots`)
+      .then(setPdfSnapshots)
+      .catch(() => setPdfSnapshots([]));
+  };
+
   const load = () => {
     setLoading(true);
     setLoadError(null);
+    // Annuler un éventuel retry en cours
+    if (snapshotRetryRef.current) clearTimeout(snapshotRetryRef.current);
     api.get<BonDetailData>(`/bons/${id}`)
       .then((b) => {
         setBon(b);
-        api.get<PdfSnapshotInfo[]>(`/bons/${b.id}/pdf-snapshots`)
-          .then(setPdfSnapshots)
-          .catch(() => setPdfSnapshots([]));
+        loadSnapshots(b.id);
+        // Re-fetch snapshots après 2s pour capter les PDF générés en async
+        snapshotRetryRef.current = setTimeout(() => loadSnapshots(b.id), 2000);
       })
       .catch((e: unknown) => setLoadError(e instanceof Error ? e.message : 'Erreur lors du chargement du bon'))
       .finally(() => setLoading(false));
@@ -111,9 +121,7 @@ export function useBonActions(id: string | undefined) {
   const downloadPdf = async (type: 'mise_disposition' | 'restitution', loadingKey = 'header') => {
     setPdfLoading(loadingKey);
     try {
-      const response = await fetch(`/api/bons/${id}/pdf?type=${type}`, { credentials: 'include' });
-      if (!response.ok) throw new Error('Erreur PDF');
-      const blob = await response.blob();
+      const blob = await api.getBlob(`/bons/${id}/pdf?type=${type}`);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -133,9 +141,7 @@ export function useBonActions(id: string | undefined) {
   const downloadPdfSnapshot = async (stage: string, loadingKey: string) => {
     setPdfLoading(loadingKey);
     try {
-      const response = await fetch(`/api/bons/${id}/pdf?stage=${stage}`, { credentials: 'include' });
-      if (!response.ok) throw new Error('Erreur PDF');
-      const blob = await response.blob();
+      const blob = await api.getBlob(`/bons/${id}/pdf?stage=${stage}`);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;

@@ -286,7 +286,7 @@ if (!this.isSafeExportPath(smbPath)) return;
 - [ ] `POST /api/bons/:id/contestation` avec message > 2000 chars → `400`
 - [ ] Upload SVG via `/api/filiales/:id/logo` → rejeté par Multer
 - [ ] `GET /api/audit` avec compte technician → `403`
-- [ ] `PATCH /api/admin/templates/:id` avec compte technician → `403`
+- [ ] `PATCH /api/admin/email-templates/:id` avec compte technician → `403`
 - [ ] `POST /api/bons/:id/sign-it` sans header `X-Requested-With` → `403`
 - [ ] SMB path `/etc` dans config → rejeté avec log d'erreur
 
@@ -319,7 +319,7 @@ backend/src/contestation/contestation.controller.ts (+ResolveContestationDto)
 backend/src/contestation/dto/resolve-contestation.dto.ts  NEW (+12 lignes)
 backend/src/audit/audit.controller.ts              (admin-only, cap limit)
 backend/src/audit/audit.service.ts                 (cap Math.min)
-backend/src/admin/templates.controller.ts          (write ops admin-only)
+backend/src/admin/email-templates.controller.ts          (write ops admin-only)
 backend/src/filiales/filiales.module.ts            (SVG retiré)
 backend/src/filiales/filiales.controller.ts        (Throttle, Content-Disposition)
 backend/src/smb/smb.service.ts                     (+isSafeExportPath)

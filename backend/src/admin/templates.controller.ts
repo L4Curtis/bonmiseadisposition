@@ -8,7 +8,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth-user.interface';
 
-@Controller('admin/templates')
+@Controller('admin/email-templates')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class TemplatesController {
   constructor(private readonly templatesService: TemplatesService) {}

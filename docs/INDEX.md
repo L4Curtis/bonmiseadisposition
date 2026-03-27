@@ -52,6 +52,17 @@
 - CSP + HSTS headers
 - Détails complets d'implémentation + checklist de test
 
+### Phase 8 — Templates PDF personnalisables
+**Nouveau** (2026-03-25)
+- 4 templates PDF (mise a disposition, restitution, cloture, avenant) personnalisables
+- Config JSON structuree (couleurs, polices, marges, textes, visibilite sections)
+- Preview PDF en temps reel dans l'admin
+- Validation stricte (class-validator nested DTOs)
+- Rate limit preview, audit log, export/import JSON
+- Layout dynamique (hauteur info boxes, multi-pages automatique)
+- Champs adresse + SIRET dans les filiales
+- Page admin : `/admin/pdf-templates`
+
 ### Phase 6 (alternative) — Switcher de vue utilisateur
 **[phase6.md](phase6.md)**
 - Switcher de vue utilisateur (style GLPI)
@@ -119,6 +130,7 @@
 | **Quels sont les endpoints API ?** | [AGENDA.md](../AGENDA.md) (section 8) ou [PROJECT_STRUCTURE.md](../PROJECT_STRUCTURE.md) (section "API Backend") |
 | **Comment fonctionne le workflow des bons ?** | [phase3.md](phase3.md) (section 1) |
 | **Quelle est la structure de fichiers ?** | [PROJECT_STRUCTURE.md](../PROJECT_STRUCTURE.md) |
+| **Comment personnaliser les PDFs ?** | [PROJECT_STRUCTURE.md](../PROJECT_STRUCTURE.md) (section "Systeme de templates PDF") |
 | **Comment configurer LDAP/SMTP/Entra ?** | [phase2.md](phase2.md) ou [AGENDA.md](../AGENDA.md) (section 1) |
 | **Quels sont les pièges à éviter ?** | [AGENDA.md](../AGENDA.md) (section 11) |
 | **Comment développer localement ?** | [README.md](../README.md) (section "Développement local") |
@@ -169,6 +181,8 @@
 | Phase 6A | 2026-03-20 | Switcher vue utilisateur (UX) | `34ce9d4` |
 | Phase 6B | 2026-03-21 | Hardening sécurité (10 fixes) | `3cc3573` |
 | Docs | 2026-03-21 | Documentation phase 6 sécurité | `a3689d8` |
+| Phase 7 | 2026-03-25 | TypeScript strict mode + 179 tests | `098e3a8` |
+| Phase 8 | 2026-03-25 | Templates PDF personnalisables (4 types, preview, config JSON) | — |
 
 ---
 
@@ -197,8 +211,8 @@
 
 Cette documentation est **générée à partir du code source** et mise à jour régulièrement.
 
-**Dernière mise à jour** : 2026-03-21
-**Commit** : `a3689d8` (documentation phase 6 sécurité)
+**Dernière mise à jour** : 2026-03-26
+**Commit** : corrections signatures PDF, restitution partielle, champs PDF, email restitution
 
 Pour signaler une incohérence ou une omission :
 1. Vérifier le code source (source de vérité)

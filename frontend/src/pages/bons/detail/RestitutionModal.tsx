@@ -41,7 +41,7 @@ export function RestitutionModal({ equipments, onConfirm, onCancel, loading }: R
               <RotateCcw className="h-4 w-4" /> Initier la restitution
             </DialogTitle>
             <DialogDescription className="text-blue-100 text-xs mt-1">
-              Cochez les \u00e9quipements restitu\u00e9s par le collaborateur
+              Cochez les équipements restitués par le collaborateur
             </DialogDescription>
           </DialogHeader>
         </div>

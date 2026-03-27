@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Search, X, Plus, Trash2, Package, ChevronLeft } from 'lucide-react';
+import { Search, X, Plus, Trash2, Package, ChevronLeft, CalendarCheck } from 'lucide-react';
 import { bonCreateSchema, validate } from '@/lib/validation';
 import type { Filiale } from '@/types';
 
@@ -84,7 +84,7 @@ function UserAutocomplete({
 
   if (value) {
     return (
-      <div className="flex items-center justify-between rounded-md border bg-blue-50 px-3 py-2">
+      <div className="flex items-center justify-between rounded-md border border-blue-100 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 px-3 py-2">
         <div>
           <p className="text-sm font-medium">{value.displayName}</p>
           <p className="text-xs text-muted-foreground">{value.email}{value.department ? ` — ${value.department}` : ''}</p>
@@ -376,20 +376,46 @@ export function BonCreatePage() {
           <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-1">
               <Label>Date de mise à disposition *</Label>
-              <Input
-                type="date"
-                value={dateMiseDisposition}
-                onChange={(e) => setDateMiseDisposition(e.target.value)}
-                required
-              />
+              <div className="flex gap-1.5">
+                <Input
+                  type="date"
+                  value={dateMiseDisposition}
+                  onChange={(e) => setDateMiseDisposition(e.target.value)}
+                  required
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="h-9 w-9 shrink-0"
+                  title="Aujourd'hui"
+                  onClick={() => setDateMiseDisposition(new Date().toISOString().slice(0, 10))}
+                >
+                  <CalendarCheck className="h-3.5 w-3.5" />
+                </Button>
+              </div>
             </div>
             <div className="space-y-1">
               <Label>Date de restitution prévue <span className="text-muted-foreground/70 text-xs">(optionnel)</span></Label>
-              <Input
-                type="date"
-                value={dateRestitution}
-                onChange={(e) => setDateRestitution(e.target.value)}
-              />
+              <div className="flex gap-1.5">
+                <Input
+                  type="date"
+                  value={dateRestitution}
+                  onChange={(e) => setDateRestitution(e.target.value)}
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="h-9 w-9 shrink-0"
+                  title="Aujourd'hui"
+                  onClick={() => setDateRestitution(new Date().toISOString().slice(0, 10))}
+                >
+                  <CalendarCheck className="h-3.5 w-3.5" />
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -448,12 +474,12 @@ export function BonCreatePage() {
                   <div key={eq._id} className="grid grid-cols-[1fr_120px_120px_80px_32px] gap-2 items-center">
                     <div>
                       {eq.catalogItemId ? (
-                        <div className="flex items-center gap-1 rounded-md bg-blue-50 border border-blue-100 px-2 py-1.5 text-sm">
-                          <span className="font-medium text-blue-800">{eq.catalogItemLabel}</span>
+                        <div className="flex items-center gap-1 rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 px-2 py-1.5 text-sm">
+                          <span className="font-medium text-blue-800 dark:text-blue-200">{eq.catalogItemLabel}</span>
                           <button
                             type="button"
                             onClick={() => updateEquipment(eq._id, 'catalogItemId', '')}
-                            className="ml-auto text-blue-400 hover:text-blue-600"
+                            className="ml-auto text-blue-400 dark:text-blue-500 hover:text-blue-600 dark:hover:text-blue-300"
                             aria-label="Retirer cet article du catalogue"
                           >
                             <X className="h-3 w-3" />
@@ -489,7 +515,7 @@ export function BonCreatePage() {
                     <button
                       type="button"
                       onClick={() => removeEquipment(eq._id)}
-                      className="text-slate-300 hover:text-red-500 transition-colors"
+                      className="text-muted-foreground/50 hover:text-red-500 dark:hover:text-red-400 transition-colors"
                       aria-label="Supprimer cet équipement"
                     >
                       <Trash2 className="h-3.5 w-3.5" />

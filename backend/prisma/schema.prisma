@@ -178,6 +178,7 @@ model Bon {
   notifications NotificationLog[]
   auditLogs     AuditLog[]
   pdfSnapshots  PdfSnapshot[]
+  smbExports    SmbExport[]
 
   @@index([status])
   @@index([collaborateurId])
@@ -254,6 +255,29 @@ model PdfSnapshot {
 
   @@unique([bonId, type])
   @@map("pdf_snapshots")
+}
+
+enum SmbExportStatus {
+  pending
+  success
+  failed
+}
+
+model SmbExport {
+  id            String          @id @default(uuid())
+  bonId         String          @map("bon_id")
+  bon           Bon             @relation(fields: [bonId], references: [id], onDelete: Cascade)
+  filename      String
+  status        SmbExportStatus @default(pending)
+  errorMessage  String?         @map("error_message")
+  retryCount    Int             @default(0) @map("retry_count")
+  lastAttemptAt DateTime?       @map("last_attempt_at")
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@index([bonId])
+  @@map("smb_exports")
 }
 
 enum ContestationStatus {

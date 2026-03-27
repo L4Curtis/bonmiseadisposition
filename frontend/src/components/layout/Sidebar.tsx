@@ -60,7 +60,8 @@ const adminNavGroups: NavGroup[] = [
   {
     title: 'Système',
     items: [
-      { to: '/admin/templates', icon: Mail, label: 'Modèles d\'emails' },
+      { to: '/admin/email-templates', icon: Mail, label: 'Modèles d\'emails' },
+      { to: '/admin/pdf-templates', icon: FileText, label: 'Modèles PDF' },
       { to: '/admin/ldap', icon: Server, label: 'Active Directory' },
       { to: '/admin/audit', icon: ScrollText, label: 'Journal d\'audit' },
       { to: '/admin/configuration', icon: Settings, label: 'Configuration' },

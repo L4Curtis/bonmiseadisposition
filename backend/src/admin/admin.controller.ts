@@ -2,7 +2,6 @@
   Controller, Get, Put, Post, Delete, Body, Param, UseGuards, BadRequestException, ForbiddenException,
 } from '@nestjs/common';
 import { AdminService } from './admin.service';
-import { BulkConfigValuesDto } from './dto/config.dto';
 import { LdapService } from '../ldap/ldap.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -36,9 +35,43 @@ export class AdminController {
     private readonly smbService: SmbService,
   ) {}
 
-  // â”€â”€ Config CRUD â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Catégories réservées aux admins (contiennent des infos sensibles même masquées)
   private static readonly ADMIN_ONLY_CATEGORIES = ['entra', 'ldap', 'smtp', 'smb'];
+
+  // ── SMB monitoring (MUST be declared before config/:category to avoid capture) ─
+  @Get('smb/status')
+  @Roles('admin')
+  async smbStatus() {
+    return this.smbService.getStatus();
+  }
+
+  @Get('smb/failed')
+  @Roles('admin')
+  async smbFailed() {
+    return this.smbService.getFailedExports();
+  }
+
+  @Post('smb/retry/:id')
+  @Roles('admin')
+  async smbRetryOne(@Param('id') id: string) {
+    const result = await this.smbService.retryOne(id);
+    if (!result.success && result.error === 'SMB non activé') {
+      throw new BadRequestException('SMB n\'est pas activé');
+    }
+    return result;
+  }
+
+  @Post('smb/retry-all')
+  @Roles('admin')
+  async smbRetryAll() {
+    const enabled = await this.configService.get('smb', 'enabled');
+    if (enabled !== 'true') {
+      throw new BadRequestException('SMB n\'est pas activé');
+    }
+    return this.smbService.retryAllFailed();
+  }
+
+  // â”€â”€ Config CRUD â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   @Get('config/:category')
   async getConfig(@Param('category') category: string, @CurrentUser() user: AuthUser) {
@@ -54,7 +87,7 @@ export class AdminController {
   @Roles('admin')
   async setConfig(
     @Param('category') category: string,
-    @Body() body: BulkConfigValuesDto,
+    @Body() body: Record<string, string>,
     @CurrentUser() user: AuthUser,
   ) {
     // Valider la catégorie

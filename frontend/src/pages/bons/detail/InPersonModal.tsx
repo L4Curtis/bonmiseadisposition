@@ -18,11 +18,11 @@ interface InPersonModalProps {
 
 export function InPersonModal({ type, token, onClose }: InPersonModalProps) {
   const signerUrl = `${window.location.origin}/signer/${token}`;
-  const typLabel = type === 'restitution' ? 'restitution' : 'mise \u00e0 disposition';
+  const typLabel = type === 'restitution' ? 'restitution' : 'mise à disposition';
 
   const handleCopyLink = () => {
     navigator.clipboard.writeText(signerUrl);
-    toast({ title: 'Lien copi\u00e9', description: 'Le lien de signature a \u00e9t\u00e9 copi\u00e9 dans le presse-papier.' });
+    toast({ title: 'Lien copié', description: 'Le lien de signature a été copié dans le presse-papier.' });
   };
 
   return (
@@ -31,10 +31,10 @@ export function InPersonModal({ type, token, onClose }: InPersonModalProps) {
         <DialogHeader>
           <div className="flex items-center gap-2">
             <Smartphone className="h-5 w-5 text-blue-600" />
-            <DialogTitle>Signature pr\u00e9sentielle</DialogTitle>
+            <DialogTitle>Signature présentielle</DialogTitle>
           </div>
           <DialogDescription>
-            Demandez au collaborateur de scanner ce QR code ou ouvrez le lien sur votre \u00e9cran
+            Demandez au collaborateur de scanner ce QR code ou ouvrez le lien sur votre écran
             pour qu&apos;il signe la {typLabel}.
           </DialogDescription>
         </DialogHeader>

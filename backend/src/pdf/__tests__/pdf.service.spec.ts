@@ -1,7 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PdfService, BonForPdf, SigImages } from '../pdf.service';
+import { PdfTemplatesService } from '../pdf-templates.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
+import { createMockPdfTemplatesService } from '../../common/__tests__/helpers/mock-services';
 import { activeBon, partiallyReturnedBon } from '../../common/__tests__/fixtures/bon.fixtures';
 
 // Helper to access jest.Mock methods on deeply-nested prisma mocks
@@ -111,11 +113,13 @@ describe('PdfService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     prisma = createMockPrismaService();
+    const mockPdfTemplatesService = createMockPdfTemplatesService();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PdfService,
         { provide: PrismaService, useValue: prisma },
+        { provide: PdfTemplatesService, useValue: mockPdfTemplatesService },
       ],
     }).compile();
 

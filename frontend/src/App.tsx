@@ -21,6 +21,7 @@ const UtilisateursPage = lazy(() => import('@/pages/admin/Utilisateurs').then(m 
 const AuditLogsPage = lazy(() => import('@/pages/admin/AuditLogs').then(m => ({ default: m.AuditLogsPage })));
 const ContestationsPage = lazy(() => import('@/pages/admin/Contestations').then(m => ({ default: m.ContestationsPage })));
 const TemplatesPage = lazy(() => import('@/pages/admin/Templates').then(m => ({ default: m.TemplatesPage })));
+const PdfTemplatesPage = lazy(() => import('@/pages/admin/PdfTemplates').then(m => ({ default: m.PdfTemplatesPage })));
 const BonsListPage = lazy(() => import('@/pages/bons/BonsList').then(m => ({ default: m.BonsListPage })));
 const BonCreatePage = lazy(() => import('@/pages/bons/BonCreate').then(m => ({ default: m.BonCreatePage })));
 const BonDetailPage = lazy(() => import('@/pages/bons/BonDetail').then(m => ({ default: m.BonDetailPage })));
@@ -133,8 +134,11 @@ function AppRoutes() {
           <Route path="audit" element={
             <ProtectedRoute requiredRoles={['admin']}><AuditLogsPage /></ProtectedRoute>
           } />
-          <Route path="templates" element={
+          <Route path="email-templates" element={
             <ProtectedRoute requiredRoles={['admin']}><TemplatesPage /></ProtectedRoute>
+          } />
+          <Route path="pdf-templates" element={
+            <ProtectedRoute requiredRoles={['admin']}><PdfTemplatesPage /></ProtectedRoute>
           } />
         </Route>
       </Route>

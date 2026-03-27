@@ -1,6 +1,6 @@
 # Structure du Projet — Bon de Mise a Disposition
 
-> **Mis a jour le 2026-03-21** — Refonte navigation sidebar (3 sections, renommages, support badges)
+> **Mis a jour le 2026-03-26** — Corrections signatures PDF, restitution partielle, email restitution enrichi, déduplication hook signature
 
 ## Vue d'ensemble
 
@@ -90,7 +90,8 @@ BonDeMiseADisposition/
 │       │   ├── admin.controller.ts     # Config CRUD, tests LDAP/SMTP/Entra/SMB, sync LDAP
 │       │   ├── admin.service.ts        # Bulk config, test transports, purge LDAP
 │       │   ├── admin.dto.ts            # DTOs config sections
-│       │   └── templates.controller.ts # CRUD templates email (GET/PATCH/DELETE/:id, export, import)
+│       │   ├── templates.controller.ts # CRUD templates email (GET/PATCH/DELETE/:id, export, import)
+│       │   └── pdf-templates.controller.ts # CRUD templates PDF (7 endpoints, rate limit preview)
 │       │
 │       ├── ldap/
 │       │   ├── ldap.module.ts          # Module LDAP
@@ -127,7 +128,11 @@ BonDeMiseADisposition/
 │       │
 │       ├── pdf/
 │       │   ├── pdf.module.ts           # Module generation PDF
-│       │   └── pdf.service.ts          # PDFKit : mise_dispo, restitution, PV cloture, avenant
+│       │   ├── pdf.service.ts          # PDFKit : mise_dispo, restitution, PV cloture, avenant
+│       │   ├── pdf-template-config.ts  # Interfaces config + defaults + PREVIEW_BON + deepMerge + substituteVars
+│       │   ├── pdf-templates.service.ts # CRUD config PDF : getAll, getConfig, update, reset, export/import
+│       │   └── dto/
+│       │       └── update-pdf-template.dto.ts # Validation nested (couleurs hex, tailles, marges, textes)
 │       │
 │       ├── templates/
 │       │   ├── templates.module.ts     # Module global (@Global) — TemplatesService disponible partout
@@ -138,8 +143,10 @@ BonDeMiseADisposition/
 │       │   └── notification.service.ts # SMTP, rendu via TemplatesService, rappels cron (lun-ven 9h)
 │       │
 │       ├── smb/
-│       │   ├── smb.module.ts           # Module export partage reseau
-│       │   └── smb.service.ts          # Export PDF vers UNC/montage ({annee}/{ref_collab}/)
+│       │   ├── __tests__/
+│       │   │   └── smb.service.spec.ts # 20 tests: export, tracking, retry, cron, sanitize
+│       │   ├── smb.module.ts           # Module export partage reseau (imports PrismaModule)
+│       │   └── smb.service.ts          # Export PDF vers UNC/montage, tracking DB, retry cron, monitoring
 │       │
 │       ├── audit/
 │       │   ├── audit.module.ts         # Module journal d'audit
@@ -225,6 +232,8 @@ BonDeMiseADisposition/
                 ├── Filiales.tsx         # CRUD filiales + upload logo/cachet
                 ├── Utilisateurs.tsx     # Annuaire utilisateurs (recherche)
                 ├── Contestations.tsx    # Gestion contestations (open/review/resolve)
+                ├── Templates.tsx        # Gestion templates email (edit/apercu/reset/export/import)
+                ├── PdfTemplates.tsx     # Gestion templates PDF (4 types, couleurs/polices/marges/textes, preview PDF)
                 └── detail/
                     ├── Configuration.tsx # (alias)
                     ├── LdapSync.tsx     # (alias)
@@ -295,11 +304,15 @@ BonDeMiseADisposition/
 | POST | `/config/test/smtp` | admin | Tester SMTP (envoi test optionnel) |
 | POST | `/config/test/entra` | admin | Verifier credentials Entra ID |
 | POST | `/config/test/smb` | admin | Tester acces SMB |
+| GET | `/smb/status` | admin | Statut monitoring SMB (total, succes, echecs, pending) |
+| GET | `/smb/failed` | admin | Liste exports echoues avec reference bon |
+| POST | `/smb/retry/:id` | admin | Relancer un export echoue |
+| POST | `/smb/retry-all` | admin | Relancer tous les exports echoues |
 | GET | `/ldap/status` | admin, tech | Statut derniere sync LDAP |
 | POST | `/ldap/sync` | admin | Lancer sync LDAP manuelle |
 | DELETE | `/ldap/users` | admin | Purger utilisateurs LDAP |
 
-### Templates Email (`/api/admin/templates`)
+### Templates Email (`/api/admin/email-templates`)
 
 | Methode | Route | Roles | Description |
 |---------|-------|-------|-------------|
@@ -310,6 +323,18 @@ BonDeMiseADisposition/
 | GET | `/:id/preview` | admin, tech | Apercu rendu avec donnees exemples |
 | PATCH | `/:id` | admin, tech | Sauvegarder template personnalise |
 | DELETE | `/:id` | admin, tech | Reinitialiser template au defaut |
+
+### Templates PDF (`/api/admin/pdf-templates`)
+
+| Methode | Route | Roles | Description |
+|---------|-------|-------|-------------|
+| GET | `/` | admin, tech | Liste des 4 templates (nom, type, modifie) |
+| GET | `/export` | admin, tech | Exporter toutes les configs en JSON |
+| POST | `/import` | admin | Importer configs depuis JSON |
+| GET | `/:id/config` | admin, tech | Config actuelle + defaut + isCustomized + variables |
+| GET | `/:id/preview` | admin, tech | Generer PDF apercu (rate limit 10/min) |
+| PATCH | `/:id` | admin | Mettre a jour config (partiel, validation nested) |
+| DELETE | `/:id` | admin | Reinitialiser au defaut |
 
 ### Users (`/api/users`)
 
@@ -416,7 +441,8 @@ La sidebar est organisee en **3 sections principales**, chaque item peut avoir u
 - **Équipements** → `/admin/catalogue` (Catalogue 11 categories + packs)
 
 #### Système
-- **Modèles d'emails** → `/admin/templates` (CRUD templates + apercu + export/import)
+- **Modèles d'emails** → `/admin/email-templates` (CRUD templates + apercu + export/import)
+- **Modèles PDF** → `/admin/pdf-templates` (Config couleurs/polices/marges/textes + preview PDF)
 - **Active Directory** → `/admin/ldap` (Sync AD, statut, declenchement manuel)
 - **Journal d'audit** → `/admin/audit` (Filtres email/action/dates)
 - **Configuration** → `/admin/configuration` (LDAP, SMTP, Entra ID, rappels, tokens)
@@ -471,7 +497,8 @@ type NavGroup = {
 | `/admin/utilisateurs` | UtilisateursPage | admin, tech | Annuaire utilisateurs |
 | `/admin/audit` | AuditLogsPage | admin, tech | Journal d'audit |
 | `/admin/contestations` | ContestationsPage | admin, tech | Contestations |
-| `/admin/templates` | TemplatesPage | admin, tech | Gestion templates email (edit/apercu/reset/export/import) |
+| `/admin/email-templates` | TemplatesPage | admin | Gestion templates email (edit/apercu/reset/export/import) |
+| `/admin/pdf-templates` | PdfTemplatesPage | admin | Gestion templates PDF (couleurs/polices/marges/textes/preview) |
 
 ---
 
@@ -565,6 +592,44 @@ type NavGroup = {
 - **Personnalisation** : stockée en DB (AppConfig) ; le defaut code-source est toujours disponible pour reset
 - **Rendu** : `renderTemplate(id, vars)` — remplace les variables, retourne HTML final
 - **Apercu** : `getPreviewHtml(id)` — rendu avec donnees exemples (bac à sable)
+
+---
+
+## Systeme de templates PDF
+
+4 templates PDF personnalisables via config JSON structuree, stockes en DB (`AppConfig`, category=`pdf_templates`).
+
+### Templates disponibles
+
+| ID | Nom | Type de document |
+|----|-----|-----------------|
+| `mise_disposition` | Bon de mise a disposition | Remise d'equipements |
+| `restitution` | Bon de restitution | Retour d'equipements |
+| `cloture` | Proces-verbal de cloture | Equipements non restitues |
+| `avenant` | Avenant equipement retrouve | Correction post-cloture |
+
+### Sections de configuration (8)
+
+| Section | Proprietes | Description |
+|---------|-----------|-------------|
+| `colors` | primary, dark, gray, lightGray, border, headerBg, rowAlt | Schema de couleurs (hex) |
+| `fonts` | titleSize, subtitleSize, bodySize, labelSize, tableHeaderSize, tableBodySize | Tailles de police (5-24) |
+| `margins` | top, bottom, left, right | Marges du document (10-150) |
+| `header` | showLogo, logoMaxHeight/Width, titleText, subtitleText, showReference, showDates | En-tete |
+| `infoBoxes` | showCollaborateur, showEntite, collaborateurTitle, entiteTitle | Encadres d'information |
+| `table` | sectionTitle, showRowNumbers, emptyMessage | Tableau des equipements |
+| `signatures` | showSignatures, itTitle, itMention, collabTitle, collabMention | Blocs de signature |
+| `footer` | showFooter, footerText | Pied de page |
+
+### Architecture
+
+- **PdfTemplatesService** : CRUD config, deep merge (defaut + custom), cache via AppConfigService
+- **Variables** : syntaxe `{{NOM}}` dans les champs texte — FILIALE, REFERENCE, DATE, TIME, COLLAB_NAME, STATUS
+- **Personnalisation** : seules les proprietes modifiees sont stockees ; merge avec les defauts au chargement
+- **Preview** : generation PDF avec donnees fictives (PREVIEW_BON), retour binaire `application/pdf`
+- **Validation** : DTOs nested avec class-validator (couleurs hex, tailles min/max, textes max 500 car)
+- **Securite** : config JSON typee (pas d'eval/HTML), rate limit preview 10/min, audit log chaque modification
+- **Layout dynamique** : hauteur des info boxes calculee via `heightOfString()`, multi-pages automatique pour les equipements
 
 ---
 

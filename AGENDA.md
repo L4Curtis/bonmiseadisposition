@@ -35,7 +35,7 @@ Technicien cree le bon → appose son cachet IT → envoie au collaborateur
 | Auth tokens | JWT httpOnly cookie | access 15min / refresh 8h |
 | LDAP | ldapjs | sync cron 6h |
 | Email | Nodemailer (SMTP) | configurable dans admin |
-| PDF | Puppeteer (headless Chrome) | snapshots en Bytes PostgreSQL |
+| PDF | PDFKit (natif Node.js) | snapshots en Bytes PostgreSQL |
 | Signature | Canvas HTML5 natif | pas de lib externe |
 | UI | shadcn/ui + Tailwind CSS | |
 | Rate limiting | @nestjs/throttler | 10 req/60s sur /sign |
@@ -61,7 +61,7 @@ Technicien cree le bon → appose son cachet IT → envoie au collaborateur
 | `UsersModule` | module + service + controller | Liste + autocomplete |
 | `BonsModule` | module + service + controller + dto | CRUD bons, stats, export CSV, resend |
 | `SignatureModule` | module + service + controller + dto | Sign collab + cachet IT + chiffrement PNG |
-| `PdfModule` | module + service | Puppeteer → snapshot Bytes en DB |
+| `PdfModule` | module + service + templates service + config + dto | PDFKit, templates config, preview, snapshot en DB |
 | `NotificationModule` | module + service | SMTP + cron rappels + logs |
 | `AuditModule` | module + service + controller | Logs d'audit pagines |
 | `ContestationModule` | module + service + controller | Workflow contestation collab |
@@ -80,16 +80,19 @@ Bon, BonEquipment, Signature, Contestation, NotificationLog, AuditLog
           ContestationStatus, NotificationType, NotificationStatus
 ```
 
-**BonStatus (7 valeurs) :**
-`draft` → `sent_mise_dispo` → `active` → `sent_restitution` → `archived` | `cancelled` | `contested`
+**BonStatus (8 valeurs) :**
+`draft` → `sent_mise_dispo` → `active` → `sent_restitution` → `archived` | `partially_returned` | `cancelled` | `contested`
 
 > Pas d'etat intermediaire `signed_*` — le bon passe directement de `sent_mise_dispo` a `active`.
+> `partially_returned` : restitution partielle — le bon reste ouvert pour traiter les équipements restants.
+> Signature restitution depuis `partially_returned` → reste `partially_returned` (ne passe PAS à `archived`).
+> `pv_cloture` depuis `partially_returned` → `archived` (tous les équipements traités ou déclarés perdus).
 
-**SignatureType (3 valeurs) :** `mise_disposition`, `restitution`, `it_cachet`
+**SignatureType (4 valeurs) :** `mise_disposition`, `restitution`, `it_cachet`, `pv_cloture`
 
 ---
 
-## 5. Pages frontend — 14 pages React
+## 5. Pages frontend — 16 pages React
 
 | Page | Route | Role |
 |------|-------|------|
@@ -100,13 +103,16 @@ Bon, BonEquipment, Signature, Contestation, NotificationLog, AuditLog
 | BonDetail | `/bons/:id` | Actions IT, cachet integre (`PendingItAction`), PDF, renvoyer lien |
 | SignaturePage | `/signer/:token` | Canvas signature collab (publique, SSO obligatoire) |
 | PortailCollaborateur | `/mes-bons` | Bons perso, signer, contester, PDF |
+| BonDetailCollaborateur | `/mes-bons/:id` | Detail bon pour collaborateur |
 | Configuration | `/admin/configuration` | LDAP, Entra, SMTP (avec tests) |
 | LdapSync | `/admin/ldap` | Statut sync + resync manuelle |
-| Filiales | `/admin/filiales` | CRUD + upload |
+| Filiales | `/admin/filiales` | CRUD + upload (adresse, SIRET) |
 | Catalogue | `/admin/catalogue` | Items + packs |
 | Utilisateurs | `/admin/utilisateurs` | Liste users |
 | AuditLogs | `/admin/audit` | Tableau pagine + filtres |
 | Contestations | `/admin/contestations` | Workflow contestation |
+| Templates | `/admin/email-templates` | Templates email (edit/preview/reset/export/import) |
+| PdfTemplates | `/admin/pdf-templates` | Templates PDF (4 types, couleurs/polices/marges/textes, preview) |
 
 ---
 
@@ -149,9 +155,13 @@ Bon, BonEquipment, Signature, Contestation, NotificationLog, AuditLog
 - Anciens SVGs servis avec `Content-Disposition: attachment` pour bloquer l'execution
 - Rate limit 5/min sur les endpoints upload
 
-### SMB / Chemins fichiers
+### SMB / Export partage reseau
 - `isSafeExportPath()` dans `smb.service.ts` valide que le chemin n'est pas un repertoire systeme (`/etc`, `/proc`, `/bin`, etc.)
 - Toujours appeler avant ecriture fichier
+- **Tracking DB** : chaque export est suivi dans la table `smb_exports` (status: pending/success/failed)
+- **Monitoring admin** : widget dans Configuration > SMB affiche total/succes/echecs/pending + relance manuelle
+- **Retry cron** : `cronRetryFailedExports()` relance automatiquement les exports echoues (max 5 tentatives)
+- **Alerte** : log `WARN` prominent quand 3+ echecs en 24h (throttle 1h)
 
 ### Acces aux donnees sensibles
 - **Logs d'audit** : `@Roles('admin')` uniquement (pas technician)
@@ -186,6 +196,9 @@ FRONTEND_URL=https://bons.groupelivio.local
 | Config en DB chiffree (pas en `.env`) | Modifiable sans restart, securisee, administrable via UI |
 | Cachet IT integre dans les actions (pas bouton independant) | L'IT signe au moment de l'action, pas en brouillon |
 | `pdfType` explicite dans `signItCachet()` | Le statut du bon n'est pas fiable pour deduire le type (ex: bon `active` → IT initie restitution) |
+| Double rendu signature canvas (écran vs PDF) | Écran fin (`lineWidth=3`, couleur CSS) pour lisibilité ; export PDF épais (`lineWidth=6`, noir pur) via offscreen canvas replay — facteur de réduction PDF ~0.36 |
+| Restitution partielle → reste `partially_returned` | Le collaborateur signe mais des équipements restent en attente ; `pv_cloture` uniquement pour archiver |
+| `REMAINING_SECTION` dans email restitution | Section HTML conditionnelle : vide si restitution complète, affiche les équipements restants si partielle |
 | Export CSV : BOM UTF-8 + separateur `;` | Compatibilite Excel FR |
 | `useSearchParams` pour filtres BonsList | Synchronisation URL ↔ filtres (navigation depuis dashboard) |
 | Pas de `signed_mise_dispo` / `signed_restitution` dans l'enum | Le workflow va directement sent → active / sent → archived |
@@ -256,6 +269,17 @@ FRONTEND_URL=https://bons.groupelivio.local
 | `GET` | `/api/contestations` | admin/technician |
 | `PATCH` | `/api/contestations/:id/review` | admin/technician |
 | `PATCH` | `/api/contestations/:id/resolve` | admin/technician |
+
+### Templates PDF
+| Methode | Route | Auth |
+|---------|-------|------|
+| `GET` | `/api/admin/pdf-templates` | admin/technician |
+| `GET` | `/api/admin/pdf-templates/export` | admin/technician |
+| `POST` | `/api/admin/pdf-templates/import` | admin |
+| `GET` | `/api/admin/pdf-templates/:id/config` | admin/technician |
+| `GET` | `/api/admin/pdf-templates/:id/preview` | admin/technician (10/min) |
+| `PATCH` | `/api/admin/pdf-templates/:id` | admin |
+| `DELETE` | `/api/admin/pdf-templates/:id` | admin |
 
 ### Autres
 | Methode | Route | Auth |

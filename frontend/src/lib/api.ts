@@ -56,8 +56,43 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
+async function requestBlob(path: string): Promise<Blob> {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    headers: CSRF_HEADER,
+    credentials: 'include',
+  });
+
+  if (res.status === 401) {
+    if (!refreshPromise) {
+      refreshPromise = fetch(`${BASE_URL}/auth/refresh`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: CSRF_HEADER,
+      }).then((refreshed) => {
+        if (!refreshed.ok) {
+          window.location.href = '/login';
+          throw new ApiError(401, 'Session expired');
+        }
+      }).finally(() => {
+        refreshPromise = null;
+      });
+    }
+    await refreshPromise;
+    const retryRes = await fetch(`${BASE_URL}${path}`, {
+      headers: CSRF_HEADER,
+      credentials: 'include',
+    });
+    if (!retryRes.ok) throw new ApiError(retryRes.status, await retryRes.text());
+    return retryRes.blob();
+  }
+
+  if (!res.ok) throw new ApiError(res.status, await res.text());
+  return res.blob();
+}
+
 export const api = {
   get: <T>(path: string) => request<T>(path),
+  getBlob: (path: string) => requestBlob(path),
   post: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: 'POST', body: JSON.stringify(body) }),
   put: <T>(path: string, body?: unknown) =>

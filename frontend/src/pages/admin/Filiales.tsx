@@ -30,8 +30,8 @@ function FilialeForm({
   const [form, setForm] = useState({
     name: filiale?.name || '',
     displayName: filiale?.displayName || '',
-    address: '',
-    siret: '',
+    address: filiale?.address || '',
+    siret: filiale?.siret || '',
   });
   const [saved, setSaved] = useState(false);
 
@@ -58,6 +58,22 @@ function FilialeForm({
             value={form.displayName}
             onChange={(e) => setForm((f) => ({ ...f, displayName: e.target.value }))}
             placeholder="Fresse GDO SAS"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label>Adresse</Label>
+          <Input
+            value={form.address}
+            onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
+            placeholder="123 Avenue de la République, 75011 Paris"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label>SIRET</Label>
+          <Input
+            value={form.siret}
+            onChange={(e) => setForm((f) => ({ ...f, siret: e.target.value }))}
+            placeholder="123 456 789 00012"
           />
         </div>
       </div>
@@ -240,6 +256,8 @@ export function FilialesPage() {
                     <div>
                       <p className="font-medium text-foreground">{f.displayName}</p>
                       <p className="text-xs text-muted-foreground">AD: {f.name}</p>
+                      {f.address && <p className="text-xs text-muted-foreground">{f.address}</p>}
+                      {f.siret && <p className="text-xs text-muted-foreground">SIRET: {f.siret}</p>}
                     </div>
                     <Badge variant={f.active ? 'success' : 'outline'}>
                       {f.active ? 'Active' : 'Inactive'}
