@@ -19,7 +19,7 @@ import {
   Clock,
   Loader2,
 } from 'lucide-react';
-import { BON_STATUS_LABELS, BON_STATUS_COLORS, type BonStatus } from '@/types';
+import { StatusBadge } from '@/components/StatusBadge';
 import { ContestationDialog } from '@/components/ContestationDialog';
 import type { BonDetailData, PdfSnapshotInfo, EquipmentItem } from './detail/types';
 import { equipmentLabel, sigTypeLabel, SNAPSHOT_LABELS } from './detail/types';
@@ -52,7 +52,7 @@ function EquipmentStatusBadge({ eq }: { eq: EquipmentItem }) {
 
 function DetailSkeleton() {
   return (
-    <div className="space-y-6 max-w-4xl">
+    <div className="space-y-6 ">
       <Skeleton className="h-8 w-64" />
       <div className="grid gap-4 md:grid-cols-2">
         <Skeleton className="h-32" />
@@ -126,7 +126,7 @@ export function BonDetailCollaborateurPage() {
 
   if (loadError || !bon) {
     return (
-      <div className="max-w-4xl">
+      <div className="">
         <Card className="border-destructive/30">
           <CardContent className="p-8 text-center" role="alert">
             <XCircle className="h-10 w-10 mx-auto mb-3 text-destructive/60" />
@@ -144,7 +144,7 @@ export function BonDetailCollaborateurPage() {
   const showEquipmentStatus = ['sent_restitution', 'partially_returned', 'archived'].includes(bon.status);
 
   return (
-    <div className="space-y-6 max-w-4xl">
+    <div className="space-y-6 ">
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3">
@@ -154,9 +154,7 @@ export function BonDetailCollaborateurPage() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-bold font-mono">{bon.reference}</h1>
-              <span className={'inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ' + BON_STATUS_COLORS[bon.status]}>
-                {BON_STATUS_LABELS[bon.status]}
-              </span>
+              <StatusBadge status={bon.status} signatures={bon.signatures} />
             </div>
             <p className="text-xs text-muted-foreground mt-0.5">
               Créé le {formatDateLong(bon.createdAt)}

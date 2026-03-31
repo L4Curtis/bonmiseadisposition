@@ -62,9 +62,17 @@ export class BonsService {
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
 
-    const [waitingSignature, active, overdue, total, archivedThisMonth, filialesRaw] = await Promise.all([
+    const [waitingSignature, active, overdue, total, archivedThisMonth, partiallyReturned, filialesRaw] = await Promise.all([
       this.prisma.bon.count({
-        where: { status: { in: ['sent_mise_dispo', 'sent_restitution', 'partially_returned'] } },
+        where: {
+          OR: [
+            { status: { in: ['sent_mise_dispo', 'sent_restitution'] } },
+            {
+              status: 'partially_returned',
+              signatures: { some: { signed: false, type: { in: ['restitution', 'pv_cloture'] } } },
+            },
+          ],
+        },
       }),
       this.prisma.bon.count({ where: { status: 'active' } }),
       this.prisma.bon.count({
@@ -79,6 +87,7 @@ export class BonsService {
       this.prisma.bon.count({
         where: { status: 'archived', updatedAt: { gte: monthStart } },
       }),
+      this.prisma.bon.count({ where: { status: 'partially_returned' } }),
       this.prisma.filiale.findMany({
         where: { active: true },
         select: {
@@ -100,6 +109,7 @@ export class BonsService {
       overdue,
       total,
       archivedThisMonth,
+      partiallyReturned,
       byFiliale: filialesRaw
         .map((f) => ({ id: f.id, name: f.displayName, count: f._count.bons }))
         .filter((f) => f.count > 0),
@@ -109,7 +119,11 @@ export class BonsService {
   async getExportData(filters: { status?: string; filialeId?: string; search?: string }) {
     const { status, filialeId, search } = filters;
     const where: Prisma.BonWhereInput = {};
-    if (status) where.status = status as BonStatus;
+    if (status && status.includes(',')) {
+      where.status = { in: status.split(',') as BonStatus[] };
+    } else if (status) {
+      where.status = status as BonStatus;
+    }
     if (filialeId) where.filialeId = filialeId;
     if (search) {
       where.OR = [
@@ -182,15 +196,21 @@ export class BonsService {
 
   async findAll(filters: {
     status?: string;
+    excludeStatus?: string;
     filialeId?: string;
     search?: string;
     page?: number;
     limit?: number;
   }) {
-    const { status, filialeId, search, page = 1, limit = 20 } = filters;
+    const { status, excludeStatus, filialeId, search, page = 1, limit = 20 } = filters;
     const where: Prisma.BonWhereInput = {};
 
-    if (status) where.status = status as BonStatus;
+    if (status && status.includes(',')) {
+      where.status = { in: status.split(',') as BonStatus[] };
+    } else if (status) {
+      where.status = status as BonStatus;
+    }
+    if (excludeStatus) where.status = { notIn: excludeStatus.split(',') as BonStatus[] };
     if (filialeId) where.filialeId = filialeId;
     if (search) {
       where.OR = [

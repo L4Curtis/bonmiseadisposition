@@ -42,7 +42,7 @@ export const BON_STATUS_LABELS: Record<BonStatus, string> = {
   draft: 'Brouillon',
   sent_mise_dispo: 'En attente de signature',
   active: 'Actif',
-  sent_restitution: 'Restitution en attente',
+  sent_restitution: 'En attente de restitution',
   partially_returned: 'Restitution partielle',
   archived: 'Archivé',
   cancelled: 'Annulé',

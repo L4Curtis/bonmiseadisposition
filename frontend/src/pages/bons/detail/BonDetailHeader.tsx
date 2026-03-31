@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { ChevronLeft } from 'lucide-react';
-import { BON_STATUS_LABELS, BON_STATUS_COLORS } from '@/types';
+import { StatusBadge } from '@/components/StatusBadge';
 import { formatDateLong } from '@/lib/utils';
 import type { BonDetailData } from './types';
 import { BonActionButtons, type BonActionButtonsProps } from './BonActionButtons';
@@ -25,9 +25,7 @@ export function BonDetailHeader(props: BonDetailHeaderProps) {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-bold font-mono text-foreground">{bon.reference}</h1>
-            <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${BON_STATUS_COLORS[bon.status]}`}>
-              {BON_STATUS_LABELS[bon.status]}
-            </span>
+            <StatusBadge status={bon.status} signatures={bon.signatures} />
           </div>
           <p className="text-xs text-muted-foreground/70 mt-0.5">
             Créé le {formatDateLong(bon.createdAt)} par {bon.createdBy.displayName}

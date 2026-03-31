@@ -6,6 +6,10 @@ export class QueryBonsDto {
   status?: string;
 
   @IsOptional()
+  @IsString()
+  excludeStatus?: string;
+
+  @IsOptional()
   @IsUUID()
   filialeId?: string;
 

@@ -5,7 +5,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { FileText, Clock, CheckCircle2, Archive, ExternalLink, AlertOctagon, XCircle, ChevronRight } from 'lucide-react';
-import { BON_STATUS_LABELS, BON_STATUS_COLORS, type BonStatus } from '@/types';
+import { type BonStatus } from '@/types';
+import { StatusBadge } from '@/components/StatusBadge';
 import { formatDateLong } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { ContestationDialog } from '@/components/ContestationDialog';
@@ -84,14 +85,14 @@ export function PortailCollaborateur() {
   };
 
   if (loading) return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="space-y-6 ">
       <Skeleton className="h-8 w-48" />
       <BonsSkeleton />
     </div>
   );
 
   if (loadError) return (
-    <div className="max-w-3xl">
+    <div className="">
       <Card className="border-destructive/30">
         <CardContent className="p-8 text-center" role="alert">
           <XCircle className="h-10 w-10 mx-auto mb-3 text-destructive/60" />
@@ -116,7 +117,7 @@ export function PortailCollaborateur() {
   );
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="space-y-6 ">
       <div>
         <h1 className="text-2xl font-bold text-foreground">Mes équipements</h1>
         <p className="text-sm text-muted-foreground mt-0.5">
@@ -152,9 +153,7 @@ export function PortailCollaborateur() {
                         <div className="flex items-center justify-between gap-2">
                           <div className="flex items-center gap-2">
                             <span className="font-mono text-sm font-semibold text-foreground">{bon.reference}</span>
-                            <span className={'inline-flex rounded-full px-2 py-0.5 text-xs font-medium ' + BON_STATUS_COLORS[bon.status]}>
-                              {BON_STATUS_LABELS[bon.status]}
-                            </span>
+                            <StatusBadge status={bon.status} signatures={bon.signatures} />
                           </div>
                           <Button
                             variant="ghost"
@@ -202,9 +201,7 @@ export function PortailCollaborateur() {
                           <p className="text-xs text-muted-foreground">Depuis le {formatDateLong(bon.dateMiseDisposition)}</p>
                         </div>
                         <div className="flex flex-col items-end gap-2">
-                          <span className={'inline-flex rounded-full px-2 py-0.5 text-xs font-medium ' + BON_STATUS_COLORS[bon.status]}>
-                            {BON_STATUS_LABELS[bon.status]}
-                          </span>
+                          <StatusBadge status={bon.status} signatures={bon.signatures} />
                           <Button
                             variant="outline"
                             size="sm"
@@ -237,9 +234,7 @@ export function PortailCollaborateur() {
                           <span className="font-mono text-sm font-semibold text-foreground">{bon.reference}</span>
                           <p className="text-xs text-muted-foreground mt-0.5">{bon.filiale.displayName}</p>
                         </div>
-                        <span className={'inline-flex rounded-full px-2 py-0.5 text-xs font-medium ' + BON_STATUS_COLORS[bon.status]}>
-                          {BON_STATUS_LABELS[bon.status]}
-                        </span>
+                        <StatusBadge status={bon.status} signatures={bon.signatures} />
                       </div>
                       <p className="text-xs text-destructive mt-2">Contestation en cours d'examen par le service IT.</p>
                     </CardContent>
@@ -278,9 +273,7 @@ export function PortailCollaborateur() {
                             <td className="px-4 py-2.5 font-mono text-xs font-semibold">{bon.reference}</td>
                             <td className="px-4 py-2.5 text-muted-foreground">{bon.filiale.displayName}</td>
                             <td className="px-4 py-2.5">
-                              <span className={'inline-flex rounded-full px-2 py-0.5 text-xs font-medium ' + BON_STATUS_COLORS[bon.status]}>
-                                {BON_STATUS_LABELS[bon.status]}
-                              </span>
+                              <StatusBadge status={bon.status} signatures={bon.signatures} />
                             </td>
                             <td className="px-4 py-2.5 text-muted-foreground text-xs">{formatDateLong(bon.dateMiseDisposition)}</td>
                             <td className="px-4 py-2.5">

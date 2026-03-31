@@ -4,10 +4,12 @@ import { api } from '@/lib/api';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   FileText, Clock, CheckCircle, AlertTriangle, Plus,
-  Building2, CalendarDays, ArrowRight,
+  Building2, CalendarDays, ArrowRight, Archive, RotateCcw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { BON_STATUS_LABELS, BON_STATUS_COLORS, type BonStatus } from '@/types';
+import { StatusBadge } from '@/components/StatusBadge';
+import { type BonStatus } from '@/types';
+import { isWaitingStatus, type SignatureSummary } from '@/lib/bon-helpers';
 import { formatDate } from '@/lib/utils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -18,6 +20,7 @@ interface Stats {
   overdue: number;
   total: number;
   archivedThisMonth: number;
+  partiallyReturned: number;
   byFiliale: { id: string; name: string; count: number }[];
 }
 
@@ -29,12 +32,13 @@ interface RecentBon {
   updatedAt: string;
   collaborateur: { displayName: string; email: string };
   filiale: { displayName: string };
+  signatures: SignatureSummary[];
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function isOverdue(bon: RecentBon) {
-  if (!['sent_mise_dispo', 'sent_restitution'].includes(bon.status)) return false;
+  if (!isWaitingStatus(bon.status)) return false;
   return new Date(bon.updatedAt) < new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 }
 
@@ -141,7 +145,7 @@ export function DashboardIT() {
       icon: FileText,
       iconBg: 'bg-[hsl(var(--primary)/0.10)] dark:bg-[hsl(var(--primary)/0.15)]',
       iconColor: 'text-[hsl(var(--primary))]',
-      onClick: () => navigate('/bons'),
+      onClick: () => navigate('/bons?excludeStatus=cancelled,archived'),
     },
     {
       label: 'En attente de signature',
@@ -149,7 +153,7 @@ export function DashboardIT() {
       icon: Clock,
       iconBg: 'bg-amber-100 dark:bg-amber-900/20',
       iconColor: 'text-amber-600 dark:text-amber-400',
-      onClick: () => navigate('/bons?status=sent_mise_dispo'),
+      onClick: () => navigate('/bons?status=sent_mise_dispo,sent_restitution,partially_returned'),
     },
     {
       label: 'Bons actifs',
@@ -158,6 +162,22 @@ export function DashboardIT() {
       iconBg: 'bg-emerald-100 dark:bg-emerald-900/20',
       iconColor: 'text-emerald-600 dark:text-emerald-400',
       onClick: () => navigate('/bons?status=active'),
+    },
+    {
+      label: 'Restitution partielle',
+      value: stats?.partiallyReturned ?? 0,
+      icon: RotateCcw,
+      iconBg: 'bg-blue-100 dark:bg-blue-900/20',
+      iconColor: 'text-blue-600 dark:text-blue-400',
+      onClick: () => navigate('/bons?status=partially_returned'),
+    },
+    {
+      label: 'Archivés ce mois',
+      value: stats?.archivedThisMonth ?? 0,
+      icon: Archive,
+      iconBg: 'bg-violet-100 dark:bg-violet-900/20',
+      iconColor: 'text-violet-600 dark:text-violet-400',
+      onClick: () => navigate('/bons?status=archived'),
     },
     {
       label: 'En retard (> 7 j)',
@@ -195,9 +215,9 @@ export function DashboardIT() {
       </div>
 
       {/* ── KPI cards ── */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {loading
-          ? Array.from({ length: 4 }).map((_, i) => <StatCardSkeleton key={i} />)
+          ? Array.from({ length: 6 }).map((_, i) => <StatCardSkeleton key={i} />)
           : statCards.map((card, index) => <StatCard key={card.label} {...card} className={`animate-fade-in-up-${index + 1}`} />)
         }
       </div>
@@ -242,22 +262,18 @@ export function DashboardIT() {
                     className="group w-full text-left flex items-center gap-4 px-5 py-3.5 hover:bg-muted/40 transition-colors cursor-pointer"
                     onClick={() => navigate(`/bons/${bon.id}`)}
                   >
-                    {/* Reference badge */}
                     <span className="shrink-0 font-mono text-xs font-semibold text-foreground/80 bg-muted group-hover:bg-muted rounded px-2 py-1 transition-colors">
                       {bon.reference}
                     </span>
 
-                    {/* Collaborateur */}
                     <span className="flex-1 min-w-0 text-sm text-foreground/80 truncate">
                       {bon.collaborateur.displayName}
                     </span>
 
-                    {/* Status badge */}
-                    <span className={`shrink-0 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${BON_STATUS_COLORS[bon.status]}`}>
-                      {BON_STATUS_LABELS[bon.status]}
+                    <span className="shrink-0">
+                      <StatusBadge status={bon.status} signatures={bon.signatures} />
                     </span>
 
-                    {/* Overdue indicator */}
                     {late && (
                       <span className="shrink-0 inline-flex items-center gap-1 text-xs font-medium text-red-600 dark:text-red-400">
                         <AlertTriangle className="h-3 w-3" />
@@ -265,7 +281,6 @@ export function DashboardIT() {
                       </span>
                     )}
 
-                    {/* Date */}
                     <span className="shrink-0 text-xs text-muted-foreground/70">
                       {formatDate(bon.dateMiseDisposition)}
                     </span>
@@ -306,7 +321,7 @@ export function DashboardIT() {
                         {f.count}
                       </span>
                     </div>
-                    <div className="w-full bg-muted rounded-full h-1">
+                    <div className="w-full bg-muted rounded-full h-1.5">
                       <div
                         className="bg-[hsl(var(--primary))] h-1.5 rounded-full transition-all duration-500"
                         style={{ width: `${pct}%` }}

@@ -12,7 +12,9 @@ import {
   Download,
   X,
 } from 'lucide-react';
-import { BON_STATUS_LABELS, BON_STATUS_COLORS, type BonStatus } from '@/types';
+import { type BonStatus } from '@/types';
+import { StatusBadge } from '@/components/StatusBadge';
+import { type SignatureSummary } from '@/lib/bon-helpers';
 import { formatDate } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import type { Filiale } from '@/types';
@@ -28,14 +30,15 @@ interface Bon {
   filiale: Filiale;
   createdBy: { id: string; displayName: string };
   equipments: { id: string }[];
+  signatures: SignatureSummary[];
 }
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: '', label: 'Tous les statuts' },
   { value: 'draft', label: 'Brouillon' },
-  { value: 'sent_mise_dispo', label: 'En attente signature' },
+  { value: 'sent_mise_dispo', label: 'En attente de signature' },
   { value: 'active', label: 'Actif' },
-  { value: 'sent_restitution', label: 'Restitution en attente' },
+  { value: 'sent_restitution', label: 'En attente de restitution' },
   { value: 'partially_returned', label: 'Restitution partielle' },
   { value: 'archived', label: 'Archivé' },
   { value: 'cancelled', label: 'Annulé' },
@@ -73,6 +76,7 @@ export function BonsListPage() {
 
   const [search, setSearch] = useState(searchParams.get('search') ?? '');
   const [statusFilter, setStatusFilter] = useState(searchParams.get('status') ?? '');
+  const excludeStatus = searchParams.get('excludeStatus') ?? '';
   const [filialeFilter, setFilialeFilter] = useState(searchParams.get('filialeId') ?? '');
   const [searchInput, setSearchInput] = useState(searchParams.get('search') ?? '');
   const [exportLoading, setExportLoading] = useState(false);
@@ -111,6 +115,7 @@ export function BonsListPage() {
     const urlParams: Record<string, string> = {};
     if (search) urlParams['search'] = search;
     if (statusFilter) urlParams['status'] = statusFilter;
+    if (excludeStatus) urlParams['excludeStatus'] = excludeStatus;
     if (filialeFilter) urlParams['filialeId'] = filialeFilter;
     setSearchParams(urlParams, { replace: true });
 
@@ -118,6 +123,7 @@ export function BonsListPage() {
     const params = new URLSearchParams();
     if (search) params.set('search', search);
     if (statusFilter) params.set('status', statusFilter);
+    if (excludeStatus) params.set('excludeStatus', excludeStatus);
     if (filialeFilter) params.set('filialeId', filialeFilter);
     params.set('page', String(page));
     params.set('limit', String(limit));
@@ -130,7 +136,7 @@ export function BonsListPage() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [search, statusFilter, filialeFilter, page]);
+  }, [search, statusFilter, excludeStatus, filialeFilter, page]);
 
   const totalPages = Math.ceil(total / limit);
   const hasActiveFilters = search || statusFilter || filialeFilter;
@@ -365,11 +371,7 @@ export function BonsListPage() {
 
                     {/* Status */}
                     <td className="px-4 py-3.5">
-                      <span
-                        className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${BON_STATUS_COLORS[bon.status]}`}
-                      >
-                        {BON_STATUS_LABELS[bon.status]}
-                      </span>
+                      <StatusBadge status={bon.status} signatures={bon.signatures} size="md" />
                     </td>
 
                     {/* Action */}

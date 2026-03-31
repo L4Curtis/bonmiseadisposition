@@ -102,9 +102,10 @@ export class BonsController {
 
   @Get()
   findAll(@Query() dto: QueryBonsDto) {
-    const { status, filialeId, search, page, limit } = dto;
+    const { status, excludeStatus, filialeId, search, page, limit } = dto;
     return this.bonsService.findAll({
       status,
+      excludeStatus,
       filialeId,
       search,
       page: page ? parseInt(page) : 1,
