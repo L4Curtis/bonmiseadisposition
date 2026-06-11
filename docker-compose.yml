@@ -25,6 +25,7 @@ services:
       DATABASE_URL: postgresql://app:${POSTGRES_PASSWORD}@db:5432/bons_disposition
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       JWT_SECRET: ${JWT_SECRET}
+      DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:-}
       NODE_ENV: development
       FRONTEND_URL: http://localhost:5173
     volumes:
@@ -35,10 +36,13 @@ services:
     networks:
       - internal
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:4000/health || exit 1"]
+      # Le préfixe global rend la route /api/health (et non /health) — un
+      # mauvais chemin laissait le backend unhealthy et bloquait le frontend
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4000/api/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 30s
 
   frontend:
     build:

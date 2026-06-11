@@ -8,6 +8,9 @@
 #   POSTGRES_PASSWORD = openssl rand -base64 24
 #   FRONTEND_URL      = https://bons.groupelivio.local
 #   FRONTEND_PORT     = 5147  (optionnel, défaut 5147)
+#   FRONTEND_BIND     = 127.0.0.1 si NPM tourne sur la même machine (recommandé :
+#                       évite l'accès HTTP direct en clair qui contournerait NPM
+#                       et permettrait de forger X-Real-IP). Défaut 0.0.0.0.
 #
 # Mise à jour : Portainer → Stack → "Pull and redeploy"
 
@@ -43,6 +46,7 @@ services:
       DATABASE_URL: postgresql://app:${POSTGRES_PASSWORD}@db:5432/bons_disposition
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       JWT_SECRET: ${JWT_SECRET}
+      DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:-}
       NODE_ENV: production
       FRONTEND_URL: ${FRONTEND_URL}
     volumes:
@@ -68,7 +72,7 @@ services:
     image: ghcr.io/l4curtis/bonmiseadisposition-frontend:latest
     restart: unless-stopped
     ports:
-      - "${FRONTEND_PORT:-5147}:8080"
+      - "${FRONTEND_BIND:-0.0.0.0}:${FRONTEND_PORT:-5147}:8080"
     depends_on:
       backend:
         condition: service_healthy

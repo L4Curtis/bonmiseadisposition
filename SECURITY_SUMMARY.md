@@ -5,6 +5,17 @@
 **Commit** : `3cc3573`
 **Status** : ✅ Tout implémenté et testé
 
+> **Mise à jour 2026-06-11** — une review complète (voir `CODE_REVIEW_2026-06-11.md`)
+> a relevé puis corrigé une régression de SEC-03 : la chaîne réellement déployée
+> (NPM → `frontend/nginx.conf`) utilisait `$proxy_add_x_forwarded_for` (forgeable)
+> et écrasait `X-Real-IP` avec l'IP du proxy. Corrigé dans `frontend/nginx.conf`
+> (map X-Real-IP transmis depuis NPM, X-Forwarded-For écrasé) + `trust proxy`
+> côté backend. **Précision importante** : `nginx/nginx.conf` (TLS, HSTS, rate
+> limiting des signatures) n'est déployé par aucun docker-compose de ce repo —
+> ces protections sont assurées par Nginx Proxy Manager en production. Le
+> verrouillage brute-force (SEC-07) ne s'auto-prolonge plus, et la révocation
+> des refresh tokens est désormais persistée en base (levant la réserve SEC-05).
+
 ---
 
 ## Vue d'ensemble

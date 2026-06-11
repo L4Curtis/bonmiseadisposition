@@ -3,11 +3,13 @@ services:
   db:
     image: postgres:16-alpine
     ports:
-      - "5432:5432"
+      # Loopback uniquement : la base de dev (mot de passe faible) ne doit pas
+      # être joignable depuis le LAN du poste de travail
+      - "127.0.0.1:5432:5432"
     environment:
       POSTGRES_DB: bons_disposition
       POSTGRES_USER: app
-      POSTGRES_PASSWORD: devpassword
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-devpassword}
     volumes:
       - pgdata_dev:/var/lib/postgresql/data
     healthcheck:

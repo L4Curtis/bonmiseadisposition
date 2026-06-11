@@ -7,6 +7,7 @@ export function ConfigGeneralPage() {
       category="general"
       fields={[
         { key: 'local_auth_enabled', label: 'Connexion locale activée', toggle: true, defaultValue: 'true' },
+        { key: 'app_url', label: 'URL publique de l\'application', placeholder: 'https://bons.groupelivio.local (défaut : FRONTEND_URL)' },
       ]}
     />
   );

@@ -107,12 +107,19 @@ Dans **Advanced → Custom Nginx Configuration**, ajouter :
 
 ```nginx
 proxy_set_header X-Real-IP $remote_addr;
-proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+# ÉCRASER le header (jamais $proxy_add_x_forwarded_for, qui concatène la
+# valeur forgeable envoyée par le client — l'IP des signatures et des logs
+# d'audit doit être infalsifiable)
+proxy_set_header X-Forwarded-For $remote_addr;
 proxy_set_header X-Forwarded-Proto $scheme;
 ```
 
 > Sans cette config, les logs d'audit afficheront l'IP du container NPM (ex: `172.19.0.x`)
 > au lieu de l'IP réelle des utilisateurs.
+> Le nginx du conteneur frontend transmet le `X-Real-IP` posé par NPM tel quel au
+> backend. Pensez aussi à `FRONTEND_BIND=127.0.0.1` dans `.env` si NPM tourne sur
+> la même machine, pour empêcher un accès direct au port 5147 (qui permettrait de
+> forger ces en-têtes).
 
 ---
 
