@@ -29,6 +29,19 @@ function csrfMiddleware(req: Request, res: Response, next: NextFunction) {
 const logger = new Logger('Bootstrap');
 
 async function bootstrap() {
+  // Validation des secrets AU DÉMARRAGE : un JWT_SECRET manquant ne doit pas
+  // se découvrir en production via des 500 sur le login — le conteneur refuse
+  // de démarrer avec un message explicite dans les logs.
+  const jwtSecret = process.env.JWT_SECRET;
+  if (!jwtSecret || jwtSecret.length < 32) {
+    throw new Error(
+      'JWT_SECRET est requis et doit faire au moins 32 caractères. Générer : openssl rand -hex 32',
+    );
+  }
+  if (jwtSecret === process.env.ENCRYPTION_KEY) {
+    throw new Error('JWT_SECRET doit être différent de ENCRYPTION_KEY (surfaces d\'attaque isolées)');
+  }
+
   // Ensure upload directory exists
   mkdirSync(join(process.cwd(), 'data', 'uploads'), { recursive: true });
 
