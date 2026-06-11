@@ -1,14 +1,19 @@
 import {
   IsString,
   IsEnum,
-  IsDateString,
   IsOptional,
   IsArray,
   ValidateNested,
   IsInt,
   Min,
+  Matches,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+
+// Strict calendar date (the column is @db.Date): a full ISO datetime with a
+// timezone offset would be converted to UTC and could shift the date by a day.
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+const DATE_ONLY_MESSAGE = 'La date doit être au format YYYY-MM-DD';
 
 export class BonEquipmentDto {
   @IsOptional() @IsString() catalogItemId?: string;
@@ -23,8 +28,8 @@ export class CreateBonDto {
   @IsString() filialeId!: string;
   @IsString() collaborateurId!: string;
   @IsEnum(['mme', 'mr']) civilite!: string;
-  @IsDateString() dateMiseDisposition!: string;
-  @IsOptional() @IsDateString() dateRestitution?: string;
+  @Matches(DATE_ONLY, { message: DATE_ONLY_MESSAGE }) dateMiseDisposition!: string;
+  @IsOptional() @Matches(DATE_ONLY, { message: DATE_ONLY_MESSAGE }) dateRestitution?: string;
   @IsOptional() @IsString() notes?: string;
   @IsOptional()
   @IsArray()
@@ -38,8 +43,8 @@ export class UpdateBonDto {
   @IsOptional() @IsString() filialeId?: string;
   @IsOptional() @IsString() collaborateurId?: string;
   @IsOptional() @IsEnum(['mme', 'mr']) civilite?: string;
-  @IsOptional() @IsDateString() dateMiseDisposition?: string;
-  @IsOptional() @IsDateString() dateRestitution?: string;
+  @IsOptional() @Matches(DATE_ONLY, { message: DATE_ONLY_MESSAGE }) dateMiseDisposition?: string;
+  @IsOptional() @Matches(DATE_ONLY, { message: DATE_ONLY_MESSAGE }) dateRestitution?: string;
   @IsOptional() @IsString() notes?: string;
   @IsOptional()
   @IsArray()

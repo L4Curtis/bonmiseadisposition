@@ -69,8 +69,14 @@ export class PdfService {
   ) {}
 
   /**
-   * Génère le PDF d'un bon et le sauvegarde en base (snapshot immuable).
-   * snapshotType = PdfSnapshotType enum value
+   * Génère le PDF d'un bon et le sauvegarde en base.
+   * snapshotType = PdfSnapshotType enum value.
+   *
+   * Sémantique d'écrasement (UNIQUE(bonId, type) — une seule ligne par type) :
+   * - signature_collab_mise_disposition : signé UNE fois → jamais écrasé ;
+   * - signature_collab_restitution / cloture / it_* : régénérés par design
+   *   (restitutions partielles successives, PV brouillon IT → PV co-signé) ;
+   * - avenant : un seul avenant conservé par bon (limitation connue).
    */
   async generateAndSave(
     bon: BonForPdf,
@@ -86,6 +92,20 @@ export class PdfService {
     const MAX_PDF_SIZE = 10 * 1024 * 1024;
     if (pdf.length > MAX_PDF_SIZE) {
       throw new Error(`PDF trop volumineux (${(pdf.length / 1024 / 1024).toFixed(1)} MB > 10 MB) pour le bon ${bon.reference}`);
+    }
+
+    // The signed mise-à-disposition document is legally final: never replace it
+    if (snapshotType === 'signature_collab_mise_disposition') {
+      const existing = await this.prisma.pdfSnapshot.findUnique({
+        where: { bonId_type: { bonId: bon.id, type: snapshotType } },
+        select: { id: true },
+      });
+      if (existing) {
+        this.logger.warn(
+          `Snapshot ${snapshotType} existe déjà pour le bon ${bon.reference} — document signé conservé, régénération ignorée`,
+        );
+        return pdf;
+      }
     }
 
     // Upsert into PdfSnapshot table

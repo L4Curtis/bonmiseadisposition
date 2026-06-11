@@ -2,6 +2,12 @@ import { UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { AuthService } from '../auth.service';
+
+// Prevent ensureDefaultAdmin from writing the initial password file on disk
+jest.mock('fs', () => ({
+  ...jest.requireActual('fs'),
+  writeFileSync: jest.fn(),
+}));
 import { AppConfigService } from '../../config/config.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
@@ -28,8 +34,8 @@ describe('AuthService', () => {
     };
     configService = createMockConfigService();
 
-    // JWT_SECRET must be set for the service to function
-    process.env.JWT_SECRET = 'test-jwt-secret-for-unit-tests';
+    // JWT_SECRET must be set (and ≥ 32 chars) for the service to function
+    process.env.JWT_SECRET = 'test-jwt-secret-for-unit-tests-0123456789abcdef';
 
     service = new AuthService(
       configService as unknown as AppConfigService,

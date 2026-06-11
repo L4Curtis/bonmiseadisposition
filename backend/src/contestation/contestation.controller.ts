@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Controller,
   Get,
   Post,
@@ -8,7 +9,9 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { ContestationStatus } from '@prisma/client';
 import { ContestationService } from './contestation.service';
+import { parsePositiveInt } from '../common/query-utils';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -33,10 +36,13 @@ export class ContestationController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
+    if (status && !Object.values(ContestationStatus).includes(status as ContestationStatus)) {
+      throw new BadRequestException(`Statut de contestation inconnu : ${status}`);
+    }
     return this.contestationService.findAll({
       status,
-      page: page ? parseInt(page) : 1,
-      limit: Math.min(limit ? parseInt(limit) : 20, 100),
+      page: parsePositiveInt(page, 1),
+      limit: parsePositiveInt(limit, 20, 100),
     });
   }
 

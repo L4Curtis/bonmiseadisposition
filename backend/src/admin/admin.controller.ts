@@ -11,12 +11,13 @@ import { AuthUser } from '../auth/auth-user.interface';
 import { AppConfigService } from '../config/config.service';
 import { SmbService } from '../smb/smb.service';
 
-/** Clés autorisées par catégorie de configuration */
+/** Clés autorisées par catégorie de configuration — chaque clé listée ici doit
+ *  avoir un consommateur réel côté backend ET un champ côté UI. */
 const ALLOWED_CONFIG_KEYS: Record<string, string[]> = {
-  general: ['local_auth_enabled', 'app_name', 'default_filiale_id'],
+  general: ['local_auth_enabled', 'app_url'],
   entra: ['tenant_id', 'client_id', 'client_secret', 'redirect_uri', 'admin_group_id', 'technician_group_id'],
   ldap: ['url', 'search_base', 'bind_dn', 'bind_password', 'user_filter', 'enabled', 'sync_interval_hours', 'use_ssl'],
-  smtp: ['host', 'port', 'secure', 'user', 'password', 'from', 'from_name', 'from_address', 'method', 'graph_tenant_id', 'graph_client_id', 'graph_client_secret', 'graph_from_address'],
+  smtp: ['host', 'port', 'secure', 'user', 'password', 'from'],
   smb: ['enabled', 'path', 'username', 'password', 'domain'],
   rappels: ['enabled', 'delay_1', 'delay_2', 'delay_3'],
   tokens: ['expiry_days'],
@@ -71,7 +72,7 @@ export class AdminController {
     return this.smbService.retryAllFailed();
   }
 
-  // â”€â”€ Config CRUD â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Config CRUD ───────────────────────────────────────────────────────────
 
   @Get('config/:category')
   async getConfig(@Param('category') category: string, @CurrentUser() user: AuthUser) {
@@ -100,13 +101,26 @@ export class AdminController {
     if (unknownKeys.length > 0) {
       throw new BadRequestException(`Clé(s) non autorisée(s) pour la catégorie "${category}" : ${unknownKeys.join(', ')}`);
     }
+    // Valider les valeurs : le body structurel (Record<string, string>) échappe
+    // au ValidationPipe global — un objet/tableau finirait sérialisé en base
+    const invalidValues = Object.entries(body).filter(([, v]) => typeof v !== 'string');
+    if (invalidValues.length > 0) {
+      throw new BadRequestException(
+        `Valeur(s) invalide(s) (chaîne attendue) pour : ${invalidValues.map(([k]) => k).join(', ')}`,
+      );
+    }
+    for (const [key, value] of Object.entries(body)) {
+      if (value.length > 2000) {
+        throw new BadRequestException(`Valeur trop longue pour la clé "${key}" (max 2000 caractères)`);
+      }
+    }
 
     const encryptedKeys = getEncryptedKeys(category);
     await this.adminService.bulkSetConfig(category, body, encryptedKeys, user.id);
     return { ok: true };
   }
 
-  // â”€â”€ Test endpoints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Test endpoints ────────────────────────────────────────────────────────
   @Post('config/test/ldap')
   @Roles('admin')
   async testLdap() {
@@ -131,7 +145,7 @@ export class AdminController {
     return this.smbService.testConnection();
   }
 
-  // â”€â”€ LDAP sync â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── LDAP sync ─────────────────────────────────────────────────────────────
   @Get('ldap/status')
   async ldapStatus() {
     return this.ldapService.getSyncStatus();
@@ -157,7 +171,7 @@ function getEncryptedKeys(category: string): string[] {
   const encryptedMap: Record<string, string[]> = {
     ldap: ['bind_password'],
     entra: ['client_secret'],
-    smtp: ['password', 'graph_client_secret'],
+    smtp: ['password'],
     smb: ['password'],
   };
   return encryptedMap[category] || [];

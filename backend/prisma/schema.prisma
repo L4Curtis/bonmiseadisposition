@@ -354,3 +354,14 @@ model AuditLog {
   @@index([userEmail, action, createdAt])
   @@map("audit_logs")
 }
+
+// Persistent revocation list for refresh tokens: survives restarts so that
+// logout and rotation-replay detection remain effective across redeploys.
+model RevokedToken {
+  tokenHash String   @id @map("token_hash")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([expiresAt])
+  @@map("revoked_tokens")
+}

@@ -11,19 +11,36 @@ import { readFile, writeFile, mkdir } from 'fs/promises';
 import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { EncryptionService } from '../config/encryption.service';
+import { AppConfigService } from '../config/config.service';
 import { PdfService, SigImages, BonForPdf } from '../pdf/pdf.service';
 import { SmbService } from '../smb/smb.service';
-import { BonStatus, SignatureEntry } from '../common/types';
+import { BonStatus, SignatureEntry, BON_SELECT_SHAPE, sanitizeBonForResponse, toSafeSignature } from '../common/types';
+
+// Internal query shape: no legacy Bytes columns (they used to be serialized
+// into signature endpoint responses), but FULL signature records because PDF
+// snapshot generation needs signatureImagePath. Responses must be passed
+// through sanitizeBonForResponse() before leaving the service.
+const BON_FOR_SIGNATURE_SELECT = {
+  ...BON_SELECT_SHAPE.select,
+  equipments: { orderBy: { order: 'asc' as const }, include: { catalogItem: true } },
+  signatures: true,
+} as const;
+
+// PNG file signature (8 bytes)
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+// Decoded signature image hard cap (the JSON body limit is 2 MB)
+const MAX_SIGNATURE_BYTES = 1_500_000;
 
 @Injectable()
 export class SignatureService {
   private readonly logger = new Logger(SignatureService.name);
   private readonly UPLOADS_DIR = path.join(process.cwd(), 'data', 'signatures');
-  private readonly TOKEN_VALIDITY_DAYS = 7;
+  private readonly DEFAULT_TOKEN_VALIDITY_DAYS = 7;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly encryption: EncryptionService,
+    private readonly configService: AppConfigService,
     private readonly pdfService: PdfService,
     private readonly smbService: SmbService,
   ) {
@@ -31,6 +48,14 @@ export class SignatureService {
     if (!fs.existsSync(this.UPLOADS_DIR)) {
       fs.mkdirSync(this.UPLOADS_DIR, { recursive: true });
     }
+  }
+
+  /** Token validity in days — admin-configurable (tokens.expiry_days), clamped to [1, 30]. */
+  private async getTokenValidityDays(): Promise<number> {
+    const raw = await this.configService.get('tokens', 'expiry_days');
+    const parsed = raw === null ? NaN : parseInt(raw, 10);
+    if (!Number.isFinite(parsed)) return this.DEFAULT_TOKEN_VALIDITY_DAYS;
+    return Math.min(30, Math.max(1, parsed));
   }
 
   /** Generate a signature token for a bon (mise_disposition, restitution, or pv_cloture) */
@@ -47,8 +72,9 @@ export class SignatureService {
     });
 
     const token = crypto.randomUUID();
+    const validityDays = await this.getTokenValidityDays();
     const tokenExpiresAt = new Date(
-      Date.now() + this.TOKEN_VALIDITY_DAYS * 24 * 60 * 60 * 1000,
+      Date.now() + validityDays * 24 * 60 * 60 * 1000,
     );
 
     return this.prisma.signature.create({
@@ -63,38 +89,42 @@ export class SignatureService {
     });
   }
 
-  /** Public endpoint: get bon info from token (no auth required) */
-  async getBonInfoByToken(token: string) {
+  /** Authenticated endpoint: get bon info from token.
+   *  Returns the full bon payload ONLY to the intended signer (or for in-person
+   *  signatures) and only while the link is still pending — expired/signed
+   *  links and other authenticated users get a minimal status response. */
+  async getBonInfoByToken(token: string, requesterEmail?: string) {
     const sig = await this.prisma.signature.findUnique({
       where: { token },
       include: {
-        bon: {
-          include: {
-            filiale: true,
-            collaborateur: { select: { id: true, displayName: true, email: true, department: true } },
-            createdBy: { select: { id: true, displayName: true, email: true } },
-            equipments: {
-              orderBy: { order: 'asc' },
-              include: {
-                catalogItem: { select: { id: true, brand: true, model: true, category: true } },
-              },
-            },
-          },
-        },
+        bon: { select: BON_FOR_SIGNATURE_SELECT },
       },
     });
 
     if (!sig) throw new NotFoundException('Lien de signature invalide');
 
     if (sig.signed) {
-      return { status: 'already_signed', bon: sig.bon, signature: sig };
+      return { status: 'already_signed', reference: sig.bon.reference };
     }
 
     if (new Date() > sig.tokenExpiresAt) {
-      return { status: 'expired', bon: sig.bon, signature: sig };
+      return { status: 'expired', reference: sig.bon.reference };
     }
 
-    return { status: 'pending', bon: sig.bon, signature: sig };
+    // Personal data of the bon is only for the intended signer (fail-closed)
+    if (!sig.isInPerson) {
+      const expected = sig.bon.collaborateurEmail.toLowerCase().trim();
+      const actual = (requesterEmail ?? '').toLowerCase().trim();
+      if (expected !== actual) {
+        return { status: 'unauthorized' };
+      }
+    }
+
+    return {
+      status: 'pending',
+      bon: sanitizeBonForResponse(sig.bon),
+      signature: toSafeSignature(sig as unknown as Record<string, unknown>),
+    };
   }
 
   /** Sign a document — called after SSO auth with email verification */
@@ -109,18 +139,7 @@ export class SignatureService {
     const sig = await this.prisma.signature.findUnique({
       where: { token },
       include: {
-        bon: {
-          include: {
-            filiale: true,
-            collaborateur: { select: { id: true, displayName: true, email: true, department: true } },
-            createdBy: { select: { id: true, displayName: true, email: true } },
-            equipments: {
-              orderBy: { order: 'asc' },
-              include: { catalogItem: true },
-            },
-            signatures: true,
-          },
-        },
+        bon: { select: BON_FOR_SIGNATURE_SELECT },
       },
     });
 
@@ -155,14 +174,27 @@ export class SignatureService {
       signatureDataUrl,
     );
 
-    // Atomic transaction: update signature + bon status + audit log
-    const newStatus = this.getNextBonStatus(sig.bon.status, sig.type);
-    const { updatedSig, updatedBon } = await this.prisma.$transaction(async (tx) => {
-      // Re-check signature not already signed (prevent race condition)
-      const freshSig = await tx.signature.findUnique({ where: { token }, select: { signed: true } });
-      if (freshSig?.signed) {
+    // Atomic transaction: update signature + bon status + audit log.
+    // Everything is re-checked INSIDE the transaction: the pre-transaction reads
+    // (including the file write above) leave a window during which the token can
+    // be invalidated or the bon cancelled/contested — the stale values must not win.
+    const { updatedSig, updatedBon, newStatus } = await this.prisma.$transaction(async (tx) => {
+      const freshSig = await tx.signature.findUnique({
+        where: { token },
+        select: { signed: true, tokenExpiresAt: true, bon: { select: { status: true } } },
+      });
+      if (!freshSig || freshSig.signed) {
         throw new BadRequestException('Ce document a déjà été signé (concurrent)');
       }
+      if (new Date() > freshSig.tokenExpiresAt) {
+        throw new BadRequestException('Ce lien de signature a expiré');
+      }
+      if (['cancelled', 'contested', 'archived'].includes(freshSig.bon.status)) {
+        throw new BadRequestException('Ce bon est clôturé, annulé ou contesté et ne peut plus être signé');
+      }
+
+      // Compute the transition from the FRESH status, not the pre-transaction one
+      const txNewStatus = this.getNextBonStatus(freshSig.bon.status, sig.type);
 
       const txUpdatedSig = await tx.signature.update({
         where: { token },
@@ -179,17 +211,8 @@ export class SignatureService {
 
       const txUpdatedBon = await tx.bon.update({
         where: { id: sig.bon.id },
-        data: { status: newStatus as BonStatus },
-        include: {
-          filiale: true,
-          collaborateur: { select: { id: true, displayName: true, email: true, department: true } },
-          createdBy: { select: { id: true, displayName: true, email: true } },
-          equipments: {
-            orderBy: { order: 'asc' },
-            include: { catalogItem: true },
-          },
-          signatures: true,
-        },
+        data: { status: txNewStatus as BonStatus },
+        select: BON_FOR_SIGNATURE_SELECT,
       });
 
       await tx.auditLog.create({
@@ -200,14 +223,14 @@ export class SignatureService {
           details: {
             isInPerson: sig.isInPerson,
             mentionLuApprouve,
-            newStatus,
+            newStatus: txNewStatus,
           },
           ipAddress: signerIp,
           userAgent: signerUserAgent,
         },
       });
 
-      return { updatedSig: txUpdatedSig, updatedBon: txUpdatedBon };
+      return { updatedSig: txUpdatedSig, updatedBon: txUpdatedBon, newStatus: txNewStatus };
     });
 
     this.logger.log(
@@ -224,7 +247,9 @@ export class SignatureService {
       this.logger.error(`Échec génération snapshot PDF: ${err.message}`),
     );
 
-    return { signature: updatedSig, bon: updatedBon };
+    // Sanitize before returning: full signature records (with image paths and
+    // tokens) are for internal PDF generation only
+    return { signature: updatedSig, bon: sanitizeBonForResponse(updatedBon) };
   }
 
   /** Génère et sauvegarde en DB le snapshot PDF au moment de la signature */
@@ -313,26 +338,14 @@ export class SignatureService {
       this.logger.warn(`signItCachet idempotency hit for bon ${bonId} — returning existing record`);
       const existingBon = await this.prisma.bon.findUniqueOrThrow({
         where: { id: bonId },
-        include: {
-          filiale: true,
-          collaborateur: { select: { id: true, displayName: true, email: true, department: true } },
-          createdBy: { select: { id: true, displayName: true, email: true } },
-          equipments: { orderBy: { order: 'asc' }, include: { catalogItem: true } },
-          signatures: true,
-        },
+        select: BON_FOR_SIGNATURE_SELECT,
       });
-      return { ok: true, bon: existingBon, signature: recentItCachet };
+      return { ok: true, bon: sanitizeBonForResponse(existingBon), signature: toSafeSignature(recentItCachet as unknown as Record<string, unknown>) };
     }
 
     const bon = await this.prisma.bon.findUniqueOrThrow({
       where: { id: bonId },
-      include: {
-        filiale: true,
-        collaborateur: { select: { id: true, displayName: true, email: true, department: true } },
-        createdBy: { select: { id: true, displayName: true, email: true } },
-        equipments: { orderBy: { order: 'asc' }, include: { catalogItem: true } },
-        signatures: true,
-      },
+      select: BON_FOR_SIGNATURE_SELECT,
     });
 
     if (['cancelled', 'archived', 'contested'].includes(bon.status)) {
@@ -388,13 +401,7 @@ export class SignatureService {
     // Reload bon with fresh signatures list
     const updatedBon = await this.prisma.bon.findUniqueOrThrow({
       where: { id: bonId },
-      include: {
-        filiale: true,
-        collaborateur: { select: { id: true, displayName: true, email: true, department: true } },
-        createdBy: { select: { id: true, displayName: true, email: true } },
-        equipments: { orderBy: { order: 'asc' }, include: { catalogItem: true } },
-        signatures: true,
-      },
+      select: BON_FOR_SIGNATURE_SELECT,
     });
 
     // Regenerate PDF snapshot with IT signature (fire & forget)
@@ -404,7 +411,7 @@ export class SignatureService {
       this.logger.error(`Échec snapshot PDF IT cachet: ${err.message}`),
     );
 
-    return { ok: true, bon: updatedBon, signature: itSig };
+    return { ok: true, bon: sanitizeBonForResponse(updatedBon), signature: toSafeSignature(itSig as unknown as Record<string, unknown>) };
   }
 
   /** Get decrypted signature image for PDF generation */
@@ -434,8 +441,24 @@ export class SignatureService {
     type: string,
     dataUrl: string,
   ): Promise<string> {
+    const base64 = dataUrl.replace(/^data:image\/png;base64,/, '');
+
+    // Verify the decoded content really is a PNG (magic bytes) and within bounds —
+    // the data URL prefix alone is client-controlled
+    let decoded: Buffer;
     try {
-      const base64 = dataUrl.replace(/^data:image\/png;base64,/, '');
+      decoded = Buffer.from(base64, 'base64');
+    } catch {
+      throw new BadRequestException('Signature invalide (base64 illisible)');
+    }
+    if (decoded.length > MAX_SIGNATURE_BYTES) {
+      throw new BadRequestException('Signature trop volumineuse');
+    }
+    if (decoded.length < PNG_MAGIC.length || !decoded.subarray(0, PNG_MAGIC.length).equals(PNG_MAGIC)) {
+      throw new BadRequestException('La signature doit être une image PNG valide');
+    }
+
+    try {
       const encrypted = this.encryption.encrypt(base64);
       const filename = `${bonId}_${type}_${Date.now()}.enc`;
       const filepath = path.join(this.UPLOADS_DIR, filename);

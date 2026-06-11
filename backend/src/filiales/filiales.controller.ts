@@ -1,6 +1,6 @@
 import {
   Controller, Get, Post, Put, Patch, Delete, Body, Param,
-  UseGuards, UseInterceptors, UploadedFile, Res,
+  UseGuards, UseInterceptors, UploadedFile, Res, BadRequestException,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -70,7 +70,7 @@ export class FilialesController {
   @UseInterceptors(FileInterceptor('file'))
   uploadLogo(@Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
     if (!file) {
-      return { error: 'Aucun fichier fourni' };
+      throw new BadRequestException('Aucun fichier fourni');
     }
     return this.filialesService.updateLogo(id, file.filename);
   }
@@ -82,7 +82,7 @@ export class FilialesController {
   @UseInterceptors(FileInterceptor('file'))
   uploadStamp(@Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
     if (!file) {
-      return { error: 'Aucun fichier fourni' };
+      throw new BadRequestException('Aucun fichier fourni');
     }
     return this.filialesService.updateStamp(id, file.filename);
   }

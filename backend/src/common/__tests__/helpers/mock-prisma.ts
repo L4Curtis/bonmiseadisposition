@@ -43,6 +43,7 @@ export function createMockPrismaService(): MockPrismaService {
       findFirst: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
       count: jest.fn(),
       deleteMany: jest.fn(),
     },
@@ -115,6 +116,7 @@ export function createMockPrismaService(): MockPrismaService {
       findFirst: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       count: jest.fn(),
     },
 
@@ -156,6 +158,13 @@ export function createMockPrismaService(): MockPrismaService {
       createMany: jest.fn(),
     },
 
+    // ── RevokedToken ───────────────────────────────────────────────────────────
+    revokedToken: {
+      findUnique: jest.fn().mockResolvedValue(null),
+      upsert: jest.fn().mockResolvedValue({}),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
+
     // ── Prisma Client utilities ────────────────────────────────────────────────
     $transaction: jest.fn().mockImplementation(
       (cbOrArray: ((tx: typeof mockPrisma) => Promise<unknown>) | Promise<unknown>[]) => {
@@ -166,6 +175,7 @@ export function createMockPrismaService(): MockPrismaService {
       },
     ),
     $executeRaw: jest.fn(),
+    $queryRaw: jest.fn().mockResolvedValue([{ max: null }]),
   } as unknown as MockPrismaService;
 
   return mockPrisma;

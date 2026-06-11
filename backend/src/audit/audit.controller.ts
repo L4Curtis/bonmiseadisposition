@@ -1,8 +1,9 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { AuditService } from './audit.service';
+import { parsePositiveInt } from '../common/query-utils';
 
 @Controller('audit')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -20,14 +21,19 @@ export class AuditController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
+    for (const [name, value] of [['dateFrom', dateFrom], ['dateTo', dateTo]] as const) {
+      if (value && Number.isNaN(new Date(value).getTime())) {
+        throw new BadRequestException(`Paramètre ${name} invalide (date attendue)`);
+      }
+    }
     return this.auditService.findAll({
       bonId,
       userEmail,
       action,
       dateFrom,
       dateTo,
-      page: page ? parseInt(page, 10) : 1,
-      limit: limit ? Math.min(parseInt(limit, 10), 100) : 50,
+      page: parsePositiveInt(page, 1),
+      limit: parsePositiveInt(limit, 50, 100),
     });
   }
 

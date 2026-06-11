@@ -1,6 +1,9 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { instanceToPlain, plainToInstance } from 'class-transformer';
+import { validateSync } from 'class-validator';
 import { AppConfigService } from '../config/config.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { UpdatePdfTemplateDto } from './dto/update-pdf-template.dto';
 import {
   DEFAULT_CONFIGS,
   PDF_TEMPLATE_DEFINITIONS,
@@ -129,7 +132,17 @@ export class PdfTemplatesService {
         skipped++;
         continue;
       }
-      await this.configService.set(CATEGORY, item.id, JSON.stringify(item.config), { updatedById });
+      // Imported configs go through the SAME validation as the PATCH endpoint —
+      // an import must not be a bypass of the DTO constraints (hex colors,
+      // size/margin bounds, text lengths)
+      const dto = plainToInstance(UpdatePdfTemplateDto, item.config);
+      const errors = validateSync(dto, { whitelist: true, forbidNonWhitelisted: true });
+      if (errors.length > 0) {
+        this.logger.warn(`Import du modèle "${item.id}" rejeté: ${errors.map((e) => e.property).join(', ')} invalide(s)`);
+        skipped++;
+        continue;
+      }
+      await this.configService.set(CATEGORY, item.id, JSON.stringify(instanceToPlain(dto)), { updatedById });
       imported++;
     }
 

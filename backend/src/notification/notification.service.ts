@@ -30,12 +30,9 @@ export class NotificationService {
   ) {}
 
   // ─── Transport ──────────────────────────────────────────────────────────────
-
-  /** Invalidate the cached SMTP transporter (call after SMTP settings change). */
-  invalidateTransporterCache(): void {
-    this.cachedTransporter = null;
-    this.transporterCacheKey = null;
-  }
+  // No explicit invalidation needed: the transporter cache key is derived from
+  // the current SMTP config values, and AdminService.bulkSetConfig invalidates
+  // the config cache — a config change therefore rebuilds the transporter.
 
   private async getTransporter(): Promise<nodemailer.Transporter | null> {
     const host = await this.configService.get('smtp', 'host');
@@ -211,10 +208,19 @@ export class NotificationService {
     });
   }
 
-  async sendSignatureConfirmation(bon: NotificationBon, type: 'mise_disposition' | 'restitution'): Promise<void> {
+  async sendSignatureConfirmation(
+    bon: NotificationBon,
+    type: 'mise_disposition' | 'restitution' | 'pv_cloture',
+  ): Promise<void> {
     const filialeNom = bon.filiale?.displayName ?? bon.filiale?.name ?? '';
-    const templateId = type === 'restitution' ? 'confirmation_restitution' : 'confirmation_mise_disposition';
-    const typLabel = type === 'restitution' ? 'restitution' : 'mise à disposition';
+    // pv_cloture reuses the restitution confirmation template with its own label
+    const templateId = type === 'mise_disposition' ? 'confirmation_mise_disposition' : 'confirmation_restitution';
+    const typLabel =
+      type === 'pv_cloture'
+        ? "procès-verbal d'équipements non restitués"
+        : type === 'restitution'
+          ? 'restitution'
+          : 'mise à disposition';
 
     const html = await this.templatesService.renderTemplate(templateId, {
       FILIALE_NOM: escapeHtml(filialeNom),
@@ -289,11 +295,12 @@ export class NotificationService {
       CONTESTATION_MESSAGE: escapeHtml(message),
     });
 
-    await Promise.allSettled(
+    // Subjects are plain text — no HTML escaping (entities would show verbatim)
+    const results = await Promise.all(
       itStaff.map((staff) =>
         this.sendEmail(
           staff.email,
-          `[CONTESTATION] [${reference}] ${escapeHtml(userName)} conteste son bon — ${filialeNom}`,
+          `[CONTESTATION] [${reference}] ${userName} conteste son bon — ${filialeNom}`,
           html,
         ),
       ),
@@ -304,7 +311,8 @@ export class NotificationService {
         bonId: bon.id,
         recipientEmail: itStaff.map((s) => s.email).join(', '),
         type: 'contestation_alert',
-        status: 'sent',
+        status: results.some(Boolean) ? 'sent' : 'failed',
+        errorMessage: results.some(Boolean) ? null : "SMTP non configuré ou erreur d'envoi",
       },
     });
   }
@@ -362,7 +370,7 @@ export class NotificationService {
 
     const ok = await this.sendEmail(
       bon.collaborateurEmail,
-      `Bon ${escapeHtml(bon.reference)} — annulé`,
+      `Bon ${bon.reference} — annulé`,
       html,
     );
 
@@ -418,7 +426,7 @@ export class NotificationService {
 
     const ok = await this.sendEmail(
       bon.collaborateurEmail,
-      `Bon ${escapeHtml(bon.reference)} — équipement(s) retrouvé(s)`,
+      `Bon ${bon.reference} — équipement(s) retrouvé(s)`,
       html,
     );
 
@@ -434,47 +442,80 @@ export class NotificationService {
   }
 
   // ─── Cron: Rappels quotidiens ────────────────────────────────────────────────
+  // Reads the SAME config category/keys as the admin UI (category "rappels",
+  // keys enabled / delay_1 / delay_2 / delay_3). Reminder N is sent once the
+  // bon has been pending for delay_N days — staggered, never on consecutive
+  // days unless configured that way.
+
+  private parseDelay(raw: string | null, fallback: number): number {
+    const n = raw === null ? NaN : parseInt(raw, 10);
+    return Number.isFinite(n) && n > 0 ? n : fallback;
+  }
 
   @Cron('0 9 * * 1-5') // Lundi–Vendredi à 9h
   async sendDailyReminders(): Promise<void> {
+    try {
+      await this.runDailyReminders();
+    } catch (err) {
+      // The cron package does not catch rejected promises — never let this
+      // escape as an unhandledRejection
+      this.logger.error(`Cron rappels en échec: ${(err as Error).stack ?? err}`);
+    }
+  }
+
+  private async runDailyReminders(): Promise<void> {
     this.logger.log('Cron rappels démarré');
 
-    const remindersEnabled = await this.configService.get('notifications', 'reminders_enabled');
-    if (remindersEnabled === 'false') return;
+    const remindersEnabled = await this.configService.get('rappels', 'enabled');
+    if (remindersEnabled === 'false') {
+      this.logger.log('Rappels désactivés par configuration');
+      return;
+    }
 
-    const delayDays = parseInt(
-      (await this.configService.get('notifications', 'reminder_delay_days')) ?? '3',
-    );
-    const maxReminders = parseInt(
-      (await this.configService.get('notifications', 'max_reminders')) ?? '3',
-    );
-
-    const cutoff = new Date(Date.now() - delayDays * 24 * 60 * 60 * 1000);
+    const delays = [
+      this.parseDelay(await this.configService.get('rappels', 'delay_1'), 3),
+      this.parseDelay(await this.configService.get('rappels', 'delay_2'), 7),
+      this.parseDelay(await this.configService.get('rappels', 'delay_3'), 14),
+    ];
+    const maxReminders = delays.length;
+    const firstCutoff = new Date(Date.now() - delays[0] * 24 * 60 * 60 * 1000);
 
     const pendingBons = await this.prisma.bon.findMany({
       where: {
         status: { in: ['sent_mise_dispo', 'sent_restitution'] },
-        updatedAt: { lt: cutoff },
+        updatedAt: { lt: firstCutoff },
       },
       include: {
         filiale: true,
         collaborateur: { select: { id: true, displayName: true, email: true } },
-        signatures: { where: { signed: false } },
+        // Only still-valid tokens, most recent first — an invalidated token
+        // (tokenExpiresAt = epoch) or an expired link must never be re-sent
+        signatures: {
+          where: { signed: false, tokenExpiresAt: { gt: new Date() } },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
         notifications: {
-          where: { type: 'reminder' },
+          where: { type: 'reminder', status: 'sent' },
           orderBy: { sentAt: 'desc' },
         },
       },
     });
 
     const appUrl = await this.getAppUrl();
+    let sentCount = 0;
 
     for (const bon of pendingBons) {
       try {
-        const reminderCount = bon.notifications.filter((n) => n.type === 'reminder').length;
+        const reminderCount = bon.notifications.length;
         if (reminderCount >= maxReminders) continue;
 
-        const sig = bon.signatures.find((s) => !s.signed);
+        // Staggered schedule: reminder N+1 fires once the bon has been pending
+        // for delays[N] days since the last status change
+        const pendingDays = (Date.now() - bon.updatedAt.getTime()) / (24 * 60 * 60 * 1000);
+        if (pendingDays < delays[reminderCount]) continue;
+
+        const sig = bon.signatures[0];
         if (!sig) continue;
 
         const filialeNom = bon.filiale?.displayName ?? '';
@@ -494,6 +535,7 @@ export class NotificationService {
           `[RAPPEL] [${bon.reference}] Bon de ${isRestitution ? 'restitution' : 'mise à disposition'} à signer — ${filialeNom}`,
           html,
         );
+        if (ok) sentCount++;
 
         await this.prisma.notificationLog.create({
           data: {
@@ -509,6 +551,6 @@ export class NotificationService {
       }
     }
 
-    this.logger.log(`Cron rappels terminé — ${pendingBons.length} bons traités`);
+    this.logger.log(`Cron rappels terminé — ${pendingBons.length} bons éligibles, ${sentCount} rappels envoyés`);
   }
 }

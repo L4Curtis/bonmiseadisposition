@@ -1,4 +1,5 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Controller, Get, NotFoundException, Param, Query, UseGuards } from '@nestjs/common';
+import { UserRole } from '@prisma/client';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -12,6 +13,9 @@ export class UsersController {
 
   @Get()
   findAll(@Query('filialeId') filialeId?: string, @Query('role') role?: string) {
+    if (role && !Object.values(UserRole).includes(role as UserRole)) {
+      throw new BadRequestException(`Rôle inconnu : ${role}`);
+    }
     return this.usersService.findAll({ filialeId, role });
   }
 
@@ -21,7 +25,9 @@ export class UsersController {
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.usersService.findOne(id);
+  async findOne(@Param('id') id: string) {
+    const user = await this.usersService.findOne(id);
+    if (!user) throw new NotFoundException('Utilisateur introuvable');
+    return user;
   }
 }

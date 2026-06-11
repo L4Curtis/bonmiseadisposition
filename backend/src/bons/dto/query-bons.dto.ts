@@ -1,13 +1,21 @@
-import { IsNumberString, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import { IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
+import { BonStatus } from '../../common/types';
+
+/** Accepts "a,b,c" or repeated params and normalizes to an array. */
+const toStatusArray = ({ value }: { value: unknown }): unknown =>
+  typeof value === 'string' ? value.split(',').filter(Boolean) : value;
 
 export class QueryBonsDto {
   @IsOptional()
-  @IsString()
-  status?: string;
+  @Transform(toStatusArray)
+  @IsEnum(BonStatus, { each: true, message: 'status contient une valeur de statut inconnue' })
+  status?: BonStatus[];
 
   @IsOptional()
-  @IsString()
-  excludeStatus?: string;
+  @Transform(toStatusArray)
+  @IsEnum(BonStatus, { each: true, message: 'excludeStatus contient une valeur de statut inconnue' })
+  excludeStatus?: BonStatus[];
 
   @IsOptional()
   @IsUUID()
@@ -19,10 +27,15 @@ export class QueryBonsDto {
   search?: string;
 
   @IsOptional()
-  @IsNumberString()
-  page?: string;
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
 
   @IsOptional()
-  @IsNumberString()
-  limit?: string;
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
 }

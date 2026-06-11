@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { EncryptionService } from './encryption.service';
 
@@ -9,6 +9,7 @@ interface CacheEntry {
 
 @Injectable()
 export class AppConfigService {
+  private readonly logger = new Logger(AppConfigService.name);
   private cache = new Map<string, CacheEntry>();
   private readonly TTL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -19,6 +20,20 @@ export class AppConfigService {
 
   private cacheKey(category: string, key: string) {
     return `${category}:${key}`;
+  }
+
+  /** Decrypt with an explicit diagnostic instead of letting the raw crypto
+   *  error cascade — an ENCRYPTION_KEY rotation or corrupted value would
+   *  otherwise surface as opaque 500s everywhere. */
+  private safeDecrypt(category: string, key: string, value: string): string | null {
+    try {
+      return this.encryption.decrypt(value);
+    } catch (err) {
+      this.logger.error(
+        `Valeur chiffrée illisible pour ${category}:${key} — ENCRYPTION_KEY a-t-elle changé depuis le chiffrement ? (${(err as Error).message})`,
+      );
+      return null;
+    }
   }
 
   async get(category: string, key: string): Promise<string | null> {
@@ -39,7 +54,7 @@ export class AppConfigService {
 
     let value = record.value;
     if (record.encrypted && value) {
-      value = this.encryption.decrypt(value);
+      value = this.safeDecrypt(category, key, value);
     }
 
     this.cache.set(ck, { value, expiresAt: Date.now() + this.TTL_MS });
@@ -87,7 +102,7 @@ export class AppConfigService {
       } else {
         let value = record.value;
         if (record.encrypted && value) {
-          value = this.encryption.decrypt(value);
+          value = this.safeDecrypt(category, record.key, value);
         }
         result[record.key] = value;
       }

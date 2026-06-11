@@ -3,7 +3,7 @@ import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { Request, Response } from 'express';
 import { PrismaService } from '../prisma/prisma.service';
 import * as crypto from 'crypto';
-import { AuthService } from './auth.service';
+import { AuthService, AccountLockedException } from './auth.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { AuthUser } from './auth-user.interface';
@@ -11,9 +11,11 @@ import { AppConfigService } from '../config/config.service';
 import { LocalLoginDto } from './dto/local-login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 
+// Prioritize X-Real-IP (set by nginx to $remote_addr) over the client-forgeable
+// X-Forwarded-For — same priority as bons.controller / signature.controller (SEC-03).
 function extractClientIp(req: Request): string {
-  return (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
-    ?? (req.headers['x-real-ip'] as string)
+  return (req.headers['x-real-ip'] as string)?.trim()
+    ?? (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
     ?? req.socket?.remoteAddress
     ?? 'unknown';
 }
@@ -119,7 +121,8 @@ export class AuthController {
     }
     const logoutRefreshToken = req.cookies?.['refresh_token'];
     if (logoutRefreshToken) {
-      this.authService.revokeToken(logoutRefreshToken, 8 * 60 * 60 * 1000);
+      // Persisted in DB so the revocation survives a backend restart
+      await this.authService.revokeRefreshToken(logoutRefreshToken);
     }
     await this.prisma.auditLog.create({
       data: {
@@ -168,8 +171,11 @@ export class AuthController {
       }).catch(() => { /* non-blocking */ });
       return res.json({ ok: true, mustChangePassword });
     } catch (err) {
+      // A lockout rejection is logged under a distinct action so that it does
+      // NOT feed checkBruteForce() and extend the lockout window indefinitely.
+      const action = err instanceof AccountLockedException ? 'login_local_locked' : 'login_local_failed';
       await this.prisma.auditLog.create({
-        data: { userEmail: dto.email, action: 'login_local_failed', ipAddress: ip, userAgent: ua },
+        data: { userEmail: dto.email, action, ipAddress: ip, userAgent: ua },
       }).catch(() => { /* non-blocking */ });
       throw err;
     }
@@ -185,6 +191,10 @@ export class AuthController {
     @Res() res: Response,
   ) {
     await this.authService.changePassword(user.id, dto.currentPassword, dto.newPassword);
+    // Tokens issued before the change are now rejected (passwordChangedAt check):
+    // re-issue fresh cookies so the current session continues seamlessly.
+    const tokens = await this.authService.createTokensForUser(user);
+    this.authService.setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
     const ip = extractClientIp(req);
     await this.prisma.auditLog.create({
       data: { userId: user?.id, userEmail: user?.email, action: 'password_changed', ipAddress: ip, userAgent: req.headers['user-agent'] ?? 'unknown' },

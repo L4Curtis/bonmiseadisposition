@@ -261,9 +261,9 @@ describe('NotificationService', () => {
 
   describe('sendDailyReminders', () => {
     it('should send reminders for pending bons', async () => {
-      configService.set('notifications', 'reminders_enabled', 'true');
-      configService.set('notifications', 'reminder_delay_days', '3');
-      configService.set('notifications', 'max_reminders', '3');
+      // Same category/keys as the admin UI (rappels.enabled / delay_1..3)
+      configService.set('rappels', 'enabled', 'true');
+      configService.set('rappels', 'delay_1', '3');
 
       const bon = sentMiseDispoBon();
       const pendingBon = {
@@ -288,18 +288,17 @@ describe('NotificationService', () => {
       expect(mockSendMail).toHaveBeenCalled();
     });
 
-    it('should not exceed max reminders', async () => {
-      configService.set('notifications', 'reminders_enabled', 'true');
-      configService.set('notifications', 'reminder_delay_days', '3');
-      configService.set('notifications', 'max_reminders', '2');
+    it('should not exceed max reminders (3 tiers)', async () => {
+      configService.set('rappels', 'enabled', 'true');
 
       const bon = sentMiseDispoBon();
       const pendingBon = {
         ...bon,
         updatedAt: new Date('2026-01-01T00:00:00Z'),
         notifications: [
-          { type: 'reminder', sentAt: new Date() },
-          { type: 'reminder', sentAt: new Date() },
+          { type: 'reminder', sentAt: new Date(), status: 'sent' },
+          { type: 'reminder', sentAt: new Date(), status: 'sent' },
+          { type: 'reminder', sentAt: new Date(), status: 'sent' },
         ],
       };
 
@@ -307,12 +306,32 @@ describe('NotificationService', () => {
 
       await service.sendDailyReminders();
 
-      // Should not send email since max reminders (2) already reached
+      // Should not send email since all 3 reminder tiers were already sent
+      expect(mockSendMail).not.toHaveBeenCalled();
+    });
+
+    it('should stagger reminders according to delay tiers', async () => {
+      configService.set('rappels', 'enabled', 'true');
+      configService.set('rappels', 'delay_1', '3');
+      configService.set('rappels', 'delay_2', '7');
+
+      const bon = sentMiseDispoBon();
+      // One reminder already sent, bon pending for only 5 days → tier 2 (7 d) not due yet
+      const pendingBon = {
+        ...bon,
+        updatedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+        notifications: [{ type: 'reminder', sentAt: new Date(), status: 'sent' }],
+      };
+
+      asMock(prisma.bon.findMany).mockResolvedValue([pendingBon]);
+
+      await service.sendDailyReminders();
+
       expect(mockSendMail).not.toHaveBeenCalled();
     });
 
     it('should skip when reminders disabled', async () => {
-      configService.set('notifications', 'reminders_enabled', 'false');
+      configService.set('rappels', 'enabled', 'false');
 
       await service.sendDailyReminders();
 
@@ -321,10 +340,10 @@ describe('NotificationService', () => {
     });
   });
 
-  // ─── invalidateTransporterCache ────────────────────────────────────────────
+  // ─── Transporter cache ─────────────────────────────────────────────────────
 
-  describe('invalidateTransporterCache', () => {
-    it('should clear cached transporter', async () => {
+  describe('transporter cache', () => {
+    it('should rebuild the transporter when the SMTP config changes', async () => {
       // Prime the cache by sending an email
       await service.sendEmail('user@test.fr', 'Subject', '<p>Hello</p>');
       expect(nodemailer.createTransport).toHaveBeenCalledTimes(1);
@@ -333,8 +352,8 @@ describe('NotificationService', () => {
       await service.sendEmail('user@test.fr', 'Subject2', '<p>Hello2</p>');
       expect(nodemailer.createTransport).toHaveBeenCalledTimes(1);
 
-      // Invalidate cache
-      service.invalidateTransporterCache();
+      // Change the SMTP config (the cache key is derived from config values)
+      configService.set('smtp', 'host', 'smtp.other-server.local');
 
       // Send again — should create new transporter
       await service.sendEmail('user@test.fr', 'Subject3', '<p>Hello3</p>');

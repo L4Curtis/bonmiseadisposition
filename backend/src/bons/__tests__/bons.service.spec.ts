@@ -23,6 +23,7 @@ import {
   contestedBon,
 } from '../../common/__tests__/fixtures/bon.fixtures';
 import { collaboratorUser, technicianUser } from '../../common/__tests__/fixtures/user.fixtures';
+import { BonStatus } from '../../common/types';
 
 describe('BonsService', () => {
   let service: BonsService;
@@ -69,9 +70,9 @@ describe('BonsService', () => {
     };
 
     beforeEach(() => {
-      // generateReference uses $transaction + $executeRaw + bon.findFirst
+      // generateReference uses $transaction + $executeRaw + $queryRaw (numeric MAX)
       prisma.$executeRaw.mockResolvedValue(undefined);
-      prisma.bon.findFirst.mockResolvedValue(null);
+      prisma.$queryRaw.mockResolvedValue([{ max: null }]);
       prisma.user.findUnique.mockResolvedValue(collaboratorUser());
       prisma.bon.create.mockResolvedValue(draftBon());
       prisma.auditLog.create.mockResolvedValue({} as never);
@@ -156,12 +157,45 @@ describe('BonsService', () => {
       prisma.bon.findMany.mockResolvedValue([draftBon()]);
       prisma.bon.count.mockResolvedValue(1);
 
-      await service.findAll({ status: 'draft' });
+      await service.findAll({ status: ['draft' as BonStatus] });
 
       const findManyCall = prisma.bon.findMany.mock.calls[0][0] as {
-        where: { status?: string };
+        where: { status?: { in: string[] } };
       };
-      expect(findManyCall.where.status).toBe('draft');
+      expect(findManyCall.where.status).toEqual({ in: ['draft'] });
+    });
+
+    it('should combine status and excludeStatus filters', async () => {
+      await service.findAll({
+        status: ['draft' as BonStatus, 'active' as BonStatus],
+        excludeStatus: ['cancelled' as BonStatus],
+      });
+
+      const findManyCall = prisma.bon.findMany.mock.calls[0][0] as {
+        where: { status?: { in: string[]; notIn: string[] } };
+      };
+      expect(findManyCall.where.status).toEqual({
+        in: ['draft', 'active'],
+        notIn: ['cancelled'],
+      });
+    });
+
+    it('should scope technicians to their own filiale', async () => {
+      await service.findAll({}, { role: 'technician', filialeId: 'filiale-001' });
+
+      const findManyCall = prisma.bon.findMany.mock.calls[0][0] as {
+        where: { filialeId?: string };
+      };
+      expect(findManyCall.where.filialeId).toBe('filiale-001');
+    });
+
+    it('should not scope admins by filiale', async () => {
+      await service.findAll({}, { role: 'admin', filialeId: 'filiale-001' });
+
+      const findManyCall = prisma.bon.findMany.mock.calls[0][0] as {
+        where: { filialeId?: string };
+      };
+      expect(findManyCall.where.filialeId).toBeUndefined();
     });
 
     it('should filter by filialeId', async () => {
@@ -266,17 +300,27 @@ describe('BonsService', () => {
       const bon = draftBon();
       prisma.bon.findUnique.mockResolvedValue(bon);
       const sentBon = { ...bon, status: 'sent_mise_dispo' as const };
-      prisma.bon.update.mockResolvedValue(sentBon);
+      prisma.bon.updateMany.mockResolvedValue({ count: 1 });
+      prisma.bon.findUniqueOrThrow.mockResolvedValue(sentBon);
       prisma.auditLog.create.mockResolvedValue({} as never);
 
       const result = await service.send(bon.id, initiatedById);
 
       expect(result.status).toBe('sent_mise_dispo');
-      expect(prisma.bon.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: { status: 'sent_mise_dispo' },
-        }),
-      );
+      // Conditional transition: only a bon still in draft is updated
+      expect(prisma.bon.updateMany).toHaveBeenCalledWith({
+        where: { id: bon.id, status: 'draft' },
+        data: { status: 'sent_mise_dispo' },
+      });
+    });
+
+    it('should throw ConflictException when the transition raced (already sent)', async () => {
+      const bon = draftBon();
+      prisma.bon.findUnique.mockResolvedValue(bon);
+      prisma.bon.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.send(bon.id, initiatedById)).rejects.toThrow(ConflictException);
+      expect(signatureService.generateToken).not.toHaveBeenCalled();
     });
 
     it('should throw BadRequestException if not draft', async () => {
@@ -299,7 +343,8 @@ describe('BonsService', () => {
     it('should generate signature token', async () => {
       const bon = draftBon();
       prisma.bon.findUnique.mockResolvedValue(bon);
-      prisma.bon.update.mockResolvedValue({ ...bon, status: 'sent_mise_dispo' as const });
+      prisma.bon.updateMany.mockResolvedValue({ count: 1 });
+      prisma.bon.findUniqueOrThrow.mockResolvedValue({ ...bon, status: 'sent_mise_dispo' as const });
       prisma.auditLog.create.mockResolvedValue({} as never);
 
       await service.send(bon.id, initiatedById);
@@ -316,7 +361,8 @@ describe('BonsService', () => {
       const bon = draftBon();
       prisma.bon.findUnique.mockResolvedValue(bon);
       const sentBon = { ...bon, status: 'sent_mise_dispo' as const };
-      prisma.bon.update.mockResolvedValue(sentBon);
+      prisma.bon.updateMany.mockResolvedValue({ count: 1 });
+      prisma.bon.findUniqueOrThrow.mockResolvedValue(sentBon);
       prisma.auditLog.create.mockResolvedValue({} as never);
 
       await service.send(bon.id, initiatedById);

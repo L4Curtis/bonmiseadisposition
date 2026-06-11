@@ -273,22 +273,41 @@ export class SmbService {
   /** Cron: retry failed exports every 6 hours */
   @Cron('0 */6 * * *')
   async cronRetryFailedExports(): Promise<void> {
-    const enabled = await this.configService.get('smb', 'enabled');
-    if (enabled !== 'true') return;
+    try {
+      const enabled = await this.configService.get('smb', 'enabled');
+      if (enabled !== 'true') return;
 
-    const failedCount = await this.prisma.smbExport.count({
-      where: { status: 'failed', retryCount: { lt: MAX_RETRIES } },
-    });
+      // Requalify exports stuck in 'pending' (process died between record
+      // creation and status update) so they enter the retry loop
+      const requalified = await this.prisma.smbExport.updateMany({
+        where: {
+          status: 'pending',
+          createdAt: { lt: new Date(Date.now() - 60 * 60 * 1000) },
+        },
+        data: { status: 'failed', errorMessage: 'Export interrompu (statut pending expiré)' },
+      });
+      if (requalified.count > 0) {
+        this.logger.warn(`Cron SMB: ${requalified.count} export(s) bloqué(s) en 'pending' requalifié(s) en 'failed'`);
+      }
 
-    if (failedCount === 0) return;
+      const failedCount = await this.prisma.smbExport.count({
+        where: { status: 'failed', retryCount: { lt: MAX_RETRIES } },
+      });
 
-    this.logger.log(`Cron SMB retry: ${failedCount} exports échoués à réessayer`);
-    const result = await this.retryAllFailed();
-    this.logger.log(`Cron SMB retry terminé: ${result.succeeded} réussis, ${result.failed} échoués sur ${result.retried}`);
+      if (failedCount === 0) return;
 
-    // Alert admin if failures persist
-    if (result.failed > 0) {
-      await this.alertAdminIfNeeded();
+      this.logger.log(`Cron SMB retry: ${failedCount} exports échoués à réessayer`);
+      const result = await this.retryAllFailed();
+      this.logger.log(`Cron SMB retry terminé: ${result.succeeded} réussis, ${result.failed} échoués sur ${result.retried}`);
+
+      // Alert admin if failures persist
+      if (result.failed > 0) {
+        await this.alertAdminIfNeeded();
+      }
+    } catch (err) {
+      // The cron package does not catch rejected promises — never let this
+      // escape as an unhandledRejection
+      this.logger.error(`Cron SMB retry en échec: ${(err as Error).stack ?? err}`);
     }
   }
 
@@ -364,14 +383,18 @@ export class SmbService {
   }
 
   /**
-   * Validate that an SMB/export path is not a system-critical directory.
+   * Validate that an SMB/export path is not a system-critical directory
+   * (Linux containers AND Windows hosts — UNC paths pass through).
    */
   private isSafeExportPath(exportPath: string): boolean {
     if (!exportPath || typeof exportPath !== 'string') return false;
     const resolved = path.resolve(exportPath);
-    if (!path.isAbsolute(resolved)) return false;
-    const blocked = ['/etc', '/proc', '/sys', '/dev', '/root', '/bin', '/sbin', '/usr/bin', '/usr/sbin', '/lib', '/lib64', '/boot'];
-    return !blocked.some((b) => resolved === b || resolved.startsWith(b + path.sep));
+    const blockedUnix = ['/etc', '/proc', '/sys', '/dev', '/root', '/bin', '/sbin', '/usr/bin', '/usr/sbin', '/lib', '/lib64', '/boot'];
+    const blockedWindows = ['c:\\windows', 'c:\\program files', 'c:\\program files (x86)', 'c:\\programdata'];
+    const lower = resolved.toLowerCase();
+    if (blockedUnix.some((b) => resolved === b || resolved.startsWith(b + '/'))) return false;
+    if (blockedWindows.some((b) => lower === b || lower.startsWith(b + '\\'))) return false;
+    return true;
   }
 
   /** Remove accents and special characters from a name for filesystem use */

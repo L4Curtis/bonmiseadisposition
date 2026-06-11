@@ -12,8 +12,9 @@ import { mkdirSync } from 'fs';
 import { join } from 'path';
 
 // CSRF mitigation: require X-Requested-With header on state-changing requests.
-// Exemptions: OAuth callback (uses state param) and local-login (no auth cookie yet).
-const CSRF_EXEMPT_PATHS = new Set(['/api/auth/callback', '/api/auth/local-login']);
+// Exemption: OAuth callback only (uses state param). local-login is NOT exempt —
+// the frontend already sends the header, and exempting it allowed login CSRF.
+const CSRF_EXEMPT_PATHS = new Set(['/api/auth/callback']);
 function csrfMiddleware(req: Request, res: Response, next: NextFunction) {
   const stateChangingMethods = ['POST', 'PUT', 'PATCH', 'DELETE'];
   if (!stateChangingMethods.includes(req.method)) return next();
@@ -31,7 +32,18 @@ async function bootstrap() {
   // Ensure upload directory exists
   mkdirSync(join(process.cwd(), 'data', 'uploads'), { recursive: true });
 
+  // The cron package does not catch rejected promises from @Cron callbacks —
+  // log them instead of letting the process die on unhandledRejection.
+  process.on('unhandledRejection', (reason) => {
+    logger.error(`Unhandled promise rejection: ${reason instanceof Error ? reason.stack : reason}`);
+  });
+
   const app = await NestFactory.create(AppModule);
+
+  // Behind the proxy chain (NPM → nginx frontend → backend): trust the first
+  // proxy so req.ip (used by the throttler) is the real client IP, not the
+  // nginx container address shared by every client.
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
 
   // Limite de taille des requêtes JSON (signatures base64 incluses)
   app.use(express.json({ limit: '2mb' }));

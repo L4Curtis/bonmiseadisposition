@@ -7,43 +7,28 @@ import { NotificationService } from '../notification/notification.service';
 import { PdfService, SigImages } from '../pdf/pdf.service';
 import { SmbService } from '../smb/smb.service';
 import { STATUS_LABELS } from '../common/status-labels';
-import { BonStatus, Civilite } from '../common/types';
+import { BonStatus, Civilite, BON_SELECT_SHAPE, SIGNATURE_SAFE_SELECT } from '../common/types';
 
-// Explicit select to avoid loading large Bytes columns (pdfMiseDispoSnapshot, pdfRestitutionSnapshot).
-// Use as query option spread: { where, ...BON_SELECT, orderBy, ... }
-const BON_SELECT = {
-  select: {
-    id: true,
-    reference: true,
-    filialeId: true,
-    collaborateurId: true,
-    collaborateurEmail: true,
-    createdById: true,
-    civilite: true,
-    status: true,
-    dateMiseDisposition: true,
-    dateRestitution: true,
-    notes: true,
-    createdAt: true,
-    updatedAt: true,
-    filiale: true,
-    collaborateur: {
-      select: { id: true, displayName: true, email: true, department: true },
-    },
-    createdBy: {
-      select: { id: true, displayName: true, email: true },
-    },
-    equipments: {
-      orderBy: { order: 'asc' as const },
-      include: {
-        catalogItem: {
-          select: { id: true, brand: true, model: true, category: true },
-        },
-      },
-    },
-    signatures: true,
-  },
-} as const;
+// Canonical select shape: no Bytes columns, signatures restricted to API-safe
+// fields (no token / signerIp / signerUserAgent / signatureImagePath).
+const BON_SELECT = BON_SELECT_SHAPE;
+
+/** Minimal requester info used to scope list queries per filiale. */
+export interface BonsRequester {
+  role: string;
+  filialeId?: string | null;
+}
+
+/**
+ * Technicians are scoped to their own filiale (same rule as the per-bon check
+ * in BonsController.verifyCollaboratorAccess). Admins — and technicians without
+ * an assigned filiale (documented as cross-filiale) — see everything.
+ */
+function applyFilialeScope(where: Prisma.BonWhereInput, requester?: BonsRequester): void {
+  if (requester?.role === 'technician' && requester.filialeId) {
+    where.filialeId = requester.filialeId;
+  }
+}
 
 @Injectable()
 export class BonsService {
@@ -57,39 +42,55 @@ export class BonsService {
     private readonly smbService: SmbService,
   ) {}
 
-  async getStats() {
+  async getStats(requester?: BonsRequester) {
     const monthStart = new Date();
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
 
+    const scope: Prisma.BonWhereInput = {};
+    applyFilialeScope(scope, requester);
+
     const [waitingSignature, active, overdue, total, archivedThisMonth, partiallyReturned, filialesRaw] = await Promise.all([
       this.prisma.bon.count({
         where: {
+          ...scope,
           OR: [
             { status: { in: ['sent_mise_dispo', 'sent_restitution'] } },
             {
               status: 'partially_returned',
-              signatures: { some: { signed: false, type: { in: ['restitution', 'pv_cloture'] } } },
+              // Only count signatures whose token is still valid (invalidated
+              // tokens are set to epoch and would inflate the counter forever)
+              signatures: {
+                some: {
+                  signed: false,
+                  type: { in: ['restitution', 'pv_cloture'] },
+                  tokenExpiresAt: { gt: new Date() },
+                },
+              },
             },
           ],
         },
       }),
-      this.prisma.bon.count({ where: { status: 'active' } }),
+      this.prisma.bon.count({ where: { ...scope, status: 'active' } }),
       this.prisma.bon.count({
         where: {
+          ...scope,
           status: { in: ['sent_mise_dispo', 'sent_restitution'] },
           updatedAt: { lt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
         },
       }),
       this.prisma.bon.count({
-        where: { status: { notIn: ['cancelled', 'archived'] } },
+        where: { ...scope, status: { notIn: ['cancelled', 'archived'] } },
       }),
       this.prisma.bon.count({
-        where: { status: 'archived', updatedAt: { gte: monthStart } },
+        where: { ...scope, status: 'archived', updatedAt: { gte: monthStart } },
       }),
-      this.prisma.bon.count({ where: { status: 'partially_returned' } }),
+      this.prisma.bon.count({ where: { ...scope, status: 'partially_returned' } }),
       this.prisma.filiale.findMany({
-        where: { active: true },
+        where: {
+          active: true,
+          ...(requester?.role === 'technician' && requester.filialeId ? { id: requester.filialeId } : {}),
+        },
         select: {
           id: true,
           displayName: true,
@@ -116,15 +117,17 @@ export class BonsService {
     };
   }
 
-  async getExportData(filters: { status?: string; filialeId?: string; search?: string }) {
+  async getExportData(
+    filters: { status?: BonStatus[]; filialeId?: string; search?: string },
+    requester?: BonsRequester,
+  ) {
     const { status, filialeId, search } = filters;
     const where: Prisma.BonWhereInput = {};
-    if (status && status.includes(',')) {
-      where.status = { in: status.split(',') as BonStatus[] };
-    } else if (status) {
-      where.status = status as BonStatus;
+    if (status?.length) {
+      where.status = { in: status };
     }
     if (filialeId) where.filialeId = filialeId;
+    applyFilialeScope(where, requester);
     if (search) {
       where.OR = [
         { reference: { contains: search, mode: 'insensitive' } },
@@ -194,24 +197,29 @@ export class BonsService {
     return '\uFEFF' + csv; // BOM UTF-8 pour Excel
   }
 
-  async findAll(filters: {
-    status?: string;
-    excludeStatus?: string;
-    filialeId?: string;
-    search?: string;
-    page?: number;
-    limit?: number;
-  }) {
+  async findAll(
+    filters: {
+      status?: BonStatus[];
+      excludeStatus?: BonStatus[];
+      filialeId?: string;
+      search?: string;
+      page?: number;
+      limit?: number;
+    },
+    requester?: BonsRequester,
+  ) {
     const { status, excludeStatus, filialeId, search, page = 1, limit = 20 } = filters;
     const where: Prisma.BonWhereInput = {};
 
-    if (status && status.includes(',')) {
-      where.status = { in: status.split(',') as BonStatus[] };
-    } else if (status) {
-      where.status = status as BonStatus;
+    // status and excludeStatus combine (AND) instead of one silently overriding the other
+    if (status?.length || excludeStatus?.length) {
+      where.status = {
+        ...(status?.length ? { in: status } : {}),
+        ...(excludeStatus?.length ? { notIn: excludeStatus } : {}),
+      };
     }
-    if (excludeStatus) where.status = { notIn: excludeStatus.split(',') as BonStatus[] };
     if (filialeId) where.filialeId = filialeId;
+    applyFilialeScope(where, requester);
     if (search) {
       where.OR = [
         { reference: { contains: search, mode: 'insensitive' } },
@@ -252,6 +260,11 @@ export class BonsService {
   }
 
   async create(dto: CreateBonDto, userId: string) {
+    if (dto.dateRestitution && dto.dateRestitution < dto.dateMiseDisposition) {
+      throw new BadRequestException(
+        'La date de restitution ne peut pas précéder la date de mise à disposition',
+      );
+    }
     const reference = await this.generateReference();
 
     let equipments: Array<{ catalogItemId?: string; customLabel?: string; serialNumber?: string; inventoryNumber?: string; notes?: string; order?: number }> = dto.equipments || [];
@@ -322,6 +335,20 @@ export class BonsService {
         'Seuls les brouillons peuvent être modifiés',
       );
 
+    const effectiveMiseDispo =
+      dto.dateMiseDisposition ?? new Date(bon.dateMiseDisposition).toISOString().slice(0, 10);
+    const effectiveRestitution =
+      dto.dateRestitution !== undefined
+        ? dto.dateRestitution
+        : bon.dateRestitution
+          ? new Date(bon.dateRestitution).toISOString().slice(0, 10)
+          : null;
+    if (effectiveRestitution && effectiveRestitution < effectiveMiseDispo) {
+      throw new BadRequestException(
+        'La date de restitution ne peut pas précéder la date de mise à disposition',
+      );
+    }
+
     const data: Prisma.BonUncheckedUpdateInput = {};
     if (dto.filialeId) data.filialeId = dto.filialeId;
     if (dto.collaborateurId) {
@@ -342,7 +369,6 @@ export class BonsService {
     if (dto.notes !== undefined) data.notes = dto.notes;
 
     if (dto.equipments !== undefined) {
-      await this.prisma.bonEquipment.deleteMany({ where: { bonId: id } });
       data.equipments = {
         create: dto.equipments.map((e, idx) => ({
           catalogItemId: e.catalogItemId || null,
@@ -353,6 +379,12 @@ export class BonsService {
           order: e.order ?? idx,
         })),
       };
+      // Atomic delete + recreate: if the update fails (FK violation, DB error),
+      // the existing equipment list is rolled back instead of being lost.
+      return this.prisma.$transaction(async (tx) => {
+        await tx.bonEquipment.deleteMany({ where: { bonId: id } });
+        return tx.bon.update({ where: { id }, data, ...BON_SELECT });
+      });
     }
 
     return this.prisma.bon.update({ where: { id }, data, ...BON_SELECT });
@@ -372,6 +404,10 @@ export class BonsService {
     await this.prisma.auditLog.create({
       data: { bonId: id, userId: userId ?? null, action: 'bon_cancelled' },
     });
+    // Notify the collaborator if a signature request had already been sent
+    if (['sent_mise_dispo', 'sent_restitution', 'partially_returned'].includes(bon.status)) {
+      this.notificationService.sendCancellationNotice(updated).catch(() => {});
+    }
     return updated;
   }
 
@@ -384,12 +420,16 @@ export class BonsService {
         'Le bon doit contenir au moins un équipement',
       );
 
-    // Update status first
-    const updated = await this.prisma.bon.update({
-      where: { id },
+    // Conditional transition: a concurrent send loses the race instead of
+    // re-running the whole flow (duplicate tokens + duplicate emails)
+    const transition = await this.prisma.bon.updateMany({
+      where: { id, status: 'draft' },
       data: { status: 'sent_mise_dispo' },
-      ...BON_SELECT,
     });
+    if (transition.count === 0) {
+      throw new ConflictException('Ce bon a déjà été envoyé');
+    }
+    const updated = await this.prisma.bon.findUniqueOrThrow({ where: { id }, ...BON_SELECT });
 
     // Generate signature token
     const sig = await this.signatureService.generateToken(
@@ -419,7 +459,7 @@ export class BonsService {
 
     // Mark selected equipments as returned
     if (returnedEquipmentIds && returnedEquipmentIds.length > 0) {
-      await this.prisma.bonEquipment.updateMany({
+      const marked = await this.prisma.bonEquipment.updateMany({
         where: {
           id: { in: returnedEquipmentIds },
           bonId: id,
@@ -428,21 +468,42 @@ export class BonsService {
         },
         data: { returnedAt: new Date() },
       });
+      if (marked.count === 0) {
+        throw new BadRequestException(
+          'Aucun des équipements sélectionnés n\'est en attente de restitution sur ce bon',
+        );
+      }
     }
 
-    // Check if all equipments are now returned or declared not-returned
-    const remaining = await this.prisma.bonEquipment.count({
-      where: { bonId: id, returnedAt: null, notReturned: false },
-    });
+    // Pending = neither returned nor declared lost. Lost equipment (notReturned)
+    // is NOT "returned": it must go through the co-signed PV de clôture flow.
+    const [remaining, notReturnedCount] = await Promise.all([
+      this.prisma.bonEquipment.count({
+        where: { bonId: id, returnedAt: null, notReturned: false },
+      }),
+      this.prisma.bonEquipment.count({ where: { bonId: id, notReturned: true } }),
+    ]);
 
-    const allReturned = remaining === 0;
-    const newStatus: BonStatus = allReturned ? 'sent_restitution' : 'partially_returned';
+    // Nothing newly returned and only lost equipment left → the pending action
+    // is the PV co-signature, not a restitution: don't clobber that flow.
+    if (remaining === 0 && notReturnedCount > 0 && (!returnedEquipmentIds || returnedEquipmentIds.length === 0)) {
+      throw new BadRequestException(
+        'Tous les équipements restants sont déclarés non rendus — le procès-verbal de clôture est en attente de co-signature',
+      );
+    }
+
+    const fullyReturned = remaining === 0 && notReturnedCount === 0;
+    const newStatus: BonStatus = fullyReturned ? 'sent_restitution' : 'partially_returned';
 
     const updated = await this.prisma.bon.update({
       where: { id },
       data: { status: newStatus },
       ...BON_SELECT,
     });
+
+    // Invalidate any token from a previous flow (e.g. a stale pv_cloture link)
+    // before issuing the restitution token
+    await this.signatureService.invalidateUnsignedTokens(id);
 
     // Generate signature token for restitution (even partial — to sign what's been returned)
     const sig = await this.signatureService.generateToken(
@@ -483,7 +544,7 @@ export class BonsService {
     // Wrap equipment update + audit log + status change in a transaction
     const remaining = await this.prisma.$transaction(async (tx) => {
       // Mark equipments as not returned
-      await tx.bonEquipment.updateMany({
+      const marked = await tx.bonEquipment.updateMany({
         where: {
           id: { in: equipmentIds },
           bonId: id,
@@ -491,6 +552,13 @@ export class BonsService {
         },
         data: { notReturned: true, notReturnedReason: reason },
       });
+      // Reject ids that don't belong to this bon / are already returned —
+      // otherwise the state machine advances with nothing actually changed
+      if (marked.count !== equipmentIds.length) {
+        throw new BadRequestException(
+          'Certains équipements sélectionnés n\'appartiennent pas à ce bon ou sont déjà restitués',
+        );
+      }
 
       // Audit log
       await tx.auditLog.create({
@@ -525,6 +593,10 @@ export class BonsService {
       if (signatureDataUrl) {
         await this.signatureService.saveItPvSignature(id, signatureDataUrl, signerEmail, userId);
       }
+
+      // A stale mise-dispo/restitution token must not stay signable now that
+      // the pending action is the PV co-signature
+      await this.signatureService.invalidateUnsignedTokens(id);
 
       // Reload bon with fresh signatures
       const updatedBon = await this.prisma.bon.findUniqueOrThrow({
@@ -572,7 +644,9 @@ export class BonsService {
     signatureDataUrl?: string,
   ) {
     const bon = await this.findOne(id);
-    if (!['partially_returned', 'active', 'archived'].includes(bon.status))
+    // 'active' is excluded: an active bon has no notReturned equipment, and the
+    // no-op updateMany used to propel it straight into sent_restitution
+    if (!['partially_returned', 'archived'].includes(bon.status))
       throw new BadRequestException('Action impossible sur ce bon');
 
     if (!equipmentIds?.length) throw new BadRequestException('Aucun équipement sélectionné');
@@ -584,7 +658,7 @@ export class BonsService {
     // Wrap equipment update + audit log in a transaction for atomicity
     await this.prisma.$transaction(async (tx) => {
       // Mark equipment as found (returned)
-      await tx.bonEquipment.updateMany({
+      const marked = await tx.bonEquipment.updateMany({
         where: {
           id: { in: equipmentIds },
           bonId: id,
@@ -592,6 +666,11 @@ export class BonsService {
         },
         data: { notReturned: false, notReturnedReason: null, returnedAt: new Date() },
       });
+      if (marked.count !== equipmentIds.length) {
+        throw new BadRequestException(
+          'Certains équipements sélectionnés ne sont pas déclarés non rendus sur ce bon',
+        );
+      }
 
       // Audit log
       await tx.auditLog.create({
@@ -642,11 +721,17 @@ export class BonsService {
       this.logger.log(
         `Bon ${updatedBon.reference} (archivé) — avenant IT généré pour équipement retrouvé`,
       );
+      // Inform the collaborator that the previously-lost equipment was found
+      this.notificationService.sendMarkFoundNotice(updatedBon, equipmentIds).catch(() => {});
     } else {
       // Check if all not-returned equipment is now resolved
       const stillNotReturned = await this.prisma.bonEquipment.count({
         where: { bonId: id, notReturned: true },
       });
+
+      // The old pv_cloture (or restitution) link must not stay signable after
+      // this transition — a stale signed PV would corrupt the new state
+      await this.signatureService.invalidateUnsignedTokens(id);
 
       if (stillNotReturned === 0) {
         // ── All equipment found → advance to sent_restitution ──────────────
@@ -726,8 +811,11 @@ export class BonsService {
     return { bon: updated, token: sig.token };
   }
 
-  async getRecentBons(limit = 10) {
+  async getRecentBons(limit = 10, requester?: BonsRequester) {
+    const where: Prisma.BonWhereInput = {};
+    applyFilialeScope(where, requester);
     return this.prisma.bon.findMany({
+      where,
       ...BON_SELECT,
       orderBy: { createdAt: 'desc' },
       take: limit,
@@ -740,7 +828,12 @@ export class BonsService {
         collaborateurId: userId,
         status: { notIn: ['cancelled'] },
       },
-      ...BON_SELECT,
+      select: {
+        ...BON_SELECT.select,
+        // The portal needs the pending link token to offer "Signer maintenant" —
+        // safe here: these are the collaborator's own bons.
+        signatures: { select: { ...SIGNATURE_SAFE_SELECT, token: true } },
+      },
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
@@ -777,10 +870,17 @@ export class BonsService {
       }
     }
 
-    // Check if there's a pending pv_cloture signature (PV awaiting collab co-signature)
-    const hasPendingPvCloture = bon.signatures?.some(
-      (s) => s.type === 'pv_cloture' && !s.signed && new Date() < new Date(s.tokenExpiresAt),
-    );
+    // PV pending is determined from the BUSINESS state, not the token validity:
+    // an expired pv_cloture link must be re-sent as a PV, not as a restitution
+    // (which would leave the PV unsigned and the bon stuck in partially_returned)
+    const notReturnedCount = bon.equipments.filter((e) => e.notReturned).length;
+    const pendingReturnCount = bon.equipments.filter((e) => !e.returnedAt && !e.notReturned).length;
+    const hasUnsignedPv = bon.signatures?.some((s) => s.type === 'pv_cloture' && !s.signed) ?? false;
+    const hasPendingPvCloture =
+      bon.status === 'partially_returned' &&
+      notReturnedCount > 0 &&
+      pendingReturnCount === 0 &&
+      hasUnsignedPv;
 
     if (hasPendingPvCloture) {
       const sig = await this.signatureService.generateToken(bonId, 'pv_cloture', initiatedById, false);
@@ -823,14 +923,15 @@ export class BonsService {
     // Advisory lock sérialise les générations concurrentes au niveau PostgreSQL.
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('bon_reference_lock'))`;
-      const lastBon = await tx.bon.findFirst({
-        where: { reference: { startsWith: yearPrefix } },
-        orderBy: { reference: 'desc' },
-        select: { reference: true },
-      });
-      const nextNum = lastBon
-        ? parseInt(lastBon.reference.split('-')[2], 10) + 1
-        : 1;
+      // Numeric MAX — a lexicographic ORDER BY on the text column breaks past
+      // 9999 ('BON-2026-9999' > 'BON-2026-10000'), causing permanent unique
+      // constraint violations on every subsequent creation.
+      const rows = await tx.$queryRaw<Array<{ max: number | null }>>`
+        SELECT MAX(CAST(SPLIT_PART(reference, '-', 3) AS INTEGER)) AS max
+        FROM bons
+        WHERE reference LIKE ${`${yearPrefix}%`}
+      `;
+      const nextNum = (rows[0]?.max ?? 0) + 1;
       return `BON-${year}-${String(nextNum).padStart(4, '0')}`;
     });
   }

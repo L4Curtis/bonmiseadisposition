@@ -16,6 +16,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         (req: Request) => req?.cookies?.['access_token'] || null,
       ]),
       ignoreExpiration: false,
+      algorithms: ['HS256'],
       secretOrKeyProvider: async (_req: Request, _rawJwtToken: string, done: (err: Error | null, secret?: string) => void) => {
         done(null, authService.getJwtSecret());
       },
@@ -23,7 +24,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  async validate(req: Request, payload: { sub: string; email: string; role: string }) {
+  async validate(req: Request, payload: { sub: string; email: string; role: string; iat?: number }) {
     // Check if this token has been revoked (e.g. after logout)
     const token = req?.cookies?.['access_token'];
     if (token && this.authService.isTokenRevoked(token)) {
@@ -53,6 +54,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
 
     if (!user || !user.active) {
+      throw new UnauthorizedException();
+    }
+
+    // Reject tokens issued before the last password change (2s clock-skew grace).
+    // change-password re-issues fresh cookies, so the active session is unaffected.
+    if (user.passwordChangedAt && payload.iat && payload.iat * 1000 < user.passwordChangedAt.getTime() - 2000) {
       throw new UnauthorizedException();
     }
 

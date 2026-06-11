@@ -10,8 +10,11 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 
+// Catalogue et packs sont des données IT internes : lecture comme écriture
+// réservées aux rôles admin/technician (les collaborateurs n'en ont pas l'usage)
 @Controller('equipment')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles('admin', 'technician')
 export class EquipmentController {
   constructor(private readonly equipmentService: EquipmentService) {}
 

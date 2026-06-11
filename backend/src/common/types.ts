@@ -4,8 +4,26 @@ import { Prisma, BonStatus, Civilite, SignatureType, PdfSnapshotType, UserRole, 
 export { BonStatus, Civilite, SignatureType, PdfSnapshotType, UserRole, NotificationType };
 
 /**
+ * Signature fields safe to expose in API responses. Excludes the active token
+ * (a signing secret), signerIp/signerUserAgent (PII used only for the audit
+ * trail / PDFs) and signatureImagePath (internal storage detail).
+ */
+export const SIGNATURE_SAFE_SELECT = {
+  id: true,
+  type: true,
+  signed: true,
+  signedAt: true,
+  signerEmail: true,
+  mentionLuApprouve: true,
+  isInPerson: true,
+  tokenExpiresAt: true,
+  createdAt: true,
+} as const;
+
+/**
  * The canonical select shape used by BonsService for listing / detail queries.
- * Avoids loading large Bytes columns (pdfMiseDispoSnapshot, pdfRestitutionSnapshot).
+ * Avoids loading large Bytes columns (pdfMiseDispoSnapshot, pdfRestitutionSnapshot)
+ * and restricts signatures to API-safe fields.
  */
 export const BON_SELECT_SHAPE = {
   select: {
@@ -37,12 +55,52 @@ export const BON_SELECT_SHAPE = {
         },
       },
     },
-    signatures: true,
+    signatures: { select: SIGNATURE_SAFE_SELECT },
   },
 } as const;
 
 /** Type of a Bon loaded via BON_SELECT_SHAPE (with relations). */
 export type BonWithRelations = Prisma.BonGetPayload<typeof BON_SELECT_SHAPE>;
+
+/** Strip a full signature record down to the API-safe fields. */
+export function toSafeSignature<T extends Record<string, unknown>>(sig: T) {
+  return {
+    id: sig.id,
+    type: sig.type,
+    signed: sig.signed,
+    signedAt: sig.signedAt,
+    signerEmail: sig.signerEmail,
+    mentionLuApprouve: sig.mentionLuApprouve,
+    isInPerson: sig.isInPerson,
+    tokenExpiresAt: sig.tokenExpiresAt,
+    createdAt: sig.createdAt,
+  };
+}
+
+/**
+ * Sanitize a bon loaded with full relations (Prisma `include`) before returning
+ * it in an HTTP response: drops the legacy Bytes snapshot columns and reduces
+ * signatures to their API-safe fields.
+ */
+export function sanitizeBonForResponse<T extends { signatures?: Record<string, unknown>[] }>(bon: T) {
+  if (!bon) return bon;
+  const {
+    pdfMiseDispoSnapshot: _b1,
+    pdfMiseDispoSnapshotAt: _b2,
+    pdfRestitutionSnapshot: _b3,
+    pdfRestitutionSnapshotAt: _b4,
+    ...rest
+  } = bon as T & {
+    pdfMiseDispoSnapshot?: unknown;
+    pdfMiseDispoSnapshotAt?: unknown;
+    pdfRestitutionSnapshot?: unknown;
+    pdfRestitutionSnapshotAt?: unknown;
+  };
+  return {
+    ...rest,
+    signatures: bon.signatures?.map((s) => toSafeSignature(s)),
+  };
+}
 
 /** Type of a single equipment entry within BonWithRelations. */
 export type BonEquipmentWithCatalog = BonWithRelations['equipments'][number];

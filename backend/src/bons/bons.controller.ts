@@ -11,6 +11,7 @@ import {
   Req,
   UseGuards,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { Response, Request } from 'express';
@@ -78,39 +79,45 @@ export class BonsController {
 
   // Static routes BEFORE parameterized routes
   @Get('stats')
-  getStats() {
-    return this.bonsService.getStats();
+  getStats(@CurrentUser() user: AuthUser) {
+    return this.bonsService.getStats(user);
   }
 
   @Get('recent')
-  getRecent(@Query('limit') limit?: string) {
-    return this.bonsService.getRecentBons(Math.min(limit ? parseInt(limit) : 10, 50));
+  getRecent(@CurrentUser() user: AuthUser, @Query('limit') limit?: string) {
+    const parsed = limit ? parseInt(limit, 10) : 10;
+    const safeLimit = Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 50) : 10;
+    return this.bonsService.getRecentBons(safeLimit, user);
   }
 
   @Get('export')
   async exportCsv(
     @Query() dto: QueryBonsDto,
-    @Res() res?: Response,
+    @CurrentUser() user: AuthUser,
+    @Res() res: Response,
   ) {
     const { status, filialeId, search } = dto;
-    const csv = await this.bonsService.getExportData({ status, filialeId, search });
+    const csv = await this.bonsService.getExportData({ status, filialeId, search }, user);
     const filename = `bons-export-${new Date().toISOString().slice(0, 10)}.csv`;
-    res!.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res!.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res!.send(csv);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(csv);
   }
 
   @Get()
-  findAll(@Query() dto: QueryBonsDto) {
+  findAll(@Query() dto: QueryBonsDto, @CurrentUser() user: AuthUser) {
     const { status, excludeStatus, filialeId, search, page, limit } = dto;
-    return this.bonsService.findAll({
-      status,
-      excludeStatus,
-      filialeId,
-      search,
-      page: page ? parseInt(page) : 1,
-      limit: Math.min(limit ? parseInt(limit) : 20, 100),
-    });
+    return this.bonsService.findAll(
+      {
+        status,
+        excludeStatus,
+        filialeId,
+        search,
+        page: page ?? 1,
+        limit: Math.min(limit ?? 20, 100),
+      },
+      user,
+    );
   }
 
   @Get(':id')
@@ -199,12 +206,21 @@ export class BonsController {
   @Roles('admin', 'technician', 'collaborator')
   async getPdf(
     @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+    @Res() res: Response,
     @Query('type') type: 'mise_disposition' | 'restitution' = 'mise_disposition',
     @Query('stage') stage?: string,
-    @Res() res?: Response,
-    @CurrentUser() user?: AuthUser,
   ) {
     await this.verifyCollaboratorAccess(id, user);
+    // Validate enum-typed query params explicitly (a raw cast used to surface
+    // as a Prisma validation error → HTTP 500 instead of 400)
+    if (!['mise_disposition', 'restitution'].includes(type)) {
+      throw new BadRequestException(`Type de PDF inconnu : ${type}`);
+    }
+    const validStages = Object.values(PdfSnapshotType) as string[];
+    if (stage && !validStages.includes(stage)) {
+      throw new BadRequestException(`Étape de snapshot inconnue : ${stage}`);
+    }
     const bon = await this.bonsService.findOne(id);
 
     // If specific stage requested, serve from PdfSnapshot table
@@ -213,9 +229,9 @@ export class BonsController {
         where: { bonId_type: { bonId: bon.id, type: stage as PdfSnapshotType } },
       });
       if (pdfSnapshot) {
-        res!.setHeader('Content-Type', 'application/pdf');
-        res!.setHeader('Content-Disposition', `attachment; filename="${pdfSnapshot.filename}"`);
-        return res!.send(Buffer.from(pdfSnapshot.data));
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="${pdfSnapshot.filename}"`);
+        return res.send(Buffer.from(pdfSnapshot.data));
       }
     }
 
@@ -228,9 +244,9 @@ export class BonsController {
     });
 
     if (pdfSnapshot) {
-      res!.setHeader('Content-Type', 'application/pdf');
-      res!.setHeader('Content-Disposition', `attachment; filename="${pdfSnapshot.filename}"`);
-      return res!.send(Buffer.from(pdfSnapshot.data));
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${pdfSnapshot.filename}"`);
+      return res.send(Buffer.from(pdfSnapshot.data));
     }
 
     // Fallback: query legacy snapshot columns directly (not in BON_SELECT)
@@ -244,22 +260,28 @@ export class BonsController {
         : legacyBon?.pdfMiseDispoSnapshot;
 
     if (legacySnapshot) {
-      res!.setHeader('Content-Type', 'application/pdf');
-      res!.setHeader('Content-Disposition', `attachment; filename="bon-${bon.reference}.pdf"`);
-      return res!.send(Buffer.from(legacySnapshot));
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="bon-${bon.reference}.pdf"`);
+      return res.send(Buffer.from(legacySnapshot));
     }
 
-    // Generate on-the-fly
-    res!.setHeader('Content-Type', 'application/pdf');
-    res!.setHeader('Content-Disposition', `attachment; filename="bon-${bon.reference}.pdf"`);
-    const sigImages = await this.signatureService.getSignatureImagesForBon(bon.signatures || []);
+    // Generate on-the-fly. BON_SELECT no longer exposes signatureImagePath, so
+    // fetch the full signature records here (internal use only).
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="bon-${bon.reference}.pdf"`);
+    const fullSignatures = await this.prisma.signature.findMany({ where: { bonId: bon.id } });
+    const sigImages = await this.signatureService.getSignatureImagesForBon(fullSignatures);
     const pdf = await this.pdfService.generateBonPdf(bon, sigImages, type);
-    res!.send(pdf);
+    res.send(pdf);
   }
 
-  /** Verify access: collaborators see only their bons, technicians see only their filiale's bons */
-  private async verifyCollaboratorAccess(bonId: string, user?: AuthUser): Promise<void> {
-    if (!user) return;
+  /** Verify access: collaborators see only their bons, technicians see only
+   *  their filiale's bons. A technician WITHOUT an assigned filiale is
+   *  intentionally cross-filiale (same rule as the list scoping in BonsService). */
+  private async verifyCollaboratorAccess(bonId: string, user: AuthUser): Promise<void> {
+    if (!user) {
+      throw new ForbiddenException('Accès refusé');
+    }
     // Admins have full access
     if (user.role === 'admin') return;
 
@@ -267,6 +289,7 @@ export class BonsController {
       where: { id: bonId },
       select: { collaborateurId: true, filialeId: true },
     });
+    // Unknown bon: let the handler's own lookup produce its 404
     if (!bon) return;
 
     if (user.role === 'collaborator') {
@@ -274,7 +297,6 @@ export class BonsController {
         throw new ForbiddenException('Accès refusé à ce bon');
       }
     } else if (user.role === 'technician') {
-      // Technicians can only access bons of their own filiale
       if (user.filialeId && user.filialeId !== bon.filialeId) {
         throw new ForbiddenException('Accès refusé : ce bon appartient à une autre filiale');
       }

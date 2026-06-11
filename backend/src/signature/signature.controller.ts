@@ -25,11 +25,13 @@ export class SignatureController {
     private readonly notificationService: NotificationService,
   ) {}
 
-  /** Authentifié — consultation du bon via token (connexion SSO requise) */
+  /** Authentifié — consultation du bon via token (connexion SSO requise).
+   *  Le détail du bon n'est renvoyé qu'au destinataire du lien (ou en mode
+   *  présentiel) : un autre compte authentifié reçoit un statut minimal. */
   @Get(':token')
   @UseGuards(JwtAuthGuard)
-  async getBonInfo(@Param('token') token: string) {
-    return this.signatureService.getBonInfoByToken(token);
+  async getBonInfo(@Param('token') token: string, @CurrentUser() user: AuthUser) {
+    return this.signatureService.getBonInfoByToken(token, user?.email);
   }
 
   /**
@@ -62,8 +64,9 @@ export class SignatureController {
       userAgent,
     );
 
-    // Send confirmation email (fire and forget)
-    const type = result.signature.type as 'mise_disposition' | 'restitution';
+    // Send confirmation email (fire and forget). it_cachet never reaches this
+    // endpoint; the three token-based types each get their correct label.
+    const type = result.signature.type as 'mise_disposition' | 'restitution' | 'pv_cloture';
     this.notificationService
       .sendSignatureConfirmation(result.bon, type)
       .catch(() => {/* ignore email errors */});

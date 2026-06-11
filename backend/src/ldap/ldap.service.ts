@@ -36,13 +36,16 @@ export class LdapService {
   ) {}
 
   async testConnection(): Promise<{ success: boolean; message: string }> {
+    let client: ldap.Client | null = null;
     try {
-      const client = await this.createClient();
+      client = await this.createClient();
       await this.bindClient(client);
-      client.destroy();
       return { success: true, message: 'Connexion LDAP réussie' };
     } catch (err: unknown) {
       return { success: false, message: err instanceof Error ? err.message : 'Erreur de connexion LDAP' };
+    } finally {
+      // Also on bind failure — otherwise each failed test leaks a TCP connection
+      client?.destroy();
     }
   }
 
@@ -50,14 +53,29 @@ export class LdapService {
     return this.syncStatus;
   }
 
-  // Default: every 6 hours. Can be made dynamic via config in future phases.
+  // Cron fires every 6 hours; ldap.sync_interval_hours (admin UI) is honoured
+  // for values ABOVE 6h by skipping runs until the interval has elapsed.
   @Cron('0 */6 * * *')
   async scheduledSync() {
-    const ldapEnabled = await this.configService.get('ldap', 'enabled');
-    if (ldapEnabled === 'false') return;
-    const url = await this.configService.get('ldap', 'url');
-    if (!url) return;
-    await this.syncUsers();
+    try {
+      const ldapEnabled = await this.configService.get('ldap', 'enabled');
+      if (ldapEnabled === 'false') return;
+      const url = await this.configService.get('ldap', 'url');
+      if (!url) return;
+
+      const rawInterval = await this.configService.get('ldap', 'sync_interval_hours');
+      const intervalHours = rawInterval ? parseInt(rawInterval, 10) : 6;
+      if (Number.isFinite(intervalHours) && intervalHours > 6 && this.syncStatus.lastSync) {
+        const hoursSinceLast = (Date.now() - this.syncStatus.lastSync.getTime()) / (60 * 60 * 1000);
+        if (hoursSinceLast < intervalHours - 0.5) return;
+      }
+
+      await this.syncUsers();
+    } catch (err) {
+      // The cron package does not catch rejected promises — never let this
+      // escape as an unhandledRejection
+      this.logger.error(`Sync LDAP planifiée en échec: ${(err as Error).stack ?? err}`);
+    }
   }
 
   /**
@@ -74,6 +92,11 @@ export class LdapService {
     if (filter.includes('\0')) {
       throw new Error('Filtre LDAP invalide : caractère nul détecté');
     }
+    // Character allow-list (documented in the SEC-02 audit fix): word chars,
+    // filter operators, wildcards and the chars needed for OID matching rules
+    if (!/^[\w()&|!=*\-\s.@:,]*$/.test(filter)) {
+      throw new Error('Filtre LDAP invalide : caractères non autorisés détectés');
+    }
     if (!filter.startsWith('(') || !filter.endsWith(')')) {
       throw new Error('Filtre LDAP invalide : doit commencer par "(" et se terminer par ")"');
     }
@@ -87,26 +110,57 @@ export class LdapService {
     if (depth !== 0) throw new Error('Filtre LDAP invalide : parenthèses non équilibrées');
   }
 
+  // Re-entrancy guard: the 6h cron and the manual admin trigger must not run
+  // two syncs concurrently (interleaved upserts + corrupted status)
+  private syncInProgress = false;
+
   async syncUsers(): Promise<void> {
-    this.logger.log('Starting LDAP sync...');
-    const ldapEnabled = await this.configService.get('ldap', 'enabled');
-    if (ldapEnabled === 'false') {
-      this.logger.log('LDAP sync skipped — LDAP disabled in configuration');
+    if (this.syncInProgress) {
+      this.logger.warn('LDAP sync skipped — une synchronisation est déjà en cours');
       return;
     }
+    this.syncInProgress = true;
+    this.logger.log('Starting LDAP sync...');
     let client: ldap.Client | null = null;
 
     try {
+      const ldapEnabled = await this.configService.get('ldap', 'enabled');
+      if (ldapEnabled === 'false') {
+        this.logger.log('LDAP sync skipped — LDAP disabled in configuration');
+        return;
+      }
+
       client = await this.createClient();
       await this.bindClient(client);
 
       const searchBase = await this.configService.get('ldap', 'search_base') || '';
-      const rawFilter = await this.configService.get('ldap', 'user_filter') || '(objectClass=person)';
+      // Default AD filter excludes disabled accounts (userAccountControl bit 2)
+      const rawFilter = await this.configService.get('ldap', 'user_filter')
+        || '(&(objectClass=person)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))';
       this.validateLdapFilter(rawFilter);
       const filter = rawFilter;
 
+      const syncStart = new Date();
       const users = await this.searchUsers(client, searchBase, filter);
       await this.upsertUsers(users);
+
+      // Deactivate LDAP-sourced accounts that disappeared from the directory.
+      // Scoped to previously-synced users (lastLdapSync < syncStart excludes the
+      // NULLs of SSO-created accounts) and skipped on an empty search result —
+      // an LDAP misconfiguration must not deactivate the whole company.
+      if (users.length > 0) {
+        const deactivated = await this.prisma.user.updateMany({
+          where: {
+            isLocalAccount: false,
+            active: true,
+            lastLdapSync: { lt: syncStart },
+          },
+          data: { active: false },
+        });
+        if (deactivated.count > 0) {
+          this.logger.warn(`LDAP sync: ${deactivated.count} compte(s) absent(s) de l'annuaire désactivé(s)`);
+        }
+      }
 
       this.syncStatus = {
         lastSync: new Date(),
@@ -127,6 +181,7 @@ export class LdapService {
       this.logger.error(`LDAP sync failed: ${errMsg}`);
     } finally {
       client?.destroy();
+      this.syncInProgress = false;
     }
   }
 
@@ -138,7 +193,9 @@ export class LdapService {
 
     const client = ldap.createClient({
       url,
-      tlsOptions: useSsl === 'true' ? { rejectUnauthorized: process.env.NODE_ENV === 'production' } : undefined,
+      // Always validate the LDAPS certificate: a NODE_ENV-dependent bypass left
+      // staging/recette environments open to MITM on the bind credentials
+      tlsOptions: useSsl === 'true' ? { rejectUnauthorized: true } : undefined,
       timeout: 10000,
       connectTimeout: 10000,
     });
