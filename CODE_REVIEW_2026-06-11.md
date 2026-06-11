@@ -1,5 +1,25 @@
 # Code Review complète — bonmiseadisposition
 
+> **Addendum 2026-06-11 (soir)** — Les correctifs ont été appliqués sur la branche
+> `fix/code-review-2026-06-11` (3 commits : backend, frontend+dépendances, infra).
+> Tous les findings élevés et moyens sont corrigés, ainsi que la quasi-totalité
+> des faibles et suggestions. **Restent volontairement ouverts** :
+> - L-26 : les 8 routes backend non appelées sont conservées (dont `PUT /bons/:id`,
+>   utile pour une future page d'édition de brouillon) ;
+> - M-13 (partiel) : un seul avenant PDF par bon (contrainte UNIQUE(bonId, type)) —
+>   limitation documentée dans `pdf.service.ts`, les chemins d'écrasement dangereux
+>   sont fermés en amont (invalidation des tokens + re-vérification en transaction) ;
+> - S-12/S-13 : refactors de découpage de composants (non risqués mais volumineux) ;
+> - S-16 : projection `users/search` conservée telle quelle (la page admin
+>   Utilisateurs consomme les champs de compte) ;
+> - Dépendances : les advisories npm restantes du backend exigent la migration
+>   NestJS 10 → 11 (`@nestjs/platform-express`, multer imbriqué, uuid via msal-node)
+>   — chantier séparé ; le multer direct (2.1.1) et nodemailer (8.0.11) sont à jour ;
+> - L-48 (partiel) : actions CI corrigées (`file:`) et job de tests ajouté, mais
+>   épinglage par SHA non appliqué (à faire avec un outil type Dependabot/pin-action).
+> Validation finale : 226 tests backend verts (dont 10 nouveaux), `tsc --noEmit`
+> propre, build Vite OK, `npm audit` frontend à zéro.
+
 **Date** : 11 juin 2026
 **Périmètre** : l'intégralité du codebase (backend NestJS ~9 100 lignes, frontend React ~11 000 lignes, infra Docker/nginx/CI), état du commit `8a8bab4`.
 **Méthode** : review multi-agents en 10 dimensions (sécurité auth, autorisations/IDOR, fichiers & injections, correctness métier, transverse backend, qualité backend, correctness frontend, sécurité/qualité frontend, contrats API, infra/CI), chaque finding ayant été contre-vérifié par 1 à 3 agents adversariaux indépendants relisant le code source réel (153 agents au total). Les 12 findings dont la vérification a été interrompue ont été re-vérifiés manuellement. 3 findings ont été réfutés et écartés (listés en fin de rapport).
