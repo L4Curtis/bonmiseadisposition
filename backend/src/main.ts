@@ -100,4 +100,11 @@ async function bootstrap() {
   await authService.ensureDefaultAdmin();
 }
 
-bootstrap();
+// Fail-fast : un échec de démarrage (DB indisponible, config invalide) doit
+// TUER le process pour que Docker le redémarre — sans ce catch, le handler
+// unhandledRejection ci-dessus loggerait l'erreur en laissant un process
+// zombie qui n'écoute jamais (conteneur « running » mais 502 permanent).
+bootstrap().catch((err) => {
+  logger.error(`Échec du démarrage: ${err instanceof Error ? err.stack : err}`);
+  process.exit(1);
+});
