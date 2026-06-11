@@ -40,6 +40,7 @@ const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: 'active', label: 'Actif' },
   { value: 'sent_restitution', label: 'En attente de restitution' },
   { value: 'partially_returned', label: 'Restitution partielle' },
+  { value: 'contested', label: 'Contesté' },
   { value: 'archived', label: 'Archivé' },
   { value: 'cancelled', label: 'Annulé' },
 ];
@@ -72,6 +73,7 @@ export function BonsListPage() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [filiales, setFiliales] = useState<Filiale[]>([]);
 
   const [search, setSearch] = useState(searchParams.get('search') ?? '');
@@ -80,6 +82,7 @@ export function BonsListPage() {
   const [filialeFilter, setFilialeFilter] = useState(searchParams.get('filialeId') ?? '');
   const [searchInput, setSearchInput] = useState(searchParams.get('search') ?? '');
   const [exportLoading, setExportLoading] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   const limit = 20;
 
@@ -120,6 +123,7 @@ export function BonsListPage() {
     setSearchParams(urlParams, { replace: true });
 
     setLoading(true);
+    setLoadError(null);
     const params = new URLSearchParams();
     if (search) params.set('search', search);
     if (statusFilter) params.set('status', statusFilter);
@@ -134,9 +138,14 @@ export function BonsListPage() {
         setBons(data.bons);
         setTotal(data.total);
       })
-      .catch(() => {})
+      .catch((e: unknown) => {
+        // Une panne serveur ne doit pas s'afficher comme « aucun bon »
+        setBons([]);
+        setTotal(0);
+        setLoadError(e instanceof Error && e.message ? e.message : 'Erreur lors du chargement des bons');
+      })
       .finally(() => setLoading(false));
-  }, [search, statusFilter, excludeStatus, filialeFilter, page]);
+  }, [search, statusFilter, excludeStatus, filialeFilter, page, reloadKey]);
 
   const totalPages = Math.ceil(total / limit);
   const hasActiveFilters = search || statusFilter || filialeFilter;
@@ -263,6 +272,18 @@ export function BonsListPage() {
       <div className="bg-card rounded-xl border border-border card-elevated overflow-hidden">
         {loading ? (
           <TableSkeleton />
+        ) : loadError ? (
+          /* Erreur de chargement — distincte de l'état vide */
+          <div className="flex flex-col items-center justify-center py-16 px-4 text-center" role="alert">
+            <div className="rounded-full bg-red-50 dark:bg-red-900/20 p-4 mb-4">
+              <X className="h-8 w-8 text-red-500" />
+            </div>
+            <p className="text-sm font-medium text-foreground/80 mb-1">Erreur de chargement</p>
+            <p className="text-xs text-muted-foreground/70 max-w-xs">{loadError}</p>
+            <Button size="sm" variant="outline" className="mt-4" onClick={() => setReloadKey((k) => k + 1)}>
+              Réessayer
+            </Button>
+          </div>
         ) : bons.length === 0 ? (
           /* Empty state */
           <div className="flex flex-col items-center justify-center py-16 px-4 text-center">

@@ -33,6 +33,11 @@ export function LoginPage() {
     ]).then(([setupData, localData]) => {
       setSetupRequired(setupData.setupRequired);
       setLocalAuthEnabled(localData.enabled);
+    }).catch(() => {
+      // Backend partiellement indisponible : afficher quand même la page de
+      // connexion (bouton SSO) plutôt qu'un spinner infini
+      setSetupRequired(false);
+      setLocalAuthEnabled(true);
     });
   }, []);
 

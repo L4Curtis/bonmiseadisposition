@@ -13,6 +13,7 @@ export interface BonModalsProps {
   readonly confirmCancel: boolean;
   readonly onCancelConfirm: () => Promise<void>;
   readonly onCancelDismiss: () => void;
+  readonly cancelLoading: boolean;
 
   // In-person modal
   readonly inPersonModal: { type: 'mise_disposition' | 'restitution'; token: string } | null;
@@ -45,6 +46,7 @@ export interface BonModalsProps {
   readonly resendConfirmSentAt: string | null;
   readonly onResendForce: () => Promise<void>;
   readonly onResendDismiss: () => void;
+  readonly resendLoading: boolean;
 }
 
 export function BonModals({
@@ -52,6 +54,7 @@ export function BonModals({
   confirmCancel,
   onCancelConfirm,
   onCancelDismiss,
+  cancelLoading,
   inPersonModal,
   onInPersonClose,
   pendingItAction,
@@ -72,6 +75,7 @@ export function BonModals({
   resendConfirmSentAt,
   onResendForce,
   onResendDismiss,
+  resendLoading,
 }: BonModalsProps) {
   return (
     <>
@@ -82,6 +86,7 @@ export function BonModals({
           message="Le bon sera marqué comme annulé. Cette action est irréversible."
           onConfirm={onCancelConfirm}
           onCancel={onCancelDismiss}
+          loading={cancelLoading}
           danger
         />
       )}
@@ -148,6 +153,7 @@ export function BonModals({
             message={`Un lien de signature a déjà été envoyé ${label}. Le collaborateur l'a peut-être reçu. Renvoyer quand même ?`}
             onConfirm={onResendForce}
             onCancel={onResendDismiss}
+            loading={resendLoading}
           />
         );
       })()}

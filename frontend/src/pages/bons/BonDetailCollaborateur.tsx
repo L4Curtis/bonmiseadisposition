@@ -148,7 +148,7 @@ export function BonDetailCollaborateurPage() {
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/mes-bons')}>
+          <Button variant="ghost" size="icon" aria-label="Retour à mes bons" onClick={() => navigate('/mes-bons')}>
             <ChevronLeft className="h-5 w-5" />
           </Button>
           <div>
@@ -337,6 +337,7 @@ export function BonDetailCollaborateurPage() {
                 <Button
                   variant="ghost"
                   size="sm"
+                  aria-label={`Télécharger ${SNAPSHOT_LABELS[snap.type] ?? snap.type}`}
                   onClick={() => downloadPdf('mise_disposition', snap.type)}
                   disabled={!!pdfLoading}
                 >

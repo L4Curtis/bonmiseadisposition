@@ -193,16 +193,18 @@ function PreviewDialog({
   useEffect(() => {
     if (!open || !templateId) { setPdfUrl(null); return; }
     setLoading(true);
+    // Capture locale : le cleanup doit révoquer l'URL réellement créée par CET
+    // effet, pas la valeur (périmée) de l'état au moment de son exécution
+    let createdUrl: string | null = null;
     api.getBlob(`/admin/pdf-templates/${templateId}/preview`)
       .then((blob) => {
-        const url = URL.createObjectURL(blob);
-        setPdfUrl(url);
+        createdUrl = URL.createObjectURL(blob);
+        setPdfUrl(createdUrl);
       })
       .catch(() => setPdfUrl(null))
       .finally(() => setLoading(false));
 
-    return () => { if (pdfUrl) URL.revokeObjectURL(pdfUrl); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => { if (createdUrl) URL.revokeObjectURL(createdUrl); };
   }, [open, templateId]);
 
   return (

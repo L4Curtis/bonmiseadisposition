@@ -111,8 +111,15 @@ export function UiViewProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // La valeur restaurée du localStorage peut appartenir à un autre compte ou à
+  // un rôle supérieur : clamp synchrone dès que l'user est connu, pour que le
+  // premier rendu ne redirige pas un non-IT vers /unauthorized (le useEffect
+  // ci-dessus corrige le storage ensuite).
+  const effectiveView: UiView =
+    user && !availableViews.includes(activeView) ? 'collaborateur' : activeView;
+
   return (
-    <UiViewContext.Provider value={{ activeView, setActiveView, availableViews }}>
+    <UiViewContext.Provider value={{ activeView: effectiveView, setActiveView, availableViews }}>
       {children}
     </UiViewContext.Provider>
   );

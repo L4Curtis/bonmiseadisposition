@@ -163,6 +163,7 @@ export function BonDetailPage() {
         confirmCancel={actions.confirmCancel}
         onCancelConfirm={actions.doCancel}
         onCancelDismiss={() => actions.setConfirmCancel(false)}
+        cancelLoading={actionLoading === 'cancel'}
         inPersonModal={actions.inPersonModal}
         onInPersonClose={() => actions.setInPersonModal(null)}
         pendingItAction={actions.pendingItAction}
@@ -187,6 +188,7 @@ export function BonDetailPage() {
         resendConfirmSentAt={actions.resendConfirmSentAt}
         onResendForce={() => actions.doResend(true)}
         onResendDismiss={() => actions.setResendConfirmSentAt(null)}
+        resendLoading={actionLoading === 'resend'}
       />
     </div>
   );

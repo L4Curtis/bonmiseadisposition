@@ -36,13 +36,9 @@ export function formatDateTime(d: string | Date | null | undefined): string {
   });
 }
 
-// ─── HTML Escaping ──────────────────────────────────────────────────────────
-
-export function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
+/** Date du jour locale au format YYYY-MM-DD (toISOString renverrait la date UTC,
+ *  soit la veille entre minuit et 1-2h du matin en Europe). */
+export function todayLocalISO(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }

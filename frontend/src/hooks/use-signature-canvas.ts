@@ -6,7 +6,8 @@ const EXPORT_LINE_WIDTH = 6;
 const EXPORT_STROKE_COLOR = '#000000';
 
 interface SignatureCanvasReturn {
-  canvasRef: React.RefObject<HTMLCanvasElement>;
+  /** Callback ref — attach with `ref={canvasRef}`. */
+  canvasRef: (node: HTMLCanvasElement | null) => void;
   isEmpty: boolean;
   clear: () => void;
   getDataUrl: () => string | null;
@@ -17,7 +18,16 @@ interface SignatureCanvasReturn {
 }
 
 export function useSignatureCanvas(): SignatureCanvasReturn {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  // The canvas often mounts AFTER the first render (loading/auth early-returns,
+  // dialogs): track the mounted node in state so the touch-listener effect
+  // re-runs when it actually appears — a one-shot effect with an empty deps
+  // array used to never attach the listeners, breaking touch signing entirely.
+  const [canvasEl, setCanvasEl] = useState<HTMLCanvasElement | null>(null);
+  const attachCanvas = useCallback((node: HTMLCanvasElement | null) => {
+    canvasRef.current = node;
+    setCanvasEl(node);
+  }, []);
   const isDrawing = useRef(false);
   const [isEmpty, setIsEmpty] = useState(true);
   const strokes = useRef<Array<Array<{ x: number; y: number }>>>([]);
@@ -74,9 +84,10 @@ export function useSignatureCanvas(): SignatureCanvasReturn {
   const onMouseUp = () => { finishStroke(); };
   const onMouseLeave = () => { finishStroke(); };
 
-  // Touch events (addEventListener required for passive:false)
+  // Touch events (addEventListener required for passive:false) — re-attached
+  // whenever the canvas node (re)mounts
   useEffect(() => {
-    const canvas = canvasRef.current;
+    const canvas = canvasEl;
     if (!canvas) return;
 
     const touchStart = (e: TouchEvent) => {
@@ -112,7 +123,7 @@ export function useSignatureCanvas(): SignatureCanvasReturn {
       canvas.removeEventListener('touchmove', touchMove);
       canvas.removeEventListener('touchend', touchEnd);
     };
-  }, []);
+  }, [canvasEl]);
 
   const clear = useCallback(() => {
     const canvas = canvasRef.current;
@@ -147,5 +158,5 @@ export function useSignatureCanvas(): SignatureCanvasReturn {
     return offscreen.toDataURL('image/png');
   }, [isEmpty]);
 
-  return { canvasRef, isEmpty, clear, getDataUrl, onMouseDown, onMouseMove, onMouseUp, onMouseLeave };
+  return { canvasRef: attachCanvas, isEmpty, clear, getDataUrl, onMouseDown, onMouseMove, onMouseUp, onMouseLeave };
 }

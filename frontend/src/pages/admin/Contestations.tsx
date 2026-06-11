@@ -181,21 +181,37 @@ export function ContestationsPage() {
   const [resolving, setResolving] = useState<Contestation | null>(null);
   const limit = 20;
 
+  const [loadError, setLoadError] = useState<string | null>(null);
+
   const load = useCallback(() => {
     setLoading(true);
+    setLoadError(null);
     const params = new URLSearchParams();
     if (statusFilter) params.set('status', statusFilter);
     params.set('page', String(page));
     params.set('limit', String(limit));
     api.get<ContestationResponse>(`/contestations?${params}`)
       .then(setData)
+      .catch((e: unknown) => {
+        // Une panne ne doit pas s'afficher comme « aucune contestation »
+        setData(null);
+        setLoadError(e instanceof Error && e.message ? e.message : 'Erreur lors du chargement des contestations');
+      })
       .finally(() => setLoading(false));
   }, [statusFilter, page]);
 
   useEffect(() => { load(); }, [load]);
 
   const handleReview = async (id: string) => {
-    await api.patch(`/contestations/${id}/review`);
+    try {
+      await api.patch(`/contestations/${id}/review`);
+    } catch (e: unknown) {
+      toast({
+        title: 'Erreur',
+        description: e instanceof Error && e.message ? e.message : 'Erreur lors de la prise en charge',
+        variant: 'destructive',
+      });
+    }
     load();
   };
 
@@ -248,6 +264,14 @@ export function ContestationsPage() {
                 <Skeleton className="h-6 w-24" />
               </div>
             ))}
+          </div>
+        ) : loadError ? (
+          <div className="py-12 text-center text-sm" role="alert">
+            <XCircle className="h-8 w-8 mx-auto mb-2 text-red-400" />
+            <p className="text-red-600">{loadError}</p>
+            <Button size="sm" variant="outline" className="mt-3" onClick={load}>
+              Réessayer
+            </Button>
           </div>
         ) : !data?.contestations.length ? (
           <div className="py-12 text-center text-sm text-muted-foreground/70">

@@ -1,7 +1,15 @@
-import { useState, useRef } from 'react';
-import { api } from '@/lib/api';
+import { useState, useRef, useEffect } from 'react';
+import { api, ApiError } from '@/lib/api';
 import { toast } from '@/hooks/use-toast';
 import type { BonDetailData, PdfSnapshotInfo, PendingItAction } from './types';
+
+function showActionError(e: unknown, fallback: string) {
+  toast({
+    title: 'Erreur',
+    description: e instanceof Error && e.message ? e.message : fallback,
+    variant: 'destructive',
+  });
+}
 
 export function useBonActions(id: string | undefined) {
   const [bon, setBon] = useState<BonDetailData | null>(null);
@@ -22,6 +30,11 @@ export function useBonActions(id: string | undefined) {
   const [resendConfirmSentAt, setResendConfirmSentAt] = useState<string | null>(null);
 
   const snapshotRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clear the pending snapshot re-fetch when the page unmounts
+  useEffect(() => () => {
+    if (snapshotRetryRef.current) clearTimeout(snapshotRetryRef.current);
+  }, []);
 
   const loadSnapshots = (bonId: string) => {
     api.get<PdfSnapshotInfo[]>(`/bons/${bonId}/pdf-snapshots`)
@@ -50,6 +63,8 @@ export function useBonActions(id: string | undefined) {
     try {
       await api.post(`/bons/${id}/send`);
       load();
+    } catch (e: unknown) {
+      showActionError(e, "Erreur lors de l'envoi du bon");
     } finally { setActionLoading(null); }
   };
 
@@ -58,6 +73,8 @@ export function useBonActions(id: string | undefined) {
     try {
       await api.delete(`/bons/${id}`);
       load();
+    } catch (e: unknown) {
+      showActionError(e, "Erreur lors de l'annulation du bon");
     } finally { setActionLoading(null); setConfirmCancel(false); }
   };
 
@@ -67,6 +84,8 @@ export function useBonActions(id: string | undefined) {
       await api.post(`/bons/${id}/initiate-restitution`, { returnedEquipmentIds });
       setShowRestitutionModal(false);
       load();
+    } catch (e: unknown) {
+      showActionError(e, "Erreur lors de l'initiation de la restitution");
     } finally { setActionLoading(null); }
   };
 
@@ -76,6 +95,8 @@ export function useBonActions(id: string | undefined) {
       await api.post(`/bons/${id}/declare-not-returned`, { equipmentIds, reason, signatureDataUrl });
       setShowNotReturnedModal(false);
       load();
+    } catch (e: unknown) {
+      showActionError(e, 'Erreur lors de la déclaration de non-restitution');
     } finally { setActionLoading(null); }
   };
 
@@ -85,6 +106,8 @@ export function useBonActions(id: string | undefined) {
       await api.post(`/bons/${id}/mark-found`, { equipmentIds, signatureDataUrl });
       setShowMarkFoundModal(false);
       load();
+    } catch (e: unknown) {
+      showActionError(e, "Erreur lors de la déclaration d'équipement retrouvé");
     } finally { setActionLoading(null); }
   };
 
@@ -94,6 +117,8 @@ export function useBonActions(id: string | undefined) {
       const res = await api.post<{ bon: BonDetailData; token: string }>(`/bons/${id}/initiate-inperson`, { type });
       setInPersonModal({ type, token: res.token });
       load();
+    } catch (e: unknown) {
+      showActionError(e, 'Erreur lors de la préparation de la signature en présentiel');
     } finally { setActionLoading(null); }
   };
 
@@ -105,16 +130,14 @@ export function useBonActions(id: string | undefined) {
       setResendConfirmSentAt(null);
       load();
     } catch (e: unknown) {
-      if ((e as { status?: number })?.status === 409) {
-        try {
-          const parsed = JSON.parse((e as Error).message);
-          if (parsed.code === 'token_recent') {
-            setResendConfirmSentAt(parsed.sentAt);
-            return;
-          }
-        } catch { /* not JSON, fall through */ }
+      if (e instanceof ApiError && e.status === 409) {
+        const body = e.body as { code?: string; sentAt?: string } | undefined;
+        if (body?.code === 'token_recent' && body.sentAt) {
+          setResendConfirmSentAt(body.sentAt);
+          return;
+        }
       }
-      toast({ title: 'Erreur', description: e instanceof Error ? e.message : 'Erreur lors du renvoi', variant: 'destructive' });
+      showActionError(e, 'Erreur lors du renvoi');
     } finally { setActionLoading(null); }
   };
 

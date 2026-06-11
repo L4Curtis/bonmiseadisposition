@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
-import { contestationSchema, validate } from '@/lib/validation';
+import { contestationSchema, validate, CONTESTATION_MAX_LENGTH } from '@/lib/validation';
 
 interface ContestationDialogProps {
   bonId: string | null;
@@ -76,9 +76,9 @@ export function ContestationDialog({
               placeholder="Ex: Les équipements listés ne correspondent pas à ce que j'ai reçu..."
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              maxLength={1000}
+              maxLength={CONTESTATION_MAX_LENGTH}
             />
-            <p className="text-xs text-muted-foreground text-right">{message.length}/1000</p>
+            <p className="text-xs text-muted-foreground text-right">{message.length}/{CONTESTATION_MAX_LENGTH}</p>
           </div>
           {error && (
             <div role="alert" className="rounded-md bg-destructive/10 border border-destructive/20 p-3">

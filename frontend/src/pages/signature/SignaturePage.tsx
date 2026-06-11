@@ -30,9 +30,11 @@ interface BonInfo {
 }
 
 interface SignatureResponse {
-  status: 'pending' | 'already_signed' | 'expired';
-  bon: BonInfo;
-  signature: {
+  status: 'pending' | 'already_signed' | 'expired' | 'unauthorized';
+  /** Référence seule pour les statuts non-pending (payload minimal côté backend) */
+  reference?: string;
+  bon?: BonInfo;
+  signature?: {
     id: string;
     type: string;
     signed: boolean;
@@ -89,7 +91,13 @@ export function SignaturePage() {
       })
       .then((d) => setData(d))
       .catch((e) => {
-        if (e.message !== 'auth') setError(e.message);
+        if (e.message === 'auth') {
+          // Session expirée entre le check /auth/me et cette requête :
+          // re-proposer la connexion plutôt que « document introuvable »
+          setCurrentUser(null);
+        } else {
+          setError(e.message);
+        }
       })
       .finally(() => setLoading(false));
   }, [token, checkingAuth, currentUser]);
@@ -195,12 +203,40 @@ export function SignaturePage() {
       <StatusScreen
         icon={<Clock className="h-12 w-12 text-orange-400" />}
         title="Lien expiré"
-        message="Ce lien de signature a expiré (validité 7 jours). Contactez le service informatique pour en recevoir un nouveau."
+        message={`Ce lien de signature${data.reference ? ` (réf. ${data.reference})` : ''} a expiré. Contactez le service informatique pour en recevoir un nouveau.`}
       />
     );
   }
 
-  if (data.status === 'already_signed' || signed) {
+  // Le backend ne renvoie le détail du bon qu'au destinataire du lien
+  if (data.status === 'unauthorized') {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background px-4">
+        <div className="w-full max-w-md rounded-xl bg-card border border-border shadow-sm p-8 text-center space-y-4">
+          <div className="bg-red-50 dark:bg-red-900/20 rounded-full w-16 h-16 flex items-center justify-center mx-auto">
+            <XCircle className="h-7 w-7 text-red-500" />
+          </div>
+          <div>
+            <h2 className="font-semibold text-foreground">Compte non autorisé</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              Ce document est destiné à un autre collaborateur. Vous êtes connecté en tant que{' '}
+              <strong>{currentUser.email}</strong> — reconnectez-vous avec le compte Microsoft du destinataire.
+            </p>
+          </div>
+          <button
+            onClick={handleSSOLogin}
+            className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-6 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 transition-colors"
+          >
+            Changer de compte
+          </button>
+          <p className="text-xs text-muted-foreground/70">Groupe Livio — Service informatique</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Signature fraîchement soumise (data contient encore le payload pending complet)
+  if (signed && data.bon && data.signature) {
     const sigType = data.signature.type === 'pv_cloture'
       ? 'procès-verbal d\'équipements non restitués'
       : data.signature.type === 'restitution' ? 'restitution' : 'mise à disposition';
@@ -213,6 +249,22 @@ export function SignaturePage() {
         success
       />
     );
+  }
+
+  // Lien déjà signé précédemment (payload minimal : référence seule)
+  if (data.status === 'already_signed') {
+    return (
+      <StatusScreen
+        icon={<CheckCircle className="h-12 w-12 text-green-500" />}
+        title="Document déjà signé ✓"
+        message={`Ce document${data.reference ? ` (réf. ${data.reference})` : ''} a déjà été signé électroniquement.`}
+        success
+      />
+    );
+  }
+
+  if (!data.bon || !data.signature) {
+    return <StatusScreen icon={<XCircle className="h-12 w-12 text-red-400" />} title="Document introuvable" message="Ce lien de signature n'existe pas." />;
   }
 
   const bon = data.bon;
@@ -464,7 +516,9 @@ function EquipmentTable({
   isPvCloture: boolean;
   isRestitution: boolean;
 }) {
-  const filtered = equipments
+  // Copy before sorting — sort() mutates in place and the array lives in the
+  // parent component's state
+  const filtered = [...equipments]
     .sort((a, b) => a.order - b.order)
     .filter(eq => {
       if (isPvCloture) return eq.notReturned;

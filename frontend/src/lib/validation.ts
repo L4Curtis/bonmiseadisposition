@@ -46,6 +46,7 @@ export const bonCreateSchema = z.object({
   dateMiseDisposition: z
     .string()
     .min(1, 'Indiquez la date de mise à disposition'),
+  dateRestitution: z.string().optional(),
   civilite: z.enum(['mr', 'mme']),
   equipments: z
     .array(z.object({
@@ -59,7 +60,17 @@ export const bonCreateSchema = z.object({
       (items) => items.some((e) => e.catalogItemId || e.customLabel?.trim()),
       'Ajoutez au moins un équipement',
     ),
-});
+}).refine(
+  // Comparaison lexicographique valide sur le format YYYY-MM-DD
+  (d) => !d.dateRestitution || d.dateRestitution >= d.dateMiseDisposition,
+  {
+    message: 'La date de restitution ne peut pas précéder la date de mise à disposition',
+    path: ['dateRestitution'],
+  },
+);
+
+/** Limite partagée UI ↔ schéma pour le message de contestation. */
+export const CONTESTATION_MAX_LENGTH = 2000;
 
 // ─── Contestation ────────────────────────────────────────────────────────────
 
@@ -67,7 +78,7 @@ export const contestationSchema = z.object({
   message: z
     .string()
     .min(1, 'Veuillez détailler le motif')
-    .max(2000, 'Maximum 2000 caractères'),
+    .max(CONTESTATION_MAX_LENGTH, `Maximum ${CONTESTATION_MAX_LENGTH} caractères`),
 });
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

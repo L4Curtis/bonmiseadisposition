@@ -22,12 +22,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const fetchMe = async (signal?: AbortSignal) => {
     try {
-      const res = await fetch('/api/auth/me', { credentials: 'include', signal });
-      if (res.ok) {
-        setUser(await res.json());
-      } else {
-        setUser(null);
+      let res = await fetch('/api/auth/me', { credentials: 'include', signal });
+      // The access token only lives 15 min but the refresh token lives 8 h: on a
+      // page reload after expiry, try a refresh before declaring the user logged
+      // out (otherwise every reload past 15 min forces a re-login). Done with raw
+      // fetch (not api.ts) to avoid its redirect-to-/login side effect here.
+      if (res.status === 401) {
+        const refreshed = await fetch('/api/auth/refresh', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'X-Requested-With': 'XMLHttpRequest' },
+          signal,
+        });
+        if (refreshed.ok) {
+          res = await fetch('/api/auth/me', { credentials: 'include', signal });
+        }
       }
+      setUser(res.ok ? await res.json() : null);
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;
       setUser(null);

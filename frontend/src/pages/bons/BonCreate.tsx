@@ -12,8 +12,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Search, X, Plus, Trash2, Package, ChevronLeft, CalendarCheck } from 'lucide-react';
+import { Search, X, Plus, Trash2, ChevronLeft, CalendarCheck } from 'lucide-react';
 import { bonCreateSchema, validate } from '@/lib/validation';
+import { todayLocalISO } from '@/lib/utils';
 import type { Filiale } from '@/types';
 
 interface UserResult {
@@ -218,8 +219,11 @@ export function BonCreatePage() {
   const [filiales, setFiliales] = useState<Filiale[]>([]);
   const [allCatalogItems, setAllCatalogItems] = useState<CatalogItem[]>([]);
   const [packs, setPacks] = useState<Pack[]>([]);
+  const [initError, setInitError] = useState(false);
+  const [initReloadKey, setInitReloadKey] = useState(0);
 
   useEffect(() => {
+    setInitError(false);
     Promise.all([
       api.get<Filiale[]>('/filiales/active'),
       api.get<CatalogItem[]>('/equipment/catalog').then((d) =>
@@ -230,8 +234,11 @@ export function BonCreatePage() {
       setFiliales(f);
       setAllCatalogItems(Array.isArray(items) ? items : []);
       setPacks(Array.isArray(p) ? p : []);
+    }).catch(() => {
+      // Sans filiales/catalogue le formulaire est inutilisable : le signaler
+      setInitError(true);
     });
-  }, []);
+  }, [initReloadKey]);
 
   const addFromCatalog = (item: CatalogItem) => {
     setEquipments((prev) => [
@@ -250,7 +257,11 @@ export function BonCreatePage() {
       ),
     );
     setEquipments((prev) => {
-      const filtered = prev.filter((e) => e.catalogItemId || e.customLabel);
+      // Ne retirer que les lignes totalement vides : une ligne avec un numéro
+      // de série ou des notes saisis ne doit pas être perdue par l'import
+      const filtered = prev.filter(
+        (e) => e.catalogItemId || e.customLabel?.trim() || e.serialNumber?.trim() || e.inventoryNumber?.trim() || e.notes?.trim(),
+      );
       return [...filtered, ...lines];
     });
   };
@@ -270,6 +281,7 @@ export function BonCreatePage() {
       collaborateurId: collaborateur?.id ?? '',
       filialeId,
       dateMiseDisposition,
+      dateRestitution: dateRestitution || undefined,
       civilite,
       equipments: validEquipments.map((e) => ({
         catalogItemId: e.catalogItemId || undefined,
@@ -321,6 +333,18 @@ export function BonCreatePage() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
+        {initError && (
+          <div className="rounded-lg bg-destructive/10 border border-destructive/20 px-4 py-3 text-sm text-destructive flex items-center justify-between gap-3" role="alert">
+            <span>Impossible de charger les filiales et le catalogue — le formulaire est incomplet.</span>
+            <button
+              type="button"
+              className="shrink-0 font-medium underline hover:no-underline"
+              onClick={() => setInitReloadKey((k) => k + 1)}
+            >
+              Réessayer
+            </button>
+          </div>
+        )}
         {error && (
           <div className="rounded-lg bg-destructive/10 border border-destructive/20 px-4 py-3 text-sm text-destructive" role="alert">
             {error}
@@ -390,7 +414,7 @@ export function BonCreatePage() {
                   size="icon"
                   className="h-9 w-9 shrink-0"
                   title="Aujourd'hui"
-                  onClick={() => setDateMiseDisposition(new Date().toISOString().slice(0, 10))}
+                  onClick={() => setDateMiseDisposition(todayLocalISO())}
                 >
                   <CalendarCheck className="h-3.5 w-3.5" />
                 </Button>
@@ -411,7 +435,7 @@ export function BonCreatePage() {
                   size="icon"
                   className="h-9 w-9 shrink-0"
                   title="Aujourd'hui"
-                  onClick={() => setDateRestitution(new Date().toISOString().slice(0, 10))}
+                  onClick={() => setDateRestitution(todayLocalISO())}
                 >
                   <CalendarCheck className="h-3.5 w-3.5" />
                 </Button>
@@ -439,7 +463,7 @@ export function BonCreatePage() {
                     <option value="">Importer un pack...</option>
                     {packs.filter((p) => (p as Pack & { active?: boolean }).active !== false).map((p) => (
                       <option key={p.id} value={p.id}>
-                        <Package className="h-3 w-3" /> {p.name}
+                        {p.name}
                       </option>
                     ))}
                   </select>

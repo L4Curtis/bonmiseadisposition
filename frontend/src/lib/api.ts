@@ -1,92 +1,101 @@
 const BASE_URL = '/api';
 
-class ApiError extends Error {
+export class ApiError extends Error {
+  /** Parsed JSON error body when the server returned one (e.g. { code, sentAt }). */
+  body?: unknown;
+
   constructor(
     public status: number,
     message: string,
+    body?: unknown,
   ) {
     super(message);
+    this.body = body;
   }
 }
 
 const CSRF_HEADER = { 'X-Requested-With': 'XMLHttpRequest' };
 
+/** Build a readable ApiError from a raw error response body: NestJS errors are
+ *  JSON ({ statusCode, message, error }) — surface `message` (joined when it is
+ *  a class-validator array) instead of the raw JSON string. */
+function buildError(status: number, text: string): ApiError {
+  try {
+    const body: unknown = JSON.parse(text);
+    const rawMessage = (body as { message?: unknown })?.message;
+    const message = Array.isArray(rawMessage)
+      ? rawMessage.join(' — ')
+      : typeof rawMessage === 'string'
+        ? rawMessage
+        : text;
+    return new ApiError(status, message || `Erreur HTTP ${status}`, body);
+  } catch {
+    return new ApiError(status, text || `Erreur HTTP ${status}`);
+  }
+}
+
+async function parseJsonResponse<T>(res: Response): Promise<T> {
+  if (!res.ok) throw buildError(res.status, await res.text());
+  if (res.status === 204) return undefined as T;
+  const text = await res.text();
+  return (text ? JSON.parse(text) : undefined) as T;
+}
+
 let refreshPromise: Promise<void> | null = null;
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...CSRF_HEADER, ...options?.headers },
+/** Refresh the session once for all concurrent 401s; redirect to login on failure. */
+function refreshSession(): Promise<void> {
+  if (!refreshPromise) {
+    refreshPromise = fetch(`${BASE_URL}/auth/refresh`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: CSRF_HEADER,
+    }).then((refreshed) => {
+      if (!refreshed.ok) {
+        window.location.href = '/login';
+        throw new ApiError(401, 'Session expirée');
+      }
+    }).finally(() => {
+      refreshPromise = null;
+    });
+  }
+  return refreshPromise;
+}
+
+function buildInit(options?: RequestInit): RequestInit {
+  const { headers, ...rest } = options ?? {};
+  return {
+    ...rest,
+    headers: { 'Content-Type': 'application/json', ...CSRF_HEADER, ...headers },
     credentials: 'include',
-    ...options,
-  });
+  };
+}
+
+async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${BASE_URL}${path}`, buildInit(options));
 
   if (res.status === 401) {
-    // Deduplicate concurrent refresh calls
-    if (!refreshPromise) {
-      refreshPromise = fetch(`${BASE_URL}/auth/refresh`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: CSRF_HEADER,
-      }).then((refreshed) => {
-        if (!refreshed.ok) {
-          window.location.href = '/login';
-          throw new ApiError(401, 'Session expired');
-        }
-      }).finally(() => {
-        refreshPromise = null;
-      });
-    }
-    await refreshPromise;
-    // Retry original request
-    const retryRes = await fetch(`${BASE_URL}${path}`, {
-      headers: { 'Content-Type': 'application/json', ...CSRF_HEADER, ...options?.headers },
-      credentials: 'include',
-      ...options,
-    });
-    if (!retryRes.ok) throw new ApiError(retryRes.status, await retryRes.text());
-    return retryRes.json();
+    await refreshSession();
+    // Retry original request — same response handling as the nominal path
+    const retryRes = await fetch(`${BASE_URL}${path}`, buildInit(options));
+    return parseJsonResponse<T>(retryRes);
   }
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new ApiError(res.status, text);
-  }
-
-  if (res.status === 204) return undefined as T;
-  return res.json();
+  return parseJsonResponse<T>(res);
 }
 
 async function requestBlob(path: string): Promise<Blob> {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    headers: CSRF_HEADER,
-    credentials: 'include',
-  });
+  const init: RequestInit = { headers: CSRF_HEADER, credentials: 'include' };
+  const res = await fetch(`${BASE_URL}${path}`, init);
 
   if (res.status === 401) {
-    if (!refreshPromise) {
-      refreshPromise = fetch(`${BASE_URL}/auth/refresh`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: CSRF_HEADER,
-      }).then((refreshed) => {
-        if (!refreshed.ok) {
-          window.location.href = '/login';
-          throw new ApiError(401, 'Session expired');
-        }
-      }).finally(() => {
-        refreshPromise = null;
-      });
-    }
-    await refreshPromise;
-    const retryRes = await fetch(`${BASE_URL}${path}`, {
-      headers: CSRF_HEADER,
-      credentials: 'include',
-    });
-    if (!retryRes.ok) throw new ApiError(retryRes.status, await retryRes.text());
+    await refreshSession();
+    const retryRes = await fetch(`${BASE_URL}${path}`, init);
+    if (!retryRes.ok) throw buildError(retryRes.status, await retryRes.text());
     return retryRes.blob();
   }
 
-  if (!res.ok) throw new ApiError(res.status, await res.text());
+  if (!res.ok) throw buildError(res.status, await res.text());
   return res.blob();
 }
 

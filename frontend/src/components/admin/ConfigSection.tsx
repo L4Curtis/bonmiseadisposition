@@ -47,9 +47,15 @@ function TestButton({ onTest, label }: { onTest: () => Promise<TestResult>; labe
   const run = async () => {
     setLoading(true);
     setResult(null);
-    const res = await onTest();
-    setResult(res);
-    setLoading(false);
+    try {
+      setResult(await onTest());
+    } catch (e: unknown) {
+      // Un test qui échoue côté serveur (500/timeout) doit afficher l'erreur,
+      // pas bloquer le spinner indéfiniment
+      setResult({ success: false, message: e instanceof Error && e.message ? e.message : 'Échec du test' });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -80,9 +86,13 @@ export function SmtpTestButton({ onTest }: { onTest: (email: string) => Promise<
     if (!email) return;
     setLoading(true);
     setResult(null);
-    const res = await onTest(email);
-    setResult(res);
-    setLoading(false);
+    try {
+      setResult(await onTest(email));
+    } catch (e: unknown) {
+      setResult({ success: false, message: e instanceof Error && e.message ? e.message : 'Échec du test' });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
