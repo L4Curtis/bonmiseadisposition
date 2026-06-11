@@ -91,13 +91,21 @@ const SidebarNavLink = React.forwardRef<
       ref={ref}
       to={to}
       className={cn(
-        'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium whitespace-nowrap transition-colors duration-150',
+        'group relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium whitespace-nowrap transition-all duration-150',
         isActive
           ? 'nav-item-active text-white'
           : 'text-slate-400 hover:bg-white/5 hover:text-slate-200',
       )}
       {...props}
     >
+      {/* Barre d'indicateur active (gauche) */}
+      <span
+        aria-hidden="true"
+        className={cn(
+          'absolute left-0 top-1/2 -translate-y-1/2 h-4 w-[3px] rounded-r-full bg-[hsl(var(--sidebar-accent))] transition-all duration-200',
+          isActive ? 'opacity-100 scale-y-100' : 'opacity-0 scale-y-50',
+        )}
+      />
       {children}
     </NavLink>
   );
@@ -167,37 +175,45 @@ export function Sidebar() {
     <TooltipProvider delayDuration={300}>
       <aside
         className={cn(
-          'flex shrink-0 flex-col bg-[hsl(var(--sidebar-bg))] overflow-hidden transition-[width] duration-200 ease-in-out',
-          collapsed ? 'w-[3.75rem]' : 'w-56',
+          'relative flex shrink-0 flex-col bg-[hsl(var(--sidebar-bg))] overflow-hidden transition-[width] duration-200 ease-in-out',
+          'border-r border-white/[0.06]',
+          collapsed ? 'w-[3.75rem]' : 'w-60',
         )}
       >
+        {/* Halo de marque en haut du rail */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 top-0 h-40"
+          style={{ background: 'radial-gradient(120% 100% at 50% 0%, hsl(243 75% 59% / 0.14), transparent 70%)' }}
+        />
+
         {/* Logo */}
-        <div className="flex h-14 items-center gap-3 border-b border-white/10 px-4 whitespace-nowrap">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg btn-gradient text-white text-xs font-bold tracking-tight shadow-sm">
+        <div className="relative flex h-14 items-center gap-3 border-b border-white/[0.07] px-3.5 whitespace-nowrap">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl btn-gradient text-white text-xs font-bold tracking-tight ring-1 ring-white/20">
             GL
           </div>
           <div className={cn(
             'flex-1 min-w-0 transition-opacity duration-200',
             collapsed ? 'opacity-0' : 'opacity-100',
           )}>
-            <p className="text-sm font-semibold text-white leading-none">Bons IT</p>
-            <p className="text-[10px] text-slate-400 mt-0.5 leading-none">Groupe Livio</p>
+            <p className="text-sm font-semibold text-white leading-none tracking-tight">Bons IT</p>
+            <p className="text-[10px] text-slate-400 mt-1 leading-none">Groupe Livio</p>
           </div>
         </div>
 
         {/* Navigation */}
-        <nav aria-label="Navigation principale" className="flex-1 overflow-y-auto overflow-x-hidden p-2.5 pt-3">
+        <nav aria-label="Navigation principale" className="relative flex-1 overflow-y-auto overflow-x-hidden p-2.5 pt-3">
           {navGroups.map((group, index) => (
             <SidebarSection key={group.title} group={group} isFirst={index === 0} collapsed={collapsed} />
           ))}
         </nav>
 
         {/* User block + Toggle */}
-        <div className="border-t border-white/10 p-2">
+        <div className="relative border-t border-white/[0.07] p-2">
           <Tooltip>
             <TooltipTrigger asChild>
-              <div className="flex items-center gap-2.5 rounded-lg px-2 py-2">
-                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[hsl(var(--primary)/0.20)] text-[hsl(var(--primary))] text-xs font-semibold">
+              <div className="flex items-center gap-2.5 rounded-lg px-2 py-2 hover:bg-white/5 transition-colors">
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full btn-gradient text-white text-[10px] font-bold ring-1 ring-white/20">
                   {user?.displayName?.slice(0, 2).toUpperCase() || '??'}
                 </div>
                 <div className={cn(

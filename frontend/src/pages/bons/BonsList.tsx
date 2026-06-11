@@ -208,7 +208,7 @@ export function BonsListPage() {
 
         {/* Status dropdown */}
         <select
-          className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground/80 focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.20)] focus:border-[hsl(var(--primary)/0.60)] transition-all cursor-pointer"
+          className="field-modern h-9 px-3 cursor-pointer"
           value={statusFilter}
           onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
           aria-label="Filtrer par statut"
@@ -220,7 +220,7 @@ export function BonsListPage() {
 
         {/* Filiale dropdown */}
         <select
-          className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground/80 focus:outline-none focus:ring-2 focus:ring-[hsl(var(--primary)/0.20)] focus:border-[hsl(var(--primary)/0.60)] transition-all cursor-pointer"
+          className="field-modern h-9 px-3 cursor-pointer"
           value={filialeFilter}
           onChange={(e) => { setFilialeFilter(e.target.value); setPage(1); }}
           aria-label="Filtrer par filiale"

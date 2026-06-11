@@ -12,9 +12,10 @@ export function Layout() {
         Aller au contenu principal
       </a>
       <Sidebar />
-      <div className="flex flex-1 flex-col overflow-hidden">
+      {/* La colonne entière défile : le contenu passe SOUS le header vitré */}
+      <div className="app-canvas flex flex-1 flex-col overflow-y-auto">
         <Header />
-        <main id="main-content" className="flex-1 overflow-auto p-6">
+        <main id="main-content" className="flex-1 p-6 lg:px-8">
           <Outlet />
         </main>
       </div>

@@ -608,7 +608,7 @@ export function BonCreatePage() {
                 {/* Import depuis pack */}
                 {packs.filter((p) => (p as Pack & { active?: boolean }).active !== false).length > 0 && (
                   <select
-                    className="rounded-md border bg-card px-2 py-1 text-xs text-muted-foreground"
+                    className="field-modern h-8 px-2 text-xs cursor-pointer"
                     value=""
                     onChange={(e) => {
                       const pack = packs.find((p) => p.id === e.target.value);

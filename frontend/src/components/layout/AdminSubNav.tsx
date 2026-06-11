@@ -54,7 +54,9 @@ export function AdminSubNav({ section }: { section: SubNavSection }) {
   return (
     <nav
       aria-label={`Sous-navigation ${section.title}`}
-      className="w-48 shrink-0 border-r border-border bg-muted/30 overflow-y-auto"
+      // sticky sous le header vitré (h-14) : la sous-nav reste visible pendant
+      // que le contenu défile
+      className="w-48 shrink-0 self-start sticky top-14 max-h-[calc(100vh-3.5rem)] border-r border-border/70 bg-muted/30 overflow-y-auto"
     >
       <div className="p-3">
         <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground select-none">

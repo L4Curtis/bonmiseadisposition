@@ -295,15 +295,25 @@ export function SignaturePage() {
     <div className="min-h-screen bg-background py-8 px-4">
       <div className="mx-auto max-w-2xl space-y-5">
         {/* Header card */}
-        <div className="rounded-xl bg-card border border-border shadow-sm overflow-hidden">
-          <div className={`${isPvCloture ? 'bg-red-700' : 'bg-blue-700'} px-6 py-4`}>
-            <p className={`${isPvCloture ? 'text-red-200' : 'text-blue-200'} text-xs font-medium uppercase tracking-wider mb-1`}>
-              {bon.filiale.displayName}
-            </p>
-            <h1 className="text-white font-bold text-lg">
-              {isPvCloture ? 'Procès-verbal à signer' : `Bon de ${sigType} à signer`}
-            </h1>
-            <p className={`${isPvCloture ? 'text-red-100' : 'text-blue-100'} text-sm font-mono mt-0.5`}>{bon.reference}</p>
+        <div className="rounded-2xl bg-card border border-border shadow-card overflow-hidden">
+          <div
+            className="relative px-6 py-5 overflow-hidden"
+            style={{
+              background: isPvCloture
+                ? 'linear-gradient(135deg, hsl(0 72% 38%), hsl(0 74% 50%))'
+                : 'var(--gradient-primary)',
+            }}
+          >
+            <div aria-hidden="true" className="bg-dots pointer-events-none absolute inset-0 opacity-60" />
+            <div className="relative">
+              <p className="text-white/70 text-[11px] font-semibold uppercase tracking-[0.14em] mb-1">
+                {bon.filiale.displayName}
+              </p>
+              <h1 className="text-white font-bold text-lg tracking-tight">
+                {isPvCloture ? 'Procès-verbal à signer' : `Bon de ${sigType} à signer`}
+              </h1>
+              <p className="text-white/80 text-sm font-mono mt-1">{bon.reference}</p>
+            </div>
           </div>
           <div className="px-6 py-4 space-y-2 text-sm">
             <Row label="Destinataire" value={`${civiliteLabel} ${bon.collaborateur.displayName}`} />
@@ -489,7 +499,7 @@ export function SignaturePage() {
               <button
                 onClick={handleSubmit}
                 disabled={submitting || isEmpty || !luApprouve || (!!(!isInPerson && !isPvCloture && emailMismatch))}
-                className={`w-full flex items-center justify-center gap-2 rounded-lg px-6 py-3 text-sm font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors ${isPvCloture ? 'bg-red-700 hover:bg-red-800' : 'bg-blue-700 hover:bg-blue-800'}`}
+                className={`w-full flex items-center justify-center gap-2 rounded-xl px-6 py-3 text-sm font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-[0.99] ${isPvCloture ? 'bg-red-700 hover:bg-red-800 shadow-sm' : 'btn-gradient'}`}
               >
                 {submitting ? (
                   <><Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" /> Signature en cours…</>

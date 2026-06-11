@@ -104,17 +104,23 @@ interface StatCardProps {
 function StatCard({ label, value, icon: Icon, iconBg, iconColor, onClick, className }: StatCardProps) {
   return (
     <button
-      className={`group w-full text-left rounded-xl border border-border bg-card p-5 card-elevated hover:shadow-card-hover hover:border-primary/25 transition-all duration-150 ${className ?? ''}`}
+      className={`group w-full text-left rounded-xl border border-border/80 bg-card p-5 card-elevated hover:border-primary/30 hover:-translate-y-0.5 transition-all duration-200 ${className ?? ''}`}
       onClick={onClick}
     >
       <div className="flex items-start justify-between">
-        <div>
-          <p className="text-sm text-muted-foreground leading-none mb-3">{label}</p>
-          <p className="text-3xl font-extrabold tracking-tight text-foreground tabular-nums">{value}</p>
+        <div className="min-w-0">
+          <p className="text-[13px] font-medium text-muted-foreground leading-none mb-3 truncate">{label}</p>
+          <p className="text-[28px] font-semibold tracking-tighter text-foreground tabular-nums leading-none">
+            {value}
+          </p>
         </div>
-        <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${iconBg} shrink-0`}>
-          <Icon className={`h-5 w-5 ${iconColor}`} />
+        <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${iconBg} ring-1 ring-inset ring-black/[0.04] dark:ring-white/[0.06] shrink-0 transition-transform duration-200 group-hover:scale-105`}>
+          <Icon className={`h-[18px] w-[18px] ${iconColor}`} />
         </div>
+      </div>
+      <div className="mt-3 flex items-center gap-1 text-[11px] font-medium text-muted-foreground/0 group-hover:text-muted-foreground/80 transition-colors duration-200">
+        Voir le détail
+        <ArrowRight className="h-3 w-3 -translate-x-1 opacity-0 group-hover:translate-x-0 group-hover:opacity-100 transition-all duration-200" />
       </div>
     </button>
   );
@@ -199,8 +205,8 @@ export function DashboardIT() {
       {/* ── Page header ── */}
       <div className="flex items-start justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-foreground tracking-tight">Tableau de bord</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Vue d&apos;ensemble de l&apos;activité</p>
+          <h2 className="text-[26px] font-bold text-foreground tracking-tight leading-tight">Tableau de bord</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Vue d&apos;ensemble de l&apos;activité du parc</p>
         </div>
         <div className="flex items-center gap-3">
           <div className="hidden sm:flex items-center gap-1.5 text-xs text-muted-foreground/70 border border-border rounded-lg px-3 py-2 bg-card">
@@ -321,10 +327,10 @@ export function DashboardIT() {
                         {f.count}
                       </span>
                     </div>
-                    <div className="w-full bg-muted rounded-full h-1.5">
+                    <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
                       <div
-                        className="bg-[hsl(var(--primary))] h-1.5 rounded-full transition-all duration-500"
-                        style={{ width: `${pct}%` }}
+                        className="h-1.5 rounded-full transition-all duration-500"
+                        style={{ width: `${pct}%`, background: 'var(--gradient-primary)' }}
                       />
                     </div>
                   </button>

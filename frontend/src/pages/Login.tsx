@@ -85,45 +85,50 @@ export function LoginPage() {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[hsl(231_45%_5%)]">
-      {/* Blobs animés */}
-      <div aria-hidden="true" className="pointer-events-none absolute -top-32 -left-24 h-80 w-80 rounded-full" style={{ background: 'hsl(var(--primary))', filter: 'blur(80px)', opacity: 0.20, animation: 'blob-drift 12s ease-in-out infinite' }} />
-      <div aria-hidden="true" className="pointer-events-none absolute -bottom-24 -right-16 h-96 w-96 rounded-full" style={{ background: 'hsl(217 91% 60%)', filter: 'blur(90px)', opacity: 0.15, animation: 'blob-drift 16s 4s ease-in-out infinite' }} />
+    <div className="bg-aurora relative flex min-h-screen items-center justify-center overflow-hidden">
+      {/* Grille de points masquée + blobs animés */}
+      <div aria-hidden="true" className="bg-dots pointer-events-none absolute inset-0" />
+      <div aria-hidden="true" className="pointer-events-none absolute -top-32 -left-24 h-80 w-80 rounded-full" style={{ background: 'hsl(var(--primary))', filter: 'blur(80px)', opacity: 0.22, animation: 'blob-drift 12s ease-in-out infinite' }} />
+      <div aria-hidden="true" className="pointer-events-none absolute -bottom-24 -right-16 h-96 w-96 rounded-full" style={{ background: 'hsl(217 91% 60%)', filter: 'blur(90px)', opacity: 0.16, animation: 'blob-drift 16s 4s ease-in-out infinite' }} />
       <div aria-hidden="true" className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 h-64 w-64 rounded-full" style={{ background: 'hsl(243 75% 59%)', filter: 'blur(100px)', opacity: 0.10, animation: 'blob-drift 20s 8s ease-in-out infinite' }} />
 
       <div className="relative w-full max-w-md px-4">
-        <Card className="animate-fade-in border border-white/10 bg-white/5 backdrop-blur-xl shadow-card-colored">
+        <Card className="animate-fade-in rounded-2xl border border-white/10 bg-white/[0.045] backdrop-blur-2xl shadow-card-colored">
           <CardContent className="p-8">
             {/* Brand */}
             <div className="mb-8 text-center">
-              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl btn-gradient text-white font-bold text-lg shadow-card-colored">
+              <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl btn-gradient text-white font-bold text-xl shadow-card-colored ring-1 ring-white/25">
                 GL
               </div>
-              <h1 className="text-xl font-bold text-white">Bons de Mise à Disposition</h1>
-              <p className="mt-1 text-sm text-white/60">Groupe Livio — Service IT</p>
+              <h1 className="text-[22px] font-bold tracking-tight text-white">
+                Bons de mise à disposition
+              </h1>
+              <p className="mt-1.5 text-sm text-white/50">Groupe Livio — Service informatique</p>
             </div>
 
             {/* Error banner */}
             {error && (
-              <div role="alert" className="mb-6 rounded-lg bg-destructive/10 border border-destructive/20 p-4">
-                <p className="text-sm text-destructive">
+              <div role="alert" className="mb-6 rounded-xl bg-red-500/10 border border-red-500/25 p-4">
+                <p className="text-sm text-red-300">
                   {ERROR_MESSAGES[error] || 'Une erreur est survenue.'}
                 </p>
               </div>
             )}
 
-            {/* SSO Button */}
-            <Button asChild size="lg" className="w-full">
-              <a href="/api/auth/login" className="flex items-center justify-center gap-3">
-                <svg viewBox="0 0 21 21" className="h-5 w-5 fill-current">
-                  <rect x="1" y="1" width="9" height="9" />
-                  <rect x="11" y="1" width="9" height="9" />
-                  <rect x="1" y="11" width="9" height="9" />
-                  <rect x="11" y="11" width="9" height="9" />
-                </svg>
-                Se connecter avec Microsoft
-              </a>
-            </Button>
+            {/* SSO Button — blanc, logo Microsoft couleur (pattern 2026) */}
+            <a
+              href="/api/auth/login"
+              className="group flex h-11 w-full items-center justify-center gap-3 rounded-xl bg-white text-[15px] font-semibold text-zinc-900 shadow-[0_1px_2px_rgb(0_0_0/0.3),inset_0_-1px_0_rgb(0_0_0/0.06)] transition-all duration-150 hover:bg-zinc-100 hover:shadow-card-colored active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+            >
+              <svg viewBox="0 0 21 21" className="h-[18px] w-[18px]">
+                <rect x="1" y="1" width="9" height="9" fill="#f25022" />
+                <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
+                <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
+                <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
+              </svg>
+              Continuer avec Microsoft
+              <span aria-hidden="true" className="text-zinc-400 transition-transform duration-150 group-hover:translate-x-0.5">→</span>
+            </a>
 
             {/* Local auth */}
             {localAuthEnabled && (
@@ -189,7 +194,10 @@ export function LoginPage() {
               </div>
             )}
 
-            <p className="mt-6 text-center text-xs text-white/40">
+            <p className="mt-6 flex items-center justify-center gap-1.5 text-center text-xs text-white/35">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+              </svg>
               Authentification sécurisée via Microsoft Entra ID
             </p>
           </CardContent>

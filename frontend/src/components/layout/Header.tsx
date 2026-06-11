@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useUiView, UI_VIEW_LABELS, UI_VIEW_ICON_MAP, type UiView } from '@/contexts/UiViewContext';
 import type { User } from '@/types';
-import { LogOut, KeyRound, Sun, Moon } from 'lucide-react';
+import { LogOut, KeyRound, Sun, Moon, Search } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
   DropdownMenu,
@@ -153,22 +154,70 @@ function ChangePasswordDialog({
   );
 }
 
+/** Recherche globale : référence, collaborateur ou n° de série → /bons?search= */
+function GlobalSearch() {
+  const navigate = useNavigate();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [value, setValue] = useState('');
+
+  // Raccourci ⌘K / Ctrl+K — standard des SaaS modernes
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        inputRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  const submit = () => {
+    const q = value.trim();
+    if (!q) return;
+    setValue('');
+    inputRef.current?.blur();
+    navigate(`/bons?search=${encodeURIComponent(q)}`);
+  };
+
+  return (
+    <div className="group relative hidden md:flex items-center">
+      <Search className="pointer-events-none absolute left-3 h-3.5 w-3.5 text-muted-foreground/60 group-focus-within:text-primary transition-colors" />
+      <input
+        ref={inputRef}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') inputRef.current?.blur(); }}
+        placeholder="Rechercher un bon, un collaborateur, un n° de série…"
+        aria-label="Recherche globale"
+        className="h-8 w-72 lg:w-96 rounded-lg border border-border/70 bg-muted/40 pl-9 pr-12 text-[13px] text-foreground placeholder:text-muted-foreground/60 outline-none transition-all duration-150 focus:w-[28rem] focus:bg-card focus:border-primary/50 focus:ring-2 focus:ring-primary/15"
+      />
+      <kbd className="pointer-events-none absolute right-2.5 hidden lg:inline-flex h-5 items-center gap-0.5 rounded border border-border/70 bg-card px-1.5 font-mono text-[10px] font-medium text-muted-foreground/70">
+        Ctrl K
+      </kbd>
+    </div>
+  );
+}
+
 export function Header() {
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { activeView, setActiveView, availableViews } = useUiView();
   const [showChangePwd, setShowChangePwd] = useState(false);
   const isLocal = !!(user as User & { isLocalAccount?: boolean })?.isLocalAccount;
+  const isItView = activeView !== 'collaborateur';
 
   return (
     <>
-      <header className="flex h-12 items-center justify-between border-b border-border bg-background px-6">
-        <div />
+      <header className="glass-header sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between px-6">
+        <div className="flex items-center">
+          {isItView && <GlobalSearch />}
+        </div>
         <div className="flex items-center gap-1">
           <button
             onClick={toggleTheme}
             aria-label={theme === 'dark' ? 'Activer le mode clair' : 'Activer le mode sombre'}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted/70 hover:text-foreground transition-colors"
           >
             {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </button>

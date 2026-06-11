@@ -7,9 +7,10 @@ export function AdminLayout() {
   const activeSubNav = getSubNavForPath(location.pathname);
 
   return (
-    <div className="flex h-full -m-6">
+    // Annule le padding du <main> (p-6, lg:px-8) pour coller la sous-nav au bord
+    <div className="flex min-h-full -m-6 lg:-mx-8">
       {activeSubNav && <AdminSubNav section={activeSubNav} />}
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 min-w-0 p-6">
         <Breadcrumbs />
         <Outlet />
       </div>
