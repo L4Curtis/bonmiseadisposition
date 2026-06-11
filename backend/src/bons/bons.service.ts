@@ -758,9 +758,12 @@ export class BonsService {
     initiatedById: string,
   ) {
     const bon = await this.findOne(id);
+    // Les statuts sent_* sont autorisés pour permettre de RÉAFFICHER le lien
+    // présentiel (modale fermée par erreur) : la ré-initiation invalide
+    // l'ancien token et en génère un nouveau — rien n'est dupliqué.
     const allowedStatuses: Record<string, string[]> = {
-      mise_disposition: ['draft'],
-      restitution: ['active', 'partially_returned'],
+      mise_disposition: ['draft', 'sent_mise_dispo'],
+      restitution: ['active', 'partially_returned', 'sent_restitution'],
     };
 
     if (!allowedStatuses[type]?.includes(bon.status)) {

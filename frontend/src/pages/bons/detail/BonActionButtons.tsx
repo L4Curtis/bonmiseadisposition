@@ -23,6 +23,9 @@ export interface BonActionButtonsProps {
   readonly hasPendingPvCloture: boolean;
   readonly hasNotReturnedEquipment: boolean;
   readonly canCloseUnilateral: boolean;
+  /** Une signature présentielle est en attente : proposer de réafficher le lien/QR. */
+  readonly hasPendingInPerson: boolean;
+  readonly onShowInPerson: () => void;
   readonly actionLoading: string | null;
   readonly pdfLoading: string | null;
   readonly onDownloadPdf: () => void;
@@ -48,6 +51,8 @@ export function BonActionButtons({
   hasPendingPvCloture,
   hasNotReturnedEquipment,
   canCloseUnilateral,
+  hasPendingInPerson,
+  onShowInPerson,
   actionLoading,
   pdfLoading,
   onDownloadPdf,
@@ -129,6 +134,21 @@ export function BonActionButtons({
           disabled={!!actionLoading}
         >
           <PackageCheck className="h-3.5 w-3.5" /> Équipement retrouvé
+        </Button>
+      )}
+
+      {isItStaff && hasPendingInPerson && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onShowInPerson}
+          disabled={!!actionLoading}
+          title="Réaffiche le QR code et le lien de signature présentielle (un nouveau lien est généré, l'ancien est invalidé)"
+        >
+          {actionLoading === 'inperson'
+            ? <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
+            : <Smartphone className="h-3.5 w-3.5" />}
+          Afficher le lien présentiel
         </Button>
       )}
 

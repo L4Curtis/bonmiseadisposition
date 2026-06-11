@@ -101,7 +101,7 @@ export function ChangePasswordPage() {
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
                 required
-                className="w-full rounded-md border border-input px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full rounded-lg border border-input bg-card text-foreground px-3 py-2 text-sm shadow-sm transition-all focus:outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/20"
               />
             </div>
 
@@ -113,7 +113,7 @@ export function ChangePasswordPage() {
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   required
-                  className="w-full rounded-md border border-input px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full rounded-lg border border-input bg-card text-foreground px-3 py-2 pr-10 text-sm shadow-sm transition-all focus:outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/20"
                 />
                 <button
                   type="button"
@@ -148,7 +148,7 @@ export function ChangePasswordPage() {
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 required
-                className="w-full rounded-md border border-input px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full rounded-lg border border-input bg-card text-foreground px-3 py-2 text-sm shadow-sm transition-all focus:outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/20"
               />
               {confirmPassword.length > 0 && !passwordsMatch && (
                 <p className="text-xs text-red-500 mt-1" role="alert">Les mots de passe ne correspondent pas</p>
@@ -164,7 +164,7 @@ export function ChangePasswordPage() {
             <button
               type="submit"
               disabled={loading || !allRulesOk || !passwordsMatch}
-              className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+              className="btn-gradient w-full rounded-lg px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
             >
               {loading ? 'Enregistrement...' : 'Enregistrer le nouveau mot de passe'}
             </button>

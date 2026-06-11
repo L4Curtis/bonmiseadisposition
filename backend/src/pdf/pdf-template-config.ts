@@ -135,16 +135,17 @@ export const PDF_TEMPLATE_DEFINITIONS: PdfTemplateDefinition[] = [
   },
 ];
 
-// ─── Default colors (extracted from current hardcoded constants) ─────────────
+// ─── Default colors — palette de marque indigo (alignée sur l'interface) ─────
+// Ne s'applique qu'aux modèles NON personnalisés par l'admin.
 
 const DEFAULT_COLORS: PdfColorScheme = {
-  primary: '#2563eb',
-  dark: '#1e293b',
-  gray: '#64748b',
-  lightGray: '#94a3b8',
-  border: '#e2e8f0',
-  headerBg: '#2563eb',
-  rowAlt: '#f8fafc',
+  primary: '#4f46e5',
+  dark: '#18181b',
+  gray: '#5b5b66',
+  lightGray: '#9b9ba6',
+  border: '#e4e4ee',
+  headerBg: '#4f46e5',
+  rowAlt: '#f7f7fb',
 };
 
 const DEFAULT_FONTS: PdfFontsConfig = {

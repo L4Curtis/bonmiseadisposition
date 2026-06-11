@@ -5,6 +5,18 @@ import * as nodemailer from 'nodemailer';
 import { AppConfigService } from '../config/config.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { TemplatesService } from '../templates/templates.service';
+import {
+  emailWrapper,
+  card,
+  brandHeader,
+  metaStrip,
+  body as emailBody,
+  footer,
+  quoteBox,
+  sectionLabel,
+  equipList,
+  refBadge,
+} from '../templates/email-layout';
 import { NotificationBon } from '../common/types';
 
 /** Escape user-supplied strings before embedding in HTML email templates */
@@ -357,17 +369,22 @@ export class NotificationService {
     const collabName = bon.collaborateur?.displayName ?? '';
     const civilite = bon.civilite === 'mme' ? 'Madame' : 'Monsieur';
 
-    const html = `<!DOCTYPE html>
-<html lang="fr"><head><meta charset="UTF-8"></head>
-<body style="font-family:sans-serif;color:#374151;max-width:600px;margin:0 auto;padding:24px">
-  <h2 style="color:#dc2626">Bon annulé — ${escapeHtml(bon.reference)}</h2>
-  <p>${escapeHtml(civilite)} ${escapeHtml(collabName)},</p>
-  <p>Nous vous informons que le bon de mise à disposition <strong>${escapeHtml(bon.reference)}</strong>
-  (${escapeHtml(filialeNom)}) a été <strong>annulé</strong>.</p>
-  <p>Si vous avez des questions, veuillez contacter votre service informatique.</p>
-  <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0">
-  <p style="font-size:12px;color:#94a3b8">Groupe Livio — notification automatique</p>
-</body></html>`;
+    const html = emailWrapper(card(
+      brandHeader('Bon annulé', escapeHtml(filialeNom), { text: 'Annulation', bg: 'rgba(239,68,68,0.45)' }),
+      metaStrip([`Réf. <strong style="color:#0f172a;font-family:monospace">${escapeHtml(bon.reference)}</strong>`]),
+      emailBody(`
+      <p style="margin:0 0 8px;font-size:16px;color:#0f172a;font-weight:500">${escapeHtml(civilite)} ${escapeHtml(collabName)},</p>
+      <p style="margin:0 0 16px;font-size:15px;color:#475569;line-height:1.75">
+        Nous vous informons que le bon de mise à disposition ${refBadge(escapeHtml(bon.reference))}
+        (${escapeHtml(filialeNom)}) a été <strong style="color:#991b1b">annulé</strong>.
+        Aucune action n'est attendue de votre part.
+      </p>
+      <p style="margin:0;font-size:14px;color:#64748b;line-height:1.6;background:#f8fafc;border-radius:10px;padding:12px 16px">
+        Si vous avez des questions, veuillez contacter votre service informatique.
+      </p>
+      `),
+      footer(),
+    ));
 
     const ok = await this.sendEmail(
       bon.collaborateurEmail,
@@ -407,23 +424,28 @@ export class NotificationService {
       })
       .join('\n');
 
-    const equipList = equipLines
+    const equipItems = equipLines
       ? equipLines
       : '<li style="padding:6px 0;font-size:14px;color:#94a3b8;list-style:none">Voir le bon en ligne</li>';
 
-    const html = `<!DOCTYPE html>
-<html lang="fr"><head><meta charset="UTF-8"></head>
-<body style="font-family:sans-serif;color:#374151;max-width:600px;margin:0 auto;padding:24px">
-  <h2 style="color:#16a34a">Équipement(s) retrouvé(s) — ${escapeHtml(bon.reference)}</h2>
-  <p>${escapeHtml(civilite)} ${escapeHtml(collabName)},</p>
-  <p>Nous vous informons que le ou les équipements suivants, précédemment signalés comme non restitués
-  sur le bon <strong>${escapeHtml(bon.reference)}</strong> (${escapeHtml(filialeNom)}),
-  ont été <strong>retrouvés</strong> :</p>
-  <ul style="padding:0;margin:16px 0">${equipList}</ul>
-  <p>Si vous avez des questions, veuillez contacter votre service informatique.</p>
-  <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0">
-  <p style="font-size:12px;color:#94a3b8">Groupe Livio — notification automatique</p>
-</body></html>`;
+    const html = emailWrapper(card(
+      brandHeader('Équipement(s) retrouvé(s)', escapeHtml(filialeNom), { text: 'Mise à jour', bg: 'rgba(16,185,129,0.40)' }),
+      metaStrip([`Réf. <strong style="color:#0f172a;font-family:monospace">${escapeHtml(bon.reference)}</strong>`]),
+      emailBody(`
+      <p style="margin:0 0 8px;font-size:16px;color:#0f172a;font-weight:500">${escapeHtml(civilite)} ${escapeHtml(collabName)},</p>
+      <p style="margin:0 0 24px;font-size:15px;color:#475569;line-height:1.75">
+        Nous vous informons que le ou les équipements suivants, précédemment signalés comme non restitués
+        sur le bon ${refBadge(escapeHtml(bon.reference))} (${escapeHtml(filialeNom)}),
+        ont été <strong style="color:#166534">retrouvés</strong> :
+      </p>
+      ${sectionLabel('Équipements retrouvés')}
+      ${equipList(equipItems, '#f0fdf4', '#bbf7d0')}
+      <p style="margin:0;font-size:14px;color:#64748b;line-height:1.6;background:#f8fafc;border-radius:10px;padding:12px 16px">
+        Si vous avez des questions, veuillez contacter votre service informatique.
+      </p>
+      `),
+      footer(),
+    ));
 
     const ok = await this.sendEmail(
       bon.collaborateurEmail,
@@ -453,20 +475,23 @@ export class NotificationService {
         ? 'la remise du matériel a été constatée et le bon est désormais actif'
         : 'le bon a été clôturé et archivé';
 
-    const html = `<!DOCTYPE html>
-<html lang="fr"><head><meta charset="UTF-8"></head>
-<body style="font-family:sans-serif;color:#374151;max-width:600px;margin:0 auto;padding:24px">
-  <h2 style="color:#b45309">Bon clôturé sans signature — ${escapeHtml(bon.reference)}</h2>
-  <p>${escapeHtml(civilite)} ${escapeHtml(collabName)},</p>
-  <p>En l'absence de signature de votre part, ${outcome} par le service informatique
-  pour le bon <strong>${escapeHtml(bon.reference)}</strong> (${escapeHtml(filialeNom)}).</p>
-  <p style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 14px">
-    <strong>Motif indiqué :</strong> ${escapeHtml(reason)}
-  </p>
-  <p>Si vous contestez ce constat, veuillez contacter votre service informatique au plus vite.</p>
-  <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0">
-  <p style="font-size:12px;color:#94a3b8">Groupe Livio — notification automatique</p>
-</body></html>`;
+    const html = emailWrapper(card(
+      brandHeader('Bon clôturé sans signature', escapeHtml(filialeNom), { text: 'Constat unilatéral', bg: 'rgba(245,158,11,0.45)' }),
+      metaStrip([`Réf. <strong style="color:#0f172a;font-family:monospace">${escapeHtml(bon.reference)}</strong>`]),
+      emailBody(`
+      <p style="margin:0 0 8px;font-size:16px;color:#0f172a;font-weight:500">${escapeHtml(civilite)} ${escapeHtml(collabName)},</p>
+      <p style="margin:0 0 20px;font-size:15px;color:#475569;line-height:1.75">
+        En l'absence de signature de votre part, ${outcome} par le service informatique
+        pour le bon ${refBadge(escapeHtml(bon.reference))} (${escapeHtml(filialeNom)}).
+      </p>
+      ${sectionLabel('Motif indiqué')}
+      ${quoteBox('#d97706', '#fffbeb', '#fde68a', escapeHtml(reason))}
+      <p style="margin:0;font-size:14px;color:#64748b;line-height:1.6;background:#f8fafc;border-radius:10px;padding:12px 16px">
+        Si vous contestez ce constat, veuillez contacter votre service informatique au plus vite.
+      </p>
+      `),
+      footer(),
+    ));
 
     const ok = await this.sendEmail(
       bon.collaborateurEmail,

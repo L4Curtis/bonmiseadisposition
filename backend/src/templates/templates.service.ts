@@ -1,6 +1,21 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { AppConfigService } from '../config/config.service';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  emailWrapper,
+  card,
+  brandHeader,
+  metaStrip,
+  body,
+  footer,
+  ctaButton,
+  infoBox,
+  equipList,
+  sectionLabel,
+  refBadge,
+  quoteBox,
+  statusIcon,
+} from './email-layout';
 
 export interface TemplateDefinition {
   id: string;
@@ -159,85 +174,14 @@ const PREVIEW_VARS: Record<string, string> = {
   USER_NAME: 'Jean Dupont',
 };
 
-// ─── Shared layout helpers ────────────────────────────────────────────────────
+// ─── Layout : voir ./email-layout.ts (partagé avec notification.service) ─────
 
-function emailWrapper(content: string): string {
-  return `<div style="margin:0;padding:0;background-color:#f0f4f8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased">
-  <div style="padding:40px 16px 48px">
-    ${content}
-  </div>
-</div>`;
-}
-
-function card(header: string, body: string, footer: string): string {
-  return `<div style="max-width:600px;margin:0 auto">
-  <div style="background-color:#ffffff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.06)">
-    ${header}
-    ${body}
-    ${footer}
-  </div>
-  <p style="text-align:center;font-size:11px;color:#cbd5e1;margin:16px 0 0;letter-spacing:0.03em">© 2026 Groupe Livio &middot; Confidentiel</p>
-</div>`;
-}
-
-function header(
-  bgColor: string,
-  bgColor2: string,
-  textColor: string,
-  label: string,
-  title: string,
-  subtitle: string,
-): string {
-  return `<div style="background-color:${bgColor};background-image:linear-gradient(135deg,${bgColor} 0%,${bgColor2} 100%);padding:36px 40px">
-      <p style="margin:0 0 10px;font-size:11px;font-weight:700;color:${textColor};text-transform:uppercase;letter-spacing:0.09em">${label}</p>
-      <h1 style="margin:0 0 6px;font-size:22px;font-weight:700;color:#ffffff;line-height:1.25;letter-spacing:-0.01em">${title}</h1>
-      <p style="margin:0;font-size:14px;color:rgba(255,255,255,0.72);font-weight:400">${subtitle}</p>
-    </div>`;
-}
-
-function metaStrip(items: string[]): string {
-  return `<div style="background-color:#f8fafc;border-bottom:1px solid #e2e8f0;padding:10px 40px">
-      <span style="font-size:12px;color:#64748b;font-weight:400">${items.join('&nbsp;&nbsp;<span style="color:#cbd5e1">&middot;</span>&nbsp;&nbsp;')}</span>
-    </div>`;
-}
-
-function body(content: string): string {
-  return `<div style="padding:36px 40px">${content}</div>`;
-}
-
-function footer(): string {
-  return `<div style="border-top:1px solid #f1f5f9;padding:20px 40px 28px">
-      <p style="margin:0;font-size:12px;color:#94a3b8;line-height:1.6">Service informatique — Groupe Livio<br>Cet email est envoyé automatiquement, merci de ne pas y répondre.</p>
-    </div>`;
-}
-
-function ctaButton(url: string, label: string, bgColor: string, bgColor2: string): string {
-  return `<div style="text-align:center;margin:28px 0">
-      <a href="${url}" target="_blank" style="display:inline-block;background-color:${bgColor};background-image:linear-gradient(135deg,${bgColor} 0%,${bgColor2} 100%);color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;padding:14px 36px;border-radius:10px;letter-spacing:0.01em;box-shadow:0 2px 8px rgba(0,0,0,0.18)">${label} &rarr;</a>
-    </div>`;
-}
-
-function infoBox(bgColor: string, borderColor: string, textColor: string, content: string): string {
-  return `<div style="background-color:${bgColor};border:1px solid ${borderColor};border-radius:8px;padding:12px 16px;margin-top:0">
-      <p style="margin:0;font-size:13px;color:${textColor};line-height:1.6">${content}</p>
-    </div>`;
-}
-
-function equipList(items: string, bgColor = '#f8fafc', borderColor = '#e2e8f0'): string {
-  return `<div style="background-color:${bgColor};border:1px solid ${borderColor};border-radius:10px;padding:0 20px;margin-bottom:28px">
-      <ul style="margin:0;padding:4px 0;list-style:none">
-        ${items}
-      </ul>
-    </div>`;
-}
-
-function sectionLabel(text: string): string {
-  return `<p style="margin:0 0 10px;font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.08em">${text}</p>`;
-}
-
-function refBadge(reference: string): string {
-  return `<code style="display:inline-block;font-size:12px;font-weight:700;color:#1d4ed8;background:#eff6ff;border:1px solid #bfdbfe;padding:2px 8px;border-radius:5px;font-family:'Courier New',monospace;letter-spacing:0.02em">${reference}</code>`;
-}
+// Chips de statut affichés dans l'en-tête de marque (fond semi-transparent
+// par-dessus le dégradé indigo)
+const CHIP_ACTION = { text: 'À signer', bg: 'rgba(255,255,255,0.16)' };
+const CHIP_SUCCESS = { text: 'Signé', bg: 'rgba(16,185,129,0.40)' };
+const CHIP_DANGER = (text: string) => ({ text, bg: 'rgba(239,68,68,0.45)' });
+const CHIP_WARNING = (text: string) => ({ text, bg: 'rgba(245,158,11,0.45)' });
 
 @Injectable()
 export class TemplatesService {
@@ -350,21 +294,20 @@ export class TemplatesService {
 
   private defaultMiseDisposition(): string {
     return emailWrapper(card(
-      header('#1e3a8a', '#2563eb', 'rgba(191,219,254,0.8)', 'Mise à disposition d\'équipements', '{{FILIALE_NOM}}', 'Document à signer électroniquement'),
+      brandHeader('Équipements mis à votre disposition', '{{FILIALE_NOM}}', CHIP_ACTION),
+      metaStrip(['Réf. <strong style="color:#0f172a;font-family:monospace">{{REFERENCE}}</strong>', 'Remise le <strong style="color:#0f172a">{{DATE_MISE_DISPO}}</strong>']),
       body(`
-      ${metaStrip(['Réf. <strong style="color:#0f172a;font-family:monospace">{{REFERENCE}}</strong>', 'Remise le <strong style="color:#0f172a">{{DATE_MISE_DISPO}}</strong>'])}
-      <div style="height:36px"></div>
       <p style="margin:0 0 8px;font-size:16px;color:#0f172a;font-weight:500">{{COLLAB_CIVILITE}} {{COLLAB_NAME}},</p>
       <p style="margin:0 0 24px;font-size:15px;color:#475569;line-height:1.75">
         Dans le cadre de votre activité au sein de <strong style="color:#0f172a">{{FILIALE_NOM}}</strong>, le service informatique met à votre disposition les équipements ci-dessous à compter du <strong style="color:#0f172a">{{DATE_MISE_DISPO}}</strong>.
       </p>
       ${sectionLabel('Équipements remis')}
       ${equipList('{{EQUIP_LIST}}')}
-      <p style="margin:0 0 28px;font-size:15px;color:#475569;line-height:1.75">
+      <p style="margin:0 0 4px;font-size:15px;color:#475569;line-height:1.75">
         Veuillez prendre connaissance de cette liste et signer électroniquement le bon de mise à disposition pour confirmer la réception de votre matériel.
       </p>
-      ${ctaButton('{{SIGNER_URL}}', 'Signer le bon de mise à disposition', '#1e3a8a', '#2563eb')}
-      ${infoBox('#eff6ff', '#bfdbfe', '#1e40af', '<strong>Lien valable 7 jours</strong> &middot; Authentification Microsoft requise &middot; La signature électronique a valeur légale')}
+      ${ctaButton('{{SIGNER_URL}}', 'Signer le bon de mise à disposition')}
+      ${infoBox('#eef2ff', '#c7d2fe', '#4338ca', '<strong>Lien à durée limitée</strong> &middot; Authentification Microsoft requise &middot; La signature électronique a valeur légale')}
       `),
       footer(),
     ));
@@ -374,10 +317,9 @@ export class TemplatesService {
 
   private defaultRestitution(): string {
     return emailWrapper(card(
-      header('#5b21b6', '#7c3aed', 'rgba(221,214,254,0.8)', 'Bon de restitution', '{{FILIALE_NOM}}', 'Document à signer électroniquement'),
+      brandHeader('Restitution de matériel', '{{FILIALE_NOM}}', CHIP_ACTION),
+      metaStrip(['Réf. <strong style="color:#0f172a;font-family:monospace">{{REFERENCE}}</strong>']),
       body(`
-      ${metaStrip(['Réf. <strong style="color:#0f172a;font-family:monospace">{{REFERENCE}}</strong>'])}
-      <div style="height:36px"></div>
       <p style="margin:0 0 8px;font-size:16px;color:#0f172a;font-weight:500">{{COLLAB_CIVILITE}} {{COLLAB_NAME}},</p>
       <p style="margin:0 0 24px;font-size:15px;color:#475569;line-height:1.75">
         Le service informatique de <strong style="color:#0f172a">{{FILIALE_NOM}}</strong> vous invite à signer le bon de <strong style="color:#0f172a">restitution</strong> pour le matériel suivant. Ce document atteste la restitution des équipements listés ci-dessous.
@@ -385,11 +327,11 @@ export class TemplatesService {
       ${sectionLabel('Équipements restitués')}
       ${equipList('{{EQUIP_LIST}}')}
       {{REMAINING_SECTION}}
-      <p style="margin:0 0 28px;font-size:15px;color:#475569;line-height:1.75">
+      <p style="margin:0 0 4px;font-size:15px;color:#475569;line-height:1.75">
         Après signature, vous en recevrez une confirmation par email.
       </p>
-      ${ctaButton('{{SIGNER_URL}}', 'Signer le bon de restitution', '#5b21b6', '#7c3aed')}
-      ${infoBox('#f5f3ff', '#ddd6fe', '#5b21b6', '<strong>Lien valable 7 jours</strong> &middot; Authentification Microsoft requise &middot; La signature électronique a valeur légale')}
+      ${ctaButton('{{SIGNER_URL}}', 'Signer le bon de restitution')}
+      ${infoBox('#eef2ff', '#c7d2fe', '#4338ca', '<strong>Lien à durée limitée</strong> &middot; Authentification Microsoft requise &middot; La signature électronique a valeur légale')}
       `),
       footer(),
     ));
@@ -399,13 +341,10 @@ export class TemplatesService {
 
   private defaultConfirmationMiseDisposition(): string {
     return emailWrapper(card(
-      header('#166534', '#16a34a', 'rgba(187,247,208,0.8)', 'Signature confirmée', 'Bon signé avec succès', '{{FILIALE_NOM}}'),
+      brandHeader('Signature confirmée', '{{FILIALE_NOM}}', CHIP_SUCCESS),
+      metaStrip(['Réf. <strong style="color:#0f172a;font-family:monospace">{{REFERENCE}}</strong>', 'Type : <strong style="color:#0f172a">Mise à disposition</strong>']),
       body(`
-      ${metaStrip(['Réf. <strong style="color:#0f172a;font-family:monospace">{{REFERENCE}}</strong>', 'Type : <strong style="color:#0f172a">Mise à disposition</strong>'])}
-      <div style="height:36px"></div>
-      <div style="text-align:center;margin-bottom:28px">
-        <div style="display:inline-block;width:56px;height:56px;background-color:#dcfce7;border-radius:50%;line-height:56px;font-size:28px">&#10003;</div>
-      </div>
+      ${statusIcon('&#10003;', '#dcfce7')}
       <p style="margin:0 0 16px;font-size:15px;color:#475569;line-height:1.75;text-align:center">
         Votre bon de <strong style="color:#0f172a">{{TYPE_LABEL}}</strong> portant la référence ${refBadge('{{REFERENCE}}')} a bien été <strong style="color:#166534">signé électroniquement</strong>.
       </p>
@@ -422,20 +361,17 @@ export class TemplatesService {
 
   private defaultConfirmationRestitution(): string {
     return emailWrapper(card(
-      header('#5b21b6', '#7c3aed', 'rgba(221,214,254,0.8)', 'Signature confirmée', 'Bon signé avec succès', '{{FILIALE_NOM}}'),
+      brandHeader('Signature confirmée', '{{FILIALE_NOM}}', CHIP_SUCCESS),
+      metaStrip(['Réf. <strong style="color:#0f172a;font-family:monospace">{{REFERENCE}}</strong>', 'Type : <strong style="color:#0f172a">Restitution</strong>']),
       body(`
-      ${metaStrip(['Réf. <strong style="color:#0f172a;font-family:monospace">{{REFERENCE}}</strong>', 'Type : <strong style="color:#0f172a">Restitution</strong>'])}
-      <div style="height:36px"></div>
-      <div style="text-align:center;margin-bottom:28px">
-        <div style="display:inline-block;width:56px;height:56px;background-color:#ede9fe;border-radius:50%;line-height:56px;font-size:28px">&#10003;</div>
-      </div>
+      ${statusIcon('&#10003;', '#dcfce7')}
       <p style="margin:0 0 16px;font-size:15px;color:#475569;line-height:1.75;text-align:center">
-        Votre bon de <strong style="color:#0f172a">{{TYPE_LABEL}}</strong> portant la référence ${refBadge('{{REFERENCE}}')} a bien été <strong style="color:#5b21b6">signé électroniquement</strong>.
+        Votre bon de <strong style="color:#0f172a">{{TYPE_LABEL}}</strong> portant la référence ${refBadge('{{REFERENCE}}')} a bien été <strong style="color:#166534">signé électroniquement</strong>.
       </p>
       <p style="margin:0 0 24px;font-size:15px;color:#475569;line-height:1.75;text-align:center">
         Ce document est désormais archivé dans notre système. Conservez cet email comme preuve de signature.
       </p>
-      ${infoBox('#f5f3ff', '#ddd6fe', '#5b21b6', 'Document archivé de façon sécurisée &middot; Ce bon a valeur contractuelle &middot; Aucune action supplémentaire requise')}
+      ${infoBox('#f0fdf4', '#bbf7d0', '#166534', 'Document archivé de façon sécurisée &middot; Ce bon a valeur contractuelle &middot; Aucune action supplémentaire requise')}
       `),
       footer(),
     ));
@@ -445,21 +381,20 @@ export class TemplatesService {
 
   private defaultPvCloture(): string {
     return emailWrapper(card(
-      header('#991b1b', '#dc2626', 'rgba(254,202,202,0.8)', 'Procès-verbal', '{{FILIALE_NOM}}', 'Équipements non restitués — Document à signer'),
+      brandHeader('Procès-verbal d\'équipements non restitués', '{{FILIALE_NOM}}', CHIP_DANGER('Action requise')),
+      metaStrip(['Réf. <strong style="color:#0f172a;font-family:monospace">{{REFERENCE}}</strong>']),
       body(`
-      ${metaStrip(['Réf. <strong style="color:#0f172a;font-family:monospace">{{REFERENCE}}</strong>'])}
-      <div style="height:36px"></div>
       <p style="margin:0 0 8px;font-size:16px;color:#0f172a;font-weight:500">{{COLLAB_CIVILITE}} {{COLLAB_NAME}},</p>
       <p style="margin:0 0 24px;font-size:15px;color:#475569;line-height:1.75">
         Le service informatique de <strong style="color:#0f172a">{{FILIALE_NOM}}</strong> a constaté que les équipements ci-dessous n'ont pas été restitués dans le cadre du bon <strong style="color:#0f172a">{{REFERENCE}}</strong>. Un procès-verbal a été établi et nécessite votre signature.
       </p>
       ${sectionLabel('Équipements non restitués')}
       ${equipList('{{NOT_RETURNED_LIST}}', '#fef2f2', '#fecaca')}
-      <p style="margin:0 0 28px;font-size:15px;color:#475569;line-height:1.75">
+      <p style="margin:0 0 4px;font-size:15px;color:#475569;line-height:1.75">
         Veuillez signer ce procès-verbal électroniquement. En cas de désaccord, vous pourrez formuler une contestation depuis votre espace collaborateur.
       </p>
-      ${ctaButton('{{SIGNER_URL}}', 'Signer le procès-verbal', '#991b1b', '#dc2626')}
-      ${infoBox('#fef2f2', '#fecaca', '#991b1b', '<strong>Lien valable 7 jours</strong> &middot; Authentification Microsoft requise &middot; Contestation possible depuis votre espace')}
+      ${ctaButton('{{SIGNER_URL}}', 'Signer le procès-verbal')}
+      ${infoBox('#fef2f2', '#fecaca', '#991b1b', '<strong>Lien à durée limitée</strong> &middot; Authentification Microsoft requise &middot; Contestation possible depuis votre espace')}
       `),
       footer(),
     ));
@@ -469,18 +404,15 @@ export class TemplatesService {
 
   private defaultContestationAlert(): string {
     return emailWrapper(card(
-      header('#7f1d1d', '#b91c1c', 'rgba(254,202,202,0.8)', 'Action requise', 'Contestation reçue', 'Un collaborateur conteste son bon'),
+      brandHeader('Contestation reçue', 'Un collaborateur conteste son bon', CHIP_DANGER('Action requise')),
+      metaStrip(['Bon <strong style="color:#0f172a;font-family:monospace">{{REFERENCE}}</strong>', '<strong style="color:#0f172a">{{FILIALE_NOM}}</strong>']),
       body(`
-      ${metaStrip(['Bon <strong style="color:#0f172a;font-family:monospace">{{REFERENCE}}</strong>', '<strong style="color:#0f172a">{{FILIALE_NOM}}</strong>'])}
-      <div style="height:36px"></div>
       <p style="margin:0 0 20px;font-size:15px;color:#475569;line-height:1.75">
         Le collaborateur <strong style="color:#0f172a">{{USER_NAME}}</strong> a soumis une contestation concernant le bon ${refBadge('{{REFERENCE}}')} de <strong style="color:#0f172a">{{FILIALE_NOM}}</strong>.
       </p>
       ${sectionLabel('Motif de la contestation')}
-      <div style="background-color:#fef2f2;border:1px solid #fecaca;border-left:4px solid #dc2626;border-radius:0 8px 8px 0;padding:16px 20px;margin-bottom:28px">
-        <p style="margin:0;font-size:14px;color:#374151;line-height:1.7;font-style:italic">&ldquo;{{CONTESTATION_MESSAGE}}&rdquo;</p>
-      </div>
-      <p style="margin:0 0 0;font-size:14px;color:#64748b;line-height:1.6;background:#f8fafc;border-radius:8px;padding:12px 16px">
+      ${quoteBox('#dc2626', '#fef2f2', '#fecaca', '<em>&ldquo;{{CONTESTATION_MESSAGE}}&rdquo;</em>')}
+      <p style="margin:0;font-size:14px;color:#64748b;line-height:1.6;background:#f8fafc;border-radius:10px;padding:12px 16px">
         Connectez-vous &agrave; l&rsquo;application pour consulter le bon concern&eacute; et apporter une r&eacute;ponse au collaborateur.
       </p>
       `),
@@ -492,20 +424,15 @@ export class TemplatesService {
 
   private defaultContestationResolved(): string {
     return emailWrapper(card(
-      header('#166534', '#16a34a', 'rgba(187,247,208,0.8)', 'Réponse à votre contestation', 'Contestation prise en compte', '{{FILIALE_NOM}}'),
+      brandHeader('Contestation prise en compte', '{{FILIALE_NOM}}', { text: 'Acceptée', bg: 'rgba(16,185,129,0.40)' }),
+      metaStrip(['Réf. <strong style="color:#0f172a;font-family:monospace">{{REFERENCE}}</strong>']),
       body(`
-      ${metaStrip(['Réf. <strong style="color:#0f172a;font-family:monospace">{{REFERENCE}}</strong>'])}
-      <div style="height:36px"></div>
-      <div style="text-align:center;margin-bottom:24px">
-        <div style="display:inline-block;width:56px;height:56px;background-color:#dcfce7;border-radius:50%;line-height:56px;font-size:28px">&#10003;</div>
-      </div>
+      ${statusIcon('&#10003;', '#dcfce7')}
       <p style="margin:0 0 20px;font-size:15px;color:#475569;line-height:1.75;text-align:center">
         Votre contestation relative au bon ${refBadge('{{REFERENCE}}')} a été <strong style="color:#166534">examinée et prise en compte</strong> par le service informatique.
       </p>
       ${sectionLabel('Message du service IT')}
-      <div style="background-color:#f0fdf4;border:1px solid #bbf7d0;border-left:4px solid #16a34a;border-radius:0 8px 8px 0;padding:16px 20px;margin-bottom:0">
-        <p style="margin:0;font-size:14px;color:#374151;line-height:1.7">{{RESOLUTION_MESSAGE}}</p>
-      </div>
+      ${quoteBox('#16a34a', '#f0fdf4', '#bbf7d0', '{{RESOLUTION_MESSAGE}}')}
       `),
       footer(),
     ));
@@ -515,17 +442,14 @@ export class TemplatesService {
 
   private defaultContestationRejected(): string {
     return emailWrapper(card(
-      header('#991b1b', '#dc2626', 'rgba(254,202,202,0.8)', 'Réponse à votre contestation', 'Contestation non retenue', '{{FILIALE_NOM}}'),
+      brandHeader('Contestation non retenue', '{{FILIALE_NOM}}', CHIP_DANGER('Non retenue')),
+      metaStrip(['Réf. <strong style="color:#0f172a;font-family:monospace">{{REFERENCE}}</strong>']),
       body(`
-      ${metaStrip(['Réf. <strong style="color:#0f172a;font-family:monospace">{{REFERENCE}}</strong>'])}
-      <div style="height:36px"></div>
       <p style="margin:0 0 20px;font-size:15px;color:#475569;line-height:1.75;text-align:center">
         Votre contestation relative au bon ${refBadge('{{REFERENCE}}')} a été examinée par le service informatique. Après vérification, elle <strong style="color:#991b1b">n'a pas pu être retenue</strong>.
       </p>
       ${sectionLabel('Message du service IT')}
-      <div style="background-color:#fef2f2;border:1px solid #fecaca;border-left:4px solid #dc2626;border-radius:0 8px 8px 0;padding:16px 20px;margin-bottom:0">
-        <p style="margin:0;font-size:14px;color:#374151;line-height:1.7">{{RESOLUTION_MESSAGE}}</p>
-      </div>
+      ${quoteBox('#dc2626', '#fef2f2', '#fecaca', '{{RESOLUTION_MESSAGE}}')}
       `),
       footer(),
     ));
@@ -535,18 +459,17 @@ export class TemplatesService {
 
   private defaultReminder(): string {
     return emailWrapper(card(
-      header('#c2410c', '#ea580c', 'rgba(254,215,170,0.8)', 'Rappel', 'Document en attente de votre signature', 'Action requise'),
+      brandHeader('Document en attente de votre signature', '{{FILIALE_NOM}}', CHIP_WARNING('Rappel {{REMINDER_NUMBER}}/{{MAX_REMINDERS}}')),
+      metaStrip(['Réf. <strong style="color:#0f172a;font-family:monospace">{{REFERENCE}}</strong>', 'Rappel <strong style="color:#0f172a">{{REMINDER_NUMBER}}/{{MAX_REMINDERS}}</strong>']),
       body(`
-      ${metaStrip(['Réf. <strong style="color:#0f172a;font-family:monospace">{{REFERENCE}}</strong>', 'Rappel <strong style="color:#0f172a">{{REMINDER_NUMBER}}/{{MAX_REMINDERS}}</strong>'])}
-      <div style="height:36px"></div>
       <p style="margin:0 0 20px;font-size:15px;color:#475569;line-height:1.75">
         Ce message est un rappel automatique. Votre bon de <strong style="color:#0f172a">{{TYPE_LABEL}}</strong> portant la référence ${refBadge('{{REFERENCE}}')} est toujours en attente de votre signature.
       </p>
-      <p style="margin:0 0 28px;font-size:15px;color:#475569;line-height:1.75">
+      <p style="margin:0 0 4px;font-size:15px;color:#475569;line-height:1.75">
         Merci de signer ce document dès que possible. Sans signature, le traitement de votre dossier ne pourra pas être finalisé par le service informatique de <strong style="color:#0f172a">{{FILIALE_NOM}}</strong>.
       </p>
-      ${ctaButton('{{SIGNER_URL}}', 'Signer le document maintenant', '#c2410c', '#ea580c')}
-      ${infoBox('#fff7ed', '#fed7aa', '#c2410c', 'Rappel {{REMINDER_NUMBER}}/{{MAX_REMINDERS}} &middot; <strong>Lien valable 7 jours</strong> &middot; Authentification Microsoft requise')}
+      ${ctaButton('{{SIGNER_URL}}', 'Signer le document maintenant')}
+      ${infoBox('#fff7ed', '#fed7aa', '#c2410c', 'Rappel {{REMINDER_NUMBER}}/{{MAX_REMINDERS}} &middot; <strong>Lien à durée limitée</strong> &middot; Authentification Microsoft requise')}
       `),
       footer(),
     ));

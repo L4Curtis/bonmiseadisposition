@@ -111,6 +111,15 @@ export function BonDetailPage() {
   const canCloseUnilateral =
     isSentWaiting ||
     (isPartiallyReturned && bon.equipments.every((eq) => eq.returnedAt || eq.notReturned));
+  // Signature présentielle en cours : le lien (modale fermée par erreur) peut
+  // être réaffiché — la ré-initiation régénère un token proprement
+  const lastUnsignedSig = [...(bon.signatures ?? [])]
+    .filter((s) => !s.signed && s.type !== 'it_cachet')
+    .sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime())[0];
+  const hasPendingInPerson =
+    isSentWaiting && !!lastUnsignedSig?.isInPerson && new Date(lastUnsignedSig.tokenExpiresAt) > new Date();
+  const handleShowInPerson = () =>
+    actions.doInPerson(bon.status === 'sent_restitution' ? 'restitution' : 'mise_disposition');
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -129,6 +138,8 @@ export function BonDetailPage() {
         hasPendingPvCloture={hasPendingPvCloture}
         hasNotReturnedEquipment={hasNotReturnedEquipment}
         canCloseUnilateral={canCloseUnilateral}
+        hasPendingInPerson={hasPendingInPerson}
+        onShowInPerson={handleShowInPerson}
         actionLoading={actionLoading}
         pdfLoading={pdfLoading}
         onDownloadPdf={() => actions.downloadPdf(actions.headerPdfType(), 'header')}

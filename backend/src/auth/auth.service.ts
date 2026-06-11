@@ -118,9 +118,20 @@ export class AuthService implements OnModuleDestroy {
     });
   }
 
+  /** Redirect URI Entra : valeur explicite si configurée, sinon dérivée
+   *  automatiquement de l'URL publique (general.app_url puis FRONTEND_URL) —
+   *  plus besoin de la saisir à la main dans la majorité des déploiements. */
+  private async getRedirectUri(): Promise<string> {
+    const explicit = await this.configService.get('entra', 'redirect_uri');
+    if (explicit) return explicit;
+    const appUrl = (await this.configService.get('general', 'app_url')) || process.env.FRONTEND_URL;
+    if (appUrl) return `${appUrl.replace(/\/+$/, '')}/api/auth/callback`;
+    return 'http://localhost:4000/api/auth/callback';
+  }
+
   async getLoginUrl(state: string): Promise<{ url: string; codeVerifier: string }> {
     const msalClient = await this.getMsalClient();
-    const redirectUri = await this.configService.get('entra', 'redirect_uri');
+    const redirectUri = await this.getRedirectUri();
 
     // PKCE: generate code verifier and challenge (RFC 7636)
     const codeVerifier = crypto.randomBytes(32).toString('base64url');
@@ -128,7 +139,7 @@ export class AuthService implements OnModuleDestroy {
 
     const url = await msalClient.getAuthCodeUrl({
       scopes: ['openid', 'profile', 'email', 'User.Read'],
-      redirectUri: redirectUri || 'http://localhost:4000/api/auth/callback',
+      redirectUri,
       state,
       responseMode: 'query',
       codeChallenge,
@@ -140,12 +151,12 @@ export class AuthService implements OnModuleDestroy {
 
   async handleCallback(code: string, state: string, codeVerifier: string): Promise<{ accessToken: string; refreshToken: string; user: { id: string; email: string } }> {
     const msalClient = await this.getMsalClient();
-    const redirectUri = await this.configService.get('entra', 'redirect_uri');
+    const redirectUri = await this.getRedirectUri();
 
     const tokenRequest: AuthorizationCodeRequest = {
       code,
       scopes: ['openid', 'profile', 'email', 'User.Read'],
-      redirectUri: redirectUri || 'http://localhost:4000/api/auth/callback',
+      redirectUri,
       state,
       codeVerifier,
     };

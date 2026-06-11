@@ -11,6 +11,7 @@ export interface SignatureInfo {
   isInPerson: boolean;
   mentionLuApprouve: boolean;
   tokenExpiresAt: string | Date;
+  createdAt?: string | Date;
 }
 
 export interface BonDetailData {

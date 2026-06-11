@@ -81,7 +81,7 @@ describe('PdfTemplatesService', () => {
         const config = service.getDefaultConfig(tpl.id);
 
         expect(config).toBeDefined();
-        expect(config.colors.primary).toBe('#2563eb');
+        expect(config.colors.primary).toBe('#4f46e5');
         expect(config.fonts.titleSize).toBe(14);
         expect(config.margins.top).toBe(50);
         expect(config.header.showLogo).toBe(true);
@@ -97,7 +97,7 @@ describe('PdfTemplatesService', () => {
       expect(config1).toEqual(config2);
       expect(config1).not.toBe(config2);
       config1.colors.primary = '#000000';
-      expect(config2.colors.primary).toBe('#2563eb');
+      expect(config2.colors.primary).toBe('#4f46e5');
     });
 
     it('should throw for unknown id', () => {
@@ -124,8 +124,8 @@ describe('PdfTemplatesService', () => {
 
       expect(config.colors.primary).toBe('#ff0000');
       // Other colors remain default
-      expect(config.colors.dark).toBe('#1e293b');
-      expect(config.colors.gray).toBe('#64748b');
+      expect(config.colors.dark).toBe('#18181b');
+      expect(config.colors.gray).toBe('#5b5b66');
       // Other sections remain default
       expect(config.fonts.titleSize).toBe(14);
       expect(config.header.titleText).toBe('BON DE MISE À DISPOSITION');
