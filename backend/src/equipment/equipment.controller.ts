@@ -18,6 +18,25 @@ import { Roles } from '../auth/decorators/roles.decorator';
 export class EquipmentController {
   constructor(private readonly equipmentService: EquipmentService) {}
 
+  // ── Numéros de série ───────────────────────────────────────
+
+  /** GET /equipment/serial-history?q=SN-1234 — tous les bons où ce n° apparaît */
+  @Get('serial-history')
+  serialHistory(@Query('q') q: string) {
+    return this.equipmentService.getSerialHistory(q || '');
+  }
+
+  /** GET /equipment/serial-conflicts?serials=a,b&excludeBonId=… — n° déjà en
+   *  circulation sur un autre bon (avertissement non bloquant) */
+  @Get('serial-conflicts')
+  serialConflicts(
+    @Query('serials') serials: string,
+    @Query('excludeBonId') excludeBonId?: string,
+  ) {
+    const list = (serials || '').split(',').map((s) => s.trim()).filter(Boolean);
+    return this.equipmentService.findSerialConflicts(list, excludeBonId || undefined);
+  }
+
   // ── Catalogue ──────────────────────────────────────────────
   @Get('catalog')
   findAllCatalog() {

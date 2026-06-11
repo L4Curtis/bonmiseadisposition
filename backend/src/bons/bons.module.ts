@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { BonsService } from './bons.service';
 import { BonsController } from './bons.controller';
 import { SignatureModule } from '../signature/signature.module';
@@ -8,7 +8,7 @@ import { ContestationModule } from '../contestation/contestation.module';
 import { SmbModule } from '../smb/smb.module';
 
 @Module({
-  imports: [SignatureModule, NotificationModule, PdfModule, ContestationModule, SmbModule],
+  imports: [SignatureModule, NotificationModule, PdfModule, forwardRef(() => ContestationModule), SmbModule],
   controllers: [BonsController],
   providers: [BonsService],
   exports: [BonsService],

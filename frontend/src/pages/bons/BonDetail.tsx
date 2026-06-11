@@ -106,6 +106,11 @@ export function BonDetailPage() {
     (s) => s.type === 'pv_cloture' && !s.signed && new Date() < new Date(s.tokenExpiresAt),
   ) ?? false;
   const hasNotReturnedEquipment = bon.equipments.some((eq) => eq.notReturned);
+  // Clôture unilatérale possible : en attente de signature, ou PV en attente
+  // (partially_returned avec tous les équipements résolus)
+  const canCloseUnilateral =
+    isSentWaiting ||
+    (isPartiallyReturned && bon.equipments.every((eq) => eq.returnedAt || eq.notReturned));
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -123,6 +128,7 @@ export function BonDetailPage() {
         isSentWaiting={isSentWaiting}
         hasPendingPvCloture={hasPendingPvCloture}
         hasNotReturnedEquipment={hasNotReturnedEquipment}
+        canCloseUnilateral={canCloseUnilateral}
         actionLoading={actionLoading}
         pdfLoading={pdfLoading}
         onDownloadPdf={() => actions.downloadPdf(actions.headerPdfType(), 'header')}
@@ -134,6 +140,7 @@ export function BonDetailPage() {
         onDeclareNotReturned={() => actions.setShowNotReturnedModal(true)}
         onMarkFound={() => actions.setShowMarkFoundModal(true)}
         onResend={() => actions.doResend()}
+        onCloseUnilateral={() => actions.setShowCloseUnilateralModal(true)}
         onCancel={() => actions.setConfirmCancel(true)}
       />
 
@@ -148,6 +155,7 @@ export function BonDetailPage() {
       <BonEquipmentTable
         equipments={bon.equipments}
         showEquipmentStatus={showEquipmentStatus}
+        bonId={bon.id}
       />
 
       {bon.notes && <BonNotesCard notes={bon.notes} />}
@@ -189,6 +197,10 @@ export function BonDetailPage() {
         onResendForce={() => actions.doResend(true)}
         onResendDismiss={() => actions.setResendConfirmSentAt(null)}
         resendLoading={actionLoading === 'resend'}
+        showCloseUnilateralModal={actions.showCloseUnilateralModal}
+        onCloseUnilateralConfirm={actions.doCloseUnilateral}
+        onCloseUnilateralCancel={() => actions.setShowCloseUnilateralModal(false)}
+        closeUnilateralLoading={actionLoading === 'closeunilateral'}
       />
     </div>
   );

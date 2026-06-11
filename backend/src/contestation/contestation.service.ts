@@ -1,9 +1,10 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException, BadRequestException, ForbiddenException, forwardRef } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { BonStatus } from '../common/types';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 import { SignatureService } from '../signature/signature.service';
+import { BonsService } from '../bons/bons.service';
 
 @Injectable()
 export class ContestationService {
@@ -11,6 +12,8 @@ export class ContestationService {
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
     private readonly signatureService: SignatureService,
+    @Inject(forwardRef(() => BonsService))
+    private readonly bonsService: BonsService,
   ) {}
 
   // ─── Créer une contestation (collaborateur) ──────────────────────────────────
@@ -106,11 +109,18 @@ export class ContestationService {
 
   // ─── Résoudre ou rejeter une contestation (IT) ───────────────────────────────
 
+  /**
+   * @param correct — flux « corriger et re-signer » (uniquement avec action
+   *   'resolved') : le bon contesté est annulé et un brouillon pré-rempli est
+   *   créé pour correction puis nouvelle signature. Sans ce drapeau, le bon
+   *   revient simplement à son statut antérieur.
+   */
   async resolve(
     id: string,
     resolvedById: string,
     action: 'resolved' | 'rejected',
     resolutionMessage?: string,
+    correct = false,
   ) {
     const contestation = await this.prisma.contestation.findUnique({
       where: { id },
@@ -120,37 +130,66 @@ export class ContestationService {
       },
     });
     if (!contestation) throw new NotFoundException('Contestation introuvable');
-    if (!['open', 'in_review'].includes(contestation.status))
-      throw new BadRequestException('Cette contestation est déjà clôturée');
+    if (correct && action !== 'resolved')
+      throw new BadRequestException('La correction n\'est possible que pour une contestation résolue');
 
-    const updated = await this.prisma.contestation.update({
-      where: { id },
-      data: {
-        status: action,
-        resolvedById,
-        resolutionMessage: resolutionMessage ?? null,
-        updatedAt: new Date(),
-      },
-      include: {
-        bon: { select: { id: true, reference: true, status: true } },
-        user: { select: { id: true, displayName: true, email: true } },
-        resolvedBy: { select: { id: true, displayName: true } },
-      },
-    });
+    // Transaction unique : claim conditionnel de la contestation (deux
+    // résolutions concurrentes → une seule gagne), changement de statut du bon
+    // et création du brouillon corrigé. Si la duplication échoue (P2002, panne
+    // DB…), TOUT est rollbacké — la contestation reste ouverte et rejouable.
+    const correctedBon = await this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.contestation.updateMany({
+        where: { id, status: { in: ['open', 'in_review'] } },
+        data: {
+          status: action,
+          resolvedById,
+          resolutionMessage: resolutionMessage ?? null,
+          updatedAt: new Date(),
+        },
+      });
+      if (claimed.count === 0) {
+        throw new BadRequestException('Cette contestation est déjà clôturée');
+      }
 
-    // Restore the bon to its status before the contestation was opened.
-    // The previous status is stored in the audit log entry for 'bon_contested'.
-    const contestedAuditEntry = await this.prisma.auditLog.findFirst({
-      where: { bonId: contestation.bonId, action: 'bon_contested' },
-      orderBy: { createdAt: 'desc' },
-      select: { details: true },
-    });
-    const previousStatus =
-      (contestedAuditEntry?.details as { previousStatus?: string } | null)?.previousStatus ?? 'active';
+      if (correct) {
+        // Le document contesté est annulé (il restait faux) et remplacé par un
+        // brouillon corrigeable, lié à l'original dans l'audit des deux bons
+        await tx.bon.update({
+          where: { id: contestation.bonId },
+          data: { status: 'cancelled' },
+        });
+        await tx.auditLog.create({
+          data: {
+            bonId: contestation.bonId,
+            userId: resolvedById,
+            action: 'bon_cancelled',
+            details: { contestationId: id, reason: 'Contestation fondée — bon remplacé pour correction' },
+          },
+        });
+        const draft = await this.bonsService.duplicateAsDraft(
+          contestation.bonId,
+          resolvedById,
+          { contestationId: id },
+          tx,
+        );
+        return { id: draft.id, reference: draft.reference };
+      }
 
-    await this.prisma.bon.update({
-      where: { id: contestation.bonId },
-      data: { status: previousStatus as BonStatus },
+      // Restore the bon to its status before the contestation was opened.
+      // The previous status is stored in the audit log entry for 'bon_contested'.
+      const contestedAuditEntry = await tx.auditLog.findFirst({
+        where: { bonId: contestation.bonId, action: 'bon_contested' },
+        orderBy: { createdAt: 'desc' },
+        select: { details: true },
+      });
+      const previousStatus =
+        (contestedAuditEntry?.details as { previousStatus?: string } | null)?.previousStatus ?? 'active';
+
+      await tx.bon.update({
+        where: { id: contestation.bonId },
+        data: { status: previousStatus as BonStatus },
+      });
+      return null;
     });
 
     // Notifier le collaborateur du résultat
@@ -169,11 +208,20 @@ export class ContestationService {
         bonId: contestation.bonId,
         userId: resolvedById,
         action: action === 'resolved' ? 'contestation_resolved' : 'contestation_rejected',
-        details: { contestationId: id, resolutionMessage },
+        details: { contestationId: id, resolutionMessage, corrected: correct, correctedBonId: correctedBon?.id },
       },
     });
 
-    return updated;
+    const updated = await this.prisma.contestation.findUnique({
+      where: { id },
+      include: {
+        bon: { select: { id: true, reference: true, status: true } },
+        user: { select: { id: true, displayName: true, email: true } },
+        resolvedBy: { select: { id: true, displayName: true } },
+      },
+    });
+
+    return { ...updated, correctedBon };
   }
 
   // ─── Passer en "en cours d'examen" (IT) ─────────────────────────────────────

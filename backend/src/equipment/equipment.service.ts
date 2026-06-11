@@ -9,6 +9,89 @@ import {
 export class EquipmentService {
   constructor(private readonly prisma: PrismaService) {}
 
+  // ── Numéros de série ───────────────────────────────────────
+
+  /** Statuts pour lesquels un équipement non rendu est considéré « en circulation ». */
+  private static readonly ACTIVE_BON_STATUSES = [
+    'draft', 'sent_mise_dispo', 'active', 'sent_restitution', 'partially_returned', 'contested',
+  ] as const;
+
+  /**
+   * Historique d'un numéro de série : tous les bons où il apparaît, du plus
+   * récent au plus ancien. Répond à « où est le portable SN-1234 ? ».
+   */
+  async getSerialHistory(serialNumber: string) {
+    const query = serialNumber.trim();
+    if (!query) return [];
+    const entries = await this.prisma.bonEquipment.findMany({
+      where: { serialNumber: { equals: query, mode: 'insensitive' } },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      include: {
+        catalogItem: { select: { brand: true, model: true, category: true } },
+        bon: {
+          select: {
+            id: true,
+            reference: true,
+            status: true,
+            dateMiseDisposition: true,
+            dateRestitution: true,
+            collaborateur: { select: { displayName: true, email: true } },
+            filiale: { select: { displayName: true } },
+          },
+        },
+      },
+    });
+    return entries.map((e) => ({
+      equipmentId: e.id,
+      serialNumber: e.serialNumber,
+      label: e.catalogItem ? `${e.catalogItem.brand} ${e.catalogItem.model}` : e.customLabel,
+      returnedAt: e.returnedAt,
+      notReturned: e.notReturned,
+      bon: e.bon,
+    }));
+  }
+
+  /**
+   * Conflits de numéros de série : pour chaque numéro fourni, les bons « en
+   * circulation » où il figure déjà sans avoir été rendu. Avertissement non
+   * bloquant à la création/édition d'un bon (l'IT confirme en connaissance).
+   */
+  async findSerialConflicts(serials: string[], excludeBonId?: string) {
+    const cleaned = [...new Set(serials.map((s) => s.trim()).filter(Boolean))].slice(0, 50);
+    if (cleaned.length === 0) return [];
+
+    const conflicts = await this.prisma.bonEquipment.findMany({
+      where: {
+        serialNumber: { in: cleaned, mode: 'insensitive' },
+        returnedAt: null,
+        notReturned: false,
+        bon: {
+          status: { in: [...EquipmentService.ACTIVE_BON_STATUSES] },
+          ...(excludeBonId ? { id: { not: excludeBonId } } : {}),
+        },
+      },
+      include: {
+        bon: {
+          select: {
+            id: true,
+            reference: true,
+            status: true,
+            collaborateur: { select: { displayName: true } },
+          },
+        },
+      },
+    });
+
+    return conflicts.map((c) => ({
+      serialNumber: c.serialNumber,
+      bonId: c.bon.id,
+      bonReference: c.bon.reference,
+      bonStatus: c.bon.status,
+      collaborateur: c.bon.collaborateur?.displayName ?? '—',
+    }));
+  }
+
   // ── Catalogue ──────────────────────────────────────────────
 
   findAllCatalog() {

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -201,10 +201,43 @@ function CatalogSearch({
   );
 }
 
+interface SerialConflict {
+  serialNumber: string;
+  bonId: string;
+  bonReference: string;
+  bonStatus: string;
+  collaborateur: string;
+}
+
+/** Shape minimale du bon chargé en mode édition. */
+interface EditableBon {
+  id: string;
+  reference: string;
+  status: string;
+  filialeId: string;
+  civilite: 'mme' | 'mr';
+  dateMiseDisposition: string;
+  dateRestitution?: string | null;
+  notes?: string | null;
+  collaborateur: UserResult;
+  equipments: Array<{
+    catalogItem?: { id: string; brand: string; model: string } | null;
+    customLabel?: string | null;
+    serialNumber?: string | null;
+    inventoryNumber?: string | null;
+    notes?: string | null;
+  }>;
+}
+
 export function BonCreatePage() {
   const navigate = useNavigate();
+  // Présence d'un :id dans l'URL = édition d'un brouillon existant
+  const { id: editBonId } = useParams<{ id: string }>();
+  const isEditing = !!editBonId;
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [editReference, setEditReference] = useState('');
+  const [serialConflicts, setSerialConflicts] = useState<SerialConflict[] | null>(null);
 
   // Form state
   const [collaborateur, setCollaborateur] = useState<UserResult | null>(null);
@@ -240,6 +273,42 @@ export function BonCreatePage() {
     });
   }, [initReloadKey]);
 
+  // Mode édition : pré-remplir le formulaire depuis le brouillon existant
+  useEffect(() => {
+    if (!editBonId) return;
+    api.get<EditableBon>(`/bons/${editBonId}`)
+      .then((bon) => {
+        if (bon.status !== 'draft') {
+          navigate(`/bons/${editBonId}`, { replace: true });
+          return;
+        }
+        setEditReference(bon.reference);
+        setCollaborateur(bon.collaborateur);
+        setFilialeId(bon.filialeId);
+        setCivilite(bon.civilite);
+        setDateMiseDisposition(String(bon.dateMiseDisposition).slice(0, 10));
+        setDateRestitution(bon.dateRestitution ? String(bon.dateRestitution).slice(0, 10) : '');
+        setNotes(bon.notes ?? '');
+        setEquipments(
+          bon.equipments.length > 0
+            ? bon.equipments.map((e) =>
+                newLine({
+                  catalogItemId: e.catalogItem?.id,
+                  catalogItemLabel: e.catalogItem ? `${e.catalogItem.brand} ${e.catalogItem.model}` : undefined,
+                  customLabel: e.customLabel ?? undefined,
+                  serialNumber: e.serialNumber ?? undefined,
+                  inventoryNumber: e.inventoryNumber ?? undefined,
+                  notes: e.notes ?? undefined,
+                }),
+              )
+            : [newLine()],
+        );
+      })
+      .catch((e: unknown) => {
+        setError(e instanceof Error && e.message ? e.message : 'Impossible de charger le brouillon');
+      });
+  }, [editBonId, navigate]);
+
   const addFromCatalog = (item: CatalogItem) => {
     setEquipments((prev) => [
       ...prev,
@@ -274,32 +343,12 @@ export function BonCreatePage() {
     setEquipments((prev) => prev.map((e) => (e._id === id ? { ...e, [field]: value } : e)));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  /** Envoi effectif (création ou mise à jour du brouillon) — `submitting` est
+   *  géré par l'appelant. */
+  const performSubmit = async () => {
     const validEquipments = equipments.filter((e) => e.catalogItemId || e.customLabel?.trim());
-    const result = validate(bonCreateSchema, {
-      collaborateurId: collaborateur?.id ?? '',
-      filialeId,
-      dateMiseDisposition,
-      dateRestitution: dateRestitution || undefined,
-      civilite,
-      equipments: validEquipments.map((e) => ({
-        catalogItemId: e.catalogItemId || undefined,
-        customLabel: e.customLabel || undefined,
-        serialNumber: e.serialNumber || undefined,
-        inventoryNumber: e.inventoryNumber || undefined,
-        notes: e.notes || undefined,
-      })),
-    });
-    if (!result.success) {
-      setError(Object.values(result.errors)[0]);
-      return;
-    }
-
-    setSubmitting(true);
-    setError('');
     try {
-      const bon = await api.post<{ id: string }>('/bons', {
+      const payload = {
         filialeId,
         collaborateurId: collaborateur!.id,
         civilite,
@@ -314,22 +363,100 @@ export function BonCreatePage() {
           notes: e.notes || undefined,
           order: idx,
         })),
-      });
-      navigate(`/bons/${bon.id}`);
+      };
+      if (isEditing) {
+        await api.put(`/bons/${editBonId}`, payload);
+        navigate(`/bons/${editBonId}`);
+      } else {
+        const bon = await api.post<{ id: string }>('/bons', payload);
+        navigate(`/bons/${bon.id}`);
+      }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Erreur lors de la création');
+      setError(err instanceof Error ? err.message : isEditing ? 'Erreur lors de la modification' : 'Erreur lors de la création');
+    }
+  };
+
+  /** Confirmation explicite malgré les doublons de numéros de série. */
+  const confirmDespiteConflicts = async () => {
+    if (submitting) return;
+    setSubmitting(true);
+    setSerialConflicts(null);
+    setError('');
+    try {
+      await performSubmit();
     } finally {
       setSubmitting(false);
     }
   };
 
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    // `submitting` couvre AUSSI l'aller-retour serial-conflicts : sans ce garde,
+    // un double-clic pendant la vérification créerait deux bons
+    if (submitting) return;
+    setSubmitting(true);
+    setSerialConflicts(null);
+    setError('');
+    try {
+      const validEquipments = equipments.filter((e) => e.catalogItemId || e.customLabel?.trim());
+      const result = validate(bonCreateSchema, {
+        collaborateurId: collaborateur?.id ?? '',
+        filialeId,
+        dateMiseDisposition,
+        dateRestitution: dateRestitution || undefined,
+        civilite,
+        equipments: validEquipments.map((e) => ({
+          catalogItemId: e.catalogItemId || undefined,
+          customLabel: e.customLabel || undefined,
+          serialNumber: e.serialNumber || undefined,
+          inventoryNumber: e.inventoryNumber || undefined,
+          notes: e.notes || undefined,
+        })),
+      });
+      if (!result.success) {
+        setError(Object.values(result.errors)[0]);
+        return;
+      }
+
+      // Alerte doublon (non bloquante) : numéros de série déjà en circulation
+      // sur un autre bon — l'IT confirme en connaissance de cause
+      const serials = validEquipments.map((e) => e.serialNumber?.trim()).filter(Boolean) as string[];
+      if (serials.length > 0) {
+        try {
+          const params = new URLSearchParams({ serials: serials.join(',') });
+          if (isEditing) params.set('excludeBonId', editBonId!);
+          const conflicts = await api.get<SerialConflict[]>(`/equipment/serial-conflicts?${params}`);
+          if (conflicts.length > 0) {
+            setSerialConflicts(conflicts);
+            return;
+          }
+        } catch { /* la vérification de doublons ne doit pas bloquer la création */ }
+      }
+
+      await performSubmit();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Le panneau de conflits est en haut d'un long formulaire alors que le bouton
+  // de soumission est en bas : le faire défiler dans le viewport
+  const conflictsRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (serialConflicts && serialConflicts.length > 0) {
+      conflictsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [serialConflicts]);
+
   return (
     <div className="space-y-4 max-w-4xl">
       <div className="flex items-center gap-3">
-        <button onClick={() => navigate('/bons')} className="text-muted-foreground/70 hover:text-muted-foreground" aria-label="Retour à la liste des bons">
+        <button onClick={() => navigate(isEditing ? `/bons/${editBonId}` : '/bons')} className="text-muted-foreground/70 hover:text-muted-foreground" aria-label="Retour">
           <ChevronLeft className="h-5 w-5" />
         </button>
-        <h1 className="text-xl font-bold text-foreground">Nouveau bon de mise à disposition</h1>
+        <h1 className="text-xl font-bold text-foreground">
+          {isEditing ? `Modifier le brouillon ${editReference || ''}` : 'Nouveau bon de mise à disposition'}
+        </h1>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -348,6 +475,34 @@ export function BonCreatePage() {
         {error && (
           <div className="rounded-lg bg-destructive/10 border border-destructive/20 px-4 py-3 text-sm text-destructive" role="alert">
             {error}
+          </div>
+        )}
+        {serialConflicts && serialConflicts.length > 0 && (
+          <div ref={conflictsRef} className="rounded-lg bg-amber-50 dark:bg-amber-900/10 border border-amber-300 dark:border-amber-800 px-4 py-3 text-sm space-y-2" role="alert">
+            <p className="font-medium text-amber-800 dark:text-amber-300">
+              ⚠ Numéro(s) de série déjà en circulation sur un autre bon :
+            </p>
+            <ul className="list-disc pl-5 text-amber-700 dark:text-amber-400 space-y-0.5">
+              {serialConflicts.map((c, i) => (
+                <li key={`${c.serialNumber}-${i}`}>
+                  <span className="font-mono">{c.serialNumber}</span> — {c.bonReference} ({c.collaborateur})
+                </li>
+              ))}
+            </ul>
+            <div className="flex gap-2 pt-1">
+              <Button
+                type="button"
+                size="sm"
+                className="bg-amber-600 hover:bg-amber-700 text-white"
+                disabled={submitting}
+                onClick={confirmDespiteConflicts}
+              >
+                {isEditing ? 'Enregistrer quand même' : 'Créer quand même'}
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => setSerialConflicts(null)}>
+                Corriger
+              </Button>
+            </div>
           </div>
         )}
 
@@ -566,11 +721,13 @@ export function BonCreatePage() {
         </Card>
 
         <div className="flex gap-2 justify-end">
-          <Button type="button" variant="outline" onClick={() => navigate('/bons')}>
+          <Button type="button" variant="outline" onClick={() => navigate(isEditing ? `/bons/${editBonId}` : '/bons')}>
             Annuler
           </Button>
           <Button type="submit" disabled={submitting}>
-            {submitting ? 'Création...' : 'Créer le bon'}
+            {submitting
+              ? (isEditing ? 'Enregistrement...' : 'Création...')
+              : (isEditing ? 'Enregistrer les modifications' : 'Créer le bon')}
           </Button>
         </div>
       </form>

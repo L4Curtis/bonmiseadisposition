@@ -47,6 +47,13 @@ export class DeclareNotReturnedDto {
   signatureDataUrl?: string;
 }
 
+export class CloseUnilateralDto {
+  @IsString()
+  @MinLength(10, { message: 'Le motif doit faire au moins 10 caractères' })
+  @MaxLength(1000, { message: 'Le motif ne peut pas dépasser 1000 caractères' })
+  reason!: string;
+}
+
 export class MarkFoundDto {
   @IsArray()
   @IsUUID('4', { each: true, message: 'equipmentIds doit contenir des UUIDs valides' })

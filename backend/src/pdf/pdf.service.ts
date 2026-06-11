@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { createHash } from 'crypto';
 import { existsSync } from 'fs';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
@@ -57,6 +58,8 @@ export interface BonForPdf {
   }>;
   /** Used by avenant generation to filter equipment */
   _avenantEquipmentIds?: string[];
+  /** Clôture unilatérale : remplace la mention de la case signature collaborateur */
+  _unilateralNote?: string;
 }
 
 @Injectable()
@@ -108,14 +111,29 @@ export class PdfService {
       }
     }
 
+    // SHA-256 du document : chaîne de preuve — permet de vérifier a posteriori
+    // que le PDF archivé (DB ou partage SMB) n'a pas été altéré
+    const sha256 = createHash('sha256').update(pdf).digest('hex');
+
     // Upsert into PdfSnapshot table
     await this.prisma.pdfSnapshot.upsert({
       where: { bonId_type: { bonId: bon.id, type: snapshotType as PdfSnapshotType } },
-      update: { data: pdf, filename },
-      create: { bonId: bon.id, type: snapshotType as PdfSnapshotType, data: pdf, filename },
+      update: { data: pdf, filename, sha256 },
+      create: { bonId: bon.id, type: snapshotType as PdfSnapshotType, data: pdf, filename, sha256 },
     });
 
-    this.logger.log(`PDF snapshot ${snapshotType} sauvegardé pour le bon ${bon.reference}`);
+    // Trace d'audit immuable du hash (le snapshot lui-même peut être ré-upserté)
+    try {
+      await this.prisma.auditLog.create({
+        data: {
+          bonId: bon.id,
+          action: 'pdf_snapshot_saved',
+          details: { type: snapshotType, filename, sha256 },
+        },
+      });
+    } catch { /* non-blocking */ }
+
+    this.logger.log(`PDF snapshot ${snapshotType} sauvegardé pour le bon ${bon.reference} (sha256=${sha256.slice(0, 12)}…)`);
     return pdf;
   }
 
@@ -471,12 +489,13 @@ export class PdfService {
           date: itDate,
         }, colors);
 
-        // Collaborateur signature box
+        // Collaborateur signature box. En clôture unilatérale, la mention
+        // « constaté sans signature » remplace la mention standard.
         this.drawSignatureBox(doc, leftX + sigBoxWidth + 24, sigY, sigBoxWidth, {
           title: config.signatures.collabTitle,
           name: `${civiliteLabel} ${bon.collaborateur?.displayName || '—'}`,
-          mention: config.signatures.collabMention,
-          signatureImage: sigImages.collab,
+          mention: bon._unilateralNote ?? config.signatures.collabMention,
+          signatureImage: bon._unilateralNote ? null : sigImages.collab,
           date: collabDate,
         }, colors);
 

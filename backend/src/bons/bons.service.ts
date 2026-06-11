@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException, ConflictException, Logger } from '@nestjs/common';
+import { createHash } from 'crypto';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateBonDto, UpdateBonDto, BonEquipmentDto } from './dto/bon.dto';
@@ -8,26 +9,24 @@ import { PdfService, SigImages } from '../pdf/pdf.service';
 import { SmbService } from '../smb/smb.service';
 import { STATUS_LABELS } from '../common/status-labels';
 import { BonStatus, Civilite, BON_SELECT_SHAPE, SIGNATURE_SAFE_SELECT } from '../common/types';
+import { generateBonReference } from '../common/bon-reference';
 
 // Canonical select shape: no Bytes columns, signatures restricted to API-safe
 // fields (no token / signerIp / signerUserAgent / signatureImagePath).
 const BON_SELECT = BON_SELECT_SHAPE;
 
-/** Minimal requester info used to scope list queries per filiale. */
-export interface BonsRequester {
-  role: string;
-  filialeId?: string | null;
-}
+// Modèle d'accès « IT centrale » (décision produit 2026-06-11) : les techniciens
+// ont accès à toutes les filiales, au même titre que les admins. La filiale
+// reste une donnée du bon (logo, tampon, arborescence d'archivage SMB).
 
-/**
- * Technicians are scoped to their own filiale (same rule as the per-bon check
- * in BonsController.verifyCollaboratorAccess). Admins — and technicians without
- * an assigned filiale (documented as cross-filiale) — see everything.
- */
-function applyFilialeScope(where: Prisma.BonWhereInput, requester?: BonsRequester): void {
-  if (requester?.role === 'technician' && requester.filialeId) {
-    where.filialeId = requester.filialeId;
-  }
+/** Recherche libre : référence, nom/email du collaborateur, ou n° de série d'un équipement. */
+function buildSearchClauses(search: string): Prisma.BonWhereInput[] {
+  return [
+    { reference: { contains: search, mode: 'insensitive' } },
+    { collaborateur: { displayName: { contains: search, mode: 'insensitive' } } },
+    { collaborateur: { email: { contains: search, mode: 'insensitive' } } },
+    { equipments: { some: { serialNumber: { contains: search, mode: 'insensitive' } } } },
+  ];
 }
 
 @Injectable()
@@ -42,18 +41,14 @@ export class BonsService {
     private readonly smbService: SmbService,
   ) {}
 
-  async getStats(requester?: BonsRequester) {
+  async getStats() {
     const monthStart = new Date();
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
 
-    const scope: Prisma.BonWhereInput = {};
-    applyFilialeScope(scope, requester);
-
     const [waitingSignature, active, overdue, total, archivedThisMonth, partiallyReturned, filialesRaw] = await Promise.all([
       this.prisma.bon.count({
         where: {
-          ...scope,
           OR: [
             { status: { in: ['sent_mise_dispo', 'sent_restitution'] } },
             {
@@ -71,26 +66,22 @@ export class BonsService {
           ],
         },
       }),
-      this.prisma.bon.count({ where: { ...scope, status: 'active' } }),
+      this.prisma.bon.count({ where: { status: 'active' } }),
       this.prisma.bon.count({
         where: {
-          ...scope,
           status: { in: ['sent_mise_dispo', 'sent_restitution'] },
           updatedAt: { lt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
         },
       }),
       this.prisma.bon.count({
-        where: { ...scope, status: { notIn: ['cancelled', 'archived'] } },
+        where: { status: { notIn: ['cancelled', 'archived'] } },
       }),
       this.prisma.bon.count({
-        where: { ...scope, status: 'archived', updatedAt: { gte: monthStart } },
+        where: { status: 'archived', updatedAt: { gte: monthStart } },
       }),
-      this.prisma.bon.count({ where: { ...scope, status: 'partially_returned' } }),
+      this.prisma.bon.count({ where: { status: 'partially_returned' } }),
       this.prisma.filiale.findMany({
-        where: {
-          active: true,
-          ...(requester?.role === 'technician' && requester.filialeId ? { id: requester.filialeId } : {}),
-        },
+        where: { active: true },
         select: {
           id: true,
           displayName: true,
@@ -117,23 +108,15 @@ export class BonsService {
     };
   }
 
-  async getExportData(
-    filters: { status?: BonStatus[]; filialeId?: string; search?: string },
-    requester?: BonsRequester,
-  ) {
+  async getExportData(filters: { status?: BonStatus[]; filialeId?: string; search?: string }) {
     const { status, filialeId, search } = filters;
     const where: Prisma.BonWhereInput = {};
     if (status?.length) {
       where.status = { in: status };
     }
     if (filialeId) where.filialeId = filialeId;
-    applyFilialeScope(where, requester);
     if (search) {
-      where.OR = [
-        { reference: { contains: search, mode: 'insensitive' } },
-        { collaborateur: { displayName: { contains: search, mode: 'insensitive' } } },
-        { collaborateur: { email: { contains: search, mode: 'insensitive' } } },
-      ];
+      where.OR = buildSearchClauses(search);
     }
 
     const bons = await this.prisma.bon.findMany({
@@ -197,17 +180,14 @@ export class BonsService {
     return '\uFEFF' + csv; // BOM UTF-8 pour Excel
   }
 
-  async findAll(
-    filters: {
-      status?: BonStatus[];
-      excludeStatus?: BonStatus[];
-      filialeId?: string;
-      search?: string;
-      page?: number;
-      limit?: number;
-    },
-    requester?: BonsRequester,
-  ) {
+  async findAll(filters: {
+    status?: BonStatus[];
+    excludeStatus?: BonStatus[];
+    filialeId?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }) {
     const { status, excludeStatus, filialeId, search, page = 1, limit = 20 } = filters;
     const where: Prisma.BonWhereInput = {};
 
@@ -219,21 +199,8 @@ export class BonsService {
       };
     }
     if (filialeId) where.filialeId = filialeId;
-    applyFilialeScope(where, requester);
     if (search) {
-      where.OR = [
-        { reference: { contains: search, mode: 'insensitive' } },
-        {
-          collaborateur: {
-            displayName: { contains: search, mode: 'insensitive' },
-          },
-        },
-        {
-          collaborateur: {
-            email: { contains: search, mode: 'insensitive' },
-          },
-        },
-      ];
+      where.OR = buildSearchClauses(search);
     }
 
     const [bons, total] = await Promise.all([
@@ -265,7 +232,6 @@ export class BonsService {
         'La date de restitution ne peut pas précéder la date de mise à disposition',
       );
     }
-    const reference = await this.generateReference();
 
     let equipments: Array<{ catalogItemId?: string; customLabel?: string; serialNumber?: string; inventoryNumber?: string; notes?: string; order?: number }> = dto.equipments || [];
 
@@ -296,31 +262,38 @@ export class BonsService {
     });
     if (!collaborateur) throw new NotFoundException('Collaborateur introuvable');
 
-    const bon = await this.prisma.bon.create({
-      data: {
-        reference,
-        filialeId: dto.filialeId,
-        collaborateurId: dto.collaborateurId,
-        collaborateurEmail: collaborateur.email,
-        createdById: userId,
-        civilite: dto.civilite as Civilite,
-        dateMiseDisposition: new Date(dto.dateMiseDisposition),
-        dateRestitution: dto.dateRestitution
-          ? new Date(dto.dateRestitution)
-          : null,
-        notes: dto.notes,
-        equipments: {
-          create: equipments.map((e, idx) => ({
-            catalogItemId: e.catalogItemId || null,
-            customLabel: e.customLabel || null,
-            serialNumber: e.serialNumber || null,
-            inventoryNumber: e.inventoryNumber || null,
-            notes: e.notes || null,
-            order: e.order ?? idx,
-          })),
+    // Référence et INSERT dans la MÊME transaction : le verrou advisory de
+    // generateBonReference est relâché au commit — s'il était relâché avant
+    // l'insertion, deux créations concurrentes obtiendraient le même numéro
+    // (violation d'unicité P2002 sur la seconde)
+    const bon = await this.prisma.$transaction(async (tx) => {
+      const reference = await generateBonReference(tx);
+      return tx.bon.create({
+        data: {
+          reference,
+          filialeId: dto.filialeId,
+          collaborateurId: dto.collaborateurId,
+          collaborateurEmail: collaborateur.email,
+          createdById: userId,
+          civilite: dto.civilite as Civilite,
+          dateMiseDisposition: new Date(dto.dateMiseDisposition),
+          dateRestitution: dto.dateRestitution
+            ? new Date(dto.dateRestitution)
+            : null,
+          notes: dto.notes,
+          equipments: {
+            create: equipments.map((e, idx) => ({
+              catalogItemId: e.catalogItemId || null,
+              customLabel: e.customLabel || null,
+              serialNumber: e.serialNumber || null,
+              inventoryNumber: e.inventoryNumber || null,
+              notes: e.notes || null,
+              order: e.order ?? idx,
+            })),
+          },
         },
-      },
-      ...BON_SELECT,
+        ...BON_SELECT,
+      });
     });
     await this.prisma.auditLog.create({
       data: { bonId: bon.id, userId, action: 'bon_created' },
@@ -379,15 +352,22 @@ export class BonsService {
           order: e.order ?? idx,
         })),
       };
-      // Atomic delete + recreate: if the update fails (FK violation, DB error),
-      // the existing equipment list is rolled back instead of being lost.
-      return this.prisma.$transaction(async (tx) => {
-        await tx.bonEquipment.deleteMany({ where: { bonId: id } });
-        return tx.bon.update({ where: { id }, data, ...BON_SELECT });
-      });
     }
 
-    return this.prisma.bon.update({ where: { id }, data, ...BON_SELECT });
+    // Atomicité : (1) re-vérifier le statut DANS la transaction — un send()
+    // concurrent entre le findOne ci-dessus et l'écriture transformerait sinon
+    // un bon déjà envoyé ; (2) delete + recreate des équipements rollbackés
+    // ensemble si l'update échoue (FK invalide, erreur DB).
+    return this.prisma.$transaction(async (tx) => {
+      const fresh = await tx.bon.findUnique({ where: { id }, select: { status: true } });
+      if (fresh?.status !== 'draft') {
+        throw new ConflictException('Ce bon n\'est plus un brouillon — il a été envoyé entre-temps');
+      }
+      if (dto.equipments !== undefined) {
+        await tx.bonEquipment.deleteMany({ where: { bonId: id } });
+      }
+      return tx.bon.update({ where: { id }, data, ...BON_SELECT });
+    });
   }
 
   async cancel(id: string, userId?: string) {
@@ -811,11 +791,8 @@ export class BonsService {
     return { bon: updated, token: sig.token };
   }
 
-  async getRecentBons(limit = 10, requester?: BonsRequester) {
-    const where: Prisma.BonWhereInput = {};
-    applyFilialeScope(where, requester);
+  async getRecentBons(limit = 10) {
     return this.prisma.bon.findMany({
-      where,
       ...BON_SELECT,
       orderBy: { createdAt: 'desc' },
       take: limit,
@@ -917,22 +894,201 @@ export class BonsService {
     return { ok: true, message: 'Lien renvoyé avec succès' };
   }
 
-  private async generateReference(): Promise<string> {
-    const year = new Date().getFullYear();
-    const yearPrefix = `BON-${year}-`;
-    // Advisory lock sérialise les générations concurrentes au niveau PostgreSQL.
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('bon_reference_lock'))`;
-      // Numeric MAX — a lexicographic ORDER BY on the text column breaks past
-      // 9999 ('BON-2026-9999' > 'BON-2026-10000'), causing permanent unique
-      // constraint violations on every subsequent creation.
-      const rows = await tx.$queryRaw<Array<{ max: number | null }>>`
-        SELECT MAX(CAST(SPLIT_PART(reference, '-', 3) AS INTEGER)) AS max
-        FROM bons
-        WHERE reference LIKE ${`${yearPrefix}%`}
-      `;
-      const nextNum = (rows[0]?.max ?? 0) + 1;
-      return `BON-${year}-${String(nextNum).padStart(4, '0')}`;
+
+  /**
+   * Clôture unilatérale par l'IT (collaborateur injoignable, parti, ou silence
+   * prolongé) : le bon avance sans signature collaborateur, avec motif
+   * obligatoire, mention explicite sur le document PDF et traçage audit.
+   * - sent_mise_dispo      → active   (remise constatée sans signature)
+   * - sent_restitution     → archived (restitution constatée sans signature)
+   * - partially_returned   → archived (PV constaté sans co-signature — exige
+   *   que tous les équipements soient restitués ou déclarés non rendus)
+   */
+  async closeUnilaterally(id: string, userId: string, reason: string) {
+    const bon = await this.findOne(id);
+    const allowed: BonStatus[] = ['sent_mise_dispo', 'sent_restitution', 'partially_returned'];
+    if (!allowed.includes(bon.status as BonStatus)) {
+      throw new BadRequestException(
+        'La clôture unilatérale n\'est possible que sur un bon en attente de signature',
+      );
+    }
+
+    if (bon.status === 'partially_returned') {
+      const pending = await this.prisma.bonEquipment.count({
+        where: { bonId: id, returnedAt: null, notReturned: false },
+      });
+      if (pending > 0) {
+        throw new BadRequestException(
+          'Des équipements ne sont ni restitués ni déclarés non rendus — traitez-les avant de clôturer',
+        );
+      }
+    }
+
+    const newStatus: BonStatus = bon.status === 'sent_mise_dispo' ? 'active' : 'archived';
+
+    // Invalider les tokens AVANT la transition : une signature en vol échoue
+    // alors sur la re-vérification d'expiration de sa propre transaction, au
+    // lieu d'aboutir silencieusement sur un bon « clôturé sans signature »
+    // (sent_mise_dispo→active n'est pas dans la liste bloquée de sign()).
+    await this.signatureService.invalidateUnsignedTokens(id);
+
+    // Transition conditionnelle : une signature déjà commitée ou un autre
+    // changement concurrent gagne la course plutôt que d'être écrasé
+    const transition = await this.prisma.bon.updateMany({
+      where: { id, status: bon.status as BonStatus },
+      data: { status: newStatus },
     });
+    if (transition.count === 0) {
+      throw new ConflictException('Le statut du bon a changé entre-temps — rechargez la page');
+    }
+
+    const closer = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { displayName: true, email: true },
+    });
+    await this.prisma.auditLog.create({
+      data: {
+        bonId: id,
+        userId,
+        action: 'bon_closed_unilateral',
+        details: { from: bon.status, to: newStatus, reason },
+      },
+    });
+
+    const updated = await this.prisma.bon.findUniqueOrThrow({ where: { id }, ...BON_SELECT });
+
+    // Document de l'étape avec mention de clôture unilatérale dans la case de
+    // signature collaborateur (le hash SHA-256 est tracé par generateAndSave)
+    const note =
+      `CLÔTURE UNILATÉRALE — constaté sans signature du collaborateur le ` +
+      `${new Date().toLocaleDateString('fr-FR')} par ${closer?.displayName ?? 'le service IT'}. Motif : ${reason}`;
+    const snapshotType =
+      bon.status === 'sent_mise_dispo'
+        ? 'signature_collab_mise_disposition'
+        : bon.status === 'sent_restitution'
+          ? 'signature_collab_restitution'
+          : 'cloture_equipements_manquants';
+
+    const fullSignatures = await this.prisma.signature.findMany({ where: { bonId: id } });
+    const sigImages = await this.signatureService.getSignatureImagesForBon(fullSignatures);
+    sigImages.collab = null; // pas de signature collaborateur, par définition
+
+    const collabName = this.smbService.sanitizeName(updated.collaborateur?.displayName || 'INCONNU');
+    const filename = `${updated.reference}_${collabName}_${snapshotType}_cloture_unilaterale.pdf`;
+    // Les signatures complètes (avec signatureImagePath) sont nécessaires au
+    // rendu PDF pour les dates de signature du cachet IT
+    const bonForPdf = { ...updated, signatures: fullSignatures, _unilateralNote: note };
+
+    // Si un document de cette étape existe déjà (ex. restitution partielle
+    // réellement signée par le collaborateur), ne JAMAIS l'écraser : le constat
+    // unilatéral part en archivage SMB sous un nom distinct, hash tracé en audit.
+    const existingSnap = await this.prisma.pdfSnapshot.findUnique({
+      where: { bonId_type: { bonId: id, type: snapshotType } },
+      select: { id: true },
+    });
+    let pdfBuffer: Buffer;
+    if (existingSnap) {
+      pdfBuffer = await this.pdfService.generateBonPdf(
+        bonForPdf,
+        sigImages,
+        this.pdfService.getDocumentType(snapshotType),
+      );
+      try {
+        await this.prisma.auditLog.create({
+          data: {
+            bonId: id,
+            userId,
+            action: 'pdf_snapshot_saved',
+            details: {
+              type: `${snapshotType}_cloture_unilaterale`,
+              filename,
+              sha256: createHash('sha256').update(pdfBuffer).digest('hex'),
+              smbOnly: true,
+            },
+          },
+        });
+      } catch { /* non-blocking */ }
+    } else {
+      pdfBuffer = await this.pdfService.generateAndSave(bonForPdf, snapshotType, sigImages, filename);
+    }
+    this.smbService.exportPdf(updated, filename, pdfBuffer).catch((err) =>
+      this.logger.error(`Échec export SMB [${updated.reference}]: ${(err as Error).message}`),
+    );
+
+    // Informer le collaborateur (adresse peut-être désactivée — fire & forget)
+    this.notificationService.sendUnilateralCloseNotice(updated, reason, newStatus).catch(() => {});
+
+    this.logger.log(`Bon ${updated.reference} clôturé unilatéralement (${bon.status} → ${newStatus}) par ${closer?.email}`);
+    return this.findOne(id);
+  }
+
+  /**
+   * Duplique un bon en brouillon (correction après contestation fondée) :
+   * mêmes filiale/collaborateur/dates/notes/équipements, nouvelle référence.
+   * Le lien avec l'original est tracé dans l'audit des deux bons.
+   * Accepte un TransactionClient pour s'inscrire dans la transaction de
+   * l'appelant (résolution de contestation) — la référence et l'INSERT restent
+   * alors couverts par le même verrou advisory.
+   */
+  async duplicateAsDraft(
+    sourceBonId: string,
+    userId: string,
+    context?: { contestationId?: string },
+    tx?: Prisma.TransactionClient,
+  ) {
+    const run = async (client: Prisma.TransactionClient) => {
+      const source = await client.bon.findUnique({
+        where: { id: sourceBonId },
+        include: { equipments: { orderBy: { order: 'asc' } } },
+      });
+      if (!source) throw new NotFoundException('Bon source introuvable');
+
+      const reference = await generateBonReference(client);
+      const bon = await client.bon.create({
+        data: {
+          reference,
+          filialeId: source.filialeId,
+          collaborateurId: source.collaborateurId,
+          collaborateurEmail: source.collaborateurEmail,
+          createdById: userId,
+          civilite: source.civilite,
+          dateMiseDisposition: source.dateMiseDisposition,
+          dateRestitution: source.dateRestitution,
+          notes: source.notes,
+          equipments: {
+            create: source.equipments.map((e, idx) => ({
+              catalogItemId: e.catalogItemId,
+              customLabel: e.customLabel,
+              serialNumber: e.serialNumber,
+              inventoryNumber: e.inventoryNumber,
+              notes: e.notes,
+              order: e.order ?? idx,
+            })),
+          },
+        },
+        ...BON_SELECT,
+      });
+
+      await client.auditLog.create({
+        data: {
+          bonId: bon.id,
+          userId,
+          action: 'bon_created',
+          details: { correctedFrom: source.reference, sourceBonId, ...context },
+        },
+      });
+      await client.auditLog.create({
+        data: {
+          bonId: sourceBonId,
+          userId,
+          action: 'bon_corrected',
+          details: { correctedTo: bon.reference, newBonId: bon.id, ...context },
+        },
+      });
+
+      return bon;
+    };
+
+    return tx ? run(tx) : this.prisma.$transaction(run);
   }
 }

@@ -269,6 +269,13 @@ describe('NotificationService', () => {
       const pendingBon = {
         ...bon,
         updatedAt: new Date('2026-01-01T00:00:00Z'), // old enough
+        signatures: [{
+          id: 'sig-pending-001',
+          type: 'mise_disposition',
+          signed: false,
+          token: 'pending-token',
+          tokenExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // encore valide
+        }],
         notifications: [],
       };
 
@@ -337,6 +344,78 @@ describe('NotificationService', () => {
 
       expect(prisma.bon.findMany).not.toHaveBeenCalled();
       expect(mockSendMail).not.toHaveBeenCalled();
+    });
+
+    it('should regenerate an expired token instead of sending a dead link', async () => {
+      configService.set('rappels', 'enabled', 'true');
+      configService.set('rappels', 'delay_1', '3');
+
+      const bon = sentMiseDispoBon();
+      const pendingBon = {
+        ...bon,
+        updatedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+        signatures: [{
+          id: 'sig-expired-001',
+          type: 'mise_disposition',
+          signed: false,
+          token: 'expired-token',
+          tokenExpiresAt: new Date(Date.now() - 60_000), // expiré
+        }],
+        notifications: [],
+      };
+
+      asMock(prisma.bon.findMany).mockResolvedValue([pendingBon]);
+      asMock(prisma.signature.updateMany).mockResolvedValue({ count: 1 });
+      asMock(prisma.signature.create).mockResolvedValue({ token: 'fresh-token' });
+      asMock(prisma.notificationLog.create).mockResolvedValue({});
+
+      await service.sendDailyReminders();
+
+      // Un nouveau token est créé et c'est LUI qui part dans l'email
+      expect(prisma.signature.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ bonId: bon.id, type: 'mise_disposition' }),
+        }),
+      );
+      expect(templatesService.renderTemplate).toHaveBeenCalledWith(
+        'reminder',
+        expect.objectContaining({ SIGNER_URL: expect.stringContaining('fresh-token') }),
+      );
+      expect(mockSendMail).toHaveBeenCalled();
+    });
+
+    it('should remind pending PV co-signature on partially_returned bons', async () => {
+      configService.set('rappels', 'enabled', 'true');
+      configService.set('rappels', 'delay_1', '3');
+
+      const bon = sentMiseDispoBon();
+      const pendingBon = {
+        ...bon,
+        status: 'partially_returned',
+        updatedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+        signatures: [{
+          id: 'sig-pv-001',
+          type: 'pv_cloture',
+          signed: false,
+          token: 'pv-token',
+          tokenExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        }],
+        notifications: [],
+      };
+
+      asMock(prisma.bon.findMany).mockResolvedValue([pendingBon]);
+      asMock(prisma.notificationLog.create).mockResolvedValue({});
+
+      await service.sendDailyReminders();
+
+      expect(templatesService.renderTemplate).toHaveBeenCalledWith(
+        'reminder',
+        expect.objectContaining({
+          TYPE_LABEL: "procès-verbal d'équipements non restitués",
+          SIGNER_URL: expect.stringContaining('pv-token'),
+        }),
+      );
+      expect(mockSendMail).toHaveBeenCalled();
     });
   });
 

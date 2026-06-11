@@ -9,6 +9,7 @@ import {
   Smartphone,
   AlertTriangle,
   PackageCheck,
+  FileX,
 } from 'lucide-react';
 import type { BonDetailData } from './types';
 
@@ -21,6 +22,7 @@ export interface BonActionButtonsProps {
   readonly isSentWaiting: boolean;
   readonly hasPendingPvCloture: boolean;
   readonly hasNotReturnedEquipment: boolean;
+  readonly canCloseUnilateral: boolean;
   readonly actionLoading: string | null;
   readonly pdfLoading: string | null;
   readonly onDownloadPdf: () => void;
@@ -32,6 +34,7 @@ export interface BonActionButtonsProps {
   readonly onDeclareNotReturned: () => void;
   readonly onMarkFound: () => void;
   readonly onResend: () => void;
+  readonly onCloseUnilateral: () => void;
   readonly onCancel: () => void;
 }
 
@@ -44,6 +47,7 @@ export function BonActionButtons({
   isSentWaiting,
   hasPendingPvCloture,
   hasNotReturnedEquipment,
+  canCloseUnilateral,
   actionLoading,
   pdfLoading,
   onDownloadPdf,
@@ -55,6 +59,7 @@ export function BonActionButtons({
   onDeclareNotReturned,
   onMarkFound,
   onResend,
+  onCloseUnilateral,
   onCancel,
 }: BonActionButtonsProps) {
   return (
@@ -139,6 +144,19 @@ export function BonActionButtons({
             ? <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
             : <Send className="h-3.5 w-3.5" />}
           {hasPendingPvCloture ? 'Renvoyer le PV' : 'Renvoyer le lien'}
+        </Button>
+      )}
+
+      {isItStaff && canCloseUnilateral && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="text-amber-600 dark:text-amber-400 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-900/20 border-amber-200 dark:border-amber-800"
+          onClick={onCloseUnilateral}
+          disabled={!!actionLoading}
+          title="Clore ce bon sans signature du collaborateur (départ, silence prolongé) — motif obligatoire, tracé dans l'audit"
+        >
+          <FileX className="h-3.5 w-3.5" /> Clôturer sans signature
         </Button>
       )}
 

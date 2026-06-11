@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { CheckCircle, XCircle, Clock, Loader2, Pen, Trash2 } from 'lucide-react';
+import { CheckCircle, XCircle, Clock, Loader2, Pen, Trash2, FileText } from 'lucide-react';
 import { useSignatureCanvas } from '@/hooks/use-signature-canvas';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -69,6 +69,15 @@ export function SignaturePage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [signed, setSigned] = useState(false);
+
+  // Aperçu du document PDF exact qui sera signé (chaîne de preuve).
+  // Ouverture SYNCHRONE dans le handler de clic : un window.open après un
+  // await serait bloqué par les bloqueurs de popups (Safari iOS notamment —
+  // le cas nominal d'un collaborateur sur mobile). Le endpoint est un GET
+  // same-origin authentifié par cookie, le navigateur le charge directement.
+  const handlePreview = () => {
+    window.open(`/api/signature/${token}/preview`, '_blank', 'noopener');
+  };
 
   const { canvasRef, isEmpty, clear, getDataUrl, onMouseDown, onMouseMove, onMouseUp, onMouseLeave } = useSignatureCanvas();
 
@@ -408,6 +417,16 @@ export function SignaturePage() {
             )}
 
             <div className="p-5 space-y-4">
+              {/* Aperçu du document exact qui sera signé */}
+              <button
+                type="button"
+                onClick={handlePreview}
+                className="w-full flex items-center justify-center gap-2 rounded-lg border border-border bg-muted/30 px-4 py-2.5 text-sm font-medium text-foreground/80 hover:bg-muted/60 transition-colors"
+              >
+                <FileText className="h-4 w-4" />
+                Voir le document qui sera signé (PDF)
+              </button>
+
               {/* Canvas */}
               <div>
                 <div className="flex items-center justify-between mb-2">

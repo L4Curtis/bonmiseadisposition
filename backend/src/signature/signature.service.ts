@@ -127,6 +127,36 @@ export class SignatureService {
     };
   }
 
+  /**
+   * Aperçu du document EXACT qui sera signé (chaîne de preuve : le signataire
+   * voit l'artefact final, pas seulement la page web). Mêmes contrôles d'accès
+   * que getBonInfoByToken : token valide, non signé, destinataire uniquement
+   * (sauf présentiel).
+   */
+  async getPreviewPdfByToken(token: string, requesterEmail?: string): Promise<{ pdf: Buffer; filename: string }> {
+    const sig = await this.prisma.signature.findUnique({
+      where: { token },
+      include: { bon: { select: BON_FOR_SIGNATURE_SELECT } },
+    });
+    if (!sig) throw new NotFoundException('Lien de signature invalide');
+    if (sig.signed) throw new BadRequestException('Ce document a déjà été signé');
+    if (new Date() > sig.tokenExpiresAt) throw new BadRequestException('Ce lien de signature a expiré');
+    if (!sig.isInPerson) {
+      const expected = sig.bon.collaborateurEmail.toLowerCase().trim();
+      if (expected !== (requesterEmail ?? '').toLowerCase().trim()) {
+        throw new ForbiddenException('Ce document est destiné à un autre collaborateur');
+      }
+    }
+
+    const documentType =
+      sig.type === 'pv_cloture' ? 'cloture' : sig.type === 'restitution' ? 'restitution' : 'mise_disposition';
+    const sigImages = await this.getSignatureImagesForBon(sig.bon.signatures || []);
+    sigImages.collab = null; // la signature du collaborateur n'existe pas encore
+
+    const pdf = await this.pdfService.generateBonPdf(sig.bon, sigImages, documentType);
+    return { pdf, filename: `apercu-${sig.bon.reference}.pdf` };
+  }
+
   /** Sign a document — called after SSO auth with email verification */
   async sign(
     token: string,

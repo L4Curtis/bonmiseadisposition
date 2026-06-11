@@ -47,6 +47,8 @@ export interface PdfSnapshotInfo {
   type: string;
   filename: string;
   createdAt: string;
+  /** Empreinte SHA-256 du document (chaîne de preuve) */
+  sha256?: string | null;
 }
 
 export interface PendingItAction {

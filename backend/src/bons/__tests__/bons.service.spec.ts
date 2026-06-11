@@ -180,22 +180,18 @@ describe('BonsService', () => {
       });
     });
 
-    it('should scope technicians to their own filiale', async () => {
-      await service.findAll({}, { role: 'technician', filialeId: 'filiale-001' });
+    it('should also match equipment serial numbers in free search', async () => {
+      await service.findAll({ search: 'SN-1234' });
 
       const findManyCall = prisma.bon.findMany.mock.calls[0][0] as {
-        where: { filialeId?: string };
+        where: { OR?: unknown[] };
       };
-      expect(findManyCall.where.filialeId).toBe('filiale-001');
-    });
-
-    it('should not scope admins by filiale', async () => {
-      await service.findAll({}, { role: 'admin', filialeId: 'filiale-001' });
-
-      const findManyCall = prisma.bon.findMany.mock.calls[0][0] as {
-        where: { filialeId?: string };
-      };
-      expect(findManyCall.where.filialeId).toBeUndefined();
+      expect(findManyCall.where.OR).toHaveLength(4);
+      expect(findManyCall.where.OR).toEqual(
+        expect.arrayContaining([
+          { equipments: { some: { serialNumber: { contains: 'SN-1234', mode: 'insensitive' } } } },
+        ]),
+      );
     });
 
     it('should filter by filialeId', async () => {
@@ -207,14 +203,14 @@ describe('BonsService', () => {
       expect(findManyCall.where.filialeId).toBe('filiale-001');
     });
 
-    it('should search by reference or collaborateur', async () => {
+    it('should search by reference, collaborateur or serial number', async () => {
       await service.findAll({ search: 'BMD-2026' });
 
       const findManyCall = prisma.bon.findMany.mock.calls[0][0] as {
         where: { OR?: unknown[] };
       };
       expect(findManyCall.where.OR).toBeDefined();
-      expect(findManyCall.where.OR).toHaveLength(3);
+      expect(findManyCall.where.OR).toHaveLength(4);
     });
   });
 
@@ -838,6 +834,136 @@ describe('BonsService', () => {
       expect(result.ok).toBe(true);
       // Should NOT check for recent token when force=true
       expect(prisma.signature.findFirst).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── closeUnilaterally ───────────────────────────────────────────────────────
+
+  describe('closeUnilaterally', () => {
+    const userId = 'user-tech-001';
+    const reason = 'Collaborateur parti de l\'entreprise, injoignable après 3 relances';
+
+    function setupClose(bon: { id: string } & Record<string, unknown>) {
+      prisma.bon.findUnique.mockResolvedValue(bon);
+      prisma.bon.updateMany.mockResolvedValue({ count: 1 });
+      prisma.user.findUnique.mockResolvedValue(technicianUser());
+      prisma.auditLog.create.mockResolvedValue({} as never);
+      prisma.bon.findUniqueOrThrow.mockResolvedValue(bon);
+      prisma.signature.findMany.mockResolvedValue([]);
+    }
+
+    it('should move sent_mise_dispo to active with audit + PDF + notice', async () => {
+      const bon = sentMiseDispoBon();
+      setupClose(bon);
+
+      await service.closeUnilaterally(bon.id, userId, reason);
+
+      expect(prisma.bon.updateMany).toHaveBeenCalledWith({
+        where: { id: bon.id, status: 'sent_mise_dispo' },
+        data: { status: 'active' },
+      });
+      expect(signatureService.invalidateUnsignedTokens).toHaveBeenCalledWith(bon.id);
+      expect(prisma.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            action: 'bon_closed_unilateral',
+            details: expect.objectContaining({ from: 'sent_mise_dispo', to: 'active', reason }),
+          }),
+        }),
+      );
+      // Le document porte la mention de clôture unilatérale
+      const pdfCall = pdfService.generateAndSave.mock.calls[0];
+      expect((pdfCall[0] as { _unilateralNote?: string })._unilateralNote).toContain('CLÔTURE UNILATÉRALE');
+      expect(pdfCall[1]).toBe('signature_collab_mise_disposition');
+      expect(notificationService.sendUnilateralCloseNotice).toHaveBeenCalled();
+    });
+
+    it('should move sent_restitution to archived', async () => {
+      const bon = { ...sentMiseDispoBon(), status: 'sent_restitution' as const };
+      setupClose(bon);
+
+      await service.closeUnilaterally(bon.id, userId, reason);
+
+      expect(prisma.bon.updateMany).toHaveBeenCalledWith({
+        where: { id: bon.id, status: 'sent_restitution' },
+        data: { status: 'archived' },
+      });
+      expect(pdfService.generateAndSave.mock.calls[0][1]).toBe('signature_collab_restitution');
+    });
+
+    it('should archive a partially_returned bon only when all equipment is resolved', async () => {
+      const bon = partiallyReturnedBon();
+      setupClose(bon);
+      prisma.bonEquipment.count.mockResolvedValue(0); // tout restitué ou déclaré non rendu
+
+      await service.closeUnilaterally(bon.id, userId, reason);
+
+      expect(prisma.bon.updateMany).toHaveBeenCalledWith({
+        where: { id: bon.id, status: 'partially_returned' },
+        data: { status: 'archived' },
+      });
+      expect(pdfService.generateAndSave.mock.calls[0][1]).toBe('cloture_equipements_manquants');
+    });
+
+    it('should refuse when partially_returned still has unresolved equipment', async () => {
+      const bon = partiallyReturnedBon();
+      setupClose(bon);
+      prisma.bonEquipment.count.mockResolvedValue(2); // équipements ni rendus ni déclarés
+
+      await expect(service.closeUnilaterally(bon.id, userId, reason)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(prisma.bon.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('should refuse on a non-pending status', async () => {
+      prisma.bon.findUnique.mockResolvedValue(activeBon());
+
+      await expect(service.closeUnilaterally('bon-active-001', userId, reason)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('should lose the race against a concurrent signature', async () => {
+      const bon = sentMiseDispoBon();
+      setupClose(bon);
+      prisma.bon.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.closeUnilaterally(bon.id, userId, reason)).rejects.toThrow(
+        ConflictException,
+      );
+      // L'invalidation précède volontairement la transition (elle fait échouer
+      // une signature en vol sur son re-check d'expiration) — mais aucun PDF
+      // ni notification ne part quand la transition perd la course
+      expect(pdfService.generateAndSave).not.toHaveBeenCalled();
+      expect(notificationService.sendUnilateralCloseNotice).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── duplicateAsDraft ────────────────────────────────────────────────────────
+
+  describe('duplicateAsDraft', () => {
+    it('should copy the bon as a new draft with a fresh reference', async () => {
+      const source = activeBon();
+      prisma.bon.findUnique.mockResolvedValue({ ...source, equipments: source.equipments });
+      prisma.$executeRaw.mockResolvedValue(undefined);
+      prisma.$queryRaw.mockResolvedValue([{ max: 42 }]);
+      const created = { ...draftBon(), id: 'bon-new-001', reference: 'BON-2026-0043' };
+      prisma.bon.create.mockResolvedValue(created);
+      prisma.auditLog.create.mockResolvedValue({} as never);
+
+      const result = await service.duplicateAsDraft(source.id, 'user-tech-001', {
+        contestationId: 'contestation-001',
+      });
+
+      expect(result.reference).toBe('BON-2026-0043');
+      const createArgs = prisma.bon.create.mock.calls[0][0] as {
+        data: { collaborateurId: string; equipments: { create: unknown[] } };
+      };
+      expect(createArgs.data.collaborateurId).toBe(source.collaborateurId);
+      expect(createArgs.data.equipments.create).toHaveLength(source.equipments.length);
+      // Lien tracé dans l'audit des deux bons
+      expect(prisma.auditLog.create).toHaveBeenCalledTimes(2);
     });
   });
 

@@ -107,9 +107,16 @@ function AppRoutes() {
             <BonsListPage />
           </ProtectedRoute>
         } />
+        {/* key force le remontage entre /new et /:id/edit (composant partagé :
+            sans key, React conserverait l'état du formulaire d'une route à l'autre) */}
         <Route path="bons/new" element={
           <ProtectedRoute requiredRoles={['admin', 'technician']}>
-            <BonCreatePage />
+            <BonCreatePage key="new" />
+          </ProtectedRoute>
+        } />
+        <Route path="bons/:id/edit" element={
+          <ProtectedRoute requiredRoles={['admin', 'technician']}>
+            <BonCreatePage key="edit" />
           </ProtectedRoute>
         } />
         <Route path="bons/:id" element={

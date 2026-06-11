@@ -17,6 +17,7 @@ export function createMockNotificationService() {
     sendContestationResolution: jest.fn().mockResolvedValue(undefined),
     sendCancellationNotice: jest.fn().mockResolvedValue(undefined),
     sendMarkFoundNotice: jest.fn().mockResolvedValue(undefined),
+    sendUnilateralCloseNotice: jest.fn().mockResolvedValue(undefined),
     sendDailyReminders: jest.fn().mockResolvedValue(undefined),
     sendEmail: jest.fn().mockResolvedValue(true),
     invalidateTransporterCache: jest.fn(),

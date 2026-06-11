@@ -5,12 +5,13 @@ import {
   Param,
   Body,
   Req,
+  Res,
   UseGuards,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
-import { Request } from 'express';
+import { Request, Response } from 'express';
 import { SignatureService } from './signature.service';
 import { NotificationService } from '../notification/notification.service';
 import { SignDto } from './dto/sign.dto';
@@ -32,6 +33,21 @@ export class SignatureController {
   @UseGuards(JwtAuthGuard)
   async getBonInfo(@Param('token') token: string, @CurrentUser() user: AuthUser) {
     return this.signatureService.getBonInfoByToken(token, user?.email);
+  }
+
+  /** Aperçu PDF du document exact qui sera signé (avant signature). */
+  @Get(':token/preview')
+  @UseGuards(JwtAuthGuard)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  async preview(
+    @Param('token') token: string,
+    @CurrentUser() user: AuthUser,
+    @Res() res: Response,
+  ) {
+    const { pdf, filename } = await this.signatureService.getPreviewPdfByToken(token, user?.email);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    res.send(pdf);
   }
 
   /**

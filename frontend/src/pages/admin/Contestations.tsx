@@ -75,11 +75,13 @@ function ResolveDialog({
 }) {
   const [action, setAction] = useState<'resolved' | 'rejected'>('resolved');
   const [resolutionMessage, setResolutionMessage] = useState('');
+  const [correct, setCorrect] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const navigate = useNavigate();
 
   const handleClose = (v: boolean) => {
-    if (!v) { setResolutionMessage(''); setError(''); setAction('resolved'); }
+    if (!v) { setResolutionMessage(''); setError(''); setAction('resolved'); setCorrect(false); }
     onOpenChange(v);
   };
 
@@ -88,14 +90,27 @@ function ResolveDialog({
     setLoading(true);
     setError('');
     try {
-      await api.patch(`/contestations/${contestation.id}/resolve`, { action, resolutionMessage: resolutionMessage.trim() || undefined });
+      const result = await api.patch<{ correctedBon?: { id: string; reference: string } | null }>(
+        `/contestations/${contestation.id}/resolve`,
+        {
+          action,
+          resolutionMessage: resolutionMessage.trim() || undefined,
+          correct: action === 'resolved' ? correct : undefined,
+        },
+      );
       handleClose(false);
       toast({
         title: action === 'resolved' ? 'Contestation acceptée' : 'Contestation rejetée',
-        description: `La contestation de ${contestation.user.displayName} a été traitée.`,
+        description: result.correctedBon
+          ? `Bon annulé — brouillon corrigé ${result.correctedBon.reference} créé.`
+          : `La contestation de ${contestation.user.displayName} a été traitée.`,
         variant: action === 'resolved' ? 'success' : 'default',
       });
       onSuccess();
+      // Ouvrir directement le brouillon corrigé pour édition puis re-signature
+      if (result.correctedBon) {
+        navigate(`/bons/${result.correctedBon.id}/edit`);
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Erreur lors du traitement');
     } finally {
@@ -133,6 +148,22 @@ function ResolveDialog({
               </button>
             </div>
           </div>
+
+          {action === 'resolved' && (
+            <label className="flex items-start gap-3 cursor-pointer rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/10 p-3">
+              <input
+                type="checkbox"
+                checked={correct}
+                onChange={(e) => setCorrect(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-input text-amber-600 focus:ring-amber-500"
+              />
+              <span className="text-sm text-foreground/80">
+                <strong>Corriger et re-signer</strong> — le bon contesté sera annulé et un
+                brouillon pré-rempli sera créé pour correction puis nouvelle signature.
+                Sans cette option, le bon revient simplement à son état antérieur.
+              </span>
+            </label>
+          )}
 
           <div className="space-y-2">
             <Label htmlFor="resolution-msg">Réponse au collaborateur (optionnel)</Label>

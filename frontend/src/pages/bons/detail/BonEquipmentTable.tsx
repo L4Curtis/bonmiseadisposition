@@ -1,14 +1,20 @@
+import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { CheckCircle2, Clock, XCircle } from 'lucide-react';
 import type { EquipmentItem } from './types';
 import { equipmentLabel } from './types';
+import { SerialHistoryModal } from './SerialHistoryModal';
 
 export interface BonEquipmentTableProps {
   readonly equipments: readonly EquipmentItem[];
   readonly showEquipmentStatus: boolean;
+  /** Id du bon affiché — marqué « bon actuel » dans l'historique des n° de série. */
+  readonly bonId?: string;
 }
 
-export function BonEquipmentTable({ equipments, showEquipmentStatus }: BonEquipmentTableProps) {
+export function BonEquipmentTable({ equipments, showEquipmentStatus, bonId }: BonEquipmentTableProps) {
+  const [historySerial, setHistorySerial] = useState<string | null>(null);
+
   return (
     <Card>
       <CardHeader>
@@ -37,7 +43,18 @@ export function BonEquipmentTable({ equipments, showEquipmentStatus }: BonEquipm
                   <td className="px-4 py-2.5 text-muted-foreground/70">{i + 1}</td>
                   <td className="px-4 py-2.5 font-medium">{equipmentLabel(eq)}</td>
                   <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">
-                    {eq.serialNumber || <span className="text-muted-foreground/40">—</span>}
+                    {eq.serialNumber ? (
+                      <button
+                        type="button"
+                        className="underline decoration-dotted underline-offset-2 hover:text-foreground transition-colors"
+                        title="Voir l'historique de ce numéro de série"
+                        onClick={() => setHistorySerial(eq.serialNumber!)}
+                      >
+                        {eq.serialNumber}
+                      </button>
+                    ) : (
+                      <span className="text-muted-foreground/40">—</span>
+                    )}
                   </td>
                   <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">
                     {eq.inventoryNumber || <span className="text-muted-foreground/40">—</span>}
@@ -66,6 +83,10 @@ export function BonEquipmentTable({ equipments, showEquipmentStatus }: BonEquipm
           </table>
         )}
       </CardContent>
+
+      {historySerial && (
+        <SerialHistoryModal serialNumber={historySerial} currentBonId={bonId} onClose={() => setHistorySerial(null)} />
+      )}
     </Card>
   );
 }

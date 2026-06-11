@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PdfService, BonForPdf, SigImages } from '../pdf.service';
 import { PdfTemplatesService } from '../pdf-templates.service';
@@ -184,14 +185,56 @@ describe('PdfService', () => {
             type: 'signature_collab_mise_disposition',
           },
         },
-        update: { data: expect.any(Buffer), filename: 'bon-test.pdf' },
+        update: { data: expect.any(Buffer), filename: 'bon-test.pdf', sha256: expect.any(String) },
         create: {
           bonId: bon.id,
           type: 'signature_collab_mise_disposition',
           data: expect.any(Buffer),
           filename: 'bon-test.pdf',
+          sha256: expect.any(String),
         },
       });
+    });
+
+    it('should record the SHA-256 of the document in snapshot and audit', async () => {
+      asMock(prisma.pdfSnapshot.upsert).mockResolvedValue({});
+      const bon = bonForPdf();
+
+      const pdf = await service.generateAndSave(
+        bon,
+        'signature_collab_restitution',
+        noSigImages,
+        'bon-test.pdf',
+      );
+
+      const expectedHash = createHash('sha256').update(pdf).digest('hex');
+      const upsertArgs = asMock(prisma.pdfSnapshot.upsert).mock.calls[0][0] as {
+        create: { sha256: string };
+      };
+      expect(upsertArgs.create.sha256).toBe(expectedHash);
+      expect(prisma.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            action: 'pdf_snapshot_saved',
+            details: expect.objectContaining({ sha256: expectedHash }),
+          }),
+        }),
+      );
+    });
+
+    it('should never overwrite an existing signed mise-à-disposition snapshot', async () => {
+      asMock(prisma.pdfSnapshot.findUnique).mockResolvedValue({ id: 'snap-001' });
+      const bon = bonForPdf();
+
+      const result = await service.generateAndSave(
+        bon,
+        'signature_collab_mise_disposition',
+        noSigImages,
+        'bon-test.pdf',
+      );
+
+      expect(result).toBeInstanceOf(Buffer);
+      expect(prisma.pdfSnapshot.upsert).not.toHaveBeenCalled();
     });
   });
 

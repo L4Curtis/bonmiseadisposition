@@ -53,7 +53,8 @@ export class ContestationController {
     return this.contestationService.markInReview(id, user.id);
   }
 
-  /** PATCH /api/contestations/:id/resolve — résolution ou rejet */
+  /** PATCH /api/contestations/:id/resolve — résolution (avec correction
+   *  optionnelle : annule + brouillon pré-rempli) ou rejet */
   @Patch(':id/resolve')
   @Roles('admin', 'technician')
   resolve(
@@ -61,6 +62,12 @@ export class ContestationController {
     @Body() body: ResolveContestationDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.contestationService.resolve(id, user.id, body.action, body.resolutionMessage);
+    return this.contestationService.resolve(
+      id,
+      user.id,
+      body.action,
+      body.resolutionMessage,
+      body.correct ?? false,
+    );
   }
 }

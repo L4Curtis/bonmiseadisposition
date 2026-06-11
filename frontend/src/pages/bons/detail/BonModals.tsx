@@ -5,6 +5,7 @@ import { ItSignModal } from './ItSignModal';
 import { RestitutionModal } from './RestitutionModal';
 import { DeclareNotReturnedModal } from './DeclareNotReturnedModal';
 import { MarkFoundModal } from './MarkFoundModal';
+import { CloseUnilateralModal } from './CloseUnilateralModal';
 
 export interface BonModalsProps {
   readonly bon: BonDetailData;
@@ -47,6 +48,12 @@ export interface BonModalsProps {
   readonly onResendForce: () => Promise<void>;
   readonly onResendDismiss: () => void;
   readonly resendLoading: boolean;
+
+  // Close unilateral modal
+  readonly showCloseUnilateralModal: boolean;
+  readonly onCloseUnilateralConfirm: (reason: string) => void;
+  readonly onCloseUnilateralCancel: () => void;
+  readonly closeUnilateralLoading: boolean;
 }
 
 export function BonModals({
@@ -76,6 +83,10 @@ export function BonModals({
   onResendForce,
   onResendDismiss,
   resendLoading,
+  showCloseUnilateralModal,
+  onCloseUnilateralConfirm,
+  onCloseUnilateralCancel,
+  closeUnilateralLoading,
 }: BonModalsProps) {
   return (
     <>
@@ -140,6 +151,16 @@ export function BonModals({
           onCancel={onMarkFoundCancel}
           loading={markFoundLoading}
           isArchived={bon.status === 'archived'}
+        />
+      )}
+
+      {/* Modal clôture unilatérale (motif obligatoire) */}
+      {showCloseUnilateralModal && (
+        <CloseUnilateralModal
+          outcomeLabel={bon.status === 'sent_mise_dispo' ? 'activé (remise constatée)' : 'archivé'}
+          onConfirm={onCloseUnilateralConfirm}
+          onCancel={onCloseUnilateralCancel}
+          loading={closeUnilateralLoading}
         />
       )}
 

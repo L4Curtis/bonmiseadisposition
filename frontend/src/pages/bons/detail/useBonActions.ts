@@ -27,6 +27,7 @@ export function useBonActions(id: string | undefined) {
   const [showRestitutionModal, setShowRestitutionModal] = useState(false);
   const [showNotReturnedModal, setShowNotReturnedModal] = useState(false);
   const [showMarkFoundModal, setShowMarkFoundModal] = useState(false);
+  const [showCloseUnilateralModal, setShowCloseUnilateralModal] = useState(false);
   const [resendConfirmSentAt, setResendConfirmSentAt] = useState<string | null>(null);
 
   const snapshotRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -122,6 +123,18 @@ export function useBonActions(id: string | undefined) {
     } finally { setActionLoading(null); }
   };
 
+  const doCloseUnilateral = async (reason: string) => {
+    setActionLoading('closeunilateral');
+    try {
+      await api.post(`/bons/${id}/close-unilateral`, { reason });
+      setShowCloseUnilateralModal(false);
+      toast({ title: 'Bon clôturé', description: 'Le bon a été clôturé sans signature, avec mention sur le document.' });
+      load();
+    } catch (e: unknown) {
+      showActionError(e, 'Erreur lors de la clôture unilatérale');
+    } finally { setActionLoading(null); }
+  };
+
   const doResend = async (force = false) => {
     setActionLoading('resend');
     try {
@@ -197,6 +210,7 @@ export function useBonActions(id: string | undefined) {
     showRestitutionModal,
     showNotReturnedModal,
     showMarkFoundModal,
+    showCloseUnilateralModal,
     resendConfirmSentAt,
     load,
     doSend,
@@ -205,6 +219,7 @@ export function useBonActions(id: string | undefined) {
     doDeclareNotReturned,
     doMarkFound,
     doInPerson,
+    doCloseUnilateral,
     doResend,
     downloadPdf,
     downloadPdfSnapshot,
@@ -216,6 +231,7 @@ export function useBonActions(id: string | undefined) {
     setShowRestitutionModal,
     setShowNotReturnedModal,
     setShowMarkFoundModal,
+    setShowCloseUnilateralModal,
     setResendConfirmSentAt,
   };
 }

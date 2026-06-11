@@ -27,11 +27,21 @@ export function BonPdfSnapshots({ snapshots, pdfLoading, onDownloadSnapshot }: B
             key={snap.type}
             className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-muted/40"
           >
-            <div>
+            <div className="min-w-0">
               <p className="text-sm font-medium text-foreground">
                 {SNAPSHOT_LABELS[snap.type] || snap.type}
               </p>
-              <p className="text-xs text-muted-foreground/70">{formatDateTime(snap.createdAt)}</p>
+              <p className="text-xs text-muted-foreground/70">
+                {formatDateTime(snap.createdAt)}
+                {snap.sha256 && (
+                  <span
+                    className="ml-2 font-mono text-muted-foreground/50"
+                    title={`Empreinte SHA-256 du document (intégrité vérifiable) : ${snap.sha256}`}
+                  >
+                    SHA-256 {snap.sha256.slice(0, 12)}…
+                  </span>
+                )}
+              </p>
             </div>
             <Button
               variant="outline"

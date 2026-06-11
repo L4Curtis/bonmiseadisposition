@@ -251,6 +251,8 @@ model PdfSnapshot {
   type      PdfSnapshotType
   data      Bytes
   filename  String
+  // SHA-256 hex du document — chaîne de preuve (intégrité vérifiable a posteriori)
+  sha256    String?
   createdAt DateTime        @default(now()) @map("created_at")
 
   @@unique([bonId, type])
@@ -314,6 +316,7 @@ enum NotificationType {
   contestation_resolution
   cancellation
   mark_found
+  unilateral_closure
 }
 
 enum NotificationStatus {

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import * as crypto from 'crypto';
 import * as nodemailer from 'nodemailer';
 import { AppConfigService } from '../config/config.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -441,15 +442,97 @@ export class NotificationService {
     });
   }
 
+  // ─── Clôture unilatérale ─────────────────────────────────────────────────────
+
+  async sendUnilateralCloseNotice(bon: NotificationBon, reason: string, newStatus: string): Promise<void> {
+    const filialeNom = bon.filiale?.displayName ?? bon.filiale?.name ?? '';
+    const collabName = bon.collaborateur?.displayName ?? '';
+    const civilite = bon.civilite === 'mme' ? 'Madame' : 'Monsieur';
+    const outcome =
+      newStatus === 'active'
+        ? 'la remise du matériel a été constatée et le bon est désormais actif'
+        : 'le bon a été clôturé et archivé';
+
+    const html = `<!DOCTYPE html>
+<html lang="fr"><head><meta charset="UTF-8"></head>
+<body style="font-family:sans-serif;color:#374151;max-width:600px;margin:0 auto;padding:24px">
+  <h2 style="color:#b45309">Bon clôturé sans signature — ${escapeHtml(bon.reference)}</h2>
+  <p>${escapeHtml(civilite)} ${escapeHtml(collabName)},</p>
+  <p>En l'absence de signature de votre part, ${outcome} par le service informatique
+  pour le bon <strong>${escapeHtml(bon.reference)}</strong> (${escapeHtml(filialeNom)}).</p>
+  <p style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 14px">
+    <strong>Motif indiqué :</strong> ${escapeHtml(reason)}
+  </p>
+  <p>Si vous contestez ce constat, veuillez contacter votre service informatique au plus vite.</p>
+  <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0">
+  <p style="font-size:12px;color:#94a3b8">Groupe Livio — notification automatique</p>
+</body></html>`;
+
+    const ok = await this.sendEmail(
+      bon.collaborateurEmail,
+      `Bon ${bon.reference} — clôturé sans signature`,
+      html,
+    );
+
+    await this.prisma.notificationLog.create({
+      data: {
+        bonId: bon.id,
+        recipientEmail: bon.collaborateurEmail,
+        type: 'unilateral_closure',
+        status: ok ? 'sent' : 'failed',
+        errorMessage: ok ? null : "SMTP non configuré ou erreur d'envoi",
+      },
+    });
+  }
+
   // ─── Cron: Rappels quotidiens ────────────────────────────────────────────────
   // Reads the SAME config category/keys as the admin UI (category "rappels",
   // keys enabled / delay_1 / delay_2 / delay_3). Reminder N is sent once the
   // bon has been pending for delay_N days — staggered, never on consecutive
-  // days unless configured that way.
+  // days unless configured that way. Couvre aussi les PV de non-restitution en
+  // attente de co-signature (partially_returned).
 
   private parseDelay(raw: string | null, fallback: number): number {
     const n = raw === null ? NaN : parseInt(raw, 10);
     return Number.isFinite(n) && n > 0 ? n : fallback;
+  }
+
+  /** Durée de validité des liens (tokens.expiry_days, bornée 1–30, défaut 7). */
+  private async getTokenValidityDays(): Promise<number> {
+    const raw = await this.configService.get('tokens', 'expiry_days');
+    const parsed = raw === null ? NaN : parseInt(raw, 10);
+    if (!Number.isFinite(parsed)) return 7;
+    return Math.min(30, Math.max(1, parsed));
+  }
+
+  /**
+   * Régénère un token de signature pour un rappel quand le lien précédent a
+   * expiré (sans nouveau lien, les rappels au-delà de la validité du token
+   * seraient silencieusement inutiles). Reproduit SignatureService.generateToken
+   * — importer SignatureService ici créerait un cycle de modules
+   * (SignatureModule consomme déjà NotificationService).
+   */
+  private async regenerateSignatureToken(
+    bonId: string,
+    type: 'mise_disposition' | 'restitution' | 'pv_cloture',
+  ): Promise<{ token: string }> {
+    await this.prisma.signature.updateMany({
+      where: { bonId, type, signed: false },
+      data: { tokenExpiresAt: new Date(0) },
+    });
+    const validityDays = await this.getTokenValidityDays();
+    const sig = await this.prisma.signature.create({
+      data: {
+        bonId,
+        type,
+        token: crypto.randomUUID(),
+        tokenExpiresAt: new Date(Date.now() + validityDays * 24 * 60 * 60 * 1000),
+        isInPerson: false,
+        initiatedById: null,
+      },
+    });
+    this.logger.log(`Rappel: token ${type} régénéré pour le bon ${bonId}`);
+    return sig;
   }
 
   @Cron('0 9 * * 1-5') // Lundi–Vendredi à 9h
@@ -482,16 +565,26 @@ export class NotificationService {
 
     const pendingBons = await this.prisma.bon.findMany({
       where: {
-        status: { in: ['sent_mise_dispo', 'sent_restitution'] },
+        // partially_returned inclus : PV de non-restitution (ou restitution
+        // partielle) en attente de signature — sans rappel, ces bons restaient
+        // bloqués en silence indéfiniment
+        status: { in: ['sent_mise_dispo', 'sent_restitution', 'partially_returned'] },
         updatedAt: { lt: firstCutoff },
       },
       include: {
         filiale: true,
         collaborateur: { select: { id: true, displayName: true, email: true } },
-        // Only still-valid tokens, most recent first — an invalidated token
-        // (tokenExpiresAt = epoch) or an expired link must never be re-sent
+        // La signature en attente la plus récente, MÊME si son token a expiré
+        // naturellement : elle porte le type du document attendu, et le token
+        // sera régénéré. Le filtre tokenExpiresAt > epoch exclut les lignes
+        // invalidées VOLONTAIREMENT (resend, contestation, clôture — mises à
+        // epoch 0) : sans lui, le cron ressusciterait des tokens du mauvais type.
         signatures: {
-          where: { signed: false, tokenExpiresAt: { gt: new Date() } },
+          where: {
+            signed: false,
+            type: { not: 'it_cachet' },
+            tokenExpiresAt: { gt: new Date(1000) },
+          },
           orderBy: { createdAt: 'desc' },
           take: 1,
         },
@@ -505,6 +598,12 @@ export class NotificationService {
     const appUrl = await this.getAppUrl();
     let sentCount = 0;
 
+    const TYPE_LABELS: Record<string, string> = {
+      mise_disposition: 'mise à disposition',
+      restitution: 'restitution',
+      pv_cloture: "procès-verbal d'équipements non restitués",
+    };
+
     for (const bon of pendingBons) {
       try {
         const reminderCount = bon.notifications.length;
@@ -515,14 +614,26 @@ export class NotificationService {
         const pendingDays = (Date.now() - bon.updatedAt.getTime()) / (24 * 60 * 60 * 1000);
         if (pendingDays < delays[reminderCount]) continue;
 
-        const sig = bon.signatures[0];
-        if (!sig) continue;
+        let sig = bon.signatures[0];
+        if (!sig) continue; // aucun document en attente (ex: restitution partielle déjà signée)
+
+        // Régénérer plutôt que d'envoyer un lien inutilisable :
+        // - token expiré (sinon le rappel serait silencieusement un lien mort) ;
+        // - token PRÉSENTIEL (isInPerson saute la vérification du destinataire :
+        //   il ne doit jamais partir par email — on émet un token distant).
+        if (sig.isInPerson || sig.tokenExpiresAt.getTime() <= Date.now()) {
+          const fresh = await this.regenerateSignatureToken(
+            bon.id,
+            sig.type as 'mise_disposition' | 'restitution' | 'pv_cloture',
+          );
+          sig = { ...sig, token: fresh.token } as typeof sig;
+        }
 
         const filialeNom = bon.filiale?.displayName ?? '';
-        const isRestitution = bon.status === 'sent_restitution';
+        const typeLabel = TYPE_LABELS[sig.type] ?? 'mise à disposition';
 
         const html = await this.templatesService.renderTemplate('reminder', {
-          TYPE_LABEL: isRestitution ? 'restitution' : 'mise à disposition',
+          TYPE_LABEL: typeLabel,
           REFERENCE: escapeHtml(bon.reference),
           SIGNER_URL: `${appUrl}/signer/${sig.token}`,
           REMINDER_NUMBER: String(reminderCount + 1),
@@ -530,9 +641,10 @@ export class NotificationService {
           FILIALE_NOM: escapeHtml(filialeNom),
         });
 
+        const subjectDoc = sig.type === 'pv_cloture' ? 'Procès-verbal' : `Bon de ${typeLabel}`;
         const ok = await this.sendEmail(
           bon.collaborateurEmail,
-          `[RAPPEL] [${bon.reference}] Bon de ${isRestitution ? 'restitution' : 'mise à disposition'} à signer — ${filialeNom}`,
+          `[RAPPEL] [${bon.reference}] ${subjectDoc} à signer — ${filialeNom}`,
           html,
         );
         if (ok) sentCount++;

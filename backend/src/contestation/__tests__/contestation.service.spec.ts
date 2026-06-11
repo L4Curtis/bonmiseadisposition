@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { ContestationService } from '../contestation.service';
 import { NotificationService } from '../../notification/notification.service';
 import { SignatureService } from '../../signature/signature.service';
+import { BonsService } from '../../bons/bons.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
 import {
@@ -19,16 +20,21 @@ describe('ContestationService', () => {
   let prisma: MockPrisma;
   let notificationService: ReturnType<typeof createMockNotificationService>;
   let signatureService: ReturnType<typeof createMockSignatureService>;
+  let bonsService: { duplicateAsDraft: jest.Mock };
 
   beforeEach(() => {
     prisma = createMockPrismaService() as unknown as MockPrisma;
     notificationService = createMockNotificationService();
     signatureService = createMockSignatureService();
+    bonsService = {
+      duplicateAsDraft: jest.fn().mockResolvedValue({ id: 'bon-corrected-001', reference: 'BON-2026-0099' }),
+    };
 
     service = new ContestationService(
       prisma as unknown as PrismaService,
       notificationService as unknown as NotificationService,
       signatureService as unknown as SignatureService,
+      bonsService as unknown as BonsService,
     );
   });
 
@@ -165,8 +171,7 @@ describe('ContestationService', () => {
         user: { id: collaboratorUser().id, displayName: 'Jean Dupont', email: 'jean.dupont@groupelivio.fr' },
       };
 
-      prisma.contestation.findUnique.mockResolvedValue(contestation);
-      prisma.contestation.update.mockResolvedValue({
+      const resolvedVersion = {
         ...contestation,
         status: 'resolved',
         resolvedById: admin.id,
@@ -174,7 +179,13 @@ describe('ContestationService', () => {
         bon: { id: bon.id, reference: bon.reference, status: bon.status },
         user: contestation.user,
         resolvedBy: { id: admin.id, displayName: admin.displayName },
-      });
+      };
+      // 1er findUnique : lecture initiale ; suivants : re-fetch pour la réponse
+      prisma.contestation.findUnique
+        .mockResolvedValueOnce(contestation)
+        .mockResolvedValue(resolvedVersion);
+      // Claim conditionnel : la résolution gagne la course
+      prisma.contestation.updateMany.mockResolvedValue({ count: 1 });
       prisma.auditLog.findFirst.mockResolvedValue({
         details: { previousStatus: 'active' },
       });
@@ -223,10 +234,58 @@ describe('ContestationService', () => {
         bon: { filiale: {}, collaborateur: {} },
         user: { id: 'u1', displayName: 'X', email: 'x@y.z' },
       });
+      // Le claim conditionnel ne matche aucune contestation ouverte
+      prisma.contestation.updateMany.mockResolvedValue({ count: 0 });
 
       await expect(
         service.resolve('contestation-closed-001', admin.id, 'resolved'),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should cancel the bon and create a corrected draft when correct=true', async () => {
+      const { contestation, bon } = setupOpenContestation();
+
+      const result = await service.resolve(
+        contestation.id,
+        admin.id,
+        'resolved',
+        'Numéro de série erroné',
+        true,
+      );
+
+      // Le bon contesté est annulé (pas restauré dans son état antérieur)
+      expect(prisma.bon.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: bon.id },
+          data: { status: 'cancelled' },
+        }),
+      );
+      // 4e argument : le TransactionClient de la résolution (atomicité)
+      expect(bonsService.duplicateAsDraft).toHaveBeenCalledWith(
+        bon.id,
+        admin.id,
+        { contestationId: contestation.id },
+        expect.anything(),
+      );
+      expect(result.correctedBon).toEqual({ id: 'bon-corrected-001', reference: 'BON-2026-0099' });
+    });
+
+    it('should refuse correct=true with a rejected action', async () => {
+      const { contestation } = setupOpenContestation();
+
+      await expect(
+        service.resolve(contestation.id, admin.id, 'rejected', 'Non fondée', true),
+      ).rejects.toThrow(BadRequestException);
+      expect(bonsService.duplicateAsDraft).not.toHaveBeenCalled();
+    });
+
+    it('should not create a corrected draft without the correct flag', async () => {
+      const { contestation } = setupOpenContestation();
+
+      const result = await service.resolve(contestation.id, admin.id, 'resolved', 'OK');
+
+      expect(bonsService.duplicateAsDraft).not.toHaveBeenCalled();
+      expect(result.correctedBon).toBeNull();
     });
   });
 

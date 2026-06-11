@@ -28,6 +28,7 @@ import {
   InitiateInPersonDto,
   DeclareNotReturnedDto,
   MarkFoundDto,
+  CloseUnilateralDto,
 } from './dto/actions.dto';
 import { SignItDto } from '../signature/dto/sign.dto';
 import { PdfSnapshotType } from '../common/types';
@@ -79,25 +80,21 @@ export class BonsController {
 
   // Static routes BEFORE parameterized routes
   @Get('stats')
-  getStats(@CurrentUser() user: AuthUser) {
-    return this.bonsService.getStats(user);
+  getStats() {
+    return this.bonsService.getStats();
   }
 
   @Get('recent')
-  getRecent(@CurrentUser() user: AuthUser, @Query('limit') limit?: string) {
+  getRecent(@Query('limit') limit?: string) {
     const parsed = limit ? parseInt(limit, 10) : 10;
     const safeLimit = Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 50) : 10;
-    return this.bonsService.getRecentBons(safeLimit, user);
+    return this.bonsService.getRecentBons(safeLimit);
   }
 
   @Get('export')
-  async exportCsv(
-    @Query() dto: QueryBonsDto,
-    @CurrentUser() user: AuthUser,
-    @Res() res: Response,
-  ) {
+  async exportCsv(@Query() dto: QueryBonsDto, @Res() res: Response) {
     const { status, filialeId, search } = dto;
-    const csv = await this.bonsService.getExportData({ status, filialeId, search }, user);
+    const csv = await this.bonsService.getExportData({ status, filialeId, search });
     const filename = `bons-export-${new Date().toISOString().slice(0, 10)}.csv`;
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -105,19 +102,16 @@ export class BonsController {
   }
 
   @Get()
-  findAll(@Query() dto: QueryBonsDto, @CurrentUser() user: AuthUser) {
+  findAll(@Query() dto: QueryBonsDto) {
     const { status, excludeStatus, filialeId, search, page, limit } = dto;
-    return this.bonsService.findAll(
-      {
-        status,
-        excludeStatus,
-        filialeId,
-        search,
-        page: page ?? 1,
-        limit: Math.min(limit ?? 20, 100),
-      },
-      user,
-    );
+    return this.bonsService.findAll({
+      status,
+      excludeStatus,
+      filialeId,
+      search,
+      page: page ?? 1,
+      limit: Math.min(limit ?? 20, 100),
+    });
   }
 
   @Get(':id')
@@ -196,7 +190,7 @@ export class BonsController {
     await this.verifyCollaboratorAccess(id, user);
     const snapshots = await this.prisma.pdfSnapshot.findMany({
       where: { bonId: id },
-      select: { type: true, filename: true, createdAt: true },
+      select: { type: true, filename: true, createdAt: true, sha256: true },
       orderBy: { createdAt: 'asc' },
     });
     return snapshots;
@@ -275,32 +269,37 @@ export class BonsController {
     res.send(pdf);
   }
 
-  /** Verify access: collaborators see only their bons, technicians see only
-   *  their filiale's bons. A technician WITHOUT an assigned filiale is
-   *  intentionally cross-filiale (same rule as the list scoping in BonsService). */
+  /** Verify access: collaborators see only their own bons. Admins and
+   *  technicians have cross-filiale access (modèle « IT centrale »,
+   *  décision produit 2026-06-11). */
   private async verifyCollaboratorAccess(bonId: string, user: AuthUser): Promise<void> {
     if (!user) {
       throw new ForbiddenException('Accès refusé');
     }
-    // Admins have full access
-    if (user.role === 'admin') return;
+    if (user.role !== 'collaborator') return;
 
     const bon = await this.prisma.bon.findUnique({
       where: { id: bonId },
-      select: { collaborateurId: true, filialeId: true },
+      select: { collaborateurId: true },
     });
     // Unknown bon: let the handler's own lookup produce its 404
     if (!bon) return;
 
-    if (user.role === 'collaborator') {
-      if (bon.collaborateurId !== user.id) {
-        throw new ForbiddenException('Accès refusé à ce bon');
-      }
-    } else if (user.role === 'technician') {
-      if (user.filialeId && user.filialeId !== bon.filialeId) {
-        throw new ForbiddenException('Accès refusé : ce bon appartient à une autre filiale');
-      }
+    if (bon.collaborateurId !== user.id) {
+      throw new ForbiddenException('Accès refusé à ce bon');
     }
+  }
+
+  /** POST /bons/:id/close-unilateral — clôture sans signature du collaborateur
+   *  (motif obligatoire, mention sur le PDF, traçage audit). */
+  @Post(':id/close-unilateral')
+  async closeUnilateral(
+    @Param('id') id: string,
+    @Body() dto: CloseUnilateralDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    await this.verifyCollaboratorAccess(id, user);
+    return this.bonsService.closeUnilaterally(id, user.id, dto.reason.trim());
   }
 
   @Post(':id/sign-it')
