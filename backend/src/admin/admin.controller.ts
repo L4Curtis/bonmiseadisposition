@@ -82,8 +82,9 @@ export class AdminController {
     // Masque les secrets (bind_password, client_secret, smtp password) dans la réponse
     const data = await this.adminService.getConfigSection(category, { maskSecrets: true });
     // Pré-remplir l'URL publique avec la valeur effective (env FRONTEND_URL)
-    // quand elle n'a pas encore été personnalisée en base
-    if (category === 'general' && !data['app_url'] && process.env.FRONTEND_URL) {
+    // quand elle n'a pas encore été personnalisée en base. Réservé à l'admin :
+    // lui seul peut écrire app_url (PUT @Roles('admin')).
+    if (category === 'general' && user?.role === 'admin' && !data['app_url'] && process.env.FRONTEND_URL) {
       data['app_url'] = process.env.FRONTEND_URL;
     }
     return data;

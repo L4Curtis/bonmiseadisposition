@@ -23,9 +23,15 @@ export interface TemplateDefinition {
   description: string;
   category: 'signature' | 'contestation' | 'rappel';
   recipient: string;
+  /** Pastille affichée dans l'admin. Tous les emails partagent désormais
+   *  l'en-tête de marque indigo (cf. email-layout.brandHeader) — la pastille
+   *  reflète donc cette couleur unique, pas une couleur par catégorie. */
   headerColor: string;
   variables: { name: string; description: string }[];
 }
+
+// Couleur de marque (= BRAND_FROM de email-layout) pour toutes les pastilles
+const BRAND_PASTILLE = '#4f46e5';
 
 export const VARIABLE_DESCRIPTIONS: Record<string, string> = {
   COLLAB_CIVILITE: 'Civilité (Monsieur / Madame)',
@@ -55,7 +61,7 @@ const TEMPLATES: TemplateDefinition[] = [
     description: "Envoyé au collaborateur lors de la création d'un bon de mise à disposition",
     category: 'signature',
     recipient: 'Collaborateur',
-    headerColor: '#1d4ed8',
+    headerColor: BRAND_PASTILLE,
     variables: vars('COLLAB_CIVILITE', 'COLLAB_NAME', 'FILIALE_NOM', 'DATE_MISE_DISPO', 'REFERENCE', 'SIGNER_URL', 'EQUIP_LIST'),
   },
   {
@@ -64,7 +70,7 @@ const TEMPLATES: TemplateDefinition[] = [
     description: "Envoyé au collaborateur lors de la création d'un bon de restitution",
     category: 'signature',
     recipient: 'Collaborateur',
-    headerColor: '#7c3aed',
+    headerColor: BRAND_PASTILLE,
     variables: vars('COLLAB_CIVILITE', 'COLLAB_NAME', 'FILIALE_NOM', 'REFERENCE', 'SIGNER_URL', 'EQUIP_LIST', 'REMAINING_SECTION'),
   },
   {
@@ -73,7 +79,7 @@ const TEMPLATES: TemplateDefinition[] = [
     description: "Envoyé au collaborateur après signature d'un bon de mise à disposition",
     category: 'signature',
     recipient: 'Collaborateur',
-    headerColor: '#16a34a',
+    headerColor: BRAND_PASTILLE,
     variables: vars('FILIALE_NOM', 'REFERENCE', 'TYPE_LABEL'),
   },
   {
@@ -82,7 +88,7 @@ const TEMPLATES: TemplateDefinition[] = [
     description: "Envoyé au collaborateur après signature d'un bon de restitution",
     category: 'signature',
     recipient: 'Collaborateur',
-    headerColor: '#7c3aed',
+    headerColor: BRAND_PASTILLE,
     variables: vars('FILIALE_NOM', 'REFERENCE', 'TYPE_LABEL'),
   },
   {
@@ -91,7 +97,7 @@ const TEMPLATES: TemplateDefinition[] = [
     description: "Envoyé au collaborateur pour signature du procès-verbal",
     category: 'signature',
     recipient: 'Collaborateur',
-    headerColor: '#dc2626',
+    headerColor: BRAND_PASTILLE,
     variables: vars('COLLAB_CIVILITE', 'COLLAB_NAME', 'FILIALE_NOM', 'REFERENCE', 'SIGNER_URL', 'NOT_RETURNED_LIST'),
   },
   {
@@ -100,7 +106,7 @@ const TEMPLATES: TemplateDefinition[] = [
     description: "Envoyé au staff IT lorsqu'un collaborateur conteste son bon",
     category: 'contestation',
     recipient: 'Staff IT',
-    headerColor: '#b91c1c',
+    headerColor: BRAND_PASTILLE,
     variables: vars('USER_NAME', 'REFERENCE', 'FILIALE_NOM', 'CONTESTATION_MESSAGE'),
   },
   {
@@ -109,7 +115,7 @@ const TEMPLATES: TemplateDefinition[] = [
     description: 'Envoyé au collaborateur lorsque sa contestation est retenue',
     category: 'contestation',
     recipient: 'Collaborateur',
-    headerColor: '#16a34a',
+    headerColor: BRAND_PASTILLE,
     variables: vars('REFERENCE', 'FILIALE_NOM', 'RESOLUTION_MESSAGE'),
   },
   {
@@ -118,7 +124,7 @@ const TEMPLATES: TemplateDefinition[] = [
     description: 'Envoyé au collaborateur lorsque sa contestation est rejetée',
     category: 'contestation',
     recipient: 'Collaborateur',
-    headerColor: '#dc2626',
+    headerColor: BRAND_PASTILLE,
     variables: vars('REFERENCE', 'FILIALE_NOM', 'RESOLUTION_MESSAGE'),
   },
   {
@@ -127,7 +133,7 @@ const TEMPLATES: TemplateDefinition[] = [
     description: "Envoyé automatiquement lorsqu'un bon est en attente depuis trop longtemps",
     category: 'rappel',
     recipient: 'Collaborateur',
-    headerColor: '#ea580c',
+    headerColor: BRAND_PASTILLE,
     variables: vars('TYPE_LABEL', 'REFERENCE', 'SIGNER_URL', 'REMINDER_NUMBER', 'MAX_REMINDERS', 'FILIALE_NOM'),
   },
 ];

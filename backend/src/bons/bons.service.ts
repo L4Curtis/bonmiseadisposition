@@ -772,23 +772,31 @@ export class BonsService {
       );
     }
 
-    // Pour la restitution en présentiel, marquer tous les équipements non encore traités comme rendus
-    if (type === 'restitution') {
-      await this.prisma.bonEquipment.updateMany({
-        where: { bonId: id, returnedAt: null, notReturned: false },
-        data: { returnedAt: new Date() },
+    const newStatus: BonStatus = type === 'mise_disposition' ? 'sent_mise_dispo' : 'sent_restitution';
+    // Ré-affichage du lien (le bon est DÉJÀ dans le statut cible) : on régénère
+    // uniquement le token. On évite alors le bon.update — sinon @updatedAt
+    // repositionne l'horloge à « maintenant », ce qui repousserait indéfiniment
+    // les rappels et le calcul de retard (qui se basent sur updatedAt).
+    const isReinit = bon.status === newStatus;
+
+    let updated = bon;
+    if (!isReinit) {
+      // Pour la restitution en présentiel, marquer tous les équipements non
+      // encore traités comme rendus (uniquement lors de la vraie initiation)
+      if (type === 'restitution') {
+        await this.prisma.bonEquipment.updateMany({
+          where: { bonId: id, returnedAt: null, notReturned: false },
+          data: { returnedAt: new Date() },
+        });
+      }
+      updated = await this.prisma.bon.update({
+        where: { id },
+        data: { status: newStatus },
+        ...BON_SELECT,
       });
     }
 
-    // Update bon status
-    const newStatus: BonStatus = type === 'mise_disposition' ? 'sent_mise_dispo' : 'sent_restitution';
-    const updated = await this.prisma.bon.update({
-      where: { id },
-      data: { status: newStatus },
-      ...BON_SELECT,
-    });
-
-    // Generate in-person token (7-day validity, same as remote)
+    // Generate in-person token (invalide l'ancien token non signé du même type)
     const sig = await this.signatureService.generateToken(id, type, initiatedById, true);
 
     return { bon: updated, token: sig.token };

@@ -108,15 +108,22 @@ async function bootstrap() {
   await app.listen(4000);
   logger.log('Backend running on http://localhost:4000');
 
-  // Ensure default local admin exists
-  const authService = app.get(AuthService);
-  await authService.ensureDefaultAdmin();
+  // Ensure default local admin exists. Isolé APRÈS listen : un hoquet DB
+  // transitoire ici ne doit pas tuer un serveur HTTP déjà fonctionnel
+  // (l'admin par défaut sera recréé au prochain redémarrage).
+  try {
+    const authService = app.get(AuthService);
+    await authService.ensureDefaultAdmin();
+  } catch (err) {
+    logger.error(`ensureDefaultAdmin a échoué (serveur conservé): ${err instanceof Error ? err.message : err}`);
+  }
 }
 
-// Fail-fast : un échec de démarrage (DB indisponible, config invalide) doit
-// TUER le process pour que Docker le redémarre — sans ce catch, le handler
-// unhandledRejection ci-dessus loggerait l'erreur en laissant un process
-// zombie qui n'écoute jamais (conteneur « running » mais 502 permanent).
+// Fail-fast AVANT que le serveur écoute : un échec de démarrage (DB
+// indisponible, config invalide) doit TUER le process pour que Docker le
+// redémarre — sans ce catch, le handler unhandledRejection ci-dessus
+// loggerait l'erreur en laissant un process zombie qui n'écoute jamais
+// (conteneur « running » mais 502 permanent).
 bootstrap().catch((err) => {
   logger.error(`Échec du démarrage: ${err instanceof Error ? err.stack : err}`);
   process.exit(1);

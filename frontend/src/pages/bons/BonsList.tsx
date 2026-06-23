@@ -114,6 +114,18 @@ export function BonsListPage() {
     api.get<Filiale[]>('/filiales/active').then(setFiliales).catch(() => {});
   }, []);
 
+  // Resynchronise l'état depuis l'URL quand ?search= change SANS remontage
+  // (cas : recherche globale Ctrl+K du header alors qu'on est déjà sur /bons —
+  // le composant ne se remonte pas, les useState initiaux ne se relisent pas).
+  // Pas de boucle avec l'effet d'écriture ci-dessous : urlSearch est une string,
+  // une réécriture à valeur identique ne re-déclenche pas cet effet.
+  const urlSearch = searchParams.get('search') ?? '';
+  useEffect(() => {
+    setSearch(urlSearch);
+    setSearchInput(urlSearch);
+    setPage(1);
+  }, [urlSearch]);
+
   useEffect(() => {
     const urlParams: Record<string, string> = {};
     if (search) urlParams['search'] = search;
