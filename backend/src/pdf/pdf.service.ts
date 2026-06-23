@@ -55,6 +55,12 @@ export interface BonForPdf {
     signed: boolean;
     signedAt?: Date | string | null;
     signatureImagePath?: string | null;
+    // Métadonnées de preuve (certificat de signature électronique)
+    signerEmail?: string | null;
+    signerIp?: string | null;
+    signerUserAgent?: string | null;
+    mentionLuApprouve?: boolean;
+    isInPerson?: boolean;
   }>;
   /** Used by avenant generation to filter equipment */
   _avenantEquipmentIds?: string[];
@@ -165,14 +171,18 @@ export class PdfService {
     // Load template config: override > custom from DB > default
     const config = configOverride ?? await this.pdfTemplatesService.getTemplateConfig(documentType);
 
-    // Build template variables for text substitution
+    // Build template variables for text substitution.
+    // IMPORTANT — déterminisme : le document de preuve NE DOIT PAS dépendre de
+    // l'horloge murale (new Date()) ni du statut courant, sinon deux rendus du
+    // même bon diffèrent et le SHA-256 ne prouve plus l'intégrité de ce que le
+    // signataire a vu. DATE est ancrée sur la date métier (mise à disposition),
+    // les horodatages réels des signatures figurent dans le certificat annexé.
     const filialeName = bon.filiale?.displayName || bon.filiale?.name || '';
-    const now = new Date();
     const templateVars: Record<string, string> = {
       FILIALE: filialeName,
       REFERENCE: bon.reference,
-      DATE: now.toLocaleDateString('fr-FR'),
-      TIME: now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+      DATE: this.formatDate(bon.dateMiseDisposition),
+      TIME: '',
       COLLAB_NAME: bon.collaborateur?.displayName || '—',
       STATUS: this.getStatusLabel(bon.status),
     };
@@ -270,7 +280,8 @@ export class PdfService {
         doc.text(`Restitution : ${this.formatDate(bon.dateRestitution)}`, leftX, rightY, { width: pageWidth, align: 'right' });
         rightY += 9;
       }
-      doc.text(`Statut : ${this.getStatusLabel(bon.status)}`, leftX, rightY, { width: pageWidth, align: 'right' });
+      // Le statut courant n'est PAS imprimé : il est volatil (active→archivé)
+      // et casserait le déterminisme du document de preuve.
     }
 
     // Blue line under header
@@ -402,29 +413,36 @@ export class PdfService {
           doc.rect(leftX, rowY, pageWidth, ROW_HEIGHT).fill(colors.rowAlt);
         }
 
-        // Build statut text for restitution/cloture
-        let statutText = '';
-        if (hasStatutCol) {
-          if (eq.returnedAt) {
-            statutText = 'V Rendu';
-          } else if (eq.notReturned) {
-            statutText = `X Non rendu: ${eq.notReturnedReason || ''}`;
-          } else {
-            statutText = '... En attente';
-          }
-        }
+        // Statut (restitution/clôture) : pastille colorée + libellé propre
+        // (remplace les anciens placeholders ASCII V / X / ...).
+        const statut = hasStatutCol
+          ? (eq.returnedAt
+              ? { label: 'Rendu', color: '#16a34a' }
+              : eq.notReturned
+                ? { label: 'Non rendu', color: '#dc2626' }
+                : { label: 'En attente', color: colors.lightGray })
+          : null;
+        // Le motif de non-restitution rejoint la colonne Remarques (plus lisible)
+        const remarks = hasStatutCol && eq.notReturned && eq.notReturnedReason
+          ? (eq.notes ? `${eq.notes} — ${eq.notReturnedReason}` : eq.notReturnedReason)
+          : (eq.notes || '');
 
-        doc.font('Helvetica').fontSize(fonts.tableBodySize).fillColor(colors.dark);
         colX = leftX + 4;
-        const rowData = hasStatutCol
-          ? [`${i + 1}`, label, eq.serialNumber || '—', eq.inventoryNumber || '—', statutText, eq.notes || '']
-          : [`${i + 1}`, label, eq.serialNumber || '—', eq.inventoryNumber || '—', eq.notes || ''];
+        const STATUT_COL = 4;
+        const rowData: (string | null)[] = hasStatutCol
+          ? [`${i + 1}`, label, eq.serialNumber || '—', eq.inventoryNumber || '—', null, remarks]
+          : [`${i + 1}`, label, eq.serialNumber || '—', eq.inventoryNumber || '—', remarks];
         rowData.forEach((val, ci) => {
           const lastIdx = rowData.length - 1;
-          doc.fillColor(ci === 0 || ci === lastIdx ? colors.gray : colors.dark);
-          if (ci === 1) doc.font('Helvetica-Bold');
-          else doc.font('Helvetica');
-          doc.text(val, colX, rowY + 4, { width: colWidths[ci] - 8, lineBreak: false });
+          if (hasStatutCol && ci === STATUT_COL && statut) {
+            doc.circle(colX + 3, rowY + ROW_HEIGHT / 2, 2.2).fillColor(statut.color).fill();
+            doc.font('Helvetica-Bold').fontSize(fonts.tableBodySize).fillColor(statut.color);
+            doc.text(statut.label, colX + 9, rowY + 4, { width: colWidths[ci] - 13, lineBreak: false });
+          } else {
+            doc.font(ci === 1 ? 'Helvetica-Bold' : 'Helvetica').fontSize(fonts.tableBodySize);
+            doc.fillColor(ci === 0 || ci === lastIdx ? colors.gray : colors.dark);
+            doc.text(val ?? '', colX, rowY + 4, { width: colWidths[ci] - 8, lineBreak: false });
+          }
           colX += colWidths[ci];
         });
 
@@ -503,6 +521,9 @@ export class PdfService {
       }
     }
 
+    // ─── CERTIFICAT DE SIGNATURE ÉLECTRONIQUE ────────────────────────────────
+    this.drawCertificate(doc, bon, leftX, pageWidth, colors, fonts);
+
     // ─── FOOTER ──────────────────────────────────────────────────────────────
     if (config.footer.showFooter) {
       doc.y += 12;
@@ -549,12 +570,12 @@ export class PdfService {
     const totalRowsH = rowHeights.reduce((s, h) => s + h, 0);
     const boxHeight = 22 + totalRowsH + 6; // 22 = title area, 6 = bottom padding
 
-    doc.rect(x, y, width, boxHeight).lineWidth(0.5).strokeColor(colors.border).stroke();
+    doc.roundedRect(x, y, width, boxHeight, 8).lineWidth(0.5).fillAndStroke(colors.rowAlt, colors.border);
 
     // Title
-    doc.font('Helvetica-Bold').fontSize(7).fillColor(colors.lightGray);
-    doc.text(title, x + PAD, y + 6, { width: width - PAD * 2 });
-    doc.moveTo(x + PAD, y + 16).lineTo(x + width - PAD, y + 16).lineWidth(0.3).strokeColor('#f1f5f9').stroke();
+    doc.font('Helvetica-Bold').fontSize(7).fillColor(colors.primary);
+    doc.text(title.toUpperCase(), x + PAD, y + 7, { width: width - PAD * 2, characterSpacing: 0.4 });
+    doc.moveTo(x + PAD, y + 17).lineTo(x + width - PAD, y + 17).lineWidth(0.3).strokeColor(colors.border).stroke();
 
     // Rows
     let rowY = y + 22;
@@ -575,18 +596,18 @@ export class PdfService {
     opts: { title: string; name: string; mention: string; signatureImage: string | null; date: string },
     colors: PdfTemplateConfig['colors'],
   ): void {
-    doc.rect(x, y, width, 145).lineWidth(0.5).strokeColor(colors.border).stroke();
+    doc.roundedRect(x, y, width, 145, 8).lineWidth(0.5).strokeColor(colors.border).stroke();
 
-    doc.font('Helvetica-Bold').fontSize(7).fillColor(colors.gray).text(opts.title, x + 8, y + 8, { width: width - 16 });
-    doc.font('Helvetica-Bold').fontSize(9).fillColor(colors.dark).text(opts.name, x + 8, y + 20, { width: width - 16 });
-    doc.font('Helvetica').fontSize(6.5).fillColor(colors.gray).text(opts.mention, x + 8, y + 32, { width: width - 16 });
+    doc.font('Helvetica-Bold').fontSize(7).fillColor(colors.primary).text(opts.title.toUpperCase(), x + 10, y + 9, { width: width - 20, characterSpacing: 0.4 });
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(colors.dark).text(opts.name, x + 10, y + 21, { width: width - 20 });
+    doc.font('Helvetica').fontSize(6.5).fillColor(colors.gray).text(opts.mention, x + 10, y + 33, { width: width - 20 });
 
     // Signature zone
     const sigZoneY = y + 48;
     const sigZoneH = 70;
-    // Light background fill for the signature area
-    doc.rect(x + 8, sigZoneY, width - 16, sigZoneH).fillColor('#f8fafc').fill();
-    doc.rect(x + 8, sigZoneY, width - 16, sigZoneH).lineWidth(0.5).strokeColor(colors.border).stroke();
+    // Light background fill for the signature area (couleur fixe : déterministe)
+    doc.roundedRect(x + 10, sigZoneY, width - 20, sigZoneH, 6).fillColor('#f8fafc').fill();
+    doc.roundedRect(x + 10, sigZoneY, width - 20, sigZoneH, 6).lineWidth(0.5).strokeColor(colors.border).stroke();
 
     if (opts.signatureImage) {
       try {
@@ -603,6 +624,96 @@ export class PdfService {
     }
 
     doc.font('Helvetica').fontSize(7).fillColor(colors.gray).text(`Date : ${opts.date}`, x + 8, y + 128, { width: width - 16 });
+  }
+
+  // ─── Certificat de signature électronique ────────────────────────────────────
+
+  private static readonly ROLE_LABELS: Record<string, string> = {
+    it_cachet: 'Service informatique — cachet',
+    mise_disposition: 'Collaborateur',
+    restitution: 'Collaborateur',
+    pv_cloture: 'Collaborateur — procès-verbal',
+  };
+
+  /**
+   * Annexe un certificat de signature électronique : pour chaque signature
+   * réellement apposée, l'identité, l'horodatage, l'IP, le user-agent et la
+   * mention « Lu et approuvé ». C'est la pièce probante d'un e-sign 2026 —
+   * elle rend le PDF auto-portant en cas de litige.
+   */
+  private drawCertificate(
+    doc: PDFKit.PDFDocument,
+    bon: BonForPdf,
+    leftX: number,
+    pageWidth: number,
+    colors: PdfTemplateConfig['colors'],
+    fonts: PdfTemplateConfig['fonts'],
+  ): void {
+    const signed = (bon.signatures || []).filter((s) => s.signed && s.signedAt);
+    if (signed.length === 0) return;
+    signed.sort((a, b) => new Date(a.signedAt!).getTime() - new Date(b.signedAt!).getTime());
+
+    // Nouvelle page si l'espace restant est insuffisant
+    const NEEDED = 90 + signed.length * 58;
+    if (doc.y + NEEDED > doc.page.height - doc.page.margins.bottom) {
+      doc.addPage();
+    } else {
+      doc.y += 16;
+    }
+
+    this.drawSectionTitle(doc, leftX, 'CERTIFICAT DE SIGNATURE ÉLECTRONIQUE', pageWidth, colors);
+    doc.y += 6;
+    doc.font('Helvetica').fontSize(fonts.labelSize).fillColor(colors.gray);
+    doc.text(
+      `Réf. ${bon.reference} — Les signatures ci-dessous ont été recueillies électroniquement par l'application Bons IT.`,
+      leftX, doc.y, { width: pageWidth },
+    );
+    doc.y += 16;
+
+    for (const sig of signed) {
+      const cardY = doc.y;
+      const cardH = 52;
+      doc.roundedRect(leftX, cardY, pageWidth, cardH, 8).lineWidth(0.5).fillAndStroke(colors.rowAlt, colors.border);
+
+      // Pastille de rôle + « signé électroniquement »
+      const role = PdfService.ROLE_LABELS[sig.type] || 'Signataire';
+      doc.circle(leftX + 14, cardY + 14, 2.6).fillColor('#16a34a').fill();
+      doc.font('Helvetica-Bold').fontSize(8).fillColor(colors.dark).text(role, leftX + 22, cardY + 10, { width: pageWidth - 220 });
+      doc.font('Helvetica').fontSize(6.5).fillColor('#16a34a').text('SIGNÉ ÉLECTRONIQUEMENT', leftX + 22, cardY + 22, { width: pageWidth - 220, characterSpacing: 0.4 });
+      if (sig.isInPerson) {
+        doc.font('Helvetica').fontSize(6.5).fillColor(colors.gray).text('Signature recueillie en présentiel', leftX + 22, cardY + 32, { width: pageWidth - 220 });
+      }
+      if (sig.mentionLuApprouve) {
+        doc.font('Helvetica-Bold').fontSize(6.5).fillColor(colors.gray).text('« Lu et approuvé »', leftX + 22, cardY + (sig.isInPerson ? 41 : 32), { width: pageWidth - 220 });
+      }
+
+      // Colonne droite : email, horodatage, IP, UA
+      const rX = leftX + pageWidth - 200;
+      const rW = 196;
+      let ry = cardY + 8;
+      const meta: [string, string][] = [
+        ['Identité', sig.signerEmail || '—'],
+        ['Horodatage', this.formatDateTime(sig.signedAt)],
+        ['Adresse IP', sig.signerIp || '—'],
+      ];
+      for (const [k, v] of meta) {
+        doc.font('Helvetica').fontSize(6.5).fillColor(colors.gray).text(`${k} : `, rX, ry, { width: rW, continued: true });
+        doc.font('Helvetica-Bold').fillColor(colors.dark).text(v, { width: rW });
+        ry += 11;
+      }
+      if (sig.signerUserAgent) {
+        doc.font('Helvetica').fontSize(5.5).fillColor(colors.lightGray).text(sig.signerUserAgent.slice(0, 70), rX, ry, { width: rW, lineBreak: false });
+      }
+
+      doc.y = cardY + cardH + 8;
+    }
+
+    // Sceau d'intégrité
+    doc.font('Helvetica').fontSize(6.5).fillColor(colors.lightGray);
+    doc.text(
+      "L'intégrité de ce document est scellée par une empreinte numérique SHA-256 conservée dans le journal d'audit du système. Toute modification ultérieure du fichier invaliderait cette empreinte.",
+      leftX, doc.y + 2, { width: pageWidth, align: 'left' },
+    );
   }
 
   // ─── Utility methods ─────────────────────────────────────────────────────────
@@ -635,6 +746,16 @@ export class PdfService {
       day: '2-digit',
       month: '2-digit',
       year: 'numeric',
+    });
+  }
+
+  /** Horodatage complet (date + heure + fuseau) pour le certificat de preuve. */
+  private formatDateTime(date: Date | string | null | undefined): string {
+    if (!date) return '—';
+    return new Date(date).toLocaleString('fr-FR', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+      timeZone: 'Europe/Paris', timeZoneName: 'short',
     });
   }
 

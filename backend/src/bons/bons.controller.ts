@@ -265,7 +265,9 @@ export class BonsController {
     res.setHeader('Content-Disposition', `attachment; filename="bon-${bon.reference}.pdf"`);
     const fullSignatures = await this.prisma.signature.findMany({ where: { bonId: bon.id } });
     const sigImages = await this.signatureService.getSignatureImagesForBon(fullSignatures);
-    const pdf = await this.pdfService.generateBonPdf(bon, sigImages, type);
+    // Passer les signatures COMPLÈTES (email/IP/UA) pour que le certificat de
+    // preuve soit identique à celui du snapshot stocké (même rendu, même hash).
+    const pdf = await this.pdfService.generateBonPdf({ ...bon, signatures: fullSignatures }, sigImages, type);
     res.send(pdf);
   }
 

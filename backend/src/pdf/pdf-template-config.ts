@@ -200,7 +200,7 @@ export const DEFAULT_CONFIGS: Record<string, PdfTemplateConfig> = {
     },
     footer: {
       showFooter: true,
-      footerText: 'Document généré le {{DATE}} à {{TIME}} — {{FILIALE}} — Réf. {{REFERENCE}}',
+      footerText: 'Document signé électroniquement — {{FILIALE}} — Réf. {{REFERENCE}}',
     },
   },
 
@@ -237,7 +237,7 @@ export const DEFAULT_CONFIGS: Record<string, PdfTemplateConfig> = {
     },
     footer: {
       showFooter: true,
-      footerText: 'Document généré le {{DATE}} à {{TIME}} — {{FILIALE}} — Réf. {{REFERENCE}}',
+      footerText: 'Document signé électroniquement — {{FILIALE}} — Réf. {{REFERENCE}}',
     },
   },
 
@@ -274,7 +274,7 @@ export const DEFAULT_CONFIGS: Record<string, PdfTemplateConfig> = {
     },
     footer: {
       showFooter: true,
-      footerText: 'Document généré le {{DATE}} à {{TIME}} — {{FILIALE}} — Réf. {{REFERENCE}}',
+      footerText: 'Document signé électroniquement — {{FILIALE}} — Réf. {{REFERENCE}}',
     },
   },
 
@@ -311,7 +311,7 @@ export const DEFAULT_CONFIGS: Record<string, PdfTemplateConfig> = {
     },
     footer: {
       showFooter: true,
-      footerText: 'Document généré le {{DATE}} à {{TIME}} — {{FILIALE}} — Réf. {{REFERENCE}}',
+      footerText: 'Document signé électroniquement — {{FILIALE}} — Réf. {{REFERENCE}}',
     },
   },
 };

@@ -270,6 +270,52 @@ describe('PdfService', () => {
       expect(result).toBeInstanceOf(Buffer);
       expect(result.subarray(0, 4).toString()).toBe('%PDF');
     });
+
+    // ─── Chaîne de preuve : certificat + déterminisme ───────────────────────
+
+    it('should render the signature certificate for a co-signed bon', async () => {
+      const signedAt = new Date('2026-06-10T09:30:00Z');
+      const bon = bonForPdf({
+        status: 'archived',
+        signatures: [
+          { type: 'it_cachet', signed: true, signedAt, signatureImagePath: null,
+            signerEmail: 'tech@groupelivio.fr', signerIp: '10.0.0.5', signerUserAgent: 'Mozilla/5.0', mentionLuApprouve: true, isInPerson: false },
+          { type: 'mise_disposition', signed: true, signedAt, signatureImagePath: null,
+            signerEmail: 'jean.dupont@groupelivio.fr', signerIp: '10.0.0.42', signerUserAgent: 'Mozilla/5.0', mentionLuApprouve: true, isInPerson: false },
+        ],
+      });
+
+      const result = await service.generateBonPdf(bon, noSigImages, 'mise_disposition');
+      expect(result.subarray(0, 4).toString()).toBe('%PDF');
+      // Le certificat ajoute du contenu : document sensiblement plus volumineux
+      const sansCert = await service.generateBonPdf(bonForPdf({ signatures: [] }), noSigImages, 'mise_disposition');
+      expect(result.length).toBeGreaterThan(sansCert.length);
+    });
+
+    it('should render a DETERMINISTIC PDF (preuve : 2 rendus identiques au byte près)', async () => {
+      // Le SHA-256 ne prouve l'intégrité que si le rendu est reproductible :
+      // aucune horloge murale, aucun statut volatil dans le document.
+      const signedAt = new Date('2026-06-10T09:30:00Z');
+      const make = () => bonForPdf({
+        status: 'archived',
+        signatures: [
+          { type: 'mise_disposition', signed: true, signedAt, signatureImagePath: null,
+            signerEmail: 'jean.dupont@groupelivio.fr', signerIp: '10.0.0.42', signerUserAgent: 'UA', mentionLuApprouve: true, isInPerson: false },
+        ],
+      });
+
+      const a = await service.generateBonPdf(make(), noSigImages, 'mise_disposition');
+      await new Promise((r) => setTimeout(r, 30)); // l'horloge avance entre les deux rendus
+      const b = await service.generateBonPdf(make(), noSigImages, 'mise_disposition');
+
+      // PDFKit insère sa propre date de création (CreationDate/ModDate, littéraux
+      // PDF « (D:...) ») et un identifiant de fichier /ID dans les métadonnées —
+      // hors du contenu signé. On les neutralise pour comparer le CONTENU rendu.
+      const strip = (buf: Buffer) => buf.toString('latin1')
+        .replace(/\(D:[^)]*\)/g, '(D:X)')
+        .replace(/\/ID\s*\[[^\]]*\]/g, '/ID[X]');
+      expect(strip(a)).toBe(strip(b));
+    });
   });
 
   // ─── getDocumentType (tested through generateAndSave) ─────────────────────

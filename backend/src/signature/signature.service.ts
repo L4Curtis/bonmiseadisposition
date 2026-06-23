@@ -267,15 +267,22 @@ export class SignatureService {
       `Bon ${sig.bon.reference} signé (${sig.type}) par ${signerEmail} — nouveau statut: ${newStatus}`,
     );
 
-    // Génération asynchrone du snapshot PDF (fire & forget — ne bloque pas la réponse)
+    // Génération du snapshot PDF de preuve + SHA-256 — ATTENDUE (plus de fire &
+    // forget) : une signature ne doit pas être confirmée sans que son document
+    // probant et son empreinte existent. Le rendu est purement CPU/déterministe
+    // (aucune dépendance réseau), donc awaiter ne pénalise pas notablement.
     const snapshotType = sig.type === 'restitution'
       ? 'signature_collab_restitution'
       : sig.type === 'pv_cloture'
       ? 'cloture_equipements_manquants'
       : 'signature_collab_mise_disposition';
-    this.generatePdfSnapshot(updatedBon, snapshotType).catch((err) =>
-      this.logger.error(`Échec génération snapshot PDF: ${err.message}`),
-    );
+    try {
+      await this.generatePdfSnapshot(updatedBon, snapshotType);
+    } catch (err) {
+      // La signature est déjà committée et valide ; le snapshot est
+      // régénérable à la demande (rendu déterministe). On loggue sans échouer.
+      this.logger.error(`Échec génération snapshot PDF (signature conservée): ${(err as Error).message}`);
+    }
 
     // Sanitize before returning: full signature records (with image paths and
     // tokens) are for internal PDF generation only
@@ -434,12 +441,14 @@ export class SignatureService {
       select: BON_FOR_SIGNATURE_SELECT,
     });
 
-    // Regenerate PDF snapshot with IT signature (fire & forget)
+    // Snapshot PDF avec le cachet IT — attendu (cf. sign()), rendu déterministe
     const isRestitution = pdfType === 'restitution' || ['sent_restitution', 'partially_returned'].includes(bon.status);
     const itSnapshotType = isRestitution ? 'signature_it_restitution' : 'signature_it_mise_disposition';
-    this.generatePdfSnapshot(updatedBon, itSnapshotType).catch((err) =>
-      this.logger.error(`Échec snapshot PDF IT cachet: ${err.message}`),
-    );
+    try {
+      await this.generatePdfSnapshot(updatedBon, itSnapshotType);
+    } catch (err) {
+      this.logger.error(`Échec snapshot PDF IT cachet (cachet conservé): ${(err as Error).message}`);
+    }
 
     return { ok: true, bon: sanitizeBonForResponse(updatedBon), signature: toSafeSignature(itSig as unknown as Record<string, unknown>) };
   }
