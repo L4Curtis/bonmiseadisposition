@@ -378,19 +378,32 @@ describe('BonsService', () => {
     it('should cancel a bon', async () => {
       const bon = draftBon();
       prisma.bon.findUnique.mockResolvedValue(bon);
-      const cancelledResult = { ...bon, status: 'cancelled' as const };
-      prisma.bon.update.mockResolvedValue(cancelledResult);
+      // Transition conditionnelle : updateMany (gagne la course) + relecture
+      prisma.bon.updateMany.mockResolvedValue({ count: 1 });
+      prisma.bon.findUniqueOrThrow.mockResolvedValue({ ...bon, status: 'cancelled' as const });
       prisma.auditLog.create.mockResolvedValue({} as never);
 
       const result = await service.cancel(bon.id, userId);
 
       expect(result.status).toBe('cancelled');
+      expect(prisma.bon.updateMany).toHaveBeenCalledWith({
+        where: { id: bon.id, status: bon.status },
+        data: { status: 'cancelled' },
+      });
       expect(signatureService.invalidateUnsignedTokens).toHaveBeenCalledWith(bon.id);
       expect(prisma.auditLog.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({ action: 'bon_cancelled' }),
         }),
       );
+    });
+
+    it('should lose the race if status changed concurrently (Conflict)', async () => {
+      const bon = draftBon();
+      prisma.bon.findUnique.mockResolvedValue(bon);
+      prisma.bon.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.cancel(bon.id, userId)).rejects.toThrow(ConflictException);
     });
 
     it('should throw for archived bons', async () => {
@@ -420,7 +433,8 @@ describe('BonsService', () => {
     it('should invalidate unsigned tokens', async () => {
       const bon = sentMiseDispoBon();
       prisma.bon.findUnique.mockResolvedValue(bon);
-      prisma.bon.update.mockResolvedValue({ ...bon, status: 'cancelled' as const });
+      prisma.bon.updateMany.mockResolvedValue({ count: 1 });
+      prisma.bon.findUniqueOrThrow.mockResolvedValue({ ...bon, status: 'cancelled' as const });
       prisma.auditLog.create.mockResolvedValue({} as never);
 
       await service.cancel(bon.id, userId);

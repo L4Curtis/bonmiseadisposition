@@ -376,11 +376,17 @@ export class BonsService {
       throw new BadRequestException('Ce bon ne peut pas être annulé');
     // Invalidate all unsigned signature tokens
     await this.signatureService.invalidateUnsignedTokens(id);
-    const updated = await this.prisma.bon.update({
-      where: { id },
+    // Transition conditionnelle : si une signature s'est committée entre le
+    // findOne et ici (course), elle a fait avancer le statut — on ne l'écrase
+    // pas avec 'cancelled'.
+    const transition = await this.prisma.bon.updateMany({
+      where: { id, status: bon.status as BonStatus },
       data: { status: 'cancelled' },
-      ...BON_SELECT,
     });
+    if (transition.count === 0) {
+      throw new ConflictException('Le statut du bon a changé entre-temps — rechargez la page');
+    }
+    const updated = await this.prisma.bon.findUniqueOrThrow({ where: { id }, ...BON_SELECT });
     await this.prisma.auditLog.create({
       data: { bonId: id, userId: userId ?? null, action: 'bon_cancelled' },
     });
@@ -564,16 +570,30 @@ export class BonsService {
       return count;
     });
 
-    if (remaining === 0) {
+    // La signature IT de la déclaration est TOUJOURS persistée si fournie —
+    // même quand des équipements restent à traiter (remaining > 0). Sinon elle
+    // était validée puis silencieusement perdue, et le bon se bloquait.
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+    const signerEmail = user?.email ?? 'unknown';
+    if (signatureDataUrl) {
+      await this.signatureService.saveItPvSignature(id, signatureDataUrl, signerEmail, userId);
+    }
+
+    if (remaining > 0) {
+      // Des équipements restent ni rendus ni déclarés : pas encore de PV
+      // complet. La signature IT est conservée pour le futur PV ; l'action
+      // suivante (traiter le reste) est explicitée dans l'audit.
+      await this.prisma.auditLog.create({
+        data: {
+          bonId: id,
+          userId,
+          action: 'declare_not_returned_partial',
+          details: { remaining, message: 'Équipements restants à traiter avant émission du PV' },
+        },
+      });
+      this.logger.log(`Bon ${id} — non-rendus déclarés, ${remaining} équipement(s) restant(s) à traiter avant le PV`);
+    } else {
       // All resolved → generate PV with IT signature, send to collab for co-signature
-      const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
-      const signerEmail = user?.email ?? 'unknown';
-
-      // Save IT signature as it_cachet record
-      if (signatureDataUrl) {
-        await this.signatureService.saveItPvSignature(id, signatureDataUrl, signerEmail, userId);
-      }
-
       // A stale mise-dispo/restitution token must not stay signable now that
       // the pending action is the PV co-signature
       await this.signatureService.invalidateUnsignedTokens(id);
@@ -811,20 +831,34 @@ export class BonsService {
   }
 
   async findByCollaborateur(userId: string) {
-    return this.prisma.bon.findMany({
+    const bons = await this.prisma.bon.findMany({
       where: {
         collaborateurId: userId,
         status: { notIn: ['cancelled'] },
       },
       select: {
         ...BON_SELECT.select,
-        // The portal needs the pending link token to offer "Signer maintenant" —
-        // safe here: these are the collaborator's own bons.
+        // Le portail a besoin du token du lien EN ATTENTE pour « Signer
+        // maintenant ». On récupère le token de toutes les signatures puis on
+        // ne CONSERVE que celui du lien réellement signable (cf. ci-dessous).
         signatures: { select: { ...SIGNATURE_SAFE_SELECT, token: true } },
       },
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
+
+    // N'exposer le token QUE sur le lien actuellement signable (non signé,
+    // non it_cachet, non expiré). Les tokens des signatures déjà signées,
+    // invalidées (epoch) ou du cachet IT interne sont retirés de la réponse.
+    const now = Date.now();
+    return bons.map((bon) => ({
+      ...bon,
+      signatures: bon.signatures.map((s) => {
+        const signable =
+          !s.signed && s.type !== 'it_cachet' && new Date(s.tokenExpiresAt).getTime() > now;
+        return signable ? s : { ...s, token: undefined };
+      }),
+    }));
   }
 
   /**
@@ -857,6 +891,11 @@ export class BonsService {
         });
       }
     }
+
+    // Invalider TOUS les tokens non signés en amont (quel que soit leur type) :
+    // garantit l'unicité du lien signable même si un token d'un autre type/étape
+    // traînait — generateToken ci-dessous n'invalide que les tokens du même type.
+    await this.signatureService.invalidateUnsignedTokens(bonId);
 
     // PV pending is determined from the BUSINESS state, not the token validity:
     // an expired pv_cloture link must be re-sent as a PV, not as a restitution

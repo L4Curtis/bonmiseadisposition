@@ -61,6 +61,7 @@ export interface BonForPdf {
     signerUserAgent?: string | null;
     mentionLuApprouve?: boolean;
     isInPerson?: boolean;
+    signedByProxy?: boolean;
   }>;
   /** Used by avenant generation to filter equipment */
   _avenantEquipmentIds?: string[];
@@ -121,12 +122,23 @@ export class PdfService {
     // que le PDF archivé (DB ou partage SMB) n'a pas été altéré
     const sha256 = createHash('sha256').update(pdf).digest('hex');
 
-    // Upsert into PdfSnapshot table
+    // Upsert into PdfSnapshot table (le « courant » par type, pour l'affichage)
     await this.prisma.pdfSnapshot.upsert({
       where: { bonId_type: { bonId: bon.id, type: snapshotType as PdfSnapshotType } },
       update: { data: pdf, filename, sha256 },
       create: { bonId: bon.id, type: snapshotType as PdfSnapshotType, data: pdf, filename, sha256 },
     });
+
+    // Archive APPEND-ONLY : copie scellée immuable de CE document. Garantit
+    // qu'une preuve co-signée (ex. 1re restitution partielle) ne disparaît pas
+    // quand un document du même type est régénéré plus tard.
+    try {
+      await this.prisma.proofArchive.create({
+        data: { bonId: bon.id, type: snapshotType, filename, data: pdf, sha256 },
+      });
+    } catch (err) {
+      this.logger.error(`Échec archivage probant [${bon.reference}/${snapshotType}]: ${(err as Error).message}`);
+    }
 
     // Trace d'audit immuable du hash (le snapshot lui-même peut être ré-upserté)
     try {
@@ -654,7 +666,7 @@ export class PdfService {
     signed.sort((a, b) => new Date(a.signedAt!).getTime() - new Date(b.signedAt!).getTime());
 
     // Nouvelle page si l'espace restant est insuffisant
-    const NEEDED = 90 + signed.length * 58;
+    const NEEDED = 90 + signed.length * 70;
     if (doc.y + NEEDED > doc.page.height - doc.page.margins.bottom) {
       doc.addPage();
     } else {
@@ -672,7 +684,7 @@ export class PdfService {
 
     for (const sig of signed) {
       const cardY = doc.y;
-      const cardH = 52;
+      const cardH = sig.signedByProxy ? 62 : 52;
       doc.roundedRect(leftX, cardY, pageWidth, cardH, 8).lineWidth(0.5).fillAndStroke(colors.rowAlt, colors.border);
 
       // Pastille de rôle + « signé électroniquement »
@@ -681,21 +693,32 @@ export class PdfService {
       doc.font('Helvetica-Bold').fontSize(8).fillColor(colors.dark).text(role, leftX + 22, cardY + 10, { width: pageWidth - 220 });
       doc.font('Helvetica').fontSize(6.5).fillColor('#16a34a').text('SIGNÉ ÉLECTRONIQUEMENT', leftX + 22, cardY + 22, { width: pageWidth - 220, characterSpacing: 0.4 });
       if (sig.isInPerson) {
-        doc.font('Helvetica').fontSize(6.5).fillColor(colors.gray).text('Signature recueillie en présentiel', leftX + 22, cardY + 32, { width: pageWidth - 220 });
+        const presLabel = sig.signedByProxy
+          ? 'Signature recueillie en présentiel (mandataire)'
+          : 'Signature recueillie en présentiel';
+        doc.font('Helvetica').fontSize(6.5).fillColor(colors.gray).text(presLabel, leftX + 22, cardY + 32, { width: pageWidth - 220 });
       }
       if (sig.mentionLuApprouve) {
         doc.font('Helvetica-Bold').fontSize(6.5).fillColor(colors.gray).text('« Lu et approuvé »', leftX + 22, cardY + (sig.isInPerson ? 41 : 32), { width: pageWidth - 220 });
       }
 
-      // Colonne droite : email, horodatage, IP, UA
+      // Colonne droite : identité, horodatage, IP, UA. En présentiel par
+      // mandataire, on distingue le TITULAIRE du compte ayant recueilli la signature.
       const rX = leftX + pageWidth - 200;
       const rW = 196;
       let ry = cardY + 8;
-      const meta: [string, string][] = [
-        ['Identité', sig.signerEmail || '—'],
-        ['Horodatage', this.formatDateTime(sig.signedAt)],
-        ['Adresse IP', sig.signerIp || '—'],
-      ];
+      const meta: [string, string][] = sig.signedByProxy
+        ? [
+            ['Titulaire', bon.collaborateurEmail || '—'],
+            ['Recueilli par', sig.signerEmail || '—'],
+            ['Horodatage', this.formatDateTime(sig.signedAt)],
+            ['Adresse IP', sig.signerIp || '—'],
+          ]
+        : [
+            ['Identité', sig.signerEmail || '—'],
+            ['Horodatage', this.formatDateTime(sig.signedAt)],
+            ['Adresse IP', sig.signerIp || '—'],
+          ];
       for (const [k, v] of meta) {
         doc.font('Helvetica').fontSize(6.5).fillColor(colors.gray).text(`${k} : `, rX, ry, { width: rW, continued: true });
         doc.font('Helvetica-Bold').fillColor(colors.dark).text(v, { width: rW });

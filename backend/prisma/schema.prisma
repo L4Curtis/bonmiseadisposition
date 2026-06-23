@@ -178,6 +178,7 @@ model Bon {
   notifications NotificationLog[]
   auditLogs     AuditLog[]
   pdfSnapshots  PdfSnapshot[]
+  proofArchives ProofArchive[]
   smbExports    SmbExport[]
 
   @@index([status])
@@ -236,12 +237,33 @@ model Signature {
   signerUserAgent    String?       @map("signer_user_agent")
   mentionLuApprouve  Boolean       @default(false) @map("mention_lu_approuve")
   isInPerson         Boolean       @default(false) @map("is_in_person")
+  // Présentiel : signerEmail est le compte (technicien) ayant recueilli la
+  // signature pour le compte du collaborateur titulaire → tracé comme mandataire
+  signedByProxy      Boolean       @default(false) @map("signed_by_proxy")
   initiatedById      String?       @map("initiated_by_id")
   initiatedBy        User?         @relation("SignatureInitiatedBy", fields: [initiatedById], references: [id])
   createdAt          DateTime      @default(now()) @map("created_at")
 
   @@index([bonId, type, signed])
   @@map("signatures")
+}
+
+// Archive probante APPEND-ONLY : une ligne par document de preuve généré,
+// jamais écrasée (contrairement à PdfSnapshot qui ne conserve que le « courant »
+// par type pour l'affichage). Garantit qu'aucune preuve co-signée — ex. une 1re
+// restitution partielle — ne peut disparaître.
+model ProofArchive {
+  id        String   @id @default(uuid())
+  bonId     String   @map("bon_id")
+  bon       Bon      @relation(fields: [bonId], references: [id], onDelete: Cascade)
+  type      String
+  filename  String
+  data      Bytes
+  sha256    String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([bonId, createdAt])
+  @@map("proof_archives")
 }
 
 model PdfSnapshot {

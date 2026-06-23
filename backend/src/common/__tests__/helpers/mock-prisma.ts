@@ -110,6 +110,14 @@ export function createMockPrismaService(): MockPrismaService {
       upsert: jest.fn(),
     },
 
+    // ── ProofArchive (append-only) ───────────────────────────────────────────────
+    proofArchive: {
+      findMany: jest.fn(),
+      findFirst: jest.fn(),
+      create: jest.fn().mockResolvedValue({}),
+      count: jest.fn(),
+    },
+
     // ── SmbExport ──────────────────────────────────────────────────────────────
     smbExport: {
       findMany: jest.fn(),

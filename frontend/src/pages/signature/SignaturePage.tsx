@@ -250,12 +250,30 @@ export function SignaturePage() {
       ? 'procès-verbal d\'équipements non restitués'
       : data.signature.type === 'restitution' ? 'restitution' : 'mise à disposition';
     const docLabel = data.signature.type === 'pv_cloture' ? 'Le procès-verbal' : `Le bon de ${sigType}`;
+    // Le snapshot est généré de façon synchrone à la signature → téléchargeable
+    // immédiatement. On repart donc avec une copie de ce qu'on a signé.
+    const stage = data.signature.type === 'restitution'
+      ? 'signature_collab_restitution'
+      : data.signature.type === 'pv_cloture'
+        ? 'cloture_equipements_manquants'
+        : 'signature_collab_mise_disposition';
     return (
       <StatusScreen
         icon={<CheckCircle className="h-12 w-12 text-green-500" />}
         title="Document signé ✓"
         message={`${docLabel} (réf. ${data.bon.reference}) a bien été signé électroniquement. Un email de confirmation vous a été envoyé.`}
         success
+        actions={
+          <div className="flex flex-col gap-2 w-full">
+            <button
+              onClick={() => window.open(`/api/bons/${data.bon!.id}/pdf?stage=${stage}`, '_blank', 'noopener')}
+              className="btn-gradient w-full rounded-lg px-4 py-2.5 text-sm font-semibold text-white"
+            >
+              Télécharger le document signé
+            </button>
+            <a href="/mes-bons" className="text-sm text-blue-600 hover:underline">Accéder à mes bons</a>
+          </div>
+        }
       />
     );
   }
@@ -286,10 +304,12 @@ export function SignaturePage() {
   const civiliteLabel = bon.civilite === 'mme' ? 'Madame' : 'Monsieur';
   const isInPerson = sig.isInPerson;
 
-  // Email mismatch warning (not blocking for in-person)
+  // Email mismatch warning (not blocking for in-person). trim() pour refléter
+  // exactement la normalisation backend (toLowerCase().trim()) et ne pas
+  // bloquer à tort un destinataire dont l'email importé a un espace parasite.
   const emailMismatch =
     currentUser && !isInPerson &&
-    currentUser.email.toLowerCase() !== bon.collaborateurEmail.toLowerCase();
+    currentUser.email.toLowerCase().trim() !== bon.collaborateurEmail.toLowerCase().trim();
 
   return (
     <div className="min-h-screen bg-background py-8 px-4">
@@ -616,11 +636,13 @@ function StatusScreen({
   title,
   message,
   success,
+  actions,
 }: {
   icon: React.ReactNode;
   title: string;
   message: string;
   success?: boolean;
+  actions?: React.ReactNode;
 }) {
   return (
     <div className="flex h-screen items-center justify-center bg-background px-4">
@@ -630,6 +652,7 @@ function StatusScreen({
         </div>
         <h1 className="text-xl font-bold text-foreground">{title}</h1>
         <p className="text-sm text-muted-foreground">{message}</p>
+        {actions && <div className="pt-2">{actions}</div>}
         <p className="text-xs text-muted-foreground/70">Groupe Livio — Service informatique</p>
       </div>
     </div>

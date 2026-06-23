@@ -71,7 +71,9 @@ export class SignatureService {
       data: { tokenExpiresAt: new Date(0) }, // expire immediately
     });
 
-    const token = crypto.randomUUID();
+    // 256 bits d'entropie (homogène avec les autres secrets du projet) plutôt
+    // que les 122 bits d'un UUIDv4 — c'est le token réellement signable.
+    const token = crypto.randomBytes(32).toString('base64url');
     const validityDays = await this.getTokenValidityDays();
     const tokenExpiresAt = new Date(
       Date.now() + validityDays * 24 * 60 * 60 * 1000,
@@ -103,21 +105,22 @@ export class SignatureService {
 
     if (!sig) throw new NotFoundException('Lien de signature invalide');
 
+    // Contrôle destinataire AVANT toute donnée : un non-destinataire ne doit
+    // pas pouvoir confirmer l'existence d'un bon ni récupérer sa référence,
+    // même pour un lien expiré ou déjà signé (fail-closed, hors présentiel).
+    const isRecipient =
+      sig.isInPerson ||
+      sig.bon.collaborateurEmail.toLowerCase().trim() === (requesterEmail ?? '').toLowerCase().trim();
+    if (!isRecipient) {
+      return { status: 'unauthorized' };
+    }
+
     if (sig.signed) {
       return { status: 'already_signed', reference: sig.bon.reference };
     }
 
     if (new Date() > sig.tokenExpiresAt) {
       return { status: 'expired', reference: sig.bon.reference };
-    }
-
-    // Personal data of the bon is only for the intended signer (fail-closed)
-    if (!sig.isInPerson) {
-      const expected = sig.bon.collaborateurEmail.toLowerCase().trim();
-      const actual = (requesterEmail ?? '').toLowerCase().trim();
-      if (expected !== actual) {
-        return { status: 'unauthorized' };
-      }
     }
 
     return {
@@ -178,15 +181,18 @@ export class SignatureService {
     if (new Date() > sig.tokenExpiresAt) throw new BadRequestException('Ce lien de signature a expiré');
 
     // Email verification (skip for in-person mode initiated by IT staff)
+    const expectedEmail = sig.bon.collaborateurEmail.toLowerCase().trim();
+    const actualEmail = signerEmail.toLowerCase().trim();
     if (!sig.isInPerson) {
-      const expectedEmail = sig.bon.collaborateurEmail.toLowerCase().trim();
-      const actualEmail = signerEmail.toLowerCase().trim();
       if (expectedEmail !== actualEmail) {
         throw new ForbiddenException(
           `Ce document est destiné à ${sig.bon.collaborateurEmail}, pas à ${signerEmail}`,
         );
       }
     }
+    // Présentiel : si le compte connecté n'est pas le titulaire, c'est une
+    // signature recueillie par un mandataire (technicien sur tablette) → tracé.
+    const signedByProxy = sig.isInPerson && expectedEmail !== actualEmail;
 
     if (!mentionLuApprouve) {
       throw new BadRequestException('Vous devez cocher "Lu et approuvé" pour signer');
@@ -236,6 +242,7 @@ export class SignatureService {
           signerIp,
           signerUserAgent,
           mentionLuApprouve,
+          signedByProxy,
         },
       });
 
@@ -252,6 +259,8 @@ export class SignatureService {
           action: `signed_${sig.type}`,
           details: {
             isInPerson: sig.isInPerson,
+            signedByProxy,
+            titulaireEmail: sig.bon.collaborateurEmail,
             mentionLuApprouve,
             newStatus: txNewStatus,
           },
