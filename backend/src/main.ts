@@ -106,6 +106,12 @@ async function bootstrap() {
   app.setGlobalPrefix('api');
   app.enableShutdownHooks();
 
+  // Initialise les modules (déclenche les hooks onModuleInit) AVANT d'écouter :
+  // c'est onModuleInit — pas le constructeur — qui dérive la clé de chiffrement,
+  // et il ne tourne qu'à init()/listen(). Sans ce init() explicite, le canari
+  // ci-dessous appellerait encrypt() avec une clé encore indéfinie.
+  await app.init();
+
   // Canari ENCRYPTION_KEY : fail-fast AVANT d'écouter si la clé a changé depuis
   // la 1re init (sinon démarrage silencieux avec données chiffrées illisibles).
   await app.get(AppConfigService).verifyEncryptionCanary();
