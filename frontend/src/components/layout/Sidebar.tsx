@@ -14,6 +14,7 @@ import {
   MessageSquareWarning,
   Server,
   Mail,
+  BarChart3,
   PanelLeftClose,
   PanelLeftOpen,
 } from 'lucide-react';
@@ -42,6 +43,7 @@ const technicienNavGroups: NavGroup[] = [
     items: [
       { to: '/dashboard', icon: LayoutDashboard, label: 'Vue d\'ensemble' },
       { to: '/bons', icon: FileText, label: 'Bons' },
+      { to: '/admin/reports', icon: BarChart3, label: 'Reporting' },
       { to: '/admin/contestations', icon: MessageSquareWarning, label: 'Contestations' },
     ],
   },

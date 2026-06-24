@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { StatusBadge } from '@/components/StatusBadge';
 import { ContestationDialog } from '@/components/ContestationDialog';
+import { BonAttachments } from './detail/BonAttachments';
 import type { BonDetailData, PdfSnapshotInfo, EquipmentItem } from './detail/types';
 import { equipmentLabel, sigTypeLabel, SNAPSHOT_LABELS } from './detail/types';
 
@@ -318,6 +319,13 @@ export function BonDetailCollaborateurPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* ── Pièces jointes ─────────────────────────────────────────────────── */}
+      <BonAttachments
+        bonId={bon.id}
+        canManage={false}
+        defaultStage={['active', 'sent_restitution', 'partially_returned', 'archived'].includes(bon.status) ? 'restitution' : 'mise_disposition'}
+      />
 
       {/* ── PDF snapshots ──────────────────────────────────────────────────── */}
       {pdfSnapshots.length > 0 && (

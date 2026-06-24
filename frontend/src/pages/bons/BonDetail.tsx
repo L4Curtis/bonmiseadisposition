@@ -9,6 +9,8 @@ import { BonSignatures } from './detail/BonSignatures';
 import { BonEquipmentTable } from './detail/BonEquipmentTable';
 import { BonNotesCard } from './detail/BonNotesCard';
 import { BonPdfSnapshots } from './detail/BonPdfSnapshots';
+import { BonAttachments } from './detail/BonAttachments';
+import { BonIntegrity } from './detail/BonIntegrity';
 import { BonModals } from './detail/BonModals';
 
 // ─── Page principale ──────────────────────────────────────────────────────────
@@ -171,11 +173,19 @@ export function BonDetailPage() {
 
       {bon.notes && <BonNotesCard notes={bon.notes} />}
 
+      <BonAttachments
+        bonId={bon.id}
+        canManage
+        defaultStage={['active', 'sent_restitution', 'partially_returned', 'archived'].includes(bon.status) ? 'restitution' : 'mise_disposition'}
+      />
+
       <BonPdfSnapshots
         snapshots={pdfSnapshots}
         pdfLoading={pdfLoading}
         onDownloadSnapshot={actions.downloadPdfSnapshot}
       />
+
+      {bon.signatures && bon.signatures.some((s) => s.signed) && <BonIntegrity bonId={bon.id} />}
 
       <BonModals
         bon={bon}

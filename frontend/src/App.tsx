@@ -18,6 +18,7 @@ const FilialesPage = lazy(() => import('@/pages/admin/Filiales').then(m => ({ de
 const CataloguePage = lazy(() => import('@/pages/admin/Catalogue').then(m => ({ default: m.CataloguePage })));
 const UtilisateursPage = lazy(() => import('@/pages/admin/Utilisateurs').then(m => ({ default: m.UtilisateursPage })));
 const AuditLogsPage = lazy(() => import('@/pages/admin/AuditLogs').then(m => ({ default: m.AuditLogsPage })));
+const ReportsPage = lazy(() => import('@/pages/admin/Reports').then(m => ({ default: m.ReportsPage })));
 const ContestationsPage = lazy(() => import('@/pages/admin/Contestations').then(m => ({ default: m.ContestationsPage })));
 const TemplatesPage = lazy(() => import('@/pages/admin/Templates').then(m => ({ default: m.TemplatesPage })));
 const PdfTemplatesPage = lazy(() => import('@/pages/admin/PdfTemplates').then(m => ({ default: m.PdfTemplatesPage })));
@@ -35,6 +36,8 @@ const ConfigSmtpPage = lazy(() => import('@/pages/admin/configuration/ConfigSmtp
 const ConfigRappelsPage = lazy(() => import('@/pages/admin/configuration/ConfigRappelsPage').then(m => ({ default: m.ConfigRappelsPage })));
 const ConfigTokensPage = lazy(() => import('@/pages/admin/configuration/ConfigTokensPage').then(m => ({ default: m.ConfigTokensPage })));
 const ConfigSmbPage = lazy(() => import('@/pages/admin/configuration/ConfigSmbPage').then(m => ({ default: m.ConfigSmbPage })));
+const ConfigTimestampPage = lazy(() => import('@/pages/admin/configuration/ConfigTimestampPage').then(m => ({ default: m.ConfigTimestampPage })));
+const ConfigRetentionPage = lazy(() => import('@/pages/admin/configuration/ConfigRetentionPage').then(m => ({ default: m.ConfigRetentionPage })));
 const ConfigMonitoringPage = lazy(() => import('@/pages/admin/configuration/ConfigMonitoringPage').then(m => ({ default: m.ConfigMonitoringPage })));
 
 function ProtectedRoute({
@@ -136,6 +139,7 @@ function AppRoutes() {
 
           {/* Accessible admin + technicien */}
           <Route path="contestations" element={<ContestationsPage />} />
+          <Route path="reports" element={<ReportsPage />} />
           <Route path="filiales" element={<FilialesPage />} />
           <Route path="catalogue" element={<CataloguePage />} />
           <Route path="utilisateurs" element={<UtilisateursPage />} />
@@ -152,6 +156,8 @@ function AppRoutes() {
             <Route path="rappels" element={<ConfigRappelsPage />} />
             <Route path="tokens" element={<ConfigTokensPage />} />
             <Route path="smb" element={<ConfigSmbPage />} />
+            <Route path="timestamp" element={<ConfigTimestampPage />} />
+            <Route path="retention" element={<ConfigRetentionPage />} />
             <Route path="monitoring" element={<ConfigMonitoringPage />} />
           </Route>
 

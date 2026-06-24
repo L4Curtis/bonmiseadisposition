@@ -169,6 +169,9 @@ model Bon {
   pdfMiseDispoSnapshotAt   DateTime? @map("pdf_mise_dispo_snapshot_at")
   pdfRestitutionSnapshot   Bytes?    @map("pdf_restitution_snapshot")
   pdfRestitutionSnapshotAt DateTime? @map("pdf_restitution_snapshot_at")
+  // RGPD : horodatage de l'anonymisation (PII purgées, preuves détruites) une
+  // fois la durée de rétention dépassée. Null = bon actif / non anonymisé.
+  anonymizedAt             DateTime? @map("anonymized_at")
   createdAt                DateTime  @default(now()) @map("created_at")
   updatedAt           DateTime  @updatedAt @map("updated_at")
 
@@ -179,6 +182,7 @@ model Bon {
   auditLogs     AuditLog[]
   pdfSnapshots  PdfSnapshot[]
   proofArchives ProofArchive[]
+  attachments   Attachment[]
   smbExports    SmbExport[]
 
   @@index([status])
@@ -240,12 +244,45 @@ model Signature {
   // Présentiel : signerEmail est le compte (technicien) ayant recueilli la
   // signature pour le compte du collaborateur titulaire → tracé comme mandataire
   signedByProxy      Boolean       @default(false) @map("signed_by_proxy")
+  // Scellement probant : HMAC-SHA256 (clé serveur dérivée d'ENCRYPTION_KEY)
+  // couvrant les champs probants de la signature → détecte toute altération
+  // directe en base (email, horodatage…). sealedAt = moment du scellement.
+  seal               String?       @map("seal")
+  sealedAt           DateTime?     @map("sealed_at")
+  // Horodatage RFC 3161 OPTIONNEL (config 'timestamp') : jeton signé d'une
+  // autorité de temps de confiance sur le sceau. Absent si non configuré.
+  tsToken            String?       @map("ts_token")
+  tsAuthority        String?       @map("ts_authority")
+  tsAt               DateTime?     @map("ts_at")
   initiatedById      String?       @map("initiated_by_id")
   initiatedBy        User?         @relation("SignatureInitiatedBy", fields: [initiatedById], references: [id])
   createdAt          DateTime      @default(now()) @map("created_at")
 
   @@index([bonId, type, signed])
   @@map("signatures")
+}
+
+// Pièces jointes d'un bon (photos d'état du matériel, justificatifs). Le binaire
+// est chiffré sur disque (AES-256-GCM, comme les signatures) ; seules les
+// métadonnées + le SHA-256 d'intégrité sont en base.
+model Attachment {
+  id              String   @id @default(uuid())
+  bonId           String   @map("bon_id")
+  bon             Bon      @relation(fields: [bonId], references: [id], onDelete: Cascade)
+  // Contexte métier : mise_disposition | restitution | pv_cloture | general
+  stage           String
+  filename        String
+  storedPath      String   @map("stored_path")
+  mimeType        String   @map("mime_type")
+  size            Int
+  sha256          String
+  label           String?
+  uploadedById    String?  @map("uploaded_by_id")
+  uploadedByEmail String?  @map("uploaded_by_email")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([bonId, createdAt])
+  @@map("attachments")
 }
 
 // Archive probante APPEND-ONLY : une ligne par document de preuve généré,

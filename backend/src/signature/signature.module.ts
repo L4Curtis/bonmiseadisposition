@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { SignatureService } from './signature.service';
+import { TimestampService } from './timestamp.service';
 import { SignatureController } from './signature.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 import { ConfigModule } from '../config/config.module';
@@ -12,7 +13,7 @@ import { SmbModule } from '../smb/smb.module';
   // via AuthModule dans AppModule (Passport enregistre les stratégies globalement).
   imports: [PrismaModule, ConfigModule, NotificationModule, PdfModule, SmbModule],
   controllers: [SignatureController],
-  providers: [SignatureService],
+  providers: [SignatureService, TimestampService],
   exports: [SignatureService],
 })
 export class SignatureModule {}

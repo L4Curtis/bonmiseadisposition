@@ -4,6 +4,10 @@ import * as crypto from 'crypto';
 @Injectable()
 export class EncryptionService implements OnModuleInit {
   private key!: Buffer;
+  // Clé de scellement DÉRIVÉE séparément de la même ENCRYPTION_KEY (sel distinct)
+  // → un domaine cryptographique distinct du chiffrement : compromettre l'un
+  // ne donne pas l'autre, et aucune variable d'environnement supplémentaire.
+  private sealKey!: Buffer;
   private readonly algorithm = 'aes-256-gcm';
 
   onModuleInit() {
@@ -19,6 +23,21 @@ export class EncryptionService implements OnModuleInit {
     }
     // Derive a 32-byte key using PBKDF2 (100k iterations) instead of raw SHA-256
     this.key = crypto.pbkdf2Sync(rawKey, 'bon-mise-disposition-salt-v1', 100_000, 32, 'sha256');
+    this.sealKey = crypto.pbkdf2Sync(rawKey, 'bon-signature-seal-v1', 100_000, 32, 'sha256');
+  }
+
+  /** Scellement probant : HMAC-SHA256 hex d'une charge canonique (clé serveur
+   *  dérivée). Détecte toute altération directe en base des champs scellés. */
+  seal(data: string): string {
+    return crypto.createHmac('sha256', this.sealKey).update(data, 'utf8').digest('hex');
+  }
+
+  /** Vérifie un sceau en temps constant (anti timing-attack). */
+  verifySeal(data: string, expectedSeal: string): boolean {
+    if (!expectedSeal || !/^[0-9a-f]{64}$/i.test(expectedSeal)) return false;
+    const actual = Buffer.from(this.seal(data), 'hex');
+    const expected = Buffer.from(expectedSeal, 'hex');
+    return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
   }
 
   encrypt(plaintext: string): string {

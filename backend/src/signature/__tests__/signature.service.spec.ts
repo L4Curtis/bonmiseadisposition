@@ -11,6 +11,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { SignatureService } from '../signature.service';
+import { TimestampService } from '../timestamp.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EncryptionService } from '../../config/encryption.service';
 import { AppConfigService } from '../../config/config.service';
@@ -22,6 +23,7 @@ import {
   createMockEncryptionService,
   createMockPdfService,
   createMockSmbService,
+  createMockTimestampService,
 } from '../../common/__tests__/helpers/mock-services';
 import {
   sentMiseDispoBon,
@@ -120,6 +122,7 @@ describe('SignatureService', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: EncryptionService, useValue: encryption },
         { provide: AppConfigService, useValue: createMockConfigService() },
+        { provide: TimestampService, useValue: createMockTimestampService() },
         { provide: PdfService, useValue: pdfService },
         { provide: SmbService, useValue: smbService },
       ],

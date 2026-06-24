@@ -41,6 +41,9 @@ export function createMockSignatureService() {
       .mockResolvedValue({ it: null, collab: null }),
     getSignatureImageDecrypted: jest.fn().mockResolvedValue(null),
     saveItPvSignature: jest.fn().mockResolvedValue(undefined),
+    verifyBonIntegrity: jest
+      .fn()
+      .mockResolvedValue({ allValid: true, signatures: [] }),
   };
 }
 
@@ -110,6 +113,18 @@ export function createMockEncryptionService() {
     decrypt: jest
       .fn()
       .mockImplementation((data: string) => data.replace('encrypted:', '')),
+    seal: jest.fn().mockImplementation((data: string) => `seal:${data}`),
+    verifySeal: jest
+      .fn()
+      .mockImplementation((data: string, expected: string) => expected === `seal:${data}`),
+  };
+}
+
+// ── TimestampService (RFC 3161 — désactivé par défaut dans les tests) ──────────
+
+export function createMockTimestampService() {
+  return {
+    timestamp: jest.fn().mockResolvedValue(null),
   };
 }
 

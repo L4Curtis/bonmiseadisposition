@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils';
 import type { ElementType } from 'react';
 import {
   Settings, Server, Shield, Mail, Bell, Key, HardDrive, Activity,
-  FileText,
+  FileText, Clock, ShieldCheck,
 } from 'lucide-react';
 
 type SubNavItem = {
@@ -29,6 +29,8 @@ const configSubNav: SubNavSection = {
     { to: '/admin/configuration/rappels', label: 'Rappels', icon: Bell },
     { to: '/admin/configuration/tokens', label: 'Tokens', icon: Key },
     { to: '/admin/configuration/smb', label: 'Export SMB', icon: HardDrive },
+    { to: '/admin/configuration/timestamp', label: 'Horodatage', icon: Clock },
+    { to: '/admin/configuration/retention', label: 'Rétention RGPD', icon: ShieldCheck },
     { to: '/admin/configuration/monitoring', label: 'Monitoring SMB', icon: Activity },
   ],
 };

@@ -184,6 +184,15 @@ export class BonsController {
     return this.bonsService.markFound(id, dto.equipmentIds, user.id, dto.signatureDataUrl);
   }
 
+  /** GET /bons/:id/integrity — vérifie les sceaux HMAC des signatures (preuve
+   *  d'intégrité : détecte toute altération directe en base). */
+  @Get(':id/integrity')
+  @Roles('admin', 'technician', 'collaborator')
+  async getIntegrity(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    await this.verifyCollaboratorAccess(id, user);
+    return this.signatureService.verifyBonIntegrity(id);
+  }
+
   @Get(':id/pdf-snapshots')
   @Roles('admin', 'technician', 'collaborator')
   async getPdfSnapshots(@Param('id') id: string, @CurrentUser() user: AuthUser) {

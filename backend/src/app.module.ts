@@ -16,6 +16,9 @@ import { BonsModule } from './bons/bons.module';
 import { AuditModule } from './audit/audit.module';
 import { ContestationModule } from './contestation/contestation.module';
 import { TemplatesModule } from './templates/templates.module';
+import { AttachmentsModule } from './attachments/attachments.module';
+import { RetentionModule } from './retention/retention.module';
+import { ReportingModule } from './reporting/reporting.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -41,6 +44,9 @@ import { HealthController } from './health.controller';
     BonsModule,
     AuditModule,
     ContestationModule,
+    AttachmentsModule,
+    RetentionModule,
+    ReportingModule,
   ],
   controllers: [HealthController],
   providers: [

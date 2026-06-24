@@ -12,6 +12,7 @@ import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { EncryptionService } from '../config/encryption.service';
 import { AppConfigService } from '../config/config.service';
+import { TimestampService } from './timestamp.service';
 import { PdfService, SigImages, BonForPdf } from '../pdf/pdf.service';
 import { SmbService } from '../smb/smb.service';
 import { BonStatus, SignatureEntry, BON_SELECT_SHAPE, sanitizeBonForResponse, toSafeSignature } from '../common/types';
@@ -41,12 +42,57 @@ export class SignatureService {
     private readonly prisma: PrismaService,
     private readonly encryption: EncryptionService,
     private readonly configService: AppConfigService,
+    private readonly timestampService: TimestampService,
     private readonly pdfService: PdfService,
     private readonly smbService: SmbService,
   ) {
     // Ensure signatures directory exists
     if (!fs.existsSync(this.UPLOADS_DIR)) {
       fs.mkdirSync(this.UPLOADS_DIR, { recursive: true });
+    }
+  }
+
+  /**
+   * Charge canonique scellée par HMAC : version + identité + champs probants.
+   * Stable et ordonnée (toute modif d'un champ casse le sceau). Le scellement
+   * du PDF lui-même est couvert ailleurs (SHA-256 du snapshot + ProofArchive) ;
+   * ce sceau-ci protège l'intégrité de l'ENREGISTREMENT de signature en base.
+   */
+  private buildSealPayload(f: {
+    bonId: string;
+    signatureId: string;
+    type: string;
+    signerEmail: string | null;
+    signedAt: Date;
+    mentionLuApprouve: boolean;
+    isInPerson: boolean;
+    signedByProxy: boolean;
+  }): string {
+    return [
+      'seal-v1',
+      f.bonId,
+      f.signatureId,
+      f.type,
+      (f.signerEmail ?? '').toLowerCase().trim(),
+      f.signedAt.toISOString(),
+      f.mentionLuApprouve ? '1' : '0',
+      f.isInPerson ? '1' : '0',
+      f.signedByProxy ? '1' : '0',
+    ].join('|');
+  }
+
+  /** Horodatage RFC 3161 best-effort du sceau, persisté si la TSA répond. */
+  private async applyTimestamp(signatureId: string, seal: string): Promise<void> {
+    try {
+      const sealHash = crypto.createHash('sha256').update(seal, 'utf8').digest('hex');
+      const ts = await this.timestampService.timestamp(sealHash);
+      if (!ts) return;
+      await this.prisma.signature.update({
+        where: { id: signatureId },
+        data: { tsToken: ts.token, tsAuthority: ts.authority, tsAt: ts.at },
+      });
+    } catch (err) {
+      this.logger.warn(`Horodatage non persisté (signature conservée): ${(err as Error).message}`);
     }
   }
 
@@ -214,7 +260,7 @@ export class SignatureService {
     // Everything is re-checked INSIDE the transaction: the pre-transaction reads
     // (including the file write above) leave a window during which the token can
     // be invalidated or the bon cancelled/contested — the stale values must not win.
-    const { updatedSig, updatedBon, newStatus } = await this.prisma.$transaction(async (tx) => {
+    const { updatedSig, updatedBon, newStatus, seal } = await this.prisma.$transaction(async (tx) => {
       const freshSig = await tx.signature.findUnique({
         where: { token },
         select: { signed: true, tokenExpiresAt: true, bon: { select: { status: true } } },
@@ -232,17 +278,34 @@ export class SignatureService {
       // Compute the transition from the FRESH status, not the pre-transaction one
       const txNewStatus = this.getNextBonStatus(freshSig.bon.status, sig.type);
 
+      // Scellement probant : HMAC des champs au moment exact de la signature.
+      const signedAt = new Date();
+      const seal = this.encryption.seal(
+        this.buildSealPayload({
+          bonId: sig.bon.id,
+          signatureId: sig.id,
+          type: sig.type,
+          signerEmail,
+          signedAt,
+          mentionLuApprouve,
+          isInPerson: sig.isInPerson,
+          signedByProxy,
+        }),
+      );
+
       const txUpdatedSig = await tx.signature.update({
         where: { token },
         data: {
           signed: true,
           signatureImagePath,
-          signedAt: new Date(),
+          signedAt,
           signerEmail,
           signerIp,
           signerUserAgent,
           mentionLuApprouve,
           signedByProxy,
+          seal,
+          sealedAt: signedAt,
         },
       });
 
@@ -269,12 +332,15 @@ export class SignatureService {
         },
       });
 
-      return { updatedSig: txUpdatedSig, updatedBon: txUpdatedBon, newStatus: txNewStatus };
+      return { updatedSig: txUpdatedSig, updatedBon: txUpdatedBon, newStatus: txNewStatus, seal };
     });
 
     this.logger.log(
       `Bon ${sig.bon.reference} signé (${sig.type}) par ${signerEmail} — nouveau statut: ${newStatus}`,
     );
+
+    // Horodatage RFC 3161 du sceau — best-effort, hors transaction (appel réseau).
+    await this.applyTimestamp(updatedSig.id, seal);
 
     // Génération du snapshot PDF de preuve + SHA-256 — ATTENDUE (plus de fire &
     // forget) : une signature ne doit pas être confirmée sans que son document
@@ -412,6 +478,7 @@ export class SignatureService {
     const signatureImagePath = await this.saveSignatureFile(bonId, 'it_cachet', signatureDataUrl);
 
     // Create it_cachet signature record (already signed — no token exchange needed)
+    const signedAt = new Date();
     const itSig = await this.prisma.signature.create({
       data: {
         bonId,
@@ -420,7 +487,7 @@ export class SignatureService {
         tokenExpiresAt: new Date(0),
         signed: true,
         signatureImagePath,
-        signedAt: new Date(),
+        signedAt,
         signerEmail,
         signerIp,
         signerUserAgent,
@@ -428,6 +495,25 @@ export class SignatureService {
         isInPerson: true,
         initiatedById: null,
       },
+    });
+
+    // Scellement HMAC (anti-altération en base). Pas d'appel TSA pour le cachet
+    // interne : l'horodatage de confiance est réservé aux signatures liantes.
+    const itSeal = this.encryption.seal(
+      this.buildSealPayload({
+        bonId,
+        signatureId: itSig.id,
+        type: 'it_cachet',
+        signerEmail,
+        signedAt,
+        mentionLuApprouve: true,
+        isInPerson: true,
+        signedByProxy: false,
+      }),
+    );
+    await this.prisma.signature.update({
+      where: { id: itSig.id },
+      data: { seal: itSeal, sealedAt: signedAt },
     });
 
     // Audit log
@@ -546,6 +632,63 @@ export class SignatureService {
     return currentStatus;
   }
 
+  /**
+   * Vérifie l'intégrité probante des signatures d'un bon : recalcule chaque
+   * sceau HMAC et le compare à celui stocké. Toute altération directe en base
+   * (email, horodatage, mention…) casse le sceau → sealValid:false.
+   */
+  async verifyBonIntegrity(bonId: string): Promise<{
+    allValid: boolean;
+    signatures: Array<{
+      id: string;
+      type: string;
+      signed: boolean;
+      sealed: boolean;
+      sealValid: boolean | null;
+      timestamped: boolean;
+      timestampAuthority: string | null;
+      signedAt: Date | null;
+    }>;
+  }> {
+    const sigs = await this.prisma.signature.findMany({
+      where: { bonId, signed: true },
+      orderBy: { signedAt: 'asc' },
+    });
+
+    const signatures = sigs.map((s) => {
+      const sealed = !!s.seal;
+      let sealValid: boolean | null = null;
+      if (sealed && s.signedAt) {
+        const expected = this.buildSealPayload({
+          bonId: s.bonId,
+          signatureId: s.id,
+          type: s.type,
+          signerEmail: s.signerEmail,
+          signedAt: s.signedAt,
+          mentionLuApprouve: s.mentionLuApprouve,
+          isInPerson: s.isInPerson,
+          signedByProxy: s.signedByProxy,
+        });
+        sealValid = this.encryption.verifySeal(expected, s.seal as string);
+      }
+      return {
+        id: s.id,
+        type: s.type,
+        signed: s.signed,
+        sealed,
+        sealValid,
+        timestamped: !!s.tsToken,
+        timestampAuthority: s.tsAuthority ?? null,
+        signedAt: s.signedAt,
+      };
+    });
+
+    // Valide si tout enregistrement scellé l'est correctement (les non scellés —
+    // ex. signatures antérieures à cette version — ne rendent pas le bon invalide)
+    const allValid = signatures.every((s) => s.sealValid !== false);
+    return { allValid, signatures };
+  }
+
   /** Invalidate all unsigned tokens for a bon (used when bon enters contested state) */
   async invalidateUnsignedTokens(bonId: string): Promise<void> {
     await this.prisma.signature.updateMany({
@@ -568,7 +711,8 @@ export class SignatureService {
       throw new Error('Format de signature invalide');
     }
     const signatureImagePath = await this.saveSignatureFile(bonId, 'it_cachet', signatureDataUrl);
-    await this.prisma.signature.create({
+    const signedAt = new Date();
+    const created = await this.prisma.signature.create({
       data: {
         bonId,
         type: 'it_cachet',
@@ -576,12 +720,28 @@ export class SignatureService {
         tokenExpiresAt: new Date(0),
         signed: true,
         signatureImagePath,
-        signedAt: new Date(),
+        signedAt,
         signerEmail,
         mentionLuApprouve: true,
         isInPerson: true,
         initiatedById: userId,
       },
+    });
+    const seal = this.encryption.seal(
+      this.buildSealPayload({
+        bonId,
+        signatureId: created.id,
+        type: 'it_cachet',
+        signerEmail,
+        signedAt,
+        mentionLuApprouve: true,
+        isInPerson: true,
+        signedByProxy: false,
+      }),
+    );
+    await this.prisma.signature.update({
+      where: { id: created.id },
+      data: { seal, sealedAt: signedAt },
     });
   }
 }

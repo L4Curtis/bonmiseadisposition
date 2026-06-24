@@ -21,6 +21,10 @@ const ALLOWED_CONFIG_KEYS: Record<string, string[]> = {
   smb: ['enabled', 'path', 'username', 'password', 'domain'],
   rappels: ['enabled', 'delay_1', 'delay_2', 'delay_3'],
   tokens: ['expiry_days'],
+  // Horodatage RFC 3161 optionnel des sceaux de signature
+  timestamp: ['enabled', 'tsa_url'],
+  // Rétention RGPD : anonymisation auto des bons clôturés/annulés anciens
+  retention: ['enabled', 'anonymize_months', 'attachment_months'],
 };
 
 const ALLOWED_CATEGORIES = Object.keys(ALLOWED_CONFIG_KEYS);
@@ -36,8 +40,8 @@ export class AdminController {
     private readonly smbService: SmbService,
   ) {}
 
-  // Catégories réservées aux admins (contiennent des infos sensibles même masquées)
-  private static readonly ADMIN_ONLY_CATEGORIES = ['entra', 'ldap', 'smtp', 'smb'];
+  // Catégories réservées aux admins (infos sensibles ou impact réglementaire)
+  private static readonly ADMIN_ONLY_CATEGORIES = ['entra', 'ldap', 'smtp', 'smb', 'timestamp', 'retention'];
 
   // ── SMB monitoring (MUST be declared before config/:category to avoid capture) ─
   @Get('smb/status')

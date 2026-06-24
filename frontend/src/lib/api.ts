@@ -84,6 +84,19 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return parseJsonResponse<T>(res);
 }
 
+/** Envoi multipart (upload de fichier). On NE fixe PAS Content-Type : le
+ *  navigateur ajoute la frontière multipart lui-même. */
+async function requestForm<T>(path: string, form: FormData): Promise<T> {
+  const init: RequestInit = { method: 'POST', body: form, headers: CSRF_HEADER, credentials: 'include' };
+  const res = await fetch(`${BASE_URL}${path}`, init);
+  if (res.status === 401) {
+    await refreshSession();
+    const retryRes = await fetch(`${BASE_URL}${path}`, init);
+    return parseJsonResponse<T>(retryRes);
+  }
+  return parseJsonResponse<T>(res);
+}
+
 async function requestBlob(path: string): Promise<Blob> {
   const init: RequestInit = { headers: CSRF_HEADER, credentials: 'include' };
   const res = await fetch(`${BASE_URL}${path}`, init);
@@ -102,6 +115,7 @@ async function requestBlob(path: string): Promise<Blob> {
 export const api = {
   get: <T>(path: string) => request<T>(path),
   getBlob: (path: string) => requestBlob(path),
+  postForm: <T>(path: string, form: FormData) => requestForm<T>(path, form),
   post: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: 'POST', body: JSON.stringify(body) }),
   put: <T>(path: string, body?: unknown) =>

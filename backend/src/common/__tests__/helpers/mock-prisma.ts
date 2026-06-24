@@ -64,6 +64,7 @@ export function createMockPrismaService(): MockPrismaService {
 
     // ── BonEquipment ───────────────────────────────────────────────────────────
     bonEquipment: {
+      findMany: jest.fn(),
       updateMany: jest.fn(),
       count: jest.fn(),
       deleteMany: jest.fn(),
@@ -93,7 +94,8 @@ export function createMockPrismaService(): MockPrismaService {
 
     // ── AuditLog ───────────────────────────────────────────────────────────────
     auditLog: {
-      create: jest.fn(),
+      // Resolved par défaut : certains appelants chaînent .catch() (non-bloquant)
+      create: jest.fn().mockResolvedValue({}),
       findFirst: jest.fn(),
       count: jest.fn(),
     },
@@ -108,6 +110,7 @@ export function createMockPrismaService(): MockPrismaService {
       findMany: jest.fn(),
       findUnique: jest.fn(),
       upsert: jest.fn(),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
 
     // ── ProofArchive (append-only) ───────────────────────────────────────────────
@@ -115,6 +118,18 @@ export function createMockPrismaService(): MockPrismaService {
       findMany: jest.fn(),
       findFirst: jest.fn(),
       create: jest.fn().mockResolvedValue({}),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      count: jest.fn(),
+    },
+
+    // ── Attachment (pièces jointes) ──────────────────────────────────────────────
+    attachment: {
+      findMany: jest.fn(),
+      findUnique: jest.fn(),
+      findFirst: jest.fn(),
+      create: jest.fn(),
+      delete: jest.fn(),
+      deleteMany: jest.fn(),
       count: jest.fn(),
     },
 
