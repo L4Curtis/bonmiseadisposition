@@ -73,6 +73,13 @@
 
 ## Résumés & Références rapides
 
+### Sauvegarde & reprise d'activité ⭐ CRITIQUE
+**[SAUVEGARDE-REPRISE.md](SAUVEGARDE-REPRISE.md)**
+- Les 3 éléments indissociables : base PostgreSQL + volume `data/` + `ENCRYPTION_KEY`
+- Scripts `scripts/backup.sh` / `scripts/restore.sh` (dump + archive + manifeste SHA-256)
+- Séquestre de la clé, planification cron, RPO/RTO
+- Canari `ENCRYPTION_KEY` au démarrage (fail-fast si la clé a changé)
+
 ### Résumé sécurité
 **[../SECURITY_SUMMARY.md](../SECURITY_SUMMARY.md)** ⭐ NOUVEAU
 - Vue d'ensemble : 10 corrections en une page
@@ -127,6 +134,7 @@
 | **Comment fonctionne le hardening en détail ?** | [phase6-security.md](phase6-security.md) |
 | **Qu'est-ce qu'il y a dans ce projet ?** | [AGENDA.md](../AGENDA.md) (section 1-4) |
 | **Comment déployer en production ?** | [phase5.md](phase5.md) (section 6) |
+| **Comment sauvegarder / restaurer l'app ?** | [SAUVEGARDE-REPRISE.md](SAUVEGARDE-REPRISE.md) |
 | **Quels sont les endpoints API ?** | [AGENDA.md](../AGENDA.md) (section 8) ou [PROJECT_STRUCTURE.md](../PROJECT_STRUCTURE.md) (section "API Backend") |
 | **Comment fonctionne le workflow des bons ?** | [phase3.md](phase3.md) (section 1) |
 | **Quelle est la structure de fichiers ?** | [PROJECT_STRUCTURE.md](../PROJECT_STRUCTURE.md) |
@@ -142,6 +150,7 @@
 ### Pour l'administrateur système (déploiement)
 - [ ] Lire [README.md](../README.md) — CI/CD & déploiement Portainer
 - [ ] Lire [phase5.md](phase5.md) — Configuration Docker production
+- [ ] **Mettre en place les sauvegardes + séquestrer `ENCRYPTION_KEY`** — [SAUVEGARDE-REPRISE.md](SAUVEGARDE-REPRISE.md)
 - [ ] Vérifier [phase6-security.md](phase6-security.md) — Checklist post-déploiement
 - [ ] Consulter [AGENDA.md](../AGENDA.md) — Section 9 pour déboguer
 

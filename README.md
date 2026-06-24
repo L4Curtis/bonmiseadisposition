@@ -45,6 +45,11 @@ openssl rand -base64 24
 
 Copier les trois valeurs, elles seront collées dans Portainer.
 
+> 🔐 **Conservez l'`ENCRYPTION_KEY` hors du serveur** (gestionnaire de secrets,
+> coffre-fort) dès maintenant. Elle ne doit jamais changer, et **sans elle aucune
+> sauvegarde n'est exploitable** (signatures, pièces jointes et secrets resteront
+> chiffrés). Voir **[Sauvegarde & reprise](#sauvegarde--reprise-dactivité)**.
+
 ---
 
 ### Étape 2 — Créer la Stack dans Portainer
@@ -146,6 +151,54 @@ Les volumes `pgdata` et `data` sont conservés — aucune donnée perdue.
 
 ---
 
+## Sauvegarde & reprise d'activité
+
+> ⚠️ **Critique.** Cette application est un système de preuve : la perte de
+> données ou de la clé de chiffrement est **irréversible**. Mettez en place les
+> sauvegardes dès la mise en production.
+
+### Les 3 éléments indissociables
+
+| Élément | Où | Sans lui… |
+|---------|-----|-----------|
+| **Base PostgreSQL** (`pgdata`) | volume du conteneur `db` | aucune donnée |
+| **Volume `data/`** (signatures + pièces jointes chiffrées) | conteneur `backend` (`/app/data`) | signatures/photos manquantes |
+| **`ENCRYPTION_KEY`** | variable d'environnement (Portainer) | base + volume **illisibles** |
+
+> Les trois vont ensemble. Une sauvegarde de la base + `data/` **sans** la clé
+> est inexploitable. **Sauvegardez `ENCRYPTION_KEY` séparément**, hors du serveur.
+
+### Sauvegarder
+
+Script fourni (dump PostgreSQL + archive `data/` + manifeste SHA-256). Adaptez
+les noms de conteneurs à votre stack (`docker ps`) :
+
+```bash
+DB_CONTAINER=bons-disposition-db-1 \
+BACKEND_CONTAINER=bons-disposition-backend-1 \
+POSTGRES_USER=app POSTGRES_DB=bons_disposition \
+./scripts/backup.sh /srv/backups/bons
+```
+
+À **planifier** (cron quotidien) et **répliquer hors site**. Testez
+régulièrement une restauration : une sauvegarde jamais restaurée n'en est pas une.
+
+### Restaurer
+
+```bash
+DB_CONTAINER=bons-disposition-db-1 BACKEND_CONTAINER=bons-disposition-backend-1 \
+POSTGRES_USER=app POSTGRES_DB=bons_disposition \
+./scripts/restore.sh /srv/backups/bons/AAAAMMJJ-HHMMSS
+```
+
+L'environnement cible doit avoir **la même `ENCRYPTION_KEY`** : sinon le **canari
+de démarrage** bloque le backend (`ENCRYPTION_KEY invalide…`) au lieu de corrompre
+les données — c'est volontaire, restaurez la bonne clé.
+
+📖 **Procédure complète, RPO/RTO et séquestre de la clé : [docs/SAUVEGARDE-REPRISE.md](docs/SAUVEGARDE-REPRISE.md)**
+
+---
+
 ## Architecture
 
 ```
@@ -169,7 +222,7 @@ Internet / Intranet
 
 | Variable | Requis | Description |
 |----------|--------|-------------|
-| `ENCRYPTION_KEY` | ✅ | Clé AES-256-GCM 64 hex. Chiffre signatures PNG + config DB. **Immuable.** |
+| `ENCRYPTION_KEY` | ✅ | Clé AES-256-GCM 64 hex. Chiffre signatures + pièces jointes + config DB. **Immuable** et à **sauvegarder hors serveur** (cf. [Sauvegarde](#sauvegarde--reprise-dactivité)). |
 | `JWT_SECRET` | ✅ | Secret de signature JWT. Doit être différent de `ENCRYPTION_KEY`. |
 | `POSTGRES_PASSWORD` | ✅ | Mot de passe PostgreSQL |
 | `FRONTEND_URL` | ✅ | URL HTTPS publique sans slash. CORS + redirects SSO + liens emails |

@@ -11,18 +11,21 @@
 #    serveur (gestionnaire de secrets / coffre). Ce script le rappelle mais ne
 #    stocke JAMAIS la clé dans l'archive (ce serait contre-productif).
 #
-# Usage :
-#   DB_CONTAINER=test-bondisposition-db-1 \
-#   BACKEND_CONTAINER=test-bondisposition-backend-1 \
-#   POSTGRES_USER=bons POSTGRES_DB=bons_disposition \
+# Usage (adaptez les noms de conteneurs à VOTRE stack — voir `docker ps`) :
+#   DB_CONTAINER=bons-disposition-db-1 \
+#   BACKEND_CONTAINER=bons-disposition-backend-1 \
+#   POSTGRES_USER=app POSTGRES_DB=bons_disposition \
 #   ./scripts/backup.sh /chemin/vers/backups
+#
+# Défauts alignés sur docker-compose.prod.yml (user=app, db=bons_disposition)
+# et un nom de stack Portainer « bons-disposition ».
 #
 set -euo pipefail
 
 OUT_DIR="${1:-./backups}"
-DB_CONTAINER="${DB_CONTAINER:-bondisposition-db-1}"
-BACKEND_CONTAINER="${BACKEND_CONTAINER:-bondisposition-backend-1}"
-POSTGRES_USER="${POSTGRES_USER:-bons}"
+DB_CONTAINER="${DB_CONTAINER:-bons-disposition-db-1}"
+BACKEND_CONTAINER="${BACKEND_CONTAINER:-bons-disposition-backend-1}"
+POSTGRES_USER="${POSTGRES_USER:-app}"
 POSTGRES_DB="${POSTGRES_DB:-bons_disposition}"
 DATA_DIR_IN_CONTAINER="${DATA_DIR_IN_CONTAINER:-/app/data}"
 

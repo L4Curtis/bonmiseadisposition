@@ -29,10 +29,15 @@ Ce document décrit quoi sauvegarder, comment, et comment restaurer.
 
 ## Sauvegarde
 
+Les valeurs par défaut sont alignées sur `docker-compose.prod.yml`
+(`POSTGRES_USER=app`, `POSTGRES_DB=bons_disposition`). **Vérifiez le nom exact
+de vos conteneurs** avec `docker ps` (le préfixe dépend du nom de votre stack
+Portainer) et surchargez si besoin :
+
 ```bash
-DB_CONTAINER=test-bondisposition-db-1 \
-BACKEND_CONTAINER=test-bondisposition-backend-1 \
-POSTGRES_USER=<user> POSTGRES_DB=<db> \
+DB_CONTAINER=bons-disposition-db-1 \
+BACKEND_CONTAINER=bons-disposition-backend-1 \
+POSTGRES_USER=app POSTGRES_DB=bons_disposition \
 ./scripts/backup.sh /srv/backups/bons
 ```
 
@@ -41,11 +46,25 @@ dans un dossier horodaté. À planifier (cron quotidien) et à **répliquer hors
 site**. Testez régulièrement une restauration sur un environnement jetable :
 une sauvegarde jamais restaurée n'est pas une sauvegarde.
 
+### Planification (exemple cron quotidien à 2h)
+
+```cron
+0 2 * * * /srv/app/scripts/backup.sh /srv/backups/bons >> /var/log/bons-backup.log 2>&1
+```
+
+### Alternative : sauvegarde des volumes Docker
+
+Si vous préférez sauvegarder les volumes nommés directement (`<stack>_pgdata`,
+`<stack>_data`), un dump logique reste recommandé pour la base (cohérence
+transactionnelle) — la copie de volume Postgres « à chaud » peut être
+incohérente. Le script ci-dessus utilise `pg_dump` justement pour cette raison.
+
 ## Restauration
 
 1. Provisionner l'environnement cible avec **la même `ENCRYPTION_KEY`**.
 2. ```bash
-   DB_CONTAINER=… BACKEND_CONTAINER=… POSTGRES_USER=… POSTGRES_DB=… \
+   DB_CONTAINER=bons-disposition-db-1 BACKEND_CONTAINER=bons-disposition-backend-1 \
+   POSTGRES_USER=app POSTGRES_DB=bons_disposition \
    ./scripts/restore.sh /srv/backups/bons/AAAAMMJJ-HHMMSS
    ```
 3. Redémarrer le backend, vérifier les logs : le **canari** doit passer
