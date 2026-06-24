@@ -126,6 +126,21 @@ proxy_set_header X-Forwarded-Proto $scheme;
 > la même machine, pour empêcher un accès direct au port 5147 (qui permettrait de
 > forger ces en-têtes).
 
+### Variante — Cloudflare Tunnel (cloudflared)
+
+Si l'accès se fait via un **tunnel Cloudflare** pointant directement sur
+`http://<ip-vm>:5147` (pas de NPM), **rien à configurer** : Cloudflare pose
+l'en-tête `CF-Connecting-IP` (IP réelle du visiteur), et le nginx du conteneur
+frontend la reconnaît automatiquement et la transmet au backend (ordre de
+confiance : `CF-Connecting-IP` → `X-Real-IP` → connexion directe).
+
+> 🔒 Pour que cette IP soit **infalsifiable**, le port `5147` ne doit être
+> joignable que par le tunnel. Si `cloudflared` tourne sur la même VM, faites-le
+> pointer sur `http://localhost:5147` et publiez le frontend sur la boucle locale
+> uniquement : `FRONTEND_BIND=127.0.0.1` (ou `ports: ["127.0.0.1:5147:8080"]`).
+> Sinon, un client du LAN pourrait taper `http://<ip-vm>:5147` directement et
+> forger `CF-Connecting-IP`.
+
 ---
 
 ### Étape 6 — Premier accès
