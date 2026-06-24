@@ -54,6 +54,36 @@ export class AuditService {
       this.prisma.auditLog.count({ where }),
     ]);
 
+    // Uniformisation : beaucoup d'entrées (login, signature, cachet) ne sont
+    // tracées qu'avec userEmail (pas de userId → relation user nulle). On résout
+    // le nom d'affichage par email pour que la colonne « Utilisateur » présente
+    // partout le même format (nom + email), pas tantôt l'un tantôt l'autre.
+    const emailsToResolve = [
+      ...new Set(
+        logs
+          .filter((l) => !l.user && l.userEmail)
+          .map((l) => (l.userEmail as string).toLowerCase()),
+      ),
+    ];
+    if (emailsToResolve.length > 0) {
+      const users = await this.prisma.user.findMany({
+        where: { email: { in: emailsToResolve } },
+        select: { email: true, displayName: true },
+      });
+      const nameByEmail = new Map(users.map((u) => [u.email.toLowerCase(), u.displayName]));
+      const enriched = logs.map((l) => {
+        if (!l.user && l.userEmail) {
+          const displayName = nameByEmail.get(l.userEmail.toLowerCase());
+          if (displayName) {
+            // resolved:true signale au front un nom déduit de l'email (pas une relation)
+            return { ...l, user: { id: null, displayName, email: l.userEmail, resolved: true } };
+          }
+        }
+        return l;
+      });
+      return { logs: enriched, total, page, limit };
+    }
+
     return { logs, total, page, limit };
   }
 

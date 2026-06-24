@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { formatDateTime } from '@/lib/utils';
+import { BON_STATUS_LABELS, type BonStatus } from '@/types';
 import { useNavigate } from 'react-router-dom';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -23,9 +24,10 @@ interface AuditLog {
   userEmail?: string;
   ipAddress?: string;
   createdAt: string;
-  details?: Record<string, any>;
+  details?: Record<string, unknown>;
   bon?: { id: string; reference: string } | null;
-  user?: { displayName: string; email: string } | null;
+  // `resolved` = nom déduit de l'email côté backend (pas une vraie relation user)
+  user?: { displayName: string; email: string; resolved?: boolean } | null;
 }
 
 interface AuditResponse {
@@ -37,41 +39,137 @@ interface AuditResponse {
 
 // ─── Action label mapping ─────────────────────────────────────────────────────
 
+const BLUE = 'bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400';
+const GREEN = 'bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400';
+const RED = 'bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400';
+const YELLOW = 'bg-yellow-100 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400';
+const ORANGE = 'bg-orange-100 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400';
+const AMBER = 'bg-amber-100 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400';
+const PURPLE = 'bg-purple-100 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400';
+const INDIGO = 'bg-indigo-100 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400';
+const CYAN = 'bg-cyan-100 dark:bg-cyan-900/20 text-cyan-700 dark:text-cyan-400';
+const SLATE = 'bg-slate-100 dark:bg-slate-800/40 text-slate-600 dark:text-slate-400';
+const MUTED = 'bg-muted text-muted-foreground';
+
 const ACTION_LABELS: Record<string, { label: string; color: string }> = {
   // Auth
-  login_sso:                 { label: 'Connexion SSO',           color: 'bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400' },
-  login_local_success:       { label: 'Connexion locale',        color: 'bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400' },
-  login_local_failed:        { label: 'Tentative echouee',       color: 'bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400' },
-  logout:                    { label: 'Deconnexion',             color: 'bg-muted text-muted-foreground' },
-  password_changed:          { label: 'Mot de passe modifie',    color: 'bg-yellow-100 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400' },
+  login_sso:                   { label: 'Connexion SSO',            color: BLUE },
+  login_local_success:         { label: 'Connexion locale',         color: GREEN },
+  login_local_failed:          { label: 'Tentative échouée',        color: RED },
+  logout:                      { label: 'Déconnexion',              color: MUTED },
+  password_changed:            { label: 'Mot de passe modifié',     color: YELLOW },
   // Bons — cycle de vie
-  bon_created:               { label: 'Bon cree',                color: 'bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400' },
-  bon_sent:                  { label: 'Bon envoye',              color: 'bg-indigo-100 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400' },
-  bon_cancelled:             { label: 'Bon annule',              color: 'bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400' },
-  restitution_initiated:     { label: 'Restitution initiee',     color: 'bg-purple-100 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400' },
-  declare_not_returned:      { label: 'Materiel non rendu',      color: 'bg-orange-100 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400' },
-  mark_found:                { label: 'Materiel retrouve',       color: 'bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400' },
-  reminder_sent:             { label: 'Rappel envoye',           color: 'bg-orange-100 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400' },
+  bon_created:                 { label: 'Bon créé',                 color: BLUE },
+  bon_sent:                    { label: 'Bon envoyé',               color: INDIGO },
+  bon_cancelled:               { label: 'Bon annulé',               color: RED },
+  bon_closed_unilateral:       { label: 'Clôture unilatérale',      color: ORANGE },
+  bon_corrected:               { label: 'Bon corrigé',              color: BLUE },
+  bon_anonymized:              { label: 'Anonymisé (RGPD)',         color: SLATE },
+  restitution_initiated:       { label: 'Restitution initiée',      color: PURPLE },
+  declare_not_returned:        { label: 'Matériel non rendu',       color: ORANGE },
+  declare_not_returned_partial:{ label: 'Non rendu (partiel)',      color: ORANGE },
+  mark_found:                  { label: 'Matériel retrouvé',        color: GREEN },
+  reminder_sent:               { label: 'Rappel envoyé',            color: ORANGE },
+  pdf_snapshot_saved:          { label: 'Document PDF généré',      color: SLATE },
   // Signatures
-  signed_mise_disposition:   { label: 'Signe — Mise a dispo',    color: 'bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400' },
-  signed_restitution:        { label: 'Signe — Restitution',     color: 'bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400' },
-  signed_pv_cloture:         { label: 'Signe — PV cloture',      color: 'bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400' },
-  signed_it_cachet:          { label: 'Cachet IT',               color: 'bg-muted text-foreground/80' },
+  signed_mise_disposition:     { label: 'Signé — Mise à dispo',     color: GREEN },
+  signed_restitution:          { label: 'Signé — Restitution',      color: GREEN },
+  signed_pv_cloture:           { label: 'Signé — PV clôture',       color: GREEN },
+  signed_it_cachet:            { label: 'Cachet IT',                color: SLATE },
+  // Pièces jointes
+  attachment_uploaded:         { label: 'Pièce jointe ajoutée',     color: CYAN },
+  attachment_deleted:          { label: 'Pièce jointe supprimée',   color: RED },
   // Contestations
-  bon_contested:             { label: 'Contestation creee',      color: 'bg-amber-100 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400' },
-  contestation_resolved:     { label: 'Contestation acceptee',   color: 'bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400' },
-  contestation_rejected:     { label: 'Contestation refusee',    color: 'bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400' },
+  bon_contested:               { label: 'Contestation créée',       color: AMBER },
+  contestation_resolved:       { label: 'Contestation acceptée',    color: GREEN },
+  contestation_rejected:       { label: 'Contestation refusée',     color: RED },
   // Admin
-  config_updated:            { label: 'Config modifiee',         color: 'bg-yellow-100 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400' },
-  ldap_sync:                 { label: 'Sync LDAP',               color: 'bg-cyan-100 dark:bg-cyan-900/20 text-cyan-700 dark:text-cyan-400' },
+  config_updated:              { label: 'Config modifiée',          color: YELLOW },
+  ldap_sync:                   { label: 'Sync LDAP',                color: CYAN },
+  pdf_template_updated:        { label: 'Modèle PDF modifié',       color: YELLOW },
+  pdf_template_reset:          { label: 'Modèle PDF réinitialisé',  color: MUTED },
+  pdf_templates_imported:      { label: 'Modèles PDF importés',     color: YELLOW },
 };
 
+function actionMeta(action: string) {
+  return ACTION_LABELS[action] ?? { label: action, color: MUTED };
+}
+
 function actionBadge(action: string) {
-  const meta = ACTION_LABELS[action] ?? { label: action, color: 'bg-muted text-muted-foreground' };
+  const meta = actionMeta(action);
   return (
     <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${meta.color}`}>
       {meta.label}
     </span>
+  );
+}
+
+// ─── Détails lisibles ───────────────────────────────────────────────────────
+
+const SNAPSHOT_TYPE_LABELS: Record<string, string> = {
+  signature_it_mise_disposition: 'Cachet IT (mise à dispo)',
+  signature_collab_mise_disposition: 'Mise à dispo signée',
+  signature_it_restitution: 'Cachet IT (restitution)',
+  signature_collab_restitution: 'Restitution signée',
+  cloture_equipements_manquants: 'PV équipements manquants',
+  avenant_equipement_retrouve: 'Avenant équipement retrouvé',
+};
+
+const STAGE_LABELS: Record<string, string> = {
+  mise_disposition: 'Mise à disposition',
+  restitution: 'Restitution',
+  pv_cloture: 'PV de clôture',
+  general: 'Général',
+};
+
+function truncate(s: string, n: number): string {
+  return s.length > n ? `${s.slice(0, n)}…` : s;
+}
+
+/** Transforme une paire clé/valeur de `details` en libellé lisible, ou null si
+ *  c'est du bruit (clé technique, booléen faux). */
+function formatDetailEntry(key: string, value: unknown): string | null {
+  if (value === null || value === undefined || value === '') return null;
+  switch (key) {
+    case 'type': return SNAPSHOT_TYPE_LABELS[String(value)] ?? String(value);
+    case 'sha256': return `SHA-256 ${String(value).slice(0, 10)}…`;
+    case 'newStatus':
+    case 'currentStatus': return `Statut : ${BON_STATUS_LABELS[value as BonStatus] ?? String(value)}`;
+    case 'isInPerson': return value ? 'Présentiel' : null;
+    case 'signedByProxy': return value ? 'Mandataire' : null;
+    case 'mentionLuApprouve': return value ? 'Lu & approuvé' : null;
+    case 'manual': return value ? 'Manuel' : null;
+    case 'remaining': return `${value} restant(s)`;
+    case 'reason':
+    case 'message': return `« ${truncate(String(value), 60)} »`;
+    case 'stage': return STAGE_LABELS[String(value)] ?? String(value);
+    case 'mimeType': return String(value);
+    case 'size': return `${Math.max(1, Math.round(Number(value) / 1024))} Ko`;
+    // Clés techniques masquées (redondantes / bruit)
+    case 'filename':
+    case 'titulaireEmail':
+    case 'attachmentId': return null;
+    default: return `${key} : ${truncate(String(value), 40)}`;
+  }
+}
+
+function DetailCell({ details }: { details?: Record<string, unknown> }) {
+  if (!details) return <span className="text-muted-foreground/70">—</span>;
+  const chips = Object.entries(details)
+    .map(([k, v]) => formatDetailEntry(k, v))
+    .filter((x): x is string => !!x);
+  if (chips.length === 0) return <span className="text-muted-foreground/70">—</span>;
+  return (
+    <div className="flex flex-wrap gap-1" title={JSON.stringify(details, null, 2)}>
+      {chips.map((c, i) => (
+        <span
+          key={i}
+          className="inline-flex items-center rounded-md bg-muted/60 px-1.5 py-0.5 text-[11px] text-muted-foreground whitespace-nowrap"
+        >
+          {c}
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -128,10 +226,10 @@ export function AuditLogsPage() {
     <div className="space-y-4">
       <div className="flex items-center gap-2">
         <Shield className="h-5 w-5 text-muted-foreground/70" />
-        <h1 className="text-xl font-bold text-foreground">Logs d'audit</h1>
+        <h1 className="text-xl font-bold text-foreground">Journal d'audit</h1>
         {data && (
           <span className="text-sm text-muted-foreground/70">
-            ({data.total} entree{data.total > 1 ? 's' : ''})
+            ({data.total} entrée{data.total > 1 ? 's' : ''})
           </span>
         )}
       </div>
@@ -183,7 +281,7 @@ export function AuditLogsPage() {
 
           <div className="mt-3 flex gap-2">
             <Button size="sm" onClick={applySearch}>Rechercher</Button>
-            <Button size="sm" variant="outline" onClick={resetFilters}>Reinitialiser</Button>
+            <Button size="sm" variant="outline" onClick={resetFilters}>Réinitialiser</Button>
           </div>
         </CardContent>
       </Card>
@@ -194,7 +292,7 @@ export function AuditLogsPage() {
           <XCircle className="h-8 w-8 mx-auto mb-2 text-red-400" />
           <p className="text-sm text-red-700 dark:text-red-400">{loadError}</p>
           <Button variant="outline" size="sm" onClick={load} className="mt-3 text-red-600 hover:text-red-800">
-            Reessayer
+            Réessayer
           </Button>
         </div>
       )}
@@ -218,7 +316,7 @@ export function AuditLogsPage() {
           ) : !data?.logs.length ? (
             <div className="py-12 text-center text-sm text-muted-foreground/70">
               <Shield className="h-8 w-8 mx-auto mb-2 opacity-30" />
-              <p>Aucune entree trouvee</p>
+              <p>Aucune entrée trouvée</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -230,7 +328,7 @@ export function AuditLogsPage() {
                     <th className="px-4 py-3 text-left font-medium text-muted-foreground">Utilisateur</th>
                     <th className="px-4 py-3 text-left font-medium text-muted-foreground">Bon</th>
                     <th className="px-4 py-3 text-left font-medium text-muted-foreground">IP</th>
-                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">Details</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">Détails</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -241,14 +339,19 @@ export function AuditLogsPage() {
                       </td>
                       <td className="px-4 py-2.5">{actionBadge(log.action)}</td>
                       <td className="px-4 py-2.5 text-xs">
-                        {log.user ? (
-                          <div>
-                            <div className="font-medium text-foreground/80">{log.user.displayName}</div>
-                            <div className="text-muted-foreground/70">{log.userEmail ?? log.user.email}</div>
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground/70">{log.userEmail ?? '\u2014'}</span>
-                        )}
+                        {(() => {
+                          const name = log.user?.displayName;
+                          const email = log.userEmail ?? log.user?.email ?? null;
+                          if (!name && !email) return <span className="text-muted-foreground/70">{'\u2014'}</span>;
+                          return (
+                            <div className="leading-tight">
+                              <div className="font-medium text-foreground/80">{name ?? email}</div>
+                              {name && email && email !== name && (
+                                <div className="text-muted-foreground/70">{email}</div>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="px-4 py-2.5 text-xs">
                         {log.bon ? (
@@ -264,12 +367,8 @@ export function AuditLogsPage() {
                       <td className="px-4 py-2.5 text-xs text-muted-foreground/70 font-mono">
                         {log.ipAddress ?? '\u2014'}
                       </td>
-                      <td className="px-4 py-2.5 text-xs text-muted-foreground max-w-xs">
-                        {log.details ? (
-                          <pre className="truncate text-xs bg-muted/40 rounded px-1.5 py-0.5 border text-muted-foreground max-w-[200px]">
-                            {JSON.stringify(log.details)}
-                          </pre>
-                        ) : '\u2014'}
+                      <td className="px-4 py-2.5 text-xs text-muted-foreground max-w-sm">
+                        <DetailCell details={log.details} />
                       </td>
                     </tr>
                   ))}
@@ -283,7 +382,7 @@ export function AuditLogsPage() {
       {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>{data?.total} entree{(data?.total ?? 0) > 1 ? 's' : ''}</span>
+          <span>{data?.total} entrée{(data?.total ?? 0) > 1 ? 's' : ''}</span>
           <div className="flex items-center gap-1">
             <Button variant="outline" size="icon" disabled={page === 1} onClick={() => setPage((p) => p - 1)} aria-label="Page précédente">
               <ChevronLeft className="h-4 w-4" />
