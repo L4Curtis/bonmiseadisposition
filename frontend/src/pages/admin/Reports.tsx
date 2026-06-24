@@ -3,7 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
 import { toast } from '@/hooks/use-toast';
-import { BarChart3, Package, Clock, Download, Loader2 } from 'lucide-react';
+import { formatDateTime } from '@/lib/utils';
+import { BarChart3, Package, Clock, Download, Loader2, MailWarning } from 'lucide-react';
 
 interface Overview {
   circulating: {
@@ -19,7 +20,25 @@ interface Overview {
     byDepartment: { name: string; count: number }[];
   };
   monthly: { month: string; created: number; archived: number }[];
+  failedNotifications: {
+    count: number;
+    windowDays: number;
+    items: { id: string; bonId: string | null; reference: string; recipient: string; type: string; sentAt: string; error: string }[];
+  };
 }
+
+const NOTIF_TYPE_LABELS: Record<string, string> = {
+  mise_dispo_request: 'Demande de signature (mise à dispo)',
+  restitution_request: 'Demande de signature (restitution)',
+  pv_cloture_request: 'Demande de signature (PV)',
+  reminder: 'Rappel',
+  confirmation: 'Confirmation',
+  contestation_alert: 'Alerte contestation',
+  contestation_resolution: 'Résolution contestation',
+  cancellation: 'Annulation',
+  mark_found: 'Équipement retrouvé',
+  unilateral_closure: 'Clôture unilatérale',
+};
 
 function StatCard({ icon: Icon, label, value, hint }: { icon: React.ElementType; label: string; value: number; hint?: string }) {
   return (
@@ -109,9 +128,10 @@ export function ReportsPage() {
         </Button>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard icon={Package} label="Équipements en circulation" value={data.circulating.totalEquipments} hint={`${data.circulating.totalBons} bon(s) actif(s)`} />
         <StatCard icon={Clock} label="Bons en retard de signature" value={data.overdue.count} hint={`> ${data.overdue.thresholdDays} jours`} />
+        <StatCard icon={MailWarning} label="Emails non délivrés (30 j)" value={data.failedNotifications.count} />
         <StatCard icon={BarChart3} label="Bons créés (mois en cours)" value={data.monthly[data.monthly.length - 1]?.created ?? 0} />
       </div>
 
@@ -184,6 +204,45 @@ export function ReportsPage() {
           )}
         </CardContent>
       </Card>
+
+      {data.failedNotifications.count > 0 && (
+        <Card className="border-amber-300/60">
+          <CardHeader>
+            <CardTitle className="text-sm flex items-center gap-2 text-amber-700 dark:text-amber-400">
+              <MailWarning className="h-4 w-4" /> Emails non délivrés (30 derniers jours)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <p className="px-4 pt-3 text-xs text-muted-foreground">
+              Ces destinataires n’ont pas reçu l’email — un lien de signature non reçu laisse le bon en attente. Vérifiez l’adresse ou renvoyez le lien.
+            </p>
+            <div className="overflow-x-auto p-4 pt-2">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/40 border-b">
+                  <tr>
+                    <th className="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">Bon</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">Type</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground hidden sm:table-cell">Destinataire</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground hidden md:table-cell">Quand</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.failedNotifications.items.slice(0, 50).map((n) => (
+                    <tr key={n.id} className="border-b last:border-0 hover:bg-muted/30">
+                      <td className="px-3 py-2 font-mono text-xs">
+                        {n.bonId ? <a href={`/bons/${n.bonId}`} className="text-primary hover:underline">{n.reference}</a> : n.reference}
+                      </td>
+                      <td className="px-3 py-2">{NOTIF_TYPE_LABELS[n.type] ?? n.type}</td>
+                      <td className="px-3 py-2 text-muted-foreground hidden sm:table-cell">{n.recipient}</td>
+                      <td className="px-3 py-2 text-muted-foreground hidden md:table-cell">{formatDateTime(n.sentAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

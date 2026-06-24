@@ -8,6 +8,9 @@ describe('ReportingService', () => {
   beforeEach(() => {
     prisma = createMockPrismaService();
     service = new ReportingService(prisma as never);
+    // Défauts pour le bloc failedNotifications de getOverview
+    (prisma.notificationLog.count as jest.Mock).mockResolvedValue(0);
+    (prisma.notificationLog.findMany as jest.Mock).mockResolvedValue([]);
   });
 
   describe('getOverview', () => {
@@ -60,6 +63,21 @@ describe('ReportingService', () => {
       expect(r.monthly).toHaveLength(12);
       expect(r.monthly[0].month).toMatch(/^\d{4}-\d{2}$/);
       expect(r.monthly[0].created).toBe(3);
+    });
+
+    it('surfaces failed notifications (emails non délivrés)', async () => {
+      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.bon.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.bon.count as jest.Mock).mockResolvedValue(0);
+      (prisma.notificationLog.count as jest.Mock).mockResolvedValue(1);
+      (prisma.notificationLog.findMany as jest.Mock).mockResolvedValue([
+        { id: 'n1', recipientEmail: 'x@y.fr', type: 'mise_dispo_request', sentAt: new Date(), errorMessage: 'SMTP refusé', bon: { id: 'b1', reference: 'BMD-1' } },
+      ]);
+
+      const r = await service.getOverview();
+      expect(r.failedNotifications.count).toBe(1);
+      expect(r.failedNotifications.items[0].reference).toBe('BMD-1');
+      expect(r.failedNotifications.items[0].error).toBe('SMTP refusé');
     });
   });
 

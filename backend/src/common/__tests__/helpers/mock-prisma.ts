@@ -103,6 +103,8 @@ export function createMockPrismaService(): MockPrismaService {
     // ── NotificationLog ────────────────────────────────────────────────────────
     notificationLog: {
       create: jest.fn(),
+      findMany: jest.fn(),
+      count: jest.fn(),
     },
 
     // ── PdfSnapshot ────────────────────────────────────────────────────────────

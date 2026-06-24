@@ -122,6 +122,49 @@ export class AppConfigService {
     }
   }
 
+  /**
+   * Canari de chiffrement : vérifie AU DÉMARRAGE que l'ENCRYPTION_KEY courante
+   * est bien celle utilisée à la première initialisation. Au 1er lancement, pose
+   * le canari ; ensuite, échoue explicitement si la clé a changé — plutôt que de
+   * laisser l'app démarrer et écraser/illisibiliser silencieusement les données
+   * chiffrées (signatures, pièces jointes, secrets de config).
+   */
+  async verifyEncryptionCanary(): Promise<void> {
+    const CANARY = 'bon-mise-disposition-canary-v1';
+    const record = await this.prisma.appConfig.findUnique({
+      where: { category_key: { category: 'system', key: 'encryption_canary' } },
+    });
+
+    if (!record || !record.value) {
+      await this.prisma.appConfig.upsert({
+        where: { category_key: { category: 'system', key: 'encryption_canary' } },
+        update: { value: this.encryption.encrypt(CANARY), encrypted: true },
+        create: {
+          category: 'system',
+          key: 'encryption_canary',
+          value: this.encryption.encrypt(CANARY),
+          encrypted: true,
+          description: 'Vérifie au démarrage que ENCRYPTION_KEY est inchangée — NE PAS modifier ni supprimer',
+        },
+      });
+      this.logger.log('Canari ENCRYPTION_KEY initialisé');
+      return;
+    }
+
+    try {
+      if (this.encryption.decrypt(record.value) !== CANARY) {
+        throw new Error('valeur canari inattendue');
+      }
+    } catch (err) {
+      throw new Error(
+        `ENCRYPTION_KEY invalide : le canari de chiffrement est illisible (${(err as Error).message}). ` +
+        'La clé a probablement changé depuis la première initialisation. Restaurez l\'ENCRYPTION_KEY ' +
+        'd\'origine — sinon toutes les données chiffrées (signatures, pièces jointes, secrets) resteront ' +
+        'illisibles. Démarrage interrompu (fail-fast).',
+      );
+    }
+  }
+
   /** Check if setup wizard is needed — false if a local admin exists */
   async isSetupRequired(): Promise<boolean> {
     const localAdmin = await this.prisma.user.findFirst({

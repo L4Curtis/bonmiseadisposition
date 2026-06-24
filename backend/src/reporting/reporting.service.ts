@@ -24,12 +24,48 @@ export class ReportingService {
   constructor(private readonly prisma: PrismaService) {}
 
   async getOverview() {
-    const [circulating, overdue, monthly] = await Promise.all([
+    const [circulating, overdue, monthly, failedNotifications] = await Promise.all([
       this.getCirculating(),
       this.getOverdue(),
       this.getMonthly(),
+      this.getFailedNotifications(),
     ]);
-    return { circulating, overdue, monthly };
+    return { circulating, overdue, monthly, failedNotifications };
+  }
+
+  /** Emails non délivrés (30 derniers jours) — un lien de signature en échec ne
+   *  doit pas rester silencieux. */
+  private async getFailedNotifications() {
+    const since = new Date(Date.now() - 30 * DAY_MS);
+    const [count, rows] = await Promise.all([
+      this.prisma.notificationLog.count({ where: { status: 'failed', sentAt: { gte: since } } }),
+      this.prisma.notificationLog.findMany({
+        where: { status: 'failed', sentAt: { gte: since } },
+        select: {
+          id: true,
+          recipientEmail: true,
+          type: true,
+          sentAt: true,
+          errorMessage: true,
+          bon: { select: { id: true, reference: true } },
+        },
+        orderBy: { sentAt: 'desc' },
+        take: 100,
+      }),
+    ]);
+    return {
+      count,
+      windowDays: 30,
+      items: rows.map((r) => ({
+        id: r.id,
+        bonId: r.bon?.id ?? null,
+        reference: r.bon?.reference ?? '—',
+        recipient: r.recipientEmail,
+        type: r.type,
+        sentAt: r.sentAt,
+        error: r.errorMessage ?? '',
+      })),
+    };
   }
 
   /** Équipements actuellement sortis (bons actifs / restitution partielle, non rendus). */

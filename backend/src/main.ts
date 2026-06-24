@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { AuthService } from './auth/auth.service';
+import { AppConfigService } from './config/config.service';
 import { AllExceptionsFilter } from './filters/all-exceptions.filter';
 import * as cookieParser from 'cookie-parser';
 import * as express from 'express';
@@ -104,6 +105,10 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api');
   app.enableShutdownHooks();
+
+  // Canari ENCRYPTION_KEY : fail-fast AVANT d'écouter si la clé a changé depuis
+  // la 1re init (sinon démarrage silencieux avec données chiffrées illisibles).
+  await app.get(AppConfigService).verifyEncryptionCanary();
 
   await app.listen(4000);
   logger.log('Backend running on http://localhost:4000');

@@ -1,0 +1,3 @@
+# Les scripts shell doivent rester en LF (exécutés sur l'hôte Linux : un CRLF
+# casserait le shebang → "bad interpreter").
+*.sh text eol=lf

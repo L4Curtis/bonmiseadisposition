@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useUnsavedChangesWarning } from '@/hooks/use-unsaved-changes';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -255,6 +256,30 @@ export function BonCreatePage() {
   const [initError, setInitError] = useState(false);
   const [initReloadKey, setInitReloadKey] = useState(0);
 
+  // ── Garde « modifications non enregistrées » ────────────────────────────────
+  // On compare un instantané du formulaire à une baseline établie une fois prêt
+  // (création : au montage ; édition : après chargement du brouillon).
+  const [loaded, setLoaded] = useState(!editBonId);
+  const baseline = useRef<string | null>(null);
+  const snapshot = useMemo(
+    () => JSON.stringify({
+      collaborateurId: collaborateur?.id ?? '',
+      filialeId, civilite, dateMiseDisposition, dateRestitution, notes,
+      equipments: equipments.map((e) => ({
+        c: e.catalogItemId ?? '', l: e.customLabel ?? '', s: e.serialNumber ?? '',
+        i: e.inventoryNumber ?? '', n: e.notes ?? '',
+      })),
+    }),
+    [collaborateur, filialeId, civilite, dateMiseDisposition, dateRestitution, notes, equipments],
+  );
+  useEffect(() => {
+    if (loaded && baseline.current === null) baseline.current = snapshot;
+  }, [loaded, snapshot]);
+  const dirty = baseline.current !== null && snapshot !== baseline.current;
+  useUnsavedChangesWarning(dirty && !submitting);
+  const confirmLeave = () =>
+    !dirty || window.confirm('Des modifications non enregistrées seront perdues. Quitter quand même ?');
+
   useEffect(() => {
     setInitError(false);
     Promise.all([
@@ -303,6 +328,7 @@ export function BonCreatePage() {
               )
             : [newLine()],
         );
+        setLoaded(true);
       })
       .catch((e: unknown) => {
         setError(e instanceof Error && e.message ? e.message : 'Impossible de charger le brouillon');
@@ -451,7 +477,7 @@ export function BonCreatePage() {
   return (
     <div className="space-y-4 max-w-4xl">
       <div className="flex items-center gap-3">
-        <button onClick={() => navigate(isEditing ? `/bons/${editBonId}` : '/bons')} className="text-muted-foreground/70 hover:text-muted-foreground" aria-label="Retour">
+        <button onClick={() => { if (confirmLeave()) navigate(isEditing ? `/bons/${editBonId}` : '/bons'); }} className="text-muted-foreground/70 hover:text-muted-foreground" aria-label="Retour">
           <ChevronLeft className="h-5 w-5" />
         </button>
         <h1 className="text-xl font-bold text-foreground">
@@ -721,7 +747,7 @@ export function BonCreatePage() {
         </Card>
 
         <div className="flex gap-2 justify-end">
-          <Button type="button" variant="outline" onClick={() => navigate(isEditing ? `/bons/${editBonId}` : '/bons')}>
+          <Button type="button" variant="outline" onClick={() => { if (confirmLeave()) navigate(isEditing ? `/bons/${editBonId}` : '/bons'); }}>
             Annuler
           </Button>
           <Button type="submit" disabled={submitting}>
