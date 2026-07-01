@@ -4,7 +4,7 @@ import {
 } from 'class-validator';
 
 export class PdfColorSchemeDto {
-  @IsOptional() @IsString() @Matches(/^#[0-9a-fA-F]{6}$/, { message: 'Couleur hex invalide (ex: #2563eb)' })
+  @IsOptional() @IsString() @Matches(/^#[0-9a-fA-F]{6}$/, { message: 'Couleur hex invalide (ex: #D8372B)' })
   primary?: string;
 
   @IsOptional() @IsString() @Matches(/^#[0-9a-fA-F]{6}$/, { message: 'Couleur hex invalide' })

@@ -555,7 +555,7 @@ export class PdfService {
   ): void {
     doc.font('Helvetica-Bold').fontSize(8).fillColor(colors.primary).text(title, x, doc.y);
     doc.y += 2;
-    doc.moveTo(x, doc.y).lineTo(x + width, doc.y).lineWidth(1.5).strokeColor('#dbeafe').stroke();
+    doc.moveTo(x, doc.y).lineTo(x + width, doc.y).lineWidth(1.5).strokeColor('#F2DAD7').stroke();
     doc.y += 4;
   }
 
@@ -618,7 +618,7 @@ export class PdfService {
     const sigZoneY = y + 48;
     const sigZoneH = 70;
     // Light background fill for the signature area (couleur fixe : déterministe)
-    doc.roundedRect(x + 10, sigZoneY, width - 20, sigZoneH, 6).fillColor('#f8fafc').fill();
+    doc.roundedRect(x + 10, sigZoneY, width - 20, sigZoneH, 6).fillColor('#FAF9F7').fill();
     doc.roundedRect(x + 10, sigZoneY, width - 20, sigZoneH, 6).lineWidth(0.5).strokeColor(colors.border).stroke();
 
     if (opts.signatureImage) {

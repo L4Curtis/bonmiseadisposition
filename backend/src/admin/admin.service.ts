@@ -88,12 +88,12 @@ export class AdminService {
           to: testEmail,
           subject: '[Test] Bons de mise à disposition — Test SMTP',
           html: `
-            <div style="font-family:Arial,sans-serif;max-width:500px;margin:0 auto;padding:24px;color:#1e293b">
-              <h2 style="color:#1e40af">Test de configuration SMTP ✓</h2>
+            <div style="font-family:'Hanken Grotesk',Arial,sans-serif;max-width:500px;margin:0 auto;padding:24px;color:#1B1A18">
+              <h2 style="color:#D8372B">Test de configuration SMTP ✓</h2>
               <p>Cet email confirme que votre configuration SMTP est correctement paramétrée dans l'application <strong>Bons de mise à disposition</strong>.</p>
-              <p style="color:#64748b;font-size:13px">Envoyé depuis : <code>${host}:${port}</code></p>
-              <hr style="border:none;border-top:1px solid #e2e8f0;margin:16px 0">
-              <p style="font-size:12px;color:#94a3b8">Service informatique — Groupe Livio</p>
+              <p style="color:#6B665E;font-size:13px">Envoyé depuis : <code>${host}:${port}</code></p>
+              <hr style="border:none;border-top:1px solid #E2DFD9;margin:16px 0">
+              <p style="font-size:12px;color:#A79F94">Service informatique — Groupe Livio</p>
             </div>`,
         });
         return { success: true, message: `Email de test envoyé à ${testEmail}` };

@@ -135,17 +135,18 @@ export const PDF_TEMPLATE_DEFINITIONS: PdfTemplateDefinition[] = [
   },
 ];
 
-// ─── Default colors — palette de marque indigo (alignée sur l'interface) ─────
-// Ne s'applique qu'aux modèles NON personnalisés par l'admin.
+// ─── Default colors — palette de marque « Livio 2026 » (alignée sur l'app) ───
+// Rouge Livio en accent, neutres béton chauds, filets nets. Ne s'applique
+// qu'aux modèles NON personnalisés par l'admin.
 
 const DEFAULT_COLORS: PdfColorScheme = {
-  primary: '#4f46e5',
-  dark: '#18181b',
-  gray: '#5b5b66',
-  lightGray: '#9b9ba6',
-  border: '#e4e4ee',
-  headerBg: '#4f46e5',
-  rowAlt: '#f7f7fb',
+  primary: '#D8372B',   // rouge Livio (accent de marque)
+  dark: '#1B1A18',      // texte principal
+  gray: '#6B665E',      // texte secondaire
+  lightGray: '#A79F94', // texte atténué / placeholders
+  border: '#E2DFD9',    // filet net
+  headerBg: '#D8372B',  // bandeau de tableau (rouge, texte blanc)
+  rowAlt: '#F6F3EE',    // fond des boîtes / lignes alternées (béton clair)
 };
 
 const DEFAULT_FONTS: PdfFontsConfig = {
