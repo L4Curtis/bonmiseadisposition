@@ -330,7 +330,7 @@ export function ContestationsPage() {
                     </td>
                     <td className="px-4 py-2.5 text-xs">
                       <button
-                        className="font-mono font-semibold text-blue-600 hover:underline"
+                        className="font-mono font-semibold text-primary hover:underline"
                         onClick={() => navigate(`/bons/${c.bon.id}`)}
                       >
                         {c.bon.reference}

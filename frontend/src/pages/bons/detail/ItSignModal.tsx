@@ -83,7 +83,7 @@ export function ItSignModal({ bonId, reference, pdfType, description, onClose, o
                 <Trash2 className="h-3 w-3" /> Effacer
               </button>
             </div>
-            <div className="relative border-2 border-dashed border-border rounded-lg bg-muted/40 hover:border-blue-300 transition-colors touch-none">
+            <div className="relative border-2 border-dashed border-border rounded-lg bg-muted/40 hover:border-primary/50 transition-colors touch-none">
               <canvas
                 ref={canvasRef}
                 width={600}

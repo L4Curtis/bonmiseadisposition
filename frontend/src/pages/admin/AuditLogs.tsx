@@ -356,7 +356,7 @@ export function AuditLogsPage() {
                       <td className="px-4 py-2.5 text-xs">
                         {log.bon ? (
                           <button
-                            className="flex items-center gap-1 font-mono font-semibold text-blue-600 hover:underline"
+                            className="flex items-center gap-1 font-mono font-semibold text-primary hover:underline"
                             onClick={() => navigate(`/bons/${log.bon!.id}`)}
                           >
                             {log.bon.reference}

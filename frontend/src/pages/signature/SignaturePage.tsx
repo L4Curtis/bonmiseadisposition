@@ -154,7 +154,7 @@ export function SignaturePage() {
   if (checkingAuth) {
     return (
       <div className="flex h-screen items-center justify-center bg-background">
-        <Loader2 className="h-8 w-8 animate-spin motion-reduce:animate-none text-blue-600" /><span className="sr-only">Chargement en cours</span>
+        <Loader2 className="h-8 w-8 animate-spin motion-reduce:animate-none text-primary" /><span className="sr-only">Chargement en cours</span>
       </div>
     );
   }
@@ -164,8 +164,8 @@ export function SignaturePage() {
     return (
       <div className="flex h-screen items-center justify-center bg-background px-4">
         <div className="w-full max-w-md rounded-xl bg-card border border-border shadow-sm p-8 text-center space-y-4">
-          <div className="bg-blue-50 dark:bg-blue-900/20 rounded-full w-16 h-16 flex items-center justify-center mx-auto">
-            <Pen className="h-7 w-7 text-blue-600 dark:text-blue-400" />
+          <div className="bg-primary/10 rounded-full w-16 h-16 flex items-center justify-center mx-auto">
+            <Pen className="h-7 w-7 text-primary" />
           </div>
           <div>
             <h2 className="font-semibold text-foreground">Connexion requise</h2>
@@ -175,7 +175,7 @@ export function SignaturePage() {
           </div>
           <button
             onClick={handleSSOLogin}
-            className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-6 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 transition-colors"
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
           >
             <svg className="h-4 w-4" viewBox="0 0 21 21" fill="none">
               <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
@@ -194,7 +194,7 @@ export function SignaturePage() {
   if (loading) {
     return (
       <div className="flex h-screen items-center justify-center bg-background">
-        <Loader2 className="h-8 w-8 animate-spin motion-reduce:animate-none text-blue-600" /><span className="sr-only">Chargement en cours</span>
+        <Loader2 className="h-8 w-8 animate-spin motion-reduce:animate-none text-primary" /><span className="sr-only">Chargement en cours</span>
       </div>
     );
   }
@@ -234,7 +234,7 @@ export function SignaturePage() {
           </div>
           <button
             onClick={handleSSOLogin}
-            className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-6 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 transition-colors"
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
           >
             Changer de compte
           </button>
@@ -271,7 +271,7 @@ export function SignaturePage() {
             >
               Télécharger le document signé
             </button>
-            <a href="/mes-bons" className="text-sm text-blue-600 hover:underline">Accéder à mes bons</a>
+            <a href="/mes-bons" className="text-sm text-primary hover:underline">Accéder à mes bons</a>
           </div>
         }
       />
@@ -470,7 +470,7 @@ export function SignaturePage() {
                     <Trash2 className="h-3 w-3" /> Effacer
                   </button>
                 </div>
-                <div className="relative border-2 border-dashed border-border rounded-lg bg-muted/30 hover:border-blue-300 transition-colors touch-none">
+                <div className="relative border-2 border-dashed border-border rounded-lg bg-muted/30 hover:border-primary/50 transition-colors touch-none">
                   <canvas
                     ref={canvasRef}
                     width={600}
@@ -496,7 +496,7 @@ export function SignaturePage() {
                   type="checkbox"
                   checked={luApprouve}
                   onChange={(e) => setLuApprouve(e.target.checked)}
-                  className="mt-0.5 h-4 w-4 rounded border-input text-blue-600 focus:ring-blue-500"
+                  className="mt-0.5 h-4 w-4 rounded border-input text-primary focus:ring-primary/40"
                 />
                 <span className="text-sm text-foreground/80 group-hover:text-foreground transition-colors">
                   {isPvCloture ? (

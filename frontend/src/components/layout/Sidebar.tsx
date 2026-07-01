@@ -95,8 +95,8 @@ const SidebarNavLink = React.forwardRef<
       className={cn(
         'group relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium whitespace-nowrap transition-all duration-150',
         isActive
-          ? 'nav-item-active text-white'
-          : 'text-slate-400 hover:bg-white/5 hover:text-slate-200',
+          ? 'nav-item-active text-[hsl(var(--sidebar-text-active))]'
+          : 'text-[hsl(var(--sidebar-text))] hover:bg-muted hover:text-foreground',
       )}
       {...props}
     >
@@ -116,10 +116,10 @@ SidebarNavLink.displayName = 'SidebarNavLink';
 
 function SidebarSection({ group, isFirst, collapsed }: { group: NavGroup; isFirst: boolean; collapsed: boolean }) {
   return (
-    <div className={cn('space-y-0.5', !isFirst && 'mt-4 border-t border-white/5 pt-4')}>
+    <div className={cn('space-y-0.5', !isFirst && 'mt-4 border-t border-[hsl(var(--border))] pt-4')}>
       <p className={cn(
         'mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest select-none whitespace-nowrap transition-opacity duration-200',
-        collapsed ? 'opacity-0' : 'opacity-100 text-slate-500',
+        collapsed ? 'opacity-0' : 'opacity-100 text-muted-foreground',
       )}>
         {group.title}
       </p>
@@ -130,7 +130,7 @@ function SidebarSection({ group, isFirst, collapsed }: { group: NavGroup; isFirs
               <Icon className="h-4 w-4 shrink-0" />
               <span className="truncate flex-1">{label}</span>
               {badge !== undefined && badge > 0 && (
-                <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-500/80 px-1 text-[10px] font-semibold text-white leading-none">
+                <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground leading-none">
                   {badge > 99 ? '99+' : badge}
                 </span>
               )}
@@ -178,19 +178,19 @@ export function Sidebar() {
       <aside
         className={cn(
           'relative flex shrink-0 flex-col bg-[hsl(var(--sidebar-bg))] overflow-hidden transition-[width] duration-200 ease-in-out',
-          'border-r border-white/[0.06]',
+          'border-r border-[hsl(var(--border))]',
           collapsed ? 'w-[3.75rem]' : 'w-60',
         )}
       >
-        {/* Halo de marque en haut du rail */}
+        {/* Halo de marque discret en haut du rail (rouge Livio) */}
         <div
           aria-hidden="true"
           className="pointer-events-none absolute inset-x-0 top-0 h-40"
-          style={{ background: 'radial-gradient(120% 100% at 50% 0%, hsl(243 75% 59% / 0.14), transparent 70%)' }}
+          style={{ background: 'radial-gradient(120% 100% at 50% 0%, hsl(var(--sidebar-accent) / 0.06), transparent 70%)' }}
         />
 
         {/* Logo */}
-        <div className="relative flex h-14 items-center gap-3 border-b border-white/[0.07] px-3.5 whitespace-nowrap">
+        <div className="relative flex h-14 items-center gap-3 border-b border-[hsl(var(--border))] px-3.5 whitespace-nowrap">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl btn-gradient text-white text-xs font-bold tracking-tight ring-1 ring-white/20">
             GL
           </div>
@@ -198,8 +198,8 @@ export function Sidebar() {
             'flex-1 min-w-0 transition-opacity duration-200',
             collapsed ? 'opacity-0' : 'opacity-100',
           )}>
-            <p className="text-sm font-semibold text-white leading-none tracking-tight">Bons IT</p>
-            <p className="text-[10px] text-slate-400 mt-1 leading-none">Groupe Livio</p>
+            <p className="text-sm font-semibold text-foreground leading-none tracking-tight">Bons IT</p>
+            <p className="text-[10px] text-muted-foreground mt-1 leading-none">Groupe Livio</p>
           </div>
         </div>
 
@@ -211,10 +211,10 @@ export function Sidebar() {
         </nav>
 
         {/* User block + Toggle */}
-        <div className="relative border-t border-white/[0.07] p-2">
+        <div className="relative border-t border-[hsl(var(--border))] p-2">
           <Tooltip>
             <TooltipTrigger asChild>
-              <div className="flex items-center gap-2.5 rounded-lg px-2 py-2 hover:bg-white/5 transition-colors">
+              <div className="flex items-center gap-2.5 rounded-lg px-2 py-2 hover:bg-muted transition-colors">
                 <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full btn-gradient text-white text-[10px] font-bold ring-1 ring-white/20">
                   {user?.displayName?.slice(0, 2).toUpperCase() || '??'}
                 </div>
@@ -222,8 +222,8 @@ export function Sidebar() {
                   'min-w-0 whitespace-nowrap transition-opacity duration-200',
                   collapsed ? 'opacity-0' : 'opacity-100',
                 )}>
-                  <p className="text-xs font-medium text-slate-200 truncate leading-none">{user?.displayName}</p>
-                  <p className="text-[10px] text-slate-500 mt-0.5 leading-none">{viewLabel}</p>
+                  <p className="text-xs font-medium text-foreground truncate leading-none">{user?.displayName}</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5 leading-none">{viewLabel}</p>
                 </div>
               </div>
             </TooltipTrigger>
@@ -238,7 +238,7 @@ export function Sidebar() {
               <button
                 type="button"
                 onClick={toggle}
-                className="flex items-center gap-3 w-full rounded-lg px-3 py-2 text-slate-400 hover:bg-white/5 hover:text-slate-200 transition-colors duration-150 whitespace-nowrap"
+                className="flex items-center gap-3 w-full rounded-lg px-3 py-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors duration-150 whitespace-nowrap"
                 aria-label={collapsed ? 'Agrandir la barre latérale' : 'Réduire la barre latérale'}
               >
                 {collapsed

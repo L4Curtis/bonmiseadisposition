@@ -77,7 +77,7 @@ export function LoginPage() {
 
   if (setupRequired === null) {
     return (
-      <div className="flex h-screen items-center justify-center bg-[hsl(231_45%_5%)]" aria-live="polite">
+      <div className="flex h-screen items-center justify-center bg-[hsl(30_24%_6%)]" aria-live="polite">
         <Spinner className="h-8 w-8 text-primary motion-reduce:animate-none" />
         <span className="sr-only">Chargement en cours</span>
       </div>
@@ -89,8 +89,8 @@ export function LoginPage() {
       {/* Grille de points masquée + blobs animés */}
       <div aria-hidden="true" className="bg-dots pointer-events-none absolute inset-0" />
       <div aria-hidden="true" className="pointer-events-none absolute -top-32 -left-24 h-80 w-80 rounded-full" style={{ background: 'hsl(var(--primary))', filter: 'blur(80px)', opacity: 0.22, animation: 'blob-drift 12s ease-in-out infinite' }} />
-      <div aria-hidden="true" className="pointer-events-none absolute -bottom-24 -right-16 h-96 w-96 rounded-full" style={{ background: 'hsl(217 91% 60%)', filter: 'blur(90px)', opacity: 0.16, animation: 'blob-drift 16s 4s ease-in-out infinite' }} />
-      <div aria-hidden="true" className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 h-64 w-64 rounded-full" style={{ background: 'hsl(243 75% 59%)', filter: 'blur(100px)', opacity: 0.10, animation: 'blob-drift 20s 8s ease-in-out infinite' }} />
+      <div aria-hidden="true" className="pointer-events-none absolute -bottom-24 -right-16 h-96 w-96 rounded-full" style={{ background: 'hsl(14 80% 52%)', filter: 'blur(90px)', opacity: 0.16, animation: 'blob-drift 16s 4s ease-in-out infinite' }} />
+      <div aria-hidden="true" className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 h-64 w-64 rounded-full" style={{ background: 'hsl(4 69% 51%)', filter: 'blur(100px)', opacity: 0.10, animation: 'blob-drift 20s 8s ease-in-out infinite' }} />
 
       <div className="relative w-full max-w-md px-4">
         <Card className="animate-fade-in rounded-2xl border border-white/10 bg-white/[0.045] backdrop-blur-2xl shadow-card-colored">

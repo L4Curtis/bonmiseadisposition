@@ -4,66 +4,92 @@
 
 @layer base {
   :root {
-    /* Surfaces — near-white canvas, hairline borders (DA SaaS 2026) */
-    --background:       240 14% 99%;
-    --foreground:       240 12% 9%;
-    --card:             0 0% 100%;
-    --card-foreground:  240 12% 9%;
-    --popover:          0 0% 100%;
-    --popover-foreground: 240 12% 9%;
-    --primary:          243 75% 59%;          /* indigo #4F46E5 */
-    --primary-foreground: 0 0% 100%;
-    --secondary:        240 12% 95%;
-    --secondary-foreground: 240 12% 9%;
-    --muted:            240 12% 95%;
-    --muted-foreground: 240 6% 44%;
-    --accent:           240 12% 95%;
-    --accent-foreground: 240 12% 9%;
-    --destructive:      0 78% 56%;
+    /* Surfaces — canvas béton chaud, cartes blanches, hairlines (Livio 1a) */
+    --background:            40 20% 98%;   /* #FAF9F7 */
+    --foreground:            36 8% 12%;    /* #22201D */
+    --card:                  0 0% 100%;    /* #FFFFFF */
+    --card-foreground:       36 8% 12%;
+    --popover:               0 0% 100%;
+    --popover-foreground:    36 8% 12%;
+
+    /* Accent de marque = ROUGE Livio */
+    --primary:               4 69% 51%;    /* #D8372B */
+    --primary-foreground:    0 0% 100%;
+
+    --secondary:             38 20% 95%;   /* béton clair */
+    --secondary-foreground:  38 7% 30%;    /* #524E47 */
+    --muted:                 38 20% 95%;
+    --muted-foreground:      34 6% 51%;    /* #8A847C */
+    --accent:                4 69% 96%;    /* voile rouge très clair */
+    --accent-foreground:     4 71% 43%;    /* #B92A20 */
+
+    /* Destructif : rouge légèrement plus profond que le primary */
+    --destructive:           2 74% 45%;
     --destructive-foreground: 0 0% 100%;
-    --border:           240 10% 90%;
-    --input:            240 10% 88%;
-    --ring:             243 75% 59%;
-    --radius:           0.75rem;
-    --sidebar-bg:       233 45% 9%;           /* rail sombre permanent #0c1026 */
-    --sidebar-text:     225 18% 62%;
-    --sidebar-text-active: 0 0% 100%;
-    --sidebar-accent:   243 75% 59%;
-    /* Gradient & shadow tokens */
-    --gradient-primary: linear-gradient(135deg, hsl(243 75% 59%), hsl(221 90% 58%));
-    --gradient-primary-hover: linear-gradient(135deg, hsl(243 80% 55%), hsl(221 94% 54%));
-    --shadow-card: 0 1px 2px 0 hsl(240 30% 15% / 0.05), 0 1px 3px -1px hsl(240 30% 15% / 0.05);
-    --shadow-card-hover: 0 6px 16px -4px hsl(240 30% 15% / 0.10), 0 2px 6px -2px hsl(240 30% 15% / 0.06);
-    --shadow-card-colored: 0 6px 20px -4px hsl(243 75% 59% / 0.22), 0 2px 8px -2px hsl(243 75% 59% / 0.12);
-    --sidebar-active-bg: linear-gradient(90deg, hsl(243 75% 59% / 0.28), hsl(243 75% 59% / 0.07));
-    --sidebar-active-glow: 0 0 14px hsl(243 75% 59% / 0.22);
+
+    --border:                37 16% 91%;   /* #ECE9E4 */
+    --input:                 37 16% 88%;
+    --ring:                  4 69% 51%;
+    --radius:                0.75rem;       /* 12px */
+
+    /* Rail latéral : BLANC en 1a (option A). */
+    --sidebar-bg:            0 0% 100%;
+    --sidebar-text:          38 7% 30%;
+    --sidebar-text-active:   4 71% 43%;
+    --sidebar-accent:        4 69% 51%;
+
+    /* 1a est PLAT : rouge uni (quasi-aplat) au lieu du dégradé arc-en-ciel. */
+    --gradient-primary:       linear-gradient(180deg, hsl(4 69% 53%), hsl(4 71% 48%));
+    --gradient-primary-hover: linear-gradient(180deg, hsl(4 71% 48%), hsl(4 73% 43%));
+
+    /* Ombres béton, très discrètes */
+    --shadow-card:         0 1px 2px 0 hsl(36 20% 15% / 0.05);
+    --shadow-card-hover:   0 6px 16px -6px hsl(36 20% 15% / 0.14), 0 2px 6px -2px hsl(36 20% 15% / 0.07);
+    --shadow-card-colored: 0 6px 16px -6px hsl(4 69% 51% / 0.55);
+
+    --sidebar-active-bg:   hsl(4 69% 51% / 0.09);
+    --sidebar-active-glow: none;           /* 1a n'a pas de glow */
   }
 
   .dark {
-    --background:       234 32% 5%;           /* #07091a — canvas profond */
-    --foreground:       225 25% 92%;
-    --card:             233 28% 8%;
-    --card-foreground:  225 25% 92%;
-    --popover:          233 28% 9%;
-    --popover-foreground: 225 25% 92%;
-    --primary:          243 85% 70%;          /* indigo lumineux sur fond sombre */
-    --primary-foreground: 233 45% 9%;
-    --secondary:        233 24% 13%;
-    --secondary-foreground: 225 25% 92%;
-    --muted:            233 24% 13%;
-    --muted-foreground: 228 12% 56%;
-    --accent:           233 24% 13%;
-    --accent-foreground: 225 25% 92%;
-    --destructive:      0 66% 54%;
+    --background:            40 18% 7%;    /* #16140F */
+    --foreground:            38 30% 92%;   /* #F3EEE5 */
+    --card:                  37 16% 11%;   /* #211D17 */
+    --card-foreground:       38 30% 92%;
+    --popover:               37 16% 11%;
+    --popover-foreground:    38 30% 92%;
+
+    --primary:               6 79% 58%;    /* #E8503F — rouge lumineux */
+    --primary-foreground:    40 18% 7%;
+
+    --secondary:             37 14% 14%;
+    --secondary-foreground:  38 22% 84%;
+    --muted:                 37 14% 14%;
+    --muted-foreground:      37 12% 53%;   /* #948B7C */
+    --accent:                6 79% 16%;
+    --accent-foreground:     8 85% 78%;    /* #F3796A */
+
+    --destructive:           4 72% 52%;
     --destructive-foreground: 0 0% 100%;
-    --border:           233 22% 16%;
-    --input:            233 22% 18%;
-    --ring:             243 85% 70%;
-    --shadow-card: 0 1px 3px 0 hsl(234 60% 2% / 0.45), 0 1px 2px -1px hsl(234 60% 2% / 0.35);
-    --shadow-card-hover: 0 8px 24px -6px hsl(234 60% 2% / 0.55), 0 3px 10px -3px hsl(234 60% 2% / 0.40);
-    --shadow-card-colored: 0 6px 24px -4px hsl(243 85% 70% / 0.28), 0 2px 10px -2px hsl(243 85% 70% / 0.16);
-    --sidebar-active-bg: linear-gradient(90deg, hsl(243 80% 66% / 0.22), hsl(243 80% 66% / 0.06));
-    --sidebar-active-glow: 0 0 18px hsl(243 80% 66% / 0.28);
+
+    --border:                38 18% 15%;   /* #2E2920 */
+    --input:                 38 18% 17%;
+    --ring:                  6 79% 58%;
+
+    --sidebar-bg:            37 16% 10%;    /* #1A1712 */
+    --sidebar-text:          37 12% 53%;
+    --sidebar-text-active:   8 85% 78%;
+    --sidebar-accent:        6 79% 58%;
+
+    --gradient-primary:       linear-gradient(180deg, hsl(6 79% 58%), hsl(6 79% 52%));
+    --gradient-primary-hover: linear-gradient(180deg, hsl(6 79% 52%), hsl(6 79% 46%));
+
+    --shadow-card:         0 1px 3px 0 hsl(0 0% 0% / 0.45);
+    --shadow-card-hover:   0 8px 24px -6px hsl(0 0% 0% / 0.55);
+    --shadow-card-colored: 0 6px 24px -4px hsl(6 79% 58% / 0.30);
+
+    --sidebar-active-bg:   hsl(6 79% 58% / 0.16);
+    --sidebar-active-glow: none;
   }
 }
 
@@ -78,15 +104,15 @@
   }
   body {
     @apply bg-background text-foreground;
-    font-family: 'Geist', 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    font-feature-settings: 'cv11', 'ss01';
+    font-family: 'Hanken Grotesk', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-feature-settings: normal;
   }
   h1, h2, h3 {
     letter-spacing: -0.025em;
   }
   /* Monospace for references/codes */
   .font-mono {
-    font-family: 'Geist Mono', 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+    font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
   }
   ::selection {
     background: hsl(var(--primary) / 0.22);
@@ -170,12 +196,12 @@
       hsl(var(--background));
   }
 
-  /* Fond aurore (login / pages plein écran) */
+  /* Fond aurore (login / pages plein écran) — panneau de marque sombre + halo rouge Livio */
   .bg-aurora {
     background:
-      radial-gradient(640px 420px at 12% 8%, hsl(243 75% 59% / 0.20), transparent 60%),
-      radial-gradient(720px 480px at 88% 92%, hsl(217 91% 60% / 0.16), transparent 60%),
-      hsl(233 45% 5%);
+      radial-gradient(640px 420px at 12% 8%, hsl(4 69% 51% / 0.22), transparent 60%),
+      radial-gradient(720px 480px at 88% 92%, hsl(14 80% 52% / 0.14), transparent 60%),
+      hsl(30 24% 6%);
   }
 
   /* Grille de points discrète (masquée vers le bas) */

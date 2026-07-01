@@ -88,7 +88,7 @@ export function BonDetailPage() {
         ) : (
           <p>Bon introuvable</p>
         )}
-        <button className="mt-3 text-blue-600 text-sm hover:underline" onClick={() => navigate('/bons')}>
+        <button className="mt-3 text-primary text-sm hover:underline" onClick={() => navigate('/bons')}>
           Retour à la liste
         </button>
       </div>

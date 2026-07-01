@@ -546,7 +546,7 @@ export function BonCreatePage() {
                     onClick={() => setCivilite(c)}
                     className={`rounded-md border px-3 py-1.5 text-sm font-medium transition-colors ${
                       civilite === c
-                        ? 'bg-blue-600 text-white border-blue-600'
+                        ? 'bg-primary text-primary-foreground border-primary'
                         : 'bg-card text-muted-foreground hover:bg-muted/40'
                     }`}
                   >
