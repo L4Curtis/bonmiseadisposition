@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Req, Res, Post, Body, UseGuards, UnauthorizedException, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Query, Req, Res, Post, Body, UseGuards, UnauthorizedException, ForbiddenException, Logger } from '@nestjs/common';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { Request, Response } from 'express';
 import { PrismaService } from '../prisma/prisma.service';
@@ -22,6 +22,8 @@ function extractClientIp(req: Request): string {
 
 @Controller('auth')
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name);
+
   constructor(
     private readonly authService: AuthService,
     private readonly configService: AppConfigService,
@@ -63,6 +65,11 @@ export class AuthController {
 
     const savedState = req.cookies['oauth_state'];
     if (!savedState || savedState !== state) {
+      this.logger.warn(
+        `Callback SSO — état invalide : cookie oauth_state ${savedState ? 'présent mais différent de la query' : 'ABSENT'}. ` +
+        `Cookies reçus au callback : [${Object.keys(req.cookies || {}).join(', ') || 'aucun'}]. ` +
+        `Si "aucun"/absent : les cookies SameSite=Lax ne reviennent pas de Microsoft (vérifier HTTPS, domaine identique, NODE_ENV).`,
+      );
       return res.redirect(`${frontendUrl}/login?error=invalid_state`);
     }
 
@@ -93,6 +100,12 @@ export class AuthController {
         returnTo && /^\/[^/]/.test(returnTo) ? `${frontendUrl}${returnTo}` : `${frontendUrl}/`;
       return res.redirect(destination);
     } catch (err) {
+      this.logger.error(
+        `Callback SSO — échange de jetons échoué : ${(err as Error).message}. ` +
+        `Vérifier le redirect_uri (doit être exactement l'URI enregistré dans Entra), ` +
+        `la validité du client_secret, et l'horloge du serveur (PKCE/JWT).`,
+        (err as Error).stack,
+      );
       return res.redirect(`${frontendUrl}/login?error=auth_failed`);
     }
   }
