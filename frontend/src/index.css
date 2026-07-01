@@ -228,3 +228,19 @@
     @apply outline-none border-primary/60 ring-2 ring-primary/20;
   }
 }
+
+/* Autofill navigateur sur le panneau sombre du login : Chrome/Edge forcent un
+   fond clair + texte noir via :-webkit-autofill, ce qui « reblanchit » le champ
+   une fois rempli. On repeint un fond sombre + texte blanc. Règle hors @layer
+   pour passer devant les utilitaires Tailwind (bg-white/5, shadow-none…). */
+.login-input:-webkit-autofill,
+.login-input:-webkit-autofill:hover,
+.login-input:-webkit-autofill:focus,
+.login-input:-webkit-autofill:active {
+  -webkit-text-fill-color: hsl(0 0% 100%);
+  caret-color: hsl(0 0% 100%);
+  -webkit-box-shadow: 0 0 0 1000px hsl(30 24% 10%) inset;
+  box-shadow: 0 0 0 1000px hsl(30 24% 10%) inset;
+  border-color: hsl(0 0% 100% / 0.15);
+  transition: background-color 9999s ease-in-out 0s;
+}

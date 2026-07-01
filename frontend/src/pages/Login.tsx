@@ -166,7 +166,7 @@ export function LoginPage() {
                         onChange={(e) => setLocalEmail(e.target.value)}
                         placeholder="admin@local"
                         required
-                        className="border-white/15 bg-white/5 text-white shadow-none placeholder:text-white/40 focus-visible:border-primary/70 focus-visible:ring-primary/30"
+                        className="login-input border-white/15 bg-white/5 text-white shadow-none placeholder:text-white/40 focus-visible:border-primary/70 focus-visible:ring-primary/30"
                       />
                     </div>
                     <div className="space-y-2">
@@ -177,7 +177,7 @@ export function LoginPage() {
                         value={localPassword}
                         onChange={(e) => setLocalPassword(e.target.value)}
                         required
-                        className="border-white/15 bg-white/5 text-white shadow-none placeholder:text-white/40 focus-visible:border-primary/70 focus-visible:ring-primary/30"
+                        className="login-input border-white/15 bg-white/5 text-white shadow-none placeholder:text-white/40 focus-visible:border-primary/70 focus-visible:ring-primary/30"
                       />
                     </div>
                     <Button
