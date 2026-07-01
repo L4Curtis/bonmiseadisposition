@@ -66,7 +66,11 @@ export class NotificationService {
       host,
       port: port ? parseInt(port) : 587,
       secure: secure === 'true',
-      auth: user ? { user, pass: pass || '' } : undefined,
+      // Construction IDENTIQUE au test SMTP (admin.service.testSmtp) : n'active
+      // l'auth que si user ET password sont présents. Sinon un relais sans auth
+      // (user renseigné, mot de passe vide) passait le test mais échouait à
+      // l'envoi réel — tentative d'AUTH avec un mot de passe vide → rejet serveur.
+      auth: user && pass ? { user, pass } : undefined,
       tls: { rejectUnauthorized: process.env.NODE_ENV === 'production' },
     });
     this.transporterCacheKey = cacheKey;
