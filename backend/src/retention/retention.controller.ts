@@ -23,4 +23,17 @@ export class RetentionController {
   run(@Body('dryRun') dryRun: boolean | undefined, @CurrentUser() user: AuthUser) {
     return this.retention.run(dryRun === true, user?.email);
   }
+
+  /** Statistiques de rétention technique (tokens expirés, vieux logs d'audit). */
+  @Get('stats')
+  getStats() {
+    return this.retention.getRetentionStats();
+  }
+
+  /** Déclenche la purge technique (tokens de signature expirés + vieux logs d'audit). */
+  @Post('purge')
+  async purge() {
+    const results = await this.retention.purgeTechnical();
+    return { ok: true, ...results };
+  }
 }

@@ -167,8 +167,102 @@ export class RetentionService {
       this.logger.log('Cron rétention RGPD : démarrage');
       const result = await this.run(false);
       this.logger.log(`Cron rétention RGPD terminé : ${result.anonymized}/${result.eligible} anonymisé(s)`);
+      // Nettoyage technique complémentaire (tokens abandonnés, vieux journaux d'audit)
+      const tech = await this.purgeTechnical();
+      this.logger.log(`Purge technique : ${tech.expiredTokens} token(s), ${tech.oldAuditLogs} log(s) d'audit`);
     } catch (err) {
       this.logger.error(`Cron rétention RGPD en échec: ${(err as Error).stack ?? err}`);
     }
+  }
+
+  // ─── Purge technique : tokens de signature expirés & vieux logs d'audit ──────
+  // Complémentaire de l'anonymisation ci-dessus : nettoyage courant des données
+  // techniques (tokens abandonnés, journaux d'audit au-delà de la durée légale).
+
+  /**
+   * Supprime les signatures dont le token est expiré depuis plus de N jours et
+   * qui n'ont jamais été signées (tokens abandonnés).
+   * Config 'retention'.expired_tokens_days (défaut 30).
+   */
+  async purgeExpiredTokens(): Promise<number> {
+    const daysStr = await this.config.get('retention', 'expired_tokens_days');
+    const days = parseInt(daysStr || '30', 10);
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - days);
+
+    const result = await this.prisma.signature.deleteMany({
+      where: { signed: false, tokenExpiresAt: { lt: cutoff } },
+    });
+
+    if (result.count > 0) {
+      this.logger.log(
+        `Purge tokens expirés : ${result.count} signature(s) non signée(s) supprimée(s) (expirées avant ${cutoff.toISOString()})`,
+      );
+    }
+    return result.count;
+  }
+
+  /**
+   * Supprime les logs d'audit plus anciens que N années.
+   * Config 'retention'.audit_logs_years (défaut 5).
+   */
+  async purgeOldAuditLogs(): Promise<number> {
+    const yearsStr = await this.config.get('retention', 'audit_logs_years');
+    const years = parseInt(yearsStr || '5', 10);
+    const cutoff = new Date();
+    cutoff.setFullYear(cutoff.getFullYear() - years);
+
+    const result = await this.prisma.auditLog.deleteMany({
+      where: { createdAt: { lt: cutoff } },
+    });
+
+    if (result.count > 0) {
+      this.logger.log(
+        `Purge audit logs : ${result.count} entrée(s) supprimée(s) (antérieures au ${cutoff.toISOString()})`,
+      );
+    }
+    return result.count;
+  }
+
+  /** Exécute les deux purges techniques et retourne les compteurs. */
+  async purgeTechnical(): Promise<{ expiredTokens: number; oldAuditLogs: number }> {
+    const [expiredTokens, oldAuditLogs] = await Promise.all([
+      this.purgeExpiredTokens(),
+      this.purgeOldAuditLogs(),
+    ]);
+    return { expiredTokens, oldAuditLogs };
+  }
+
+  /** Statistiques de rétention technique pour le dashboard admin. */
+  async getRetentionStats() {
+    const daysStr = await this.config.get('retention', 'expired_tokens_days');
+    const yearsStr = await this.config.get('retention', 'audit_logs_years');
+    const enabled = await this.config.get('retention', 'enabled');
+
+    const days = parseInt(daysStr || '30', 10);
+    const years = parseInt(yearsStr || '5', 10);
+
+    const tokenCutoff = new Date();
+    tokenCutoff.setDate(tokenCutoff.getDate() - days);
+
+    const auditCutoff = new Date();
+    auditCutoff.setFullYear(auditCutoff.getFullYear() - years);
+
+    const [expiredTokenCount, oldAuditCount, totalAuditCount, totalSignatureCount] =
+      await Promise.all([
+        this.prisma.signature.count({
+          where: { signed: false, tokenExpiresAt: { lt: tokenCutoff } },
+        }),
+        this.prisma.auditLog.count({ where: { createdAt: { lt: auditCutoff } } }),
+        this.prisma.auditLog.count(),
+        this.prisma.signature.count(),
+      ]);
+
+    return {
+      enabled: enabled === 'true',
+      config: { expiredTokensDays: days, auditLogsYears: years },
+      purgeable: { expiredTokens: expiredTokenCount, oldAuditLogs: oldAuditCount },
+      totals: { auditLogs: totalAuditCount, signatures: totalSignatureCount },
+    };
   }
 }

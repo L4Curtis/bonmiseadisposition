@@ -93,6 +93,96 @@ function RetentionActions() {
   );
 }
 
+interface RetentionStats {
+  enabled: boolean;
+  config: { expiredTokensDays: number; auditLogsYears: number };
+  purgeable: { expiredTokens: number; oldAuditLogs: number };
+  totals: { auditLogs: number; signatures: number };
+}
+
+function TechnicalPurgeActions() {
+  const [stats, setStats] = useState<RetentionStats | null>(null);
+  const [loading, setLoading] = useState<'stats' | 'purge' | null>(null);
+  const [confirming, setConfirming] = useState(false);
+
+  const loadStats = async () => {
+    setLoading('stats');
+    try {
+      setStats(await api.get<RetentionStats>('/admin/retention/stats'));
+    } catch {
+      toast({ title: 'Statistiques indisponibles', variant: 'destructive' });
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  const doPurge = async () => {
+    setLoading('purge');
+    try {
+      const r = await api.post<{ ok: boolean; expiredTokens: number; oldAuditLogs: number }>(
+        '/admin/retention/purge',
+        {},
+      );
+      toast({
+        title: 'Purge technique effectuée',
+        description: `${r.expiredTokens} token(s) expiré(s) et ${r.oldAuditLogs} journal/aux d’audit supprimé(s).`,
+        variant: 'success',
+      });
+      setConfirming(false);
+      await loadStats();
+    } catch {
+      toast({ title: 'Échec de la purge technique', variant: 'destructive' });
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  const hasPurgeable = stats && (stats.purgeable.expiredTokens > 0 || stats.purgeable.oldAuditLogs > 0);
+
+  return (
+    <div className="mt-4 space-y-3 border-t pt-4">
+      <div>
+        <h3 className="text-sm font-semibold text-foreground">Purge technique</h3>
+        <p className="text-xs text-muted-foreground">
+          Supprime les tokens de signature expirés (jamais signés) et les journaux d’audit au-delà de la durée légale.
+        </p>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <Button type="button" variant="outline" size="sm" onClick={loadStats} disabled={loading !== null}>
+          {loading === 'stats' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}
+          Statistiques
+        </Button>
+        {stats && (
+          <span className="text-sm text-muted-foreground">
+            <strong className="text-foreground">{stats.purgeable.expiredTokens}</strong> token(s) expiré(s),{' '}
+            <strong className="text-foreground">{stats.purgeable.oldAuditLogs}</strong> log(s) d’audit purgeable(s)
+          </span>
+        )}
+      </div>
+
+      {hasPurgeable && (
+        confirming ? (
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-sm text-red-600 font-medium">Confirmer la purge technique ?</span>
+            <Button type="button" variant="destructive" size="sm" onClick={doPurge} disabled={loading !== null}>
+              {loading === 'purge' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldX className="h-3.5 w-3.5" />}
+              Oui, purger
+            </Button>
+            <Button type="button" variant="ghost" size="sm" onClick={() => setConfirming(false)} disabled={loading !== null}>
+              Annuler
+            </Button>
+          </div>
+        ) : (
+          <Button type="button" variant="destructive" size="sm" onClick={() => setConfirming(true)}>
+            <ShieldX className="h-3.5 w-3.5" /> Lancer la purge technique
+          </Button>
+        )
+      )}
+    </div>
+  );
+}
+
 export function ConfigRetentionPage() {
   return (
     <ConfigSection
@@ -102,8 +192,15 @@ export function ConfigRetentionPage() {
         { key: 'enabled', label: 'Anonymisation automatique (cron hebdomadaire)', toggle: true },
         { key: 'anonymize_months', label: 'Anonymiser après (mois)', placeholder: '36', type: 'number' },
         { key: 'attachment_months', label: 'Purge pièces jointes après (mois)', placeholder: '36', type: 'number' },
+        { key: 'expired_tokens_days', label: 'Purge tokens de signature expirés après (jours)', placeholder: '30', type: 'number' },
+        { key: 'audit_logs_years', label: 'Purge journaux d’audit après (années)', placeholder: '5', type: 'number' },
       ]}
-      footer={<RetentionActions />}
+      footer={
+        <>
+          <RetentionActions />
+          <TechnicalPurgeActions />
+        </>
+      }
     />
   );
 }

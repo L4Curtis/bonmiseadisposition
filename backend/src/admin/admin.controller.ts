@@ -23,8 +23,9 @@ const ALLOWED_CONFIG_KEYS: Record<string, string[]> = {
   tokens: ['expiry_days'],
   // Horodatage RFC 3161 optionnel des sceaux de signature
   timestamp: ['enabled', 'tsa_url'],
-  // Rétention RGPD : anonymisation auto des bons clôturés/annulés anciens
-  retention: ['enabled', 'anonymize_months', 'attachment_months'],
+  // Rétention RGPD : anonymisation auto des bons clôturés/annulés anciens +
+  // purge technique (tokens de signature expirés, vieux journaux d'audit)
+  retention: ['enabled', 'anonymize_months', 'attachment_months', 'expired_tokens_days', 'audit_logs_years'],
 };
 
 const ALLOWED_CATEGORIES = Object.keys(ALLOWED_CONFIG_KEYS);
