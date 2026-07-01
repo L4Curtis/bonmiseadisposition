@@ -115,10 +115,10 @@ export function LoginPage() {
               </div>
             )}
 
-            {/* SSO Button — blanc, logo Microsoft couleur (pattern 2026) */}
+            {/* SSO Button — verre sombre aligné sur le panneau de marque, logo Microsoft couleur */}
             <a
               href="/api/auth/login"
-              className="group flex h-11 w-full items-center justify-center gap-3 rounded-xl bg-white text-[15px] font-semibold text-zinc-900 shadow-[0_1px_2px_rgb(0_0_0/0.3),inset_0_-1px_0_rgb(0_0_0/0.06)] transition-all duration-150 hover:bg-zinc-100 hover:shadow-card-colored active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+              className="group flex h-11 w-full items-center justify-center gap-3 rounded-xl border border-white/20 bg-white/[0.07] text-[15px] font-semibold text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.08)] backdrop-blur-sm transition-all duration-150 hover:bg-white/[0.12] hover:border-white/30 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
             >
               <svg viewBox="0 0 21 21" className="h-[18px] w-[18px]">
                 <rect x="1" y="1" width="9" height="9" fill="#f25022" />
@@ -127,7 +127,7 @@ export function LoginPage() {
                 <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
               </svg>
               Continuer avec Microsoft
-              <span aria-hidden="true" className="text-zinc-400 transition-transform duration-150 group-hover:translate-x-0.5">→</span>
+              <span aria-hidden="true" className="text-white/50 transition-transform duration-150 group-hover:translate-x-0.5">→</span>
             </a>
 
             {/* Local auth */}
@@ -153,12 +153,12 @@ export function LoginPage() {
                 {showLocal && (
                   <form onSubmit={handleLocalLogin} className="mt-4 space-y-4">
                     {localError && (
-                      <div role="alert" className="rounded-lg bg-destructive/10 border border-destructive/20 p-3">
-                        <p className="text-sm text-destructive">{localError}</p>
+                      <div role="alert" className="rounded-lg bg-red-500/10 border border-red-500/25 p-3">
+                        <p className="text-sm text-red-300">{localError}</p>
                       </div>
                     )}
                     <div className="space-y-2">
-                      <Label htmlFor="login-email">Email</Label>
+                      <Label htmlFor="login-email" className="text-white/80">Email</Label>
                       <Input
                         id="login-email"
                         type="text"
@@ -166,27 +166,28 @@ export function LoginPage() {
                         onChange={(e) => setLocalEmail(e.target.value)}
                         placeholder="admin@local"
                         required
+                        className="border-white/15 bg-white/5 text-white shadow-none placeholder:text-white/40 focus-visible:border-primary/70 focus-visible:ring-primary/30"
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="login-password">Mot de passe</Label>
+                      <Label htmlFor="login-password" className="text-white/80">Mot de passe</Label>
                       <Input
                         id="login-password"
                         type="password"
                         value={localPassword}
                         onChange={(e) => setLocalPassword(e.target.value)}
                         required
+                        className="border-white/15 bg-white/5 text-white shadow-none placeholder:text-white/40 focus-visible:border-primary/70 focus-visible:ring-primary/30"
                       />
                     </div>
                     <Button
                       type="submit"
-                      variant="secondary"
                       disabled={localLoading}
                       className="w-full"
                     >
                       {localLoading ? 'Connexion...' : 'Se connecter'}
                     </Button>
-                    <p className="text-center text-xs text-muted-foreground">
+                    <p className="text-center text-xs text-white/40">
                       Compte local IT uniquement
                     </p>
                   </form>
