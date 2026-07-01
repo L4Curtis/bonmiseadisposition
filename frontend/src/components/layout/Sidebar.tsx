@@ -177,18 +177,11 @@ export function Sidebar() {
     <TooltipProvider delayDuration={300}>
       <aside
         className={cn(
-          'relative flex shrink-0 flex-col bg-[hsl(var(--sidebar-bg))] overflow-hidden transition-[width] duration-200 ease-in-out',
+          'sidebar-rail relative flex shrink-0 flex-col bg-[hsl(var(--sidebar-bg))] overflow-hidden transition-[width] duration-200 ease-in-out',
           'border-r border-[hsl(var(--border))]',
           collapsed ? 'w-[3.75rem]' : 'w-60',
         )}
       >
-        {/* Halo de marque discret en haut du rail (rouge Livio) */}
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-x-0 top-0 h-40"
-          style={{ background: 'radial-gradient(120% 100% at 50% 0%, hsl(var(--sidebar-accent) / 0.06), transparent 70%)' }}
-        />
-
         {/* Logo */}
         <div className="relative flex h-14 items-center gap-3 border-b border-[hsl(var(--border))] px-3.5 whitespace-nowrap">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl btn-gradient text-white text-xs font-bold tracking-tight ring-1 ring-white/20">

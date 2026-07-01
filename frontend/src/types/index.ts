@@ -49,15 +49,16 @@ export const BON_STATUS_LABELS: Record<BonStatus, string> = {
   contested: 'Contesté',
 };
 
-// Badges « 2026 » : fond translucide + anneau inset + texte coloré (la puce
-// est rendue par StatusBadge avec bg-current)
+// Statuts (direction 2b) : point + texte coloré, sans fond ni anneau. La puce
+// est rendue par StatusBadge avec bg-current ; ici on ne fournit que la couleur
+// de texte (teintes -600 en clair / -400 en sombre).
 export const BON_STATUS_COLORS: Record<BonStatus, string> = {
-  draft: 'bg-zinc-500/10 text-zinc-600 dark:text-zinc-400 ring-1 ring-inset ring-zinc-500/20',
-  sent_mise_dispo: 'bg-amber-500/10 text-amber-700 dark:text-amber-400 ring-1 ring-inset ring-amber-500/25',
-  active: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 ring-1 ring-inset ring-emerald-500/25',
-  sent_restitution: 'bg-amber-500/10 text-amber-700 dark:text-amber-400 ring-1 ring-inset ring-amber-500/25',
-  partially_returned: 'bg-blue-500/10 text-blue-700 dark:text-blue-400 ring-1 ring-inset ring-blue-500/25',
-  archived: 'bg-violet-500/10 text-violet-700 dark:text-violet-400 ring-1 ring-inset ring-violet-500/20',
-  cancelled: 'bg-zinc-500/10 text-zinc-400 dark:text-zinc-500 ring-1 ring-inset ring-zinc-500/15',
-  contested: 'bg-red-500/10 text-red-700 dark:text-red-400 ring-1 ring-inset ring-red-500/25',
+  draft:              'text-zinc-500 dark:text-zinc-400',
+  sent_mise_dispo:    'text-amber-600 dark:text-amber-400',
+  active:             'text-emerald-600 dark:text-emerald-400',
+  sent_restitution:   'text-amber-600 dark:text-amber-400',
+  partially_returned: 'text-blue-600 dark:text-blue-400',
+  archived:           'text-violet-600 dark:text-violet-400',
+  cancelled:          'text-zinc-400 dark:text-zinc-500',
+  contested:          'text-red-600 dark:text-red-400',
 };

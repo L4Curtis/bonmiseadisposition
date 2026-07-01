@@ -97,25 +97,26 @@ interface StatCardProps {
   icon: React.ElementType;
   iconBg: string;
   iconColor: string;
+  valueColor?: string;
   onClick: () => void;
   className?: string;
 }
 
-function StatCard({ label, value, icon: Icon, iconBg, iconColor, onClick, className }: StatCardProps) {
+function StatCard({ label, value, icon: Icon, iconBg, iconColor, valueColor, onClick, className }: StatCardProps) {
   return (
     <button
-      className={`group w-full text-left rounded-xl border border-border/80 bg-card p-5 card-elevated hover:border-primary/30 hover:-translate-y-0.5 transition-all duration-200 ${className ?? ''}`}
+      className={`group w-full text-left rounded-lg border border-border/80 bg-card p-5 card-elevated hover:border-primary/30 hover:-translate-y-0.5 transition-all duration-200 ${className ?? ''}`}
       onClick={onClick}
     >
       <div className="flex items-start justify-between">
         <div className="min-w-0">
           <p className="text-[13px] font-medium text-muted-foreground leading-none mb-3 truncate">{label}</p>
-          <p className="text-[28px] font-semibold tracking-tighter text-foreground tabular-nums leading-none">
+          <p className={`text-[28px] font-semibold tracking-tighter tabular-nums leading-none ${valueColor ?? 'text-foreground'}`}>
             {value}
           </p>
         </div>
-        <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${iconBg} ring-1 ring-inset ring-black/[0.04] dark:ring-white/[0.06] shrink-0 transition-transform duration-200 group-hover:scale-105`}>
-          <Icon className={`h-[18px] w-[18px] ${iconColor}`} />
+        <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${iconBg} shrink-0 transition-transform duration-200 group-hover:scale-105`}>
+          <Icon className={`h-[18px] w-[18px] ${iconColor}`} strokeWidth={1.75} />
         </div>
       </div>
       <div className="mt-3 flex items-center gap-1 text-[11px] font-medium text-muted-foreground/0 group-hover:text-muted-foreground/80 transition-colors duration-200">
@@ -149,48 +150,49 @@ export function DashboardIT() {
       label: 'Total bons en cours',
       value: stats?.total ?? 0,
       icon: FileText,
-      iconBg: 'bg-[hsl(var(--primary)/0.10)] dark:bg-[hsl(var(--primary)/0.15)]',
-      iconColor: 'text-[hsl(var(--primary))]',
+      iconBg: 'bg-transparent border border-border',
+      iconColor: 'text-muted-foreground',
       onClick: () => navigate('/bons?excludeStatus=cancelled,archived'),
     },
     {
       label: 'En attente de signature',
       value: stats?.waitingSignature ?? 0,
       icon: Clock,
-      iconBg: 'bg-amber-100 dark:bg-amber-900/20',
-      iconColor: 'text-amber-600 dark:text-amber-400',
+      iconBg: 'bg-transparent border border-border',
+      iconColor: 'text-muted-foreground',
       onClick: () => navigate('/bons?status=sent_mise_dispo,sent_restitution,partially_returned'),
     },
     {
       label: 'Bons actifs',
       value: stats?.active ?? 0,
       icon: CheckCircle,
-      iconBg: 'bg-emerald-100 dark:bg-emerald-900/20',
-      iconColor: 'text-emerald-600 dark:text-emerald-400',
+      iconBg: 'bg-transparent border border-border',
+      iconColor: 'text-muted-foreground',
       onClick: () => navigate('/bons?status=active'),
     },
     {
       label: 'Restitution partielle',
       value: stats?.partiallyReturned ?? 0,
       icon: RotateCcw,
-      iconBg: 'bg-blue-100 dark:bg-blue-900/20',
-      iconColor: 'text-blue-600 dark:text-blue-400',
+      iconBg: 'bg-transparent border border-border',
+      iconColor: 'text-muted-foreground',
       onClick: () => navigate('/bons?status=partially_returned'),
     },
     {
       label: 'Archivés ce mois',
       value: stats?.archivedThisMonth ?? 0,
       icon: Archive,
-      iconBg: 'bg-violet-100 dark:bg-violet-900/20',
-      iconColor: 'text-violet-600 dark:text-violet-400',
+      iconBg: 'bg-transparent border border-border',
+      iconColor: 'text-muted-foreground',
       onClick: () => navigate('/bons?status=archived'),
     },
     {
       label: 'En retard (> 7 j)',
       value: stats?.overdue ?? 0,
       icon: AlertTriangle,
-      iconBg: 'bg-red-100 dark:bg-red-900/20',
-      iconColor: 'text-red-600 dark:text-red-400',
+      iconBg: 'bg-transparent border border-destructive/30',
+      iconColor: 'text-destructive',
+      valueColor: 'text-destructive',
       onClick: () => navigate('/bons'),
     },
   ], [stats, navigate]);
