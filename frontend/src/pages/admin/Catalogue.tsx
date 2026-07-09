@@ -257,8 +257,9 @@ export function CataloguePage() {
         toast({ title: 'Pack desactive', variant: 'success' });
       }
       fetchData();
-    } catch {
-      toast({ title: 'Erreur lors de la desactivation', variant: 'destructive' });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Erreur lors de la desactivation';
+      toast({ title: msg, variant: 'destructive' });
     } finally {
       setDeleteTarget(null);
     }
