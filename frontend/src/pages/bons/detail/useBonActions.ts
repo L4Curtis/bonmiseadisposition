@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { toast } from '@/hooks/use-toast';
-import type { BonDetailData, PdfSnapshotInfo, PendingItAction } from './types';
+import type { BonDetailData, NotificationLog, PdfSnapshotInfo, PendingItAction } from './types';
 
 function showActionError(e: unknown, fallback: string) {
   toast({
@@ -29,6 +29,7 @@ export function useBonActions(id: string | undefined) {
   const [showMarkFoundModal, setShowMarkFoundModal] = useState(false);
   const [showCloseUnilateralModal, setShowCloseUnilateralModal] = useState(false);
   const [resendConfirmSentAt, setResendConfirmSentAt] = useState<string | null>(null);
+  const [notifLogs, setNotifLogs] = useState<NotificationLog[]>([]);
 
   const snapshotRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -43,6 +44,12 @@ export function useBonActions(id: string | undefined) {
       .catch(() => setPdfSnapshots([]));
   };
 
+  const loadNotifLogs = (bonId: string) => {
+    api.get<NotificationLog[]>(`/bons/${bonId}/notifications`)
+      .then(setNotifLogs)
+      .catch(() => setNotifLogs([]));
+  };
+
   const load = () => {
     setLoading(true);
     setLoadError(null);
@@ -52,6 +59,7 @@ export function useBonActions(id: string | undefined) {
       .then((b) => {
         setBon(b);
         loadSnapshots(b.id);
+        loadNotifLogs(b.id);
         // Re-fetch snapshots après 2s pour capter les PDF générés en async
         snapshotRetryRef.current = setTimeout(() => loadSnapshots(b.id), 2000);
       })
@@ -204,6 +212,7 @@ export function useBonActions(id: string | undefined) {
     actionLoading,
     pdfLoading,
     pdfSnapshots,
+    notifLogs,
     confirmCancel,
     pendingItAction,
     inPersonModal,

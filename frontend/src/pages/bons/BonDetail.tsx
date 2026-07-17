@@ -11,6 +11,7 @@ import { BonNotesCard } from './detail/BonNotesCard';
 import { BonPdfSnapshots } from './detail/BonPdfSnapshots';
 import { BonAttachments } from './detail/BonAttachments';
 import { BonIntegrity } from './detail/BonIntegrity';
+import { BonNotificationLogs } from './detail/BonNotificationLogs';
 import { BonModals } from './detail/BonModals';
 
 // ─── Page principale ──────────────────────────────────────────────────────────
@@ -22,7 +23,7 @@ export function BonDetailPage() {
   const isItStaff = currentUser?.isItStaff ?? false;
 
   const actions = useBonActions(id);
-  const { bon, loading, loadError, actionLoading, pdfLoading, pdfSnapshots } = actions;
+  const { bon, loading, loadError, actionLoading, pdfLoading, pdfSnapshots, notifLogs } = actions;
 
   useEffect(() => { actions.load(); }, [id]);
 
@@ -186,6 +187,8 @@ export function BonDetailPage() {
       />
 
       {bon.signatures && bon.signatures.some((s) => s.signed) && <BonIntegrity bonId={bon.id} />}
+
+      {isItStaff && <BonNotificationLogs logs={notifLogs} />}
 
       <BonModals
         bon={bon}

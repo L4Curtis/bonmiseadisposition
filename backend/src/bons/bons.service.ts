@@ -41,6 +41,14 @@ export class BonsService {
     private readonly smbService: SmbService,
   ) {}
 
+  async getNotificationLogs(bonId: string) {
+    await this.findOne(bonId); // throws 404 if not found
+    return this.prisma.notificationLog.findMany({
+      where: { bonId },
+      orderBy: { sentAt: 'desc' },
+    });
+  }
+
   async getStats() {
     const monthStart = new Date();
     monthStart.setDate(1);
@@ -392,7 +400,7 @@ export class BonsService {
     });
     // Notify the collaborator if a signature request had already been sent
     if (['sent_mise_dispo', 'sent_restitution', 'partially_returned'].includes(bon.status)) {
-      this.notificationService.sendCancellationNotice(updated).catch(() => {});
+      this.notificationService.sendCancellationNotice(updated).catch((err: unknown) => this.logger.error(`Email fire-and-forget: ${err}`));
     }
     return updated;
   }
@@ -428,7 +436,7 @@ export class BonsService {
     // Send email (fire and forget — ne pas bloquer si SMTP non configuré)
     this.notificationService
       .sendMiseDispositionRequest(updated, sig.token)
-      .catch(() => {/* email errors are logged in NotificationService */});
+      .catch((err: unknown) => this.logger.error(`Email send (${id}): ${err}`));
 
     await this.prisma.auditLog.create({
       data: { bonId: id, userId: initiatedById ?? null, action: 'bon_sent' },
@@ -502,7 +510,7 @@ export class BonsService {
     // Send email
     this.notificationService
       .sendRestitutionRequest(updated, sig.token)
-      .catch(() => {});
+      .catch((err: unknown) => this.logger.error(`Email fire-and-forget: ${err}`));
 
     await this.prisma.auditLog.create({
       data: { bonId: id, userId: initiatedById ?? null, action: 'restitution_initiated' },
@@ -624,7 +632,7 @@ export class BonsService {
       const pvSig = await this.signatureService.generateToken(id, 'pv_cloture', userId, false);
 
       // Send PV email to collab
-      this.notificationService.sendPvClotureRequest(updatedBon, pvSig.token).catch(() => {});
+      this.notificationService.sendPvClotureRequest(updatedBon, pvSig.token).catch((err: unknown) => this.logger.error(`Email fire-and-forget: ${err}`));
 
       this.logger.log(`Bon ${updatedBon.reference} — PV cloture envoyé au collaborateur pour signature`);
     }
@@ -722,7 +730,7 @@ export class BonsService {
         `Bon ${updatedBon.reference} (archivé) — avenant IT généré pour équipement retrouvé`,
       );
       // Inform the collaborator that the previously-lost equipment was found
-      this.notificationService.sendMarkFoundNotice(updatedBon, equipmentIds).catch(() => {});
+      this.notificationService.sendMarkFoundNotice(updatedBon, equipmentIds).catch((err: unknown) => this.logger.error(`Email fire-and-forget: ${err}`));
     } else {
       // Check if all not-returned equipment is now resolved
       const stillNotReturned = await this.prisma.bonEquipment.count({
@@ -741,7 +749,7 @@ export class BonsService {
         });
 
         const sig = await this.signatureService.generateToken(id, 'restitution', userId, false);
-        this.notificationService.sendRestitutionRequest(updatedBon, sig.token).catch(() => {});
+        this.notificationService.sendRestitutionRequest(updatedBon, sig.token).catch((err: unknown) => this.logger.error(`Email fire-and-forget: ${err}`));
 
         this.logger.log(
           `Bon ${updatedBon.reference} — tous les équipements retrouvés, passage en restitution`,
@@ -761,7 +769,7 @@ export class BonsService {
         );
 
         const pvSig = await this.signatureService.generateToken(id, 'pv_cloture', userId, false);
-        this.notificationService.sendPvClotureRequest(updatedBon, pvSig.token).catch(() => {});
+        this.notificationService.sendPvClotureRequest(updatedBon, pvSig.token).catch((err: unknown) => this.logger.error(`Email fire-and-forget: ${err}`));
 
         this.logger.log(
           `Bon ${updatedBon.reference} — PV mis à jour (équipement retrouvé), renvoyé au collaborateur`,
@@ -911,7 +919,7 @@ export class BonsService {
 
     if (hasPendingPvCloture) {
       const sig = await this.signatureService.generateToken(bonId, 'pv_cloture', initiatedById, false);
-      this.notificationService.sendPvClotureRequest(bon, sig.token).catch(() => {});
+      this.notificationService.sendPvClotureRequest(bon, sig.token).catch((err: unknown) => this.logger.error(`Email fire-and-forget: ${err}`));
     } else {
       const type: 'mise_disposition' | 'restitution' =
         ['sent_restitution', 'partially_returned'].includes(bon.status) ? 'restitution' : 'mise_disposition';
@@ -923,11 +931,11 @@ export class BonsService {
       if (type === 'restitution') {
         this.notificationService
           .sendRestitutionRequest(bon, sig.token)
-          .catch(() => {});
+          .catch((err: unknown) => this.logger.error(`Email fire-and-forget: ${err}`));
       } else {
         this.notificationService
           .sendMiseDispositionRequest(bon, sig.token)
-          .catch(() => {});
+          .catch((err: unknown) => this.logger.error(`Email fire-and-forget: ${err}`));
       }
     }
 
@@ -1066,7 +1074,7 @@ export class BonsService {
     );
 
     // Informer le collaborateur (adresse peut-être désactivée — fire & forget)
-    this.notificationService.sendUnilateralCloseNotice(updated, reason, newStatus).catch(() => {});
+    this.notificationService.sendUnilateralCloseNotice(updated, reason, newStatus).catch((err: unknown) => this.logger.error(`Email fire-and-forget: ${err}`));
 
     this.logger.log(`Bon ${updated.reference} clôturé unilatéralement (${bon.status} → ${newStatus}) par ${closer?.email}`);
     return this.findOne(id);

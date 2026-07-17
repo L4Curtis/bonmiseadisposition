@@ -121,6 +121,12 @@ export class BonsController {
     return this.bonsService.findOne(id);
   }
 
+  @Get(':id/notifications')
+  async getNotifications(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    await this.verifyCollaboratorAccess(id, user);
+    return this.bonsService.getNotificationLogs(id);
+  }
+
   @Post()
   create(@Body() dto: CreateBonDto, @CurrentUser() user: AuthUser) {
     return this.bonsService.create(dto, user.id);

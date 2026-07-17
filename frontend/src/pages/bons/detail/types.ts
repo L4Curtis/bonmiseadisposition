@@ -58,6 +58,16 @@ export interface PendingItAction {
   onSigned: () => Promise<void>;
 }
 
+export interface NotificationLog {
+  id: string;
+  type: string;
+  status: 'sent' | 'failed';
+  recipientEmail: string;
+  errorMessage?: string | null;
+  reminderNumber?: number | null;
+  sentAt: string;
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 export function equipmentLabel(eq: EquipmentItem): string {
