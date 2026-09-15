@@ -59,9 +59,6 @@ export const BON_SELECT_SHAPE = {
   },
 } as const;
 
-/** Type of a Bon loaded via BON_SELECT_SHAPE (with relations). */
-export type BonWithRelations = Prisma.BonGetPayload<typeof BON_SELECT_SHAPE>;
-
 /** Strip a full signature record down to the API-safe fields. */
 export function toSafeSignature<T extends Record<string, unknown>>(sig: T) {
   return {
@@ -101,9 +98,6 @@ export function sanitizeBonForResponse<T extends { signatures?: Record<string, u
     signatures: bon.signatures?.map((s) => toSafeSignature(s)),
   };
 }
-
-/** Type of a single equipment entry within BonWithRelations. */
-export type BonEquipmentWithCatalog = BonWithRelations['equipments'][number];
 
 /**
  * Minimal bon shape expected by NotificationService methods.

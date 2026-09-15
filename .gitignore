@@ -47,6 +47,10 @@ pgdata_dev/
 
 # Claude Code
 .claude/
+.agents/
+skills-lock.json
+everything-claude-code/
+presentation-livio/
 
 # Prisma — les migrations doivent être committées (prisma migrate deploy au démarrage prod)
 # NE PAS ignorer prisma/migrations/
