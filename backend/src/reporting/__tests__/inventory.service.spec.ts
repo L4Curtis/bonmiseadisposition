@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import { InventoryService, EXPORT_ROW_LIMIT, escapeCsvCell } from '../inventory.service';
+import { InventoryService, EXPORT_ROW_LIMIT } from '../inventory.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
 
 function makeRow(overrides: Record<string, unknown> = {}) {
@@ -221,26 +221,5 @@ describe('InventoryService', () => {
       // en-têtes + EXPORT_ROW_LIMIT lignes de données, pas une de plus
       expect(csv.split('\n')).toHaveLength(EXPORT_ROW_LIMIT + 1);
     });
-  });
-});
-
-describe('escapeCsvCell — anti-injection de formule (Excel/LibreOffice)', () => {
-  it.each([
-    ['=', '=SOMME(A1)'],
-    ['+', '+1234567'],
-    ['-', '-1234567'],
-    ['@', '@cmd|/c calc'],
-    ['tabulation', '\tcmd'],
-    ['retour chariot', '\rcmd'],
-  ])('préfixe d’une apostrophe une cellule commençant par « %s »', (_label, value) => {
-    expect(escapeCsvCell(value)).toBe(`"'${value}"`);
-  });
-
-  it('n’altère pas une cellule sans caractère déclencheur de formule', () => {
-    expect(escapeCsvCell('Dell')).toBe('"Dell"');
-  });
-
-  it('double les guillemets internes', () => {
-    expect(escapeCsvCell('12" écran')).toBe('"12"" écran"');
   });
 });

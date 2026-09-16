@@ -1,0 +1,11 @@
+-- Ajoute la valeur d'énum "direction" (rôle Direction — lecture seule du
+-- tableau de bord KPI et de l'inventaire, jamais IT staff).
+--
+-- Cette instruction doit rester SEULE dans sa migration : Postgres interdit
+-- d'utiliser une valeur ajoutée par `ALTER TYPE ... ADD VALUE` dans la MÊME
+-- transaction que celle qui l'a créée (erreur "unsafe use of new value of
+-- enum type"). Les migrations Prisma s'exécutant chacune dans sa propre
+-- transaction, toute instruction ultérieure référençant 'direction' (une
+-- future donnée, une contrainte, etc.) doit vivre dans une migration
+-- postérieure à celle-ci.
+ALTER TYPE "UserRole" ADD VALUE IF NOT EXISTS 'direction';

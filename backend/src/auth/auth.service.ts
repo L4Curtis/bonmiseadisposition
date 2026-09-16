@@ -6,7 +6,7 @@ import * as crypto from 'crypto';
 import { writeFileSync, existsSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { ConfidentialClientApplication, AuthorizationCodeRequest } from '@azure/msal-node';
-import { Prisma } from '@prisma/client';
+import { Prisma, UserRole } from '@prisma/client';
 import { AppConfigService } from '../config/config.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { normalizeEmail } from './utils/normalize-email.util';
@@ -352,11 +352,20 @@ export class AuthService implements OnModuleDestroy {
     }
   }
 
-  private async syncUserRoleFromGroups(userId: string, groups: string[]) {
+  /**
+   * Recalcule le rôle depuis les groupes Entra à CHAQUE connexion SSO — les
+   * groupes font toujours foi, sans exception : un compte passé manuellement
+   * en `direction` (PATCH /admin/users/:id/role) redescend en `collaborator`
+   * à sa prochaine connexion s'il n'appartient à aucun groupe élevé. Priorité
+   * admin > technician > direction > collaborator ; `direction` n'est jamais
+   * du personnel IT (`isItStaff = false`).
+   */
+  private async syncUserRoleFromGroups(userId: string, groups: string[]): Promise<void> {
     const adminGroup = await this.configService.get('entra', 'admin_group_id');
     const techGroup = await this.configService.get('entra', 'technician_group_id');
+    const directionGroup = await this.configService.get('entra', 'direction_group_id');
 
-    let role: 'admin' | 'technician' | 'collaborator' = 'collaborator';
+    let role: UserRole = 'collaborator';
     let isItStaff = false;
 
     if (adminGroup && groups.includes(adminGroup)) {
@@ -365,6 +374,9 @@ export class AuthService implements OnModuleDestroy {
     } else if (techGroup && groups.includes(techGroup)) {
       role = 'technician';
       isItStaff = true;
+    } else if (directionGroup && groups.includes(directionGroup)) {
+      role = 'direction';
+      isItStaff = false;
     }
     await this.prisma.user.update({
       where: { id: userId },

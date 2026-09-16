@@ -12,6 +12,15 @@ import { BonStatus, Civilite, BON_SELECT_SHAPE, SIGNATURE_SAFE_SELECT } from '..
 import { generateBonReference, BON_REFERENCE_TX_OPTIONS } from '../common/bon-reference';
 import { assertPngDataUrl } from '../common/signature-data-url';
 import { generateSignatureToken } from '../common/tokens';
+import {
+  escapeCsvCell,
+  CLOSED_BON_STATUSES,
+  WAITING_SIGNATURE_STATUSES,
+  PARTIAL_PENDING_SIGNATURE_TYPES,
+  buildOverdueSignatureWhere,
+  INVALIDATED_TOKEN_SENTINEL,
+  DEFAULT_SIGNATURE_OVERDUE_DAYS,
+} from '../common/bon-predicates';
 
 // Canonical select shape: no Bytes columns, signatures restricted to API-safe
 // fields (no token / signerIp / signerUserAgent / signatureImagePath).
@@ -180,14 +189,20 @@ export class BonsService {
     }
   }
 
-  /** Construit le where Prisma partagé par findAll et getExportData. */
-  private buildBonWhere(filters: {
-    status?: BonStatus[];
-    excludeStatus?: BonStatus[];
-    filialeId?: string;
-    search?: string;
-    overdue?: boolean;
-  }): Prisma.BonWhereInput {
+  /** Construit le where Prisma partagé par findAll, getExportData et
+   *  getStats. `overdueDays` — seuil (jours) de retard de signature,
+   *  définition unique partagée avec `/bons/stats` et `/kpi/delais`
+   *  (`common/bon-predicates.buildOverdueSignatureWhere`). */
+  private buildBonWhere(
+    filters: {
+      status?: BonStatus[];
+      excludeStatus?: BonStatus[];
+      filialeId?: string;
+      search?: string;
+      overdue?: boolean;
+    },
+    overdueDays: number = DEFAULT_SIGNATURE_OVERDUE_DAYS,
+  ): Prisma.BonWhereInput {
     const { status, excludeStatus, filialeId, search, overdue } = filters;
     const where: Prisma.BonWhereInput = {};
 
@@ -203,21 +218,7 @@ export class BonsService {
       where.OR = buildSearchClauses(search);
     }
     if (overdue) {
-      // En attente de signature (sent_mise_dispo, sent_restitution) ou
-      // partiellement restitué avec une signature non signée non expirée,
-      // depuis plus de 7 jours (updatedAt — pas de champ dédié).
-      where.AND = [
-        {
-          updatedAt: { lt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
-          OR: [
-            { status: { in: ['sent_mise_dispo', 'sent_restitution'] } },
-            {
-              status: 'partially_returned',
-              signatures: { some: { signed: false, tokenExpiresAt: { gt: new Date() } } },
-            },
-          ],
-        },
-      ];
+      where.AND = [buildOverdueSignatureWhere(overdueDays)];
     }
     return where;
   }
@@ -279,21 +280,25 @@ export class BonsService {
     // de l'UTC décalerait sinon le début de mois d'une journée.
     const now = new Date();
     const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
+    const overdueThresholdDays = await this.configService.getSignatureOverdueDays();
+    const closedStatuses = [...CLOSED_BON_STATUSES];
 
     const [waitingSignature, active, overdue, total, archivedThisMonth, partiallyReturned, filialesRaw] = await Promise.all([
       this.prisma.bon.count({
         where: {
           OR: [
-            { status: { in: ['sent_mise_dispo', 'sent_restitution'] } },
+            { status: { in: [...WAITING_SIGNATURE_STATUSES] } },
             {
               status: 'partially_returned',
-              // Only count signatures whose token is still valid (invalidated
-              // tokens are set to epoch and would inflate the counter forever)
+              // tokenExpiresAt > sentinelle (epoch + 1s) exclut uniquement les
+              // tokens invalidés VOLONTAIREMENT (resend, contestation, clôture) —
+              // un token simplement expiré naturellement reste « en attente »,
+              // aligné sur le cron de rappels (common/bon-predicates).
               signatures: {
                 some: {
                   signed: false,
-                  type: { in: ['restitution', 'pv_cloture'] },
-                  tokenExpiresAt: { gt: new Date() },
+                  type: { in: [...PARTIAL_PENDING_SIGNATURE_TYPES] },
+                  tokenExpiresAt: { gt: INVALIDATED_TOKEN_SENTINEL },
                 },
               },
             },
@@ -305,12 +310,14 @@ export class BonsService {
       // chiffre du tableau de bord doit correspondre à la liste obtenue après
       // clic — sinon partially_returned avec signature en attente était compté
       // dans la liste mais pas dans ce total.
-      this.prisma.bon.count({ where: this.buildBonWhere({ overdue: true }) }),
+      this.prisma.bon.count({ where: this.buildBonWhere({ overdue: true }, overdueThresholdDays) }),
       this.prisma.bon.count({
-        where: { status: { notIn: ['cancelled', 'archived'] } },
+        where: { status: { notIn: closedStatuses } },
       }),
+      // archivedAt (jamais updatedAt) : seul ce champ trace le moment réel de
+      // l'archivage — updatedAt bouge pour d'autres raisons après coup.
       this.prisma.bon.count({
-        where: { status: 'archived', updatedAt: { gte: monthStart } },
+        where: { status: 'archived', archivedAt: { gte: monthStart } },
       }),
       this.prisma.bon.count({ where: { status: 'partially_returned' } }),
       this.prisma.filiale.findMany({
@@ -320,7 +327,7 @@ export class BonsService {
           displayName: true,
           _count: {
             select: {
-              bons: { where: { status: { notIn: ['cancelled', 'archived'] } } },
+              bons: { where: { status: { notIn: closedStatuses } } },
             },
           },
         },
@@ -335,6 +342,7 @@ export class BonsService {
       total,
       archivedThisMonth,
       partiallyReturned,
+      overdueThresholdDays,
       byFiliale: filialesRaw
         .map((f) => ({ id: f.id, name: f.displayName, count: f._count.bons }))
         .filter((f) => f.count > 0),
@@ -349,7 +357,8 @@ export class BonsService {
     overdue?: boolean;
   }): Promise<{ csv: string; truncated: boolean }> {
     const EXPORT_LIMIT = 5000;
-    const where = this.buildBonWhere(filters);
+    const overdueThresholdDays = await this.configService.getSignatureOverdueDays();
+    const where = this.buildBonWhere(filters, overdueThresholdDays);
 
     const rowsFetched = await this.prisma.bon.findMany({
       where,
@@ -372,15 +381,6 @@ export class BonsService {
       'Équipements', 'Créé par', 'Date création',
       'Date signature mise à dispo', 'Date signature restitution',
     ];
-
-    const escape = (v: string) => {
-      let s = String(v).replace(/"/g, '""');
-      // CSV injection protection: prefix formula-triggering characters with a single quote
-      if (/^[=+\-@\t\r]/.test(s)) {
-        s = "'" + s;
-      }
-      return `"${s}"`;
-    };
 
     const rows = bons.map((b) => {
       const sigMise = b.signatures.find((s) => s.type === 'mise_disposition');
@@ -407,10 +407,10 @@ export class BonsService {
         new Date(b.createdAt).toLocaleDateString('fr-FR'),
         sigMise?.signedAt ? new Date(sigMise.signedAt).toLocaleDateString('fr-FR') : '',
         sigRest?.signedAt ? new Date(sigRest.signedAt).toLocaleDateString('fr-FR') : '',
-      ].map(escape);
+      ].map(escapeCsvCell);
     });
 
-    const csv = [headers.map(escape).join(';'), ...rows.map((r) => r.join(';'))].join('\n');
+    const csv = [headers.map(escapeCsvCell).join(';'), ...rows.map((r) => r.join(';'))].join('\n');
     return { csv: '\uFEFF' + csv, truncated }; // BOM UTF-8 pour Excel
   }
 
@@ -424,7 +424,8 @@ export class BonsService {
     limit?: number;
   }) {
     const { page = 1, limit = 20 } = filters;
-    const where = this.buildBonWhere(filters);
+    const overdueThresholdDays = await this.configService.getSignatureOverdueDays();
+    const where = this.buildBonWhere(filters, overdueThresholdDays);
 
     const [bons, total] = await Promise.all([
       this.prisma.bon.findMany({

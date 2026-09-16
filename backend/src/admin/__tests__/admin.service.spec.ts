@@ -151,6 +151,95 @@ describe('AdminService', () => {
     });
   });
 
+  // ─── changeUserRole ──────────────────────────────────────────────────────────
+
+  describe('changeUserRole', () => {
+    it('refuse de modifier son propre rôle', async () => {
+      await expect(
+        service.changeUserRole('admin-1', 'technician', { id: 'admin-1' }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.user.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('renvoie 404 pour un utilisateur inconnu', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.changeUserRole('nope', 'technician', { id: 'admin-1' }),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('refuse de retirer le dernier administrateur actif', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'target-1',
+        email: 'seul.admin@exemple.fr',
+        role: 'admin',
+        active: true,
+      });
+      prisma.user.count.mockResolvedValue(1);
+
+      await expect(
+        service.changeUserRole('target-1', 'technician', { id: 'admin-1' }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+
+    it("autorise de retirer un admin quand un autre admin actif reste", async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'target-1',
+        email: 'un.admin@exemple.fr',
+        role: 'admin',
+        active: true,
+      });
+      prisma.user.count.mockResolvedValue(2);
+      prisma.user.update.mockResolvedValue({ id: 'target-1', role: 'technician', isItStaff: true });
+
+      const result = await service.changeUserRole('target-1', 'technician', { id: 'admin-1' });
+
+      expect(result).toEqual({ id: 'target-1', role: 'technician', isItStaff: true });
+    });
+
+    it('promeut un collaborateur en direction (isItStaff:false) et journalise l’audit', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'target-2',
+        email: 'collab@exemple.fr',
+        role: 'collaborator',
+        active: true,
+      });
+      prisma.user.update.mockResolvedValue({ id: 'target-2', role: 'direction', isItStaff: false });
+
+      const result = await service.changeUserRole('target-2', 'direction', { id: 'admin-1' });
+
+      expect(result).toEqual({ id: 'target-2', role: 'direction', isItStaff: false });
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'target-2' },
+        data: { role: 'direction', isItStaff: false },
+      });
+      expect(prisma.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            action: 'user_role_changed',
+            details: { targetEmail: 'collab@exemple.fr', from: 'collaborator', to: 'direction' },
+          }),
+        }),
+      );
+    });
+
+    it('promeut un utilisateur en technician (isItStaff:true)', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'target-3',
+        email: 'futur.tech@exemple.fr',
+        role: 'collaborator',
+        active: true,
+      });
+      prisma.user.update.mockResolvedValue({ id: 'target-3', role: 'technician', isItStaff: true });
+
+      const result = await service.changeUserRole('target-3', 'technician', { id: 'admin-1' });
+
+      expect(result.isItStaff).toBe(true);
+    });
+  });
+
   // ─── ensureNonLocalAdminExists ───────────────────────────────────────────────
 
   describe('ensureNonLocalAdminExists', () => {

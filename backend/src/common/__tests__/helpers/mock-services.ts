@@ -100,6 +100,24 @@ export function createMockConfigService() {
     getAll: jest.fn().mockResolvedValue([]),
     invalidateCache: jest.fn(),
     isSetupRequired: jest.fn().mockResolvedValue(false),
+    getInt: jest
+      .fn()
+      .mockImplementation(
+        (
+          category: string,
+          key: string,
+          options: { fallback: number; min: number; max?: number },
+        ) => {
+          const raw = store.get(`${category}.${key}`);
+          const parsed = raw === undefined ? NaN : parseInt(raw, 10);
+          if (!Number.isFinite(parsed)) return Promise.resolve(options.fallback);
+          const clampedMin = Math.max(options.min, parsed);
+          return Promise.resolve(
+            options.max !== undefined ? Math.min(options.max, clampedMin) : clampedMin,
+          );
+        },
+      ),
+    getSignatureOverdueDays: jest.fn().mockResolvedValue(7),
   };
 }
 

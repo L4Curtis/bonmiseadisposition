@@ -1,7 +1,9 @@
 import { Injectable, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
+import { UserRole } from '@prisma/client';
 import { AppConfigService } from '../config/config.service';
 import { EncryptionService } from '../config/encryption.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { isItRole } from '../common/roles';
 import * as nodemailer from 'nodemailer';
 
 @Injectable()
@@ -201,6 +203,56 @@ export class AdminService {
         "Impossible de désactiver l'authentification locale : aucun compte administrateur actif non local (SSO) n'existe. Configurez d'abord un admin SSO pour ne pas perdre tout accès.",
       );
     }
+  }
+
+  /**
+   * PATCH /admin/users/:id/role — change manuellement le rôle d'un
+   * utilisateur. Effectif immédiatement, mais pour un compte SSO ne vaut que
+   * jusqu'à la prochaine connexion : `AuthService.syncUserRoleFromGroups`
+   * recalcule et écrase le rôle depuis les groupes Entra à chaque login, sans
+   * exception (voir kpi-design.md, « Rôle direction »). Utile surtout pour
+   * les comptes locaux et pour un rattrapage ponctuel.
+   */
+  async changeUserRole(
+    targetUserId: string,
+    role: UserRole,
+    actor: { id: string },
+  ): Promise<{ id: string; role: UserRole; isItStaff: boolean }> {
+    if (targetUserId === actor.id) {
+      throw new BadRequestException('Vous ne pouvez pas modifier votre propre rôle');
+    }
+
+    const target = await this.prisma.user.findUnique({ where: { id: targetUserId } });
+    if (!target) {
+      throw new NotFoundException('Utilisateur introuvable');
+    }
+
+    if (target.role === 'admin' && role !== 'admin') {
+      const activeAdminCount = await this.prisma.user.count({ where: { role: 'admin', active: true } });
+      if (activeAdminCount <= 1) {
+        throw new BadRequestException('Impossible de retirer le dernier administrateur actif');
+      }
+    }
+
+    const isItStaff = isItRole(role);
+    const updated = await this.prisma.user.update({
+      where: { id: targetUserId },
+      data: { role, isItStaff },
+    });
+
+    await this.prisma.auditLog
+      .create({
+        data: {
+          userId: actor.id,
+          action: 'user_role_changed',
+          details: { targetEmail: target.email, from: target.role, to: role },
+        },
+      })
+      .catch((err: unknown) => {
+        this.logger.error(`Audit user_role_changed non journalisé: ${(err as Error).message}`);
+      });
+
+    return { id: updated.id, role: updated.role, isItStaff: updated.isItStaff };
   }
 
   async testEntra(): Promise<{ success: boolean; message: string }> {

@@ -477,4 +477,73 @@ describe('AuthService', () => {
       expect(refreshClear?.[1]).toMatchObject({ path: '/api/auth' });
     });
   });
+
+  // ─── syncUserRoleFromGroups (mapping Entra) ───────────────────────────────────
+  // Méthode privée : appelée via l'accès par crochets, échappatoire documentée
+  // de TypeScript pour les tests unitaires (cf. user-throttler.guard.spec.ts
+  // pour un autre exemple de test d'un comportement interne).
+
+  describe('syncUserRoleFromGroups (mapping Entra)', () => {
+    const userId = 'user-sso-001';
+
+    type PrivateSync = { syncUserRoleFromGroups: (userId: string, groups: string[]) => Promise<void> };
+
+    async function sync(groups: string[]): Promise<void> {
+      await (service as unknown as PrivateSync).syncUserRoleFromGroups(userId, groups);
+    }
+
+    beforeEach(async () => {
+      await configService.set('entra', 'admin_group_id', 'grp-admin');
+      await configService.set('entra', 'technician_group_id', 'grp-tech');
+      await configService.set('entra', 'direction_group_id', 'grp-direction');
+      prisma.user.update.mockResolvedValue({});
+    });
+
+    it('promeut admin quand le groupe admin est présent (priorité la plus haute)', async () => {
+      await sync(['grp-admin', 'grp-tech', 'grp-direction']);
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: userId },
+        data: { role: 'admin', isItStaff: true },
+      });
+    });
+
+    it('promeut technician quand seul le groupe technicien matche', async () => {
+      await sync(['grp-tech', 'grp-direction']);
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: userId },
+        data: { role: 'technician', isItStaff: true },
+      });
+    });
+
+    it('promeut direction (isItStaff:false) quand seul le groupe direction matche', async () => {
+      await sync(['grp-direction']);
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: userId },
+        data: { role: 'direction', isItStaff: false },
+      });
+    });
+
+    it('rétrograde en collaborator quand aucun groupe élevé ne matche', async () => {
+      await sync(['grp-other']);
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: userId },
+        data: { role: 'collaborator', isItStaff: false },
+      });
+    });
+
+    it('rétrograde un utilisateur direction en base en collaborator s\'il ne réapparaît plus dans le groupe direction (les groupes écrasent toujours le rôle)', async () => {
+      // La méthode ne lit jamais le rôle existant en base : le résultat ne
+      // dépend que des groupes actuellement présents dans le token.
+      await sync([]);
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: userId },
+        data: { role: 'collaborator', isItStaff: false },
+      });
+    });
+  });
 });

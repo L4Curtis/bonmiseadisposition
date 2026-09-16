@@ -51,6 +51,9 @@ model Filiale {
 enum UserRole {
   admin
   technician
+  // Lecture seule : tableau de bord KPI, inventaire, exports CSV — jamais
+  // IT staff (isItStaff toujours false), aucun accès aux bons/admin/utilisateurs.
+  direction
   collaborator
 }
 
@@ -208,6 +211,9 @@ model Bon {
   @@index([filialeId])
   @@index([createdAt])
   @@index([status, updatedAt])
+  // KPI (tableau de bord) : archivage sur une période, retards de restitution.
+  @@index([archivedAt])
+  @@index([dateRestitution])
   @@map("bons")
 }
 
@@ -230,6 +236,8 @@ model BonEquipment {
   @@index([bonId])
   @@index([catalogItemId])
   @@index([serialNumber])
+  // KPI (tableau de bord) : équipements rendus sur une période.
+  @@index([returnedAt])
   @@map("bon_equipments")
 }
 
@@ -286,6 +294,9 @@ model Signature {
 
   @@index([bonId, type, signed])
   @@index([signed, tokenExpiresAt])
+  // KPI (tableau de bord) : délais de signature sur une période.
+  @@index([signedAt])
+  @@index([createdAt])
   @@map("signatures")
 }
 
@@ -390,6 +401,9 @@ model Contestation {
   updatedAt         DateTime           @updatedAt @map("updated_at")
 
   @@index([bonId])
+  // KPI (tableau de bord) : contestations ouvertes sur une période, délai de résolution.
+  @@index([createdAt])
+  @@index([status, updatedAt])
   @@map("contestations")
 }
 
@@ -426,6 +440,8 @@ model NotificationLog {
 
   @@index([bonId, type])
   @@index([status, sentAt])
+  // KPI (tableau de bord) : rappels envoyés par rang sur une période, emails en échec.
+  @@index([type, sentAt])
   @@map("notification_logs")
 }
 
@@ -448,6 +464,8 @@ model AuditLog {
   // login_local_failed par ipAddress seul sur une fenêtre de 30 min — sans cet
   // index la requête dégénère en scan séquentiel de toute la table d'audit.
   @@index([ipAddress, action, createdAt])
+  // KPI (tableau de bord) : compteurs d'audit (non-rendus, PV, annulations…) sur une période.
+  @@index([action, createdAt])
   @@map("audit_logs")
 }
 

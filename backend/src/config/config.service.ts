@@ -1,10 +1,17 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { EncryptionService } from './encryption.service';
+import { DEFAULT_SIGNATURE_OVERDUE_DAYS } from '../common/bon-predicates';
 
 interface CacheEntry {
   value: string | null;
   expiresAt: number;
+}
+
+interface GetIntOptions {
+  fallback: number;
+  min: number;
+  max?: number;
 }
 
 @Injectable()
@@ -163,6 +170,33 @@ export class AppConfigService {
         'illisibles. Démarrage interrompu (fail-fast).',
       );
     }
+  }
+
+  /**
+   * Lit une clé de configuration entière avec repli et bornage défensifs :
+   * absente ou non numérique → `options.fallback` ; sinon la valeur est
+   * bornée dans [min, max] (comme `BonsService.getPvTokenValidityDays`).
+   * Utilisé par toutes les clés de configuration entières admin-configurables
+   * (seuils, délais…) — évite de dupliquer ce parsing à chaque appelant.
+   */
+  async getInt(category: string, key: string, options: GetIntOptions): Promise<number> {
+    const raw = await this.get(category, key);
+    const parsed = raw === null ? NaN : parseInt(raw, 10);
+    if (!Number.isFinite(parsed)) {
+      return options.fallback;
+    }
+    const clampedMin = Math.max(options.min, parsed);
+    return options.max !== undefined ? Math.min(options.max, clampedMin) : clampedMin;
+  }
+
+  /** Seuil (jours) au-delà duquel un bon en attente de signature est considéré
+   *  « en retard » — définition unique partagée par `/bons`, `/bons/stats` et
+   *  `/kpi/delais` (clé `rappels.signature_overdue_days`, défaut 7, min 1). */
+  async getSignatureOverdueDays(): Promise<number> {
+    return this.getInt('rappels', 'signature_overdue_days', {
+      fallback: DEFAULT_SIGNATURE_OVERDUE_DAYS,
+      min: 1,
+    });
   }
 
   /** Check if setup wizard is needed — false if a local admin exists */

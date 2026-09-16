@@ -1,7 +1,9 @@
 ﻿import {
-  Controller, Get, Put, Post, Delete, Body, Param, UseGuards, BadRequestException, ForbiddenException, Logger,
+  Controller, Get, Put, Post, Patch, Delete, Body, Param, Query, UseGuards, BadRequestException, ForbiddenException, Logger,
 } from '@nestjs/common';
 import { AdminService } from './admin.service';
+import { NotificationFailuresService, DEFAULT_NOTIFICATION_FAILURES_WINDOW_DAYS } from './notification-failures.service';
+import { ChangeUserRoleDto } from './dto/change-user-role.dto';
 import { LdapService } from '../ldap/ldap.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -11,18 +13,26 @@ import { AuthUser } from '../auth/auth-user.interface';
 import { AppConfigService } from '../config/config.service';
 import { SmbService } from '../smb/smb.service';
 
+const MIN_NOTIFICATION_FAILURES_WINDOW_DAYS = 1;
+const MAX_NOTIFICATION_FAILURES_WINDOW_DAYS = 365;
+
 /** Clés autorisées par catégorie de configuration — chaque clé listée ici doit
  *  avoir un consommateur réel côté backend ET un champ côté UI. */
 const ALLOWED_CONFIG_KEYS: Record<string, string[]> = {
   general: ['local_auth_enabled', 'app_url'],
-  entra: ['tenant_id', 'client_id', 'client_secret', 'redirect_uri', 'admin_group_id', 'technician_group_id'],
+  entra: [
+    'tenant_id', 'client_id', 'client_secret', 'redirect_uri',
+    'admin_group_id', 'technician_group_id', 'direction_group_id',
+  ],
   ldap: ['url', 'search_base', 'bind_dn', 'bind_password', 'user_filter', 'enabled', 'sync_interval_hours', 'use_ssl'],
   smtp: ['host', 'port', 'secure', 'user', 'password', 'from'],
   smb: ['enabled', 'path', 'username', 'password', 'domain'],
   // restitution_before_days (défaut 7, à appliquer côté module notification) :
   // nombre de jours avant la date de restitution prévue à partir duquel un
-  // rappel de restitution est envoyé.
-  rappels: ['enabled', 'delay_1', 'delay_2', 'delay_3', 'restitution_before_days'],
+  // rappel de restitution est envoyé. signature_overdue_days (défaut 7, min 1) :
+  // seuil « en retard de signature », définition unique partagée par
+  // /bons/stats, /bons?overdue=1 et /kpi/delais (common/bon-predicates).
+  rappels: ['enabled', 'delay_1', 'delay_2', 'delay_3', 'restitution_before_days', 'signature_overdue_days'],
   tokens: ['expiry_days'],
   // Horodatage RFC 3161 optionnel des sceaux de signature
   timestamp: ['enabled', 'tsa_url'],
@@ -46,6 +56,7 @@ const INTEGER_CONFIG_RULES: Record<string, { min: number; max?: number }> = {
   'rappels.delay_2': { min: 1 },
   'rappels.delay_3': { min: 1 },
   'rappels.restitution_before_days': { min: 0 },
+  'rappels.signature_overdue_days': { min: 1 },
   'tokens.expiry_days': { min: 1, max: 30 },
   'smtp.port': { min: 1, max: 65535 },
 };
@@ -61,10 +72,35 @@ export class AdminController {
     private readonly ldapService: LdapService,
     private readonly configService: AppConfigService,
     private readonly smbService: SmbService,
+    private readonly notificationFailuresService: NotificationFailuresService,
   ) {}
 
   // Catégories réservées aux admins (infos sensibles ou impact réglementaire)
   private static readonly ADMIN_ONLY_CATEGORIES = ['entra', 'ldap', 'smtp', 'smb', 'timestamp', 'retention'];
+
+  /** GET /admin/notifications/failed — emails en échec, migré depuis
+   *  reporting.service.ts (Reporting condamné). Déclaré avant `config/:category`
+   *  par convention (routes statiques avant routes paramétrées). */
+  @Get('notifications/failed')
+  @Roles('admin')
+  async getFailedNotifications(@Query('days') days?: string) {
+    const parsed = days !== undefined ? parseInt(days, 10) : DEFAULT_NOTIFICATION_FAILURES_WINDOW_DAYS;
+    const windowDays = Number.isFinite(parsed)
+      ? Math.min(MAX_NOTIFICATION_FAILURES_WINDOW_DAYS, Math.max(MIN_NOTIFICATION_FAILURES_WINDOW_DAYS, parsed))
+      : DEFAULT_NOTIFICATION_FAILURES_WINDOW_DAYS;
+    return this.notificationFailuresService.getFailedNotifications(windowDays);
+  }
+
+  /** PATCH /admin/users/:id/role — changement manuel de rôle (admin). */
+  @Patch('users/:id/role')
+  @Roles('admin')
+  async changeUserRole(
+    @Param('id') id: string,
+    @Body() dto: ChangeUserRoleDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.adminService.changeUserRole(id, dto.role, { id: user.id });
+  }
 
   // ── SMB monitoring (MUST be declared before config/:category to avoid capture) ─
   @Get('smb/status')

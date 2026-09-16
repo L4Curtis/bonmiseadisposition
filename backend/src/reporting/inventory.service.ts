@@ -2,37 +2,12 @@ import { Injectable } from '@nestjs/common';
 import { Prisma, EquipmentCategory } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { STATUS_LABELS } from '../common/status-labels';
+import { LOANED_BON_STATUSES, CATEGORY_LABELS, escapeCsvCell, buildLoanedEquipmentWhere } from '../common/bon-predicates';
 import { InventoryQueryDto, InventorySortField } from './dto/inventory-query.dto';
-
-/** Statuts de bon pour lesquels un équipement non rendu est considéré
- *  « prêté » (entre les mains du collaborateur). */
-export const LOANED_BON_STATUSES = ['active', 'sent_restitution', 'partially_returned'] as const;
-
-const CATEGORY_LABELS: Record<string, string> = {
-  pc_portable: 'PC portable',
-  pc_fixe: 'PC fixe',
-  ecran: 'Écran',
-  souris: 'Souris',
-  clavier: 'Clavier',
-  casque: 'Casque',
-  telephone: 'Téléphone',
-  housse: 'Housse',
-  dock: 'Station d’accueil',
-  cable: 'Câble',
-  autre: 'Autre',
-};
 
 const DEFAULT_PAGE_LIMIT = 50;
 const MAX_PAGE_LIMIT = 200;
 export const EXPORT_ROW_LIMIT = 10000;
-
-/** Échappement CSV : neutralise l'injection de formule (Excel/LibreOffice
- *  exécutent une cellule commençant par = + - @) et les guillemets internes. */
-export function escapeCsvCell(value: string): string {
-  let s = String(value ?? '').replace(/"/g, '""');
-  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
-  return `"${s}"`;
-}
 
 const ITEM_SELECT = {
   id: true,
@@ -66,17 +41,14 @@ type InventoryRow = Prisma.BonEquipmentGetPayload<{ select: typeof ITEM_SELECT }
 export class InventoryService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Where partagé par la liste paginée et l'export CSV. */
+  /** Where partagé par la liste paginée et l'export CSV. Base « prêté »
+   *  (+ filiale) fournie par le prédicat commun `buildLoanedEquipmentWhere` —
+   *  les autres filtres restent spécifiques à cette vue. */
   private buildWhere(filters: InventoryQueryDto): Prisma.BonEquipmentWhereInput {
     const and: Prisma.BonEquipmentWhereInput[] = [
-      { returnedAt: null },
-      { notReturned: false },
-      { bon: { status: { in: [...LOANED_BON_STATUSES] } } },
+      ...(buildLoanedEquipmentWhere({ filialeId: filters.filialeId }).AND as Prisma.BonEquipmentWhereInput[]),
     ];
 
-    if (filters.filialeId) {
-      and.push({ bon: { filialeId: filters.filialeId } });
-    }
     if (filters.collaborateurId) {
       and.push({ bon: { collaborateurId: filters.collaborateurId } });
     }

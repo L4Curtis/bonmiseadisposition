@@ -21,6 +21,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth-user.interface';
+import { isItRole } from '../common/roles';
 
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 
@@ -104,7 +105,7 @@ export class AttachmentsController {
       user,
       'Vous ne pouvez supprimer des pièces jointes que pendant la période de signature',
     );
-    if (user.role === 'collaborator') {
+    if (!isItRole(user.role)) {
       await this.verifyOwnAttachment(bonId, attachmentId, user);
     }
     return this.attachments.remove(bonId, attachmentId, { id: user.id, email: user.email });
@@ -113,7 +114,7 @@ export class AttachmentsController {
   /** Collaborateurs : accès limité à leurs propres bons (cf. BonsController). */
   private async verifyAccess(bonId: string, user: AuthUser): Promise<void> {
     if (!user) throw new ForbiddenException('Accès refusé');
-    if (user.role !== 'collaborator') return;
+    if (isItRole(user.role)) return;
     const bon = await this.prisma.bon.findUnique({
       where: { id: bonId },
       select: { collaborateurId: true },
@@ -130,7 +131,7 @@ export class AttachmentsController {
    * restitution partielle). Admin/technician : sans restriction.
    */
   private async verifyCollaboratorWriteWindow(bonId: string, user: AuthUser, message: string): Promise<void> {
-    if (user.role !== 'collaborator') return;
+    if (isItRole(user.role)) return;
     const bon = await this.prisma.bon.findUnique({
       where: { id: bonId },
       select: { status: true },

@@ -37,6 +37,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth-user.interface';
+import { isItRole } from '../common/roles';
 
 @Controller('bons')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -347,7 +348,7 @@ export class BonsController {
     if (!user) {
       throw new ForbiddenException('Accès refusé');
     }
-    if (user.role !== 'collaborator') return;
+    if (isItRole(user.role)) return;
 
     const bon = await this.prisma.bon.findUnique({
       where: { id: bonId },

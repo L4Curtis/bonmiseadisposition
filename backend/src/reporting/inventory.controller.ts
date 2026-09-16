@@ -7,10 +7,11 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 
 /** Vue « Inventaire du parc prêté » — équipements actuellement entre les
- *  mains des collaborateurs (accès IT : admin + technicien). */
+ *  mains des collaborateurs (accès IT : admin + technicien ; lecture seule
+ *  pour le rôle direction). */
 @Controller('reporting/inventory')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('admin', 'technician')
+@Roles('admin', 'technician', 'direction')
 export class InventoryController {
   constructor(private readonly inventoryService: InventoryService) {}
 

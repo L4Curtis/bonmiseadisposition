@@ -1741,6 +1741,7 @@ describe('BonsService', () => {
         overdue: 2,
         total: 20,
         archivedThisMonth: 3,
+        overdueThresholdDays: 7,
         byFiliale: [{ id: 'filiale-001', name: 'Filiale Demo', count: 8 }],
       });
       // Filiale with 0 bons should be filtered out
@@ -1758,14 +1759,32 @@ describe('BonsService', () => {
 
         await service.getStats();
 
+        // archivedThisMonth se base désormais sur archivedAt (jamais updatedAt).
         const archivedThisMonthCall = prisma.bon.count.mock.calls.find(
           (call) => (call[0] as { where?: { status?: string } })?.where?.status === 'archived',
-        ) as [{ where: { updatedAt: { gte: Date } } }] | undefined;
+        ) as [{ where: { archivedAt: { gte: Date } } }] | undefined;
         expect(archivedThisMonthCall).toBeDefined();
-        expect(archivedThisMonthCall?.[0].where.updatedAt.gte.toISOString()).toBe('2026-03-01T00:00:00.000Z');
+        expect(archivedThisMonthCall?.[0].where.archivedAt.gte.toISOString()).toBe('2026-03-01T00:00:00.000Z');
       } finally {
         jest.useRealTimers();
       }
+    });
+
+    it('should read the overdue threshold from config and report it (overdueThresholdDays)', async () => {
+      configService.getSignatureOverdueDays.mockResolvedValue(10);
+      prisma.bon.count.mockResolvedValue(0);
+      prisma.filiale.findMany.mockResolvedValue([]);
+
+      const stats = await service.getStats();
+
+      expect(stats.overdueThresholdDays).toBe(10);
+      const overdueCountCall = prisma.bon.count.mock.calls.find(
+        (call) => (call[0] as { where?: { AND?: unknown[] } })?.where?.AND !== undefined,
+      ) as [{ where: { AND: Array<{ updatedAt: { lt: Date } }> } }] | undefined;
+      expect(overdueCountCall).toBeDefined();
+      // Le cutoff change avec le seuil configuré (10 j, pas 7)
+      const cutoff = overdueCountCall?.[0].where.AND[0].updatedAt.lt;
+      expect(cutoff).toBeInstanceOf(Date);
     });
   });
 
