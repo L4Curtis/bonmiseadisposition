@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '@/lib/api';
+import { errorMessage } from '@/lib/errors';
 import { formatDateLong, formatDateTime } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -100,17 +101,17 @@ export function BonDetailCollaborateurPage() {
     try {
       const params = new URLSearchParams({ type });
       if (stage) params.set('stage', stage);
-      const res = await fetch(`/api/bons/${bon.id}/pdf?${params}`, { credentials: 'include' });
-      if (!res.ok) throw new Error('Erreur lors du téléchargement');
-      const blob = await res.blob();
+      // api.getBlob rafraîchit la session sur 401 et réessaie — un fetch brut
+      // renvoyait un 401 JSON silencieux après expiration du cookie d'accès (15 min).
+      const blob = await api.getBlob(`/bons/${bon.id}/pdf?${params}`);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = `bon-${bon.reference}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
-    } catch {
-      toast({ title: 'Erreur', description: 'Impossible de télécharger le PDF', variant: 'destructive' });
+    } catch (e: unknown) {
+      toast({ title: 'Erreur', description: errorMessage(e, 'Impossible de télécharger le PDF'), variant: 'destructive' });
     } finally {
       setPdfLoading(null);
     }

@@ -4,7 +4,7 @@ import { api } from '@/lib/api';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { FileText, Clock, CheckCircle2, Archive, ExternalLink, AlertOctagon, XCircle, ChevronRight } from 'lucide-react';
+import { FileText, Clock, CheckCircle2, Archive, ExternalLink, AlertOctagon, XCircle, ChevronRight, AlertTriangle } from 'lucide-react';
 import { type BonStatus } from '@/types';
 import { StatusBadge } from '@/components/StatusBadge';
 import { formatDateLong } from '@/lib/utils';
@@ -17,6 +17,9 @@ interface SignatureInfo {
   signed: boolean;
   token: string;
   tokenExpiresAt: string | null | undefined;
+  isInPerson?: boolean | null;
+  /** Champ backend futur : remplacera `token` pour les signatures présentielles. */
+  inPersonPending?: boolean;
 }
 
 interface BonCollab {
@@ -31,11 +34,30 @@ interface BonCollab {
   signatures: SignatureInfo[];
 }
 
-/** Check if a bon has an unsigned, non-expired token for pv_cloture */
-function hasPendingPvCloture(bon: BonCollab): boolean {
-  return bon.signatures?.some(
-    (s) => s.type === 'pv_cloture' && !s.signed && !!s.tokenExpiresAt && new Date(s.tokenExpiresAt) > new Date(),
-  ) ?? false;
+const SIGNABLE_TYPES = new Set(['mise_disposition', 'restitution', 'pv_cloture']);
+
+/** Signature non signée, non expirée, d'un type réellement signable par le
+ *  collaborateur (exclut it_cachet). Utilisé pour classer un bon dans « à
+ *  signer » indépendamment de son statut global (ex : partially_returned
+ *  peut porter une restitution OU un PV en attente). */
+function findPendingSignable(bon: BonCollab): SignatureInfo | undefined {
+  return bon.signatures?.find(
+    (s) =>
+      SIGNABLE_TYPES.has(s.type) &&
+      !s.signed &&
+      !!s.tokenExpiresAt &&
+      new Date(s.tokenExpiresAt) > new Date(),
+  );
+}
+
+function hasPendingSignable(bon: BonCollab): boolean {
+  return !!findPendingSignable(bon);
+}
+
+function signatureTypeLabel(type: string): string {
+  if (type === 'pv_cloture') return 'procès-verbal d\'équipements non restitués';
+  if (type === 'restitution') return 'restitution';
+  return 'mise à disposition';
 }
 
 // ─── Loading skeleton ────────────────────────────────────────────────────────
@@ -103,21 +125,33 @@ export function PortailCollaborateur() {
     </div>
   );
 
-  // Bons à signer : sent_mise_dispo, sent_restitution, et partially_returned avec PV en attente
+  // Bons à signer : sent_mise_dispo, sent_restitution, et tout bon (dont
+  // partially_returned) portant une signature non signée/non expirée
+  // (restitution, pv_cloture ou mise_disposition selon le statut).
   const pending = bons.filter((b) =>
     ['sent_mise_dispo', 'sent_restitution'].includes(b.status) ||
-    (b.status === 'partially_returned' && hasPendingPvCloture(b)),
+    (b.status === 'partially_returned' && hasPendingSignable(b)),
   );
   const active = bons.filter((b) => b.status === 'active');
   const contested = bons.filter((b) => b.status === 'contested');
   const activeStatuses = new Set(['sent_mise_dispo', 'sent_restitution', 'active', 'contested']);
   const others = bons.filter((b) =>
     !activeStatuses.has(b.status) &&
-    !(b.status === 'partially_returned' && hasPendingPvCloture(b)),
+    !(b.status === 'partially_returned' && hasPendingSignable(b)),
   );
 
   return (
     <div className="space-y-6 ">
+      {pending.length > 0 && (
+        <div role="status" className="flex items-center gap-2 rounded-lg bg-orange-50 dark:bg-orange-950/20 border border-orange-200 dark:border-orange-900/30 px-4 py-3 text-sm text-orange-700 dark:text-orange-400">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <span>
+            Vous avez {pending.length} document{pending.length > 1 ? 's' : ''} à signer.{' '}
+            <a href="#a-signer" className="font-semibold underline underline-offset-2">Voir</a>
+          </span>
+        </div>
+      )}
+
       <div>
         <h1 className="text-2xl font-bold text-foreground">Mes équipements</h1>
         <p className="text-sm text-muted-foreground mt-0.5">
@@ -136,17 +170,27 @@ export function PortailCollaborateur() {
         <>
           {/* À signer */}
           {pending.length > 0 && (
-            <section>
+            <section id="a-signer">
               <h2 className="text-sm font-semibold text-orange-600 uppercase tracking-wider mb-3 flex items-center gap-1.5">
                 <Clock className="h-3.5 w-3.5" /> À signer ({pending.length})
               </h2>
               <div className="space-y-3">
                 {pending.map((bon) => {
-                  const pendingSig = bon.signatures?.find((s) => !s.signed && !!s.tokenExpiresAt && new Date(s.tokenExpiresAt) > new Date());
-                  const isPvCloture = bon.status === 'partially_returned';
-                  const sigType = isPvCloture
-                    ? 'procès-verbal d\'équipements non restitués'
-                    : bon.status === 'sent_restitution' ? 'restitution' : 'mise à disposition';
+                  const pendingSig = findPendingSignable(bon);
+                  // Le libellé vient du TYPE de la signature en attente, pas du
+                  // statut global du bon (un partially_returned peut aussi bien
+                  // porter une restitution qu'un PV en attente). Si aucune
+                  // signature signable n'est trouvée (ex : token invalidé entre
+                  // le chargement et le rendu), on retombe sur une déduction à
+                  // partir du statut — comme avant l'introduction de pendingSig —
+                  // plutôt que d'afficher « mise à disposition » par défaut.
+                  const fallbackType = bon.status === 'partially_returned'
+                    ? 'pv_cloture'
+                    : bon.status === 'sent_restitution' ? 'restitution' : 'mise_disposition';
+                  const sigTypeKey = pendingSig?.type ?? fallbackType;
+                  const isPvCloture = sigTypeKey === 'pv_cloture';
+                  const sigType = signatureTypeLabel(sigTypeKey);
+                  const isInPersonPending = !!pendingSig && (pendingSig.isInPerson || pendingSig.inPersonPending);
                   return (
                     <Card key={bon.id} className="border-orange-200 dark:border-orange-900/30 bg-orange-50/50 dark:bg-orange-950/10">
                       <CardContent className="p-4 space-y-3">
@@ -167,7 +211,11 @@ export function PortailCollaborateur() {
                         <p className="text-sm text-orange-700 dark:text-orange-400">
                           Bon de <strong>{sigType}</strong> en attente de signature.
                         </p>
-                        {pendingSig ? (
+                        {isInPersonPending ? (
+                          <span className="text-xs text-muted-foreground">
+                            Signature en présentiel en cours avec le service informatique
+                          </span>
+                        ) : pendingSig?.token ? (
                           <Button asChild className="bg-orange-600 hover:bg-orange-700">
                             <a href={'/signer/' + pendingSig.token}>
                               <ExternalLink className="mr-2 h-3.5 w-3.5" /> Signer maintenant

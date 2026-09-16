@@ -15,6 +15,23 @@ const ERROR_MESSAGES: Record<string, string> = {
   access_denied: 'Accès refusé par Microsoft.',
 };
 
+// Comparaison d'origine plutôt qu'un simple test de préfixe "/" : une regex
+// du type /^\/[^/]/ laisse passer des payloads comme "/\evil.com",
+// "/%09/evil.com" ou "/%0a/evil.com" que le navigateur normalise en URL
+// absolue vers un autre host au moment de l'assignation à
+// window.location.href (open redirect). `new URL` applique la même
+// normalisation AVANT la comparaison d'origine, donc ces vecteurs sont
+// rejetés. Dupliquée dans SignaturePage.tsx : pas de lib/** partagée dans le
+// périmètre de ce lot (lib/** appartient à un autre lot).
+function isSafeReturnTo(v: string): boolean {
+  try {
+    const u = new URL(v, window.location.origin);
+    return u.origin === window.location.origin && v.startsWith('/');
+  } catch {
+    return false;
+  }
+}
+
 export function LoginPage() {
   const [searchParams] = useSearchParams();
   const [setupRequired, setSetupRequired] = useState<boolean | null>(null);
@@ -25,6 +42,13 @@ export function LoginPage() {
   const [localError, setLocalError] = useState('');
   const [localLoading, setLocalLoading] = useState(false);
   const error = searchParams.get('error');
+
+  const rawReturnTo = searchParams.get('returnTo');
+  const safeReturnTo = rawReturnTo && isSafeReturnTo(rawReturnTo) ? rawReturnTo : null;
+  const destination = safeReturnTo ?? '/';
+  const ssoLoginHref = safeReturnTo
+    ? `/api/auth/login?returnTo=${encodeURIComponent(safeReturnTo)}`
+    : '/api/auth/login';
 
   useEffect(() => {
     Promise.all([
@@ -60,9 +84,14 @@ export function LoginPage() {
       if (res.ok) {
         const data = await res.json();
         if (data.mustChangePassword) {
-          window.location.href = '/change-password?forced=true';
+          // ChangePassword.tsx est hors périmètre de ce lot : il devra lire
+          // `returnTo` et y rediriger une fois le mot de passe changé, sinon
+          // ce paramètre est actuellement ignoré côté cible.
+          window.location.href = safeReturnTo
+            ? `/change-password?forced=true&returnTo=${encodeURIComponent(safeReturnTo)}`
+            : '/change-password?forced=true';
         } else {
-          window.location.href = '/';
+          window.location.href = destination;
         }
       } else {
         const data = await res.json().catch(() => ({}));
@@ -117,7 +146,7 @@ export function LoginPage() {
 
             {/* SSO Button — verre sombre aligné sur le panneau de marque, logo Microsoft couleur */}
             <a
-              href="/api/auth/login"
+              href={ssoLoginHref}
               className="group flex h-11 w-full items-center justify-center gap-3 rounded-xl border border-white/20 bg-white/[0.07] text-[15px] font-semibold text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.08)] backdrop-blur-sm transition-all duration-150 hover:bg-white/[0.12] hover:border-white/30 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
             >
               <svg viewBox="0 0 21 21" className="h-[18px] w-[18px]">

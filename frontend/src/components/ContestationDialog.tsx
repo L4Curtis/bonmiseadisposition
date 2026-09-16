@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
+import { errorMessage } from '@/lib/errors';
 import { contestationSchema, validate, CONTESTATION_MAX_LENGTH } from '@/lib/validation';
 
 interface ContestationDialogProps {
@@ -47,8 +48,9 @@ export function ContestationDialog({
       handleClose(false);
       onSuccess();
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Erreur lors de la contestation';
-      setError(msg);
+      // errorMessage restitue le message backend tel quel (ex : 409 « une
+      // contestation est déjà ouverte pour ce bon »).
+      setError(errorMessage(e, 'Erreur lors de la contestation'));
     } finally {
       setLoading(false);
     }
@@ -77,6 +79,7 @@ export function ContestationDialog({
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               maxLength={CONTESTATION_MAX_LENGTH}
+              disabled={loading}
             />
             <p className="text-xs text-muted-foreground text-right">{message.length}/{CONTESTATION_MAX_LENGTH}</p>
           </div>
@@ -87,7 +90,7 @@ export function ContestationDialog({
           )}
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => handleClose(false)}>Annuler</Button>
+          <Button variant="outline" onClick={() => handleClose(false)} disabled={loading}>Annuler</Button>
           <Button variant="destructive" onClick={handleSubmit} disabled={loading}>
             {loading ? 'Envoi...' : 'Envoyer la contestation'}
           </Button>

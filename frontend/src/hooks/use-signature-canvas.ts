@@ -91,6 +91,10 @@ export function useSignatureCanvas(): SignatureCanvasReturn {
     if (!canvas) return;
 
     const touchStart = (e: TouchEvent) => {
+      // Un deuxième doigt qui se pose (déjà en train de signer, ou pincer/
+      // zoomer) ne doit pas réinitialiser currentStroke sans finaliser le
+      // trait en cours — on ignore l'évènement, le premier doigt continue.
+      if (e.touches.length > 1) return;
       e.preventDefault();
       isDrawing.current = true;
       const ctx = canvas.getContext('2d')!;
@@ -102,6 +106,9 @@ export function useSignatureCanvas(): SignatureCanvasReturn {
 
     const touchMove = (e: TouchEvent) => {
       if (!isDrawing.current) return;
+      // Un deuxième doigt = pincer/zoomer, pas signer : ignorer pour ne pas
+      // tracer un trait erratique pendant un geste de zoom.
+      if (e.touches.length > 1) return;
       e.preventDefault();
       const ctx = canvas.getContext('2d')!;
       screenStyle(ctx, canvas);
@@ -112,16 +119,25 @@ export function useSignatureCanvas(): SignatureCanvasReturn {
       setIsEmpty(false);
     };
 
-    const touchEnd = () => { finishStroke(); };
+    // `e.touches` = doigts encore posés APRÈS cet évènement : ne finaliser
+    // que lorsque le dernier doigt est levé (touches.length === 0), sinon le
+    // premier doigt continue de signer pendant qu'un second est relevé.
+    const touchEnd = (e: TouchEvent) => { if (e.touches.length === 0) finishStroke(); };
+    // Le navigateur annule le geste tactile en cours (appel entrant, geste
+    // système, etc.) : sans ce handler le trait en cours restait "ouvert"
+    // (isDrawing bloqué à true) sans jamais être poussé dans strokes.
+    const touchCancel = (e: TouchEvent) => { if (e.touches.length === 0) finishStroke(); };
 
     canvas.addEventListener('touchstart', touchStart, { passive: false });
     canvas.addEventListener('touchmove', touchMove, { passive: false });
     canvas.addEventListener('touchend', touchEnd);
+    canvas.addEventListener('touchcancel', touchCancel);
 
     return () => {
       canvas.removeEventListener('touchstart', touchStart);
       canvas.removeEventListener('touchmove', touchMove);
       canvas.removeEventListener('touchend', touchEnd);
+      canvas.removeEventListener('touchcancel', touchCancel);
     };
   }, [canvasEl]);
 
