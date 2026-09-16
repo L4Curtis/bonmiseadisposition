@@ -22,6 +22,7 @@ const ReportsPage = lazy(() => import('@/pages/admin/Reports').then(m => ({ defa
 const ContestationsPage = lazy(() => import('@/pages/admin/Contestations').then(m => ({ default: m.ContestationsPage })));
 const TemplatesPage = lazy(() => import('@/pages/admin/Templates').then(m => ({ default: m.TemplatesPage })));
 const PdfTemplatesPage = lazy(() => import('@/pages/admin/PdfTemplates').then(m => ({ default: m.PdfTemplatesPage })));
+const InventairePage = lazy(() => import('@/pages/Inventaire').then(m => ({ default: m.InventairePage })));
 const BonsListPage = lazy(() => import('@/pages/bons/BonsList').then(m => ({ default: m.BonsListPage })));
 const BonCreatePage = lazy(() => import('@/pages/bons/BonCreate').then(m => ({ default: m.BonCreatePage })));
 const BonDetailPage = lazy(() => import('@/pages/bons/BonDetail').then(m => ({ default: m.BonDetailPage })));
@@ -106,6 +107,13 @@ function AppRoutes() {
         } />
         <Route path="mes-bons/:id" element={
           <ProtectedRoute><BonDetailCollaborateurPage /></ProtectedRoute>
+        } />
+
+        {/* Inventaire */}
+        <Route path="inventaire" element={
+          <ProtectedRoute requiredRoles={['admin', 'technician']}>
+            <InventairePage />
+          </ProtectedRoute>
         } />
 
         {/* Bons */}
