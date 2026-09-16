@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { AppConfigService } from '../config/config.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -49,6 +49,8 @@ export const VARIABLE_DESCRIPTIONS: Record<string, string> = {
   TYPE_LABEL: 'Type de bon (mise à disposition / restitution)',
   REMINDER_NUMBER: 'Numéro du rappel en cours',
   MAX_REMINDERS: 'Nombre maximum de rappels configuré',
+  DATE_RESTITUTION: 'Date de restitution prévue',
+  PORTAIL_URL: 'Lien vers le portail collaborateur (mes bons)',
 };
 
 const vars = (...names: string[]) =>
@@ -136,7 +138,30 @@ const TEMPLATES: TemplateDefinition[] = [
     headerColor: BRAND_PASTILLE,
     variables: vars('TYPE_LABEL', 'REFERENCE', 'SIGNER_URL', 'REMINDER_NUMBER', 'MAX_REMINDERS', 'FILIALE_NOM'),
   },
+  {
+    id: 'confirmation_pv_cloture',
+    name: 'Confirmation de signature — Procès-verbal de clôture',
+    description: "Envoyé au collaborateur après signature du procès-verbal d'équipements non restitués",
+    category: 'signature',
+    recipient: 'Collaborateur',
+    headerColor: BRAND_PASTILLE,
+    variables: vars('FILIALE_NOM', 'REFERENCE', 'TYPE_LABEL'),
+  },
+  {
+    id: 'restitution_due_reminder',
+    name: 'Rappel — Restitution prévue',
+    description: "Envoyé automatiquement au collaborateur avant la date de restitution prévue d'un bon actif",
+    category: 'rappel',
+    recipient: 'Collaborateur',
+    headerColor: BRAND_PASTILLE,
+    variables: vars('COLLAB_CIVILITE', 'COLLAB_NAME', 'FILIALE_NOM', 'REFERENCE', 'DATE_RESTITUTION', 'EQUIP_LIST', 'PORTAIL_URL'),
+  },
 ];
+
+/** Templates dont le contenu doit obligatoirement porter un lien de signature.
+ *  'reminder' inclus : le rappel de signature relaie lui aussi {{SIGNER_URL}}. */
+const SIGNER_URL_REQUIRED_TEMPLATES = ['mise_disposition_request', 'restitution_request', 'pv_cloture_request', 'reminder'];
+const MAX_TEMPLATE_HTML_LENGTH = 200_000;
 
 // Styled <li> items for preview (mirrors notification.service.ts buildEquipList output)
 const PREVIEW_EQUIP_LIST = [
@@ -178,6 +203,8 @@ const PREVIEW_VARS: Record<string, string> = {
   REMINDER_NUMBER: '2',
   MAX_REMINDERS: '3',
   USER_NAME: 'Jean Dupont',
+  DATE_RESTITUTION: '20 avril 2026',
+  PORTAIL_URL: '#',
 };
 
 // ─── Layout : voir ./email-layout.ts (partagé avec notification.service) ─────
@@ -239,10 +266,28 @@ export class TemplatesService {
     return this.render(html, PREVIEW_VARS);
   }
 
+  // ─── Validation ──────────────────────────────────────────────────────────────
+
+  /** Valide le HTML d'un template avant sauvegarde (édition unique ou import). */
+  private validateTemplateHtml(id: string, html: string): void {
+    if (typeof html !== 'string' || html.trim().length === 0) {
+      throw new BadRequestException(`Le contenu HTML du template "${id}" est vide`);
+    }
+    if (html.length > MAX_TEMPLATE_HTML_LENGTH) {
+      throw new BadRequestException(
+        `Le contenu HTML du template "${id}" dépasse la taille maximale autorisée (200 000 caractères)`,
+      );
+    }
+    if (SIGNER_URL_REQUIRED_TEMPLATES.includes(id) && !html.includes('{{SIGNER_URL}}')) {
+      throw new BadRequestException(`Le template "${id}" doit contenir la variable {{SIGNER_URL}}`);
+    }
+  }
+
   // ─── CRUD ────────────────────────────────────────────────────────────────────
 
   async updateTemplate(id: string, html: string, updatedById?: string): Promise<void> {
     this.getTemplateById(id);
+    this.validateTemplateHtml(id, html);
     await this.configService.set('email_templates', id, html, { updatedById });
   }
 
@@ -269,14 +314,47 @@ export class TemplatesService {
     data: { templates: { id: string; html: string }[] },
     updatedById?: string,
   ): Promise<{ imported: number; skipped: number }> {
-    let imported = 0;
+    const valid: { id: string; html: string }[] = [];
     let skipped = 0;
+
     for (const item of data.templates) {
-      if (!TEMPLATES.find((t) => t.id === item.id)) { skipped++; continue; }
-      await this.configService.set('email_templates', item.id, item.html, { updatedById });
-      imported++;
+      const known = TEMPLATES.find((t) => t.id === item.id);
+      const htmlOk =
+        typeof item.html === 'string' &&
+        item.html.trim().length > 0 &&
+        item.html.length <= MAX_TEMPLATE_HTML_LENGTH;
+      // htmlOk évalué AVANT signerOk : si html n'est pas une string (ex. null
+      // envoyé par un import corrompu), `item.html.includes(...)` lèverait un
+      // TypeError avant même que htmlOk soit pris en compte plus bas.
+      const signerOk =
+        !known ||
+        !htmlOk ||
+        !SIGNER_URL_REQUIRED_TEMPLATES.includes(item.id) ||
+        item.html.includes('{{SIGNER_URL}}');
+
+      if (!known || !htmlOk || !signerOk) {
+        skipped++;
+        continue;
+      }
+      valid.push(item);
     }
-    return { imported, skipped };
+
+    if (valid.length > 0) {
+      await this.prisma.$transaction(
+        valid.map((item) =>
+          this.prisma.appConfig.upsert({
+            where: { category_key: { category: 'email_templates', key: item.id } },
+            update: { value: item.html, encrypted: false, updatedById },
+            create: { category: 'email_templates', key: item.id, value: item.html, encrypted: false, updatedById },
+          }),
+        ),
+      );
+      for (const item of valid) {
+        this.configService.invalidateCache('email_templates', item.id);
+      }
+    }
+
+    return { imported: valid.length, skipped };
   }
 
   // ─── Default HTML templates ──────────────────────────────────────────────────
@@ -287,11 +365,13 @@ export class TemplatesService {
       case 'restitution_request':           return this.defaultRestitution();
       case 'confirmation_mise_disposition': return this.defaultConfirmationMiseDisposition();
       case 'confirmation_restitution':      return this.defaultConfirmationRestitution();
+      case 'confirmation_pv_cloture':       return this.defaultConfirmationPvCloture();
       case 'pv_cloture_request':            return this.defaultPvCloture();
       case 'contestation_alert':            return this.defaultContestationAlert();
       case 'contestation_resolved':         return this.defaultContestationResolved();
       case 'contestation_rejected':         return this.defaultContestationRejected();
       case 'reminder':                      return this.defaultReminder();
+      case 'restitution_due_reminder':      return this.defaultRestitutionDueReminder();
       default: throw new NotFoundException(`Template "${id}" introuvable`);
     }
   }
@@ -378,6 +458,26 @@ export class TemplatesService {
         Ce document est désormais archivé dans notre système. Conservez cet email comme preuve de signature.
       </p>
       ${infoBox('#f0fdf4', '#bbf7d0', '#166534', 'Document archivé de façon sécurisée &middot; Ce bon a valeur contractuelle &middot; Aucune action supplémentaire requise')}
+      `),
+      footer(),
+    ));
+  }
+
+  // ─── 4b. Confirmation procès-verbal de clôture ───────────────────────────────
+
+  private defaultConfirmationPvCloture(): string {
+    return emailWrapper(card(
+      brandHeader('Signature confirmée', '{{FILIALE_NOM}}', CHIP_SUCCESS),
+      metaStrip(['Réf. <strong style="color:#1B1A18;font-family:monospace">{{REFERENCE}}</strong>', 'Type : <strong style="color:#1B1A18">Procès-verbal de clôture</strong>']),
+      body(`
+      ${statusIcon('&#10003;', '#dcfce7')}
+      <p style="margin:0 0 16px;font-size:15px;color:#4A463F;line-height:1.75;text-align:center">
+        Votre <strong style="color:#1B1A18">{{TYPE_LABEL}}</strong> portant la référence ${refBadge('{{REFERENCE}}')} a bien été <strong style="color:#166534">signé électroniquement</strong>.
+      </p>
+      <p style="margin:0 0 24px;font-size:15px;color:#4A463F;line-height:1.75;text-align:center">
+        Ce document est désormais archivé dans notre système. Conservez cet email comme preuve de signature.
+      </p>
+      ${infoBox('#f0fdf4', '#bbf7d0', '#166534', 'Document archivé de façon sécurisée &middot; Ce document a valeur probante &middot; Aucune action supplémentaire requise')}
       `),
       footer(),
     ));
@@ -476,6 +576,32 @@ export class TemplatesService {
       </p>
       ${ctaButton('{{SIGNER_URL}}', 'Signer le document maintenant')}
       ${infoBox('#fff7ed', '#fed7aa', '#c2410c', 'Rappel {{REMINDER_NUMBER}}/{{MAX_REMINDERS}} &middot; <strong>Lien à durée limitée</strong> &middot; Authentification Microsoft requise')}
+      `),
+      footer(),
+    ));
+  }
+
+  // ─── 10. Rappel restitution prévue ───────────────────────────────────────────
+  // Contrairement aux autres rappels, ce template ne porte PAS de lien de
+  // signature (aucune action de signature n'est attendue à ce stade) : il
+  // n'est donc pas ajouté à SIGNER_URL_REQUIRED_TEMPLATES.
+
+  private defaultRestitutionDueReminder(): string {
+    return emailWrapper(card(
+      brandHeader('Restitution de matériel à prévoir', '{{FILIALE_NOM}}', CHIP_WARNING('Rappel')),
+      metaStrip(['Réf. <strong style="color:#1B1A18;font-family:monospace">{{REFERENCE}}</strong>', 'Restitution prévue le <strong style="color:#1B1A18">{{DATE_RESTITUTION}}</strong>']),
+      body(`
+      <p style="margin:0 0 8px;font-size:16px;color:#1B1A18;font-weight:500">{{COLLAB_CIVILITE}} {{COLLAB_NAME}},</p>
+      <p style="margin:0 0 24px;font-size:15px;color:#4A463F;line-height:1.75">
+        Nous vous rappelons que la date de restitution prévue de votre matériel mis à disposition par <strong style="color:#1B1A18">{{FILIALE_NOM}}</strong> est fixée au <strong style="color:#1B1A18">{{DATE_RESTITUTION}}</strong>, dans le cadre du bon ${refBadge('{{REFERENCE}}')}.
+      </p>
+      ${sectionLabel('Équipements encore en votre possession')}
+      ${equipList('{{EQUIP_LIST}}')}
+      <p style="margin:0 0 4px;font-size:15px;color:#4A463F;line-height:1.75">
+        Merci de vous rapprocher du service informatique afin d'organiser la restitution de ce matériel avant cette date.
+      </p>
+      ${ctaButton('{{PORTAIL_URL}}', 'Accéder à mon espace')}
+      ${infoBox('#fff7ed', '#fed7aa', '#c2410c', "Message automatique &middot; Aucune signature n'est requise à ce stade &middot; Contactez le service informatique pour toute question")}
       `),
       footer(),
     ));

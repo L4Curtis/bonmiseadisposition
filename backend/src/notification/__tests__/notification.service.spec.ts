@@ -62,7 +62,7 @@ describe('NotificationService', () => {
     it('should send email via SMTP transporter', async () => {
       const result = await service.sendEmail('user@test.fr', 'Subject', '<p>Hello</p>');
 
-      expect(result).toBe(true);
+      expect(result).toEqual({ ok: true });
       expect(nodemailer.createTransport).toHaveBeenCalled();
       expect(mockSendMail).toHaveBeenCalledWith({
         from: 'noreply@test.local',
@@ -72,7 +72,7 @@ describe('NotificationService', () => {
       });
     });
 
-    it('should return false and log when SMTP not configured', async () => {
+    it('should return ok:false with an error and log when SMTP not configured', async () => {
       // Override get to return null for host
       configService.get.mockImplementation((category: string, key: string) => {
         if (category === 'smtp' && key === 'host') return Promise.resolve(null);
@@ -83,16 +83,30 @@ describe('NotificationService', () => {
 
       const result = await service.sendEmail('user@test.fr', 'Subject', '<p>Hello</p>');
 
-      expect(result).toBe(false);
+      expect(result.ok).toBe(false);
+      expect(result.error).toBeTruthy();
       expect(mockSendMail).not.toHaveBeenCalled();
     });
 
-    it('should return false and log on SMTP error', async () => {
+    it('should return ok:false with an explicit error when smtp.from is not configured', async () => {
+      configService.get.mockImplementation((category: string, key: string) => {
+        if (category === 'smtp' && key === 'host') return Promise.resolve('smtp.test.local');
+        if (category === 'smtp' && key === 'from') return Promise.resolve(null);
+        return Promise.resolve(null);
+      });
+
+      const result = await service.sendEmail('user@test.fr', 'Subject', '<p>Hello</p>');
+
+      expect(result).toEqual({ ok: false, error: 'Expéditeur SMTP (smtp.from) non configuré' });
+      expect(mockSendMail).not.toHaveBeenCalled();
+    });
+
+    it('should return ok:false with the real SMTP error message', async () => {
       mockSendMail.mockRejectedValueOnce(new Error('SMTP connection refused'));
 
       const result = await service.sendEmail('user@test.fr', 'Subject', '<p>Hello</p>');
 
-      expect(result).toBe(false);
+      expect(result).toEqual({ ok: false, error: 'SMTP connection refused' });
     });
   });
 
@@ -192,6 +206,130 @@ describe('NotificationService', () => {
     });
   });
 
+  // ─── sendRestitutionDueReminder ─────────────────────────────────────────────
+
+  describe('sendRestitutionDueReminder', () => {
+    const dueBon = () => ({
+      ...activeBon(),
+      dateRestitution: new Date('2026-04-12'),
+    }) as unknown as NotificationBon;
+
+    it('renders the template with the expected variables and sends to the current collaborateur email', async () => {
+      const bon = {
+        ...dueBon(),
+        collaborateur: { displayName: 'Jean Dupont', email: 'jean.updated@groupelivio.fr' },
+      } as unknown as NotificationBon;
+      asMock(prisma.notificationLog.create).mockResolvedValue({});
+
+      const ok = await service.sendRestitutionDueReminder(bon);
+
+      expect(ok).toBe(true);
+      expect(templatesService.renderTemplate).toHaveBeenCalledWith(
+        'restitution_due_reminder',
+        expect.objectContaining({
+          REFERENCE: bon.reference,
+          DATE_RESTITUTION: expect.any(String),
+          EQUIP_LIST: expect.any(String),
+          PORTAIL_URL: 'https://app.test.local/mes-bons',
+        }),
+      );
+      expect(mockSendMail).toHaveBeenCalledWith(
+        expect.objectContaining({ to: 'jean.updated@groupelivio.fr' }),
+      );
+    });
+
+    it('falls back to collaborateurEmail when the current collaborateur has no email', async () => {
+      const bon = {
+        ...dueBon(),
+        collaborateur: { displayName: 'Jean Dupont' },
+      } as unknown as NotificationBon;
+      asMock(prisma.notificationLog.create).mockResolvedValue({});
+
+      await service.sendRestitutionDueReminder(bon);
+
+      expect(mockSendMail).toHaveBeenCalledWith(
+        expect.objectContaining({ to: bon.collaborateurEmail }),
+      );
+    });
+
+    it('excludes already-returned or not-returned equipment from the loaned list', async () => {
+      const bon = dueBon();
+      bon.equipments = [
+        { ...bon.equipments![0], returnedAt: new Date('2026-03-01') }, // déjà rendu
+        { ...bon.equipments![1], notReturned: true }, // signalé non restitué
+        bon.equipments![2], // encore prêté
+      ];
+      asMock(prisma.notificationLog.create).mockResolvedValue({});
+
+      await service.sendRestitutionDueReminder(bon);
+
+      const call = templatesService.renderTemplate.mock.calls.find((c) => c[0] === 'restitution_due_reminder');
+      const equipList = call?.[1]?.EQUIP_LIST ?? '';
+      expect(equipList).toContain('Logitech MX Master 3S');
+      expect(equipList).not.toContain('Lenovo ThinkBook 16 G6');
+      expect(equipList).not.toContain('Dell UltraSharp U2723QE');
+    });
+
+    it('creates a sent NotificationLog on success', async () => {
+      const bon = dueBon();
+      asMock(prisma.notificationLog.create).mockResolvedValue({});
+
+      await service.sendRestitutionDueReminder(bon);
+
+      expect(prisma.notificationLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          bonId: bon.id,
+          type: 'restitution_due_reminder',
+          status: 'sent',
+        }),
+      });
+    });
+
+    it('creates a failed NotificationLog when the send fails', async () => {
+      const bon = dueBon();
+      mockSendMail.mockRejectedValueOnce(new Error('smtp down'));
+      asMock(prisma.notificationLog.create).mockResolvedValue({});
+
+      const ok = await service.sendRestitutionDueReminder(bon);
+
+      expect(ok).toBe(false);
+      expect(prisma.notificationLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ bonId: bon.id, type: 'restitution_due_reminder', status: 'failed' }),
+      });
+    });
+
+    it('blocks sending and logs a failed NotificationLog when app_url is not configured (production)', async () => {
+      const originalEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+      try {
+        configService.get.mockImplementation((category: string, key: string) => {
+          if (category === 'general' && key === 'app_url') return Promise.resolve(null);
+          if (category === 'smtp' && key === 'host') return Promise.resolve('smtp.test.local');
+          if (category === 'smtp' && key === 'from') return Promise.resolve('noreply@test.local');
+          return Promise.resolve(null);
+        });
+        const bon = dueBon();
+        asMock(prisma.notificationLog.create).mockResolvedValue({});
+
+        const ok = await service.sendRestitutionDueReminder(bon);
+
+        expect(ok).toBe(false);
+        expect(mockSendMail).not.toHaveBeenCalled();
+        expect(prisma.notificationLog.create).toHaveBeenCalledWith({
+          data: {
+            bonId: bon.id,
+            recipientEmail: bon.collaborateurEmail,
+            type: 'restitution_due_reminder',
+            status: 'failed',
+            errorMessage: "URL de l'application (general.app_url) non configurée",
+          },
+        });
+      } finally {
+        process.env.NODE_ENV = originalEnv;
+      }
+    });
+  });
+
   // ─── sendContestationAlert ─────────────────────────────────────────────────
 
   describe('sendContestationAlert', () => {
@@ -221,14 +359,23 @@ describe('NotificationService', () => {
       expect(mockSendMail).toHaveBeenCalledTimes(2);
     });
 
-    it('should skip if no IT staff found', async () => {
+    it('should log a failed notification when no IT staff found (instead of silently skipping)', async () => {
       const bon = activeBon() as unknown as NotificationBon;
       asMock(prisma.user.findMany).mockResolvedValue([]);
+      asMock(prisma.notificationLog.create).mockResolvedValue({});
 
       await service.sendContestationAlert(bon, { displayName: 'Test' }, 'msg');
 
       expect(mockSendMail).not.toHaveBeenCalled();
-      expect(prisma.notificationLog.create).not.toHaveBeenCalled();
+      expect(prisma.notificationLog.create).toHaveBeenCalledWith({
+        data: {
+          bonId: bon.id,
+          recipientEmail: '',
+          type: 'contestation_alert',
+          status: 'failed',
+          errorMessage: 'Aucun utilisateur IT actif',
+        },
+      });
     });
   });
 
@@ -346,6 +493,21 @@ describe('NotificationService', () => {
       expect(mockSendMail).not.toHaveBeenCalled();
     });
 
+    it('should skip entirely when SMTP is not configured (no token regenerated, no failed log created)', async () => {
+      configService.set('rappels', 'enabled', 'true');
+      configService.get.mockImplementation((category: string, key: string) => {
+        if (category === 'smtp' && key === 'host') return Promise.resolve(null);
+        return Promise.resolve(null);
+      });
+
+      await service.sendDailyReminders();
+
+      expect(prisma.bon.findMany).not.toHaveBeenCalled();
+      expect(prisma.signature.create).not.toHaveBeenCalled();
+      expect(mockSendMail).not.toHaveBeenCalled();
+      expect(prisma.notificationLog.create).not.toHaveBeenCalled();
+    });
+
     it('should regenerate an expired token instead of sending a dead link', async () => {
       configService.set('rappels', 'enabled', 'true');
       configService.set('rappels', 'delay_1', '3');
@@ -384,6 +546,35 @@ describe('NotificationService', () => {
       expect(mockSendMail).toHaveBeenCalled();
     });
 
+    it('should skip the reminder (without invalidating the token) for a still-valid in-person signature', async () => {
+      configService.set('rappels', 'enabled', 'true');
+      configService.set('rappels', 'delay_1', '3');
+
+      const bon = sentMiseDispoBon();
+      const pendingBon = {
+        ...bon,
+        updatedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+        signatures: [{
+          id: 'sig-in-person-001',
+          type: 'mise_disposition',
+          signed: false,
+          isInPerson: true,
+          token: 'in-person-token',
+          tokenExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // encore valide
+        }],
+        notifications: [],
+      };
+
+      asMock(prisma.bon.findMany).mockResolvedValue([pendingBon]);
+
+      await service.sendDailyReminders();
+
+      expect(prisma.signature.updateMany).not.toHaveBeenCalled();
+      expect(prisma.signature.create).not.toHaveBeenCalled();
+      expect(mockSendMail).not.toHaveBeenCalled();
+      expect(prisma.notificationLog.create).not.toHaveBeenCalled();
+    });
+
     it('should remind pending PV co-signature on partially_returned bons', async () => {
       configService.set('rappels', 'enabled', 'true');
       configService.set('rappels', 'delay_1', '3');
@@ -416,6 +607,248 @@ describe('NotificationService', () => {
         }),
       );
       expect(mockSendMail).toHaveBeenCalled();
+    });
+
+    it('blocks the reminder and logs a failed NotificationLog when app_url is not configured (production) instead of sending a dead relative link', async () => {
+      const originalEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+      try {
+        configService.set('rappels', 'enabled', 'true');
+        configService.set('rappels', 'delay_1', '3');
+
+        const bon = sentMiseDispoBon();
+        const pendingBon = {
+          ...bon,
+          updatedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+          signatures: [{
+            id: 'sig-pending-002',
+            type: 'mise_disposition',
+            signed: false,
+            token: 'pending-token-2',
+            tokenExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          }],
+          notifications: [],
+        };
+
+        asMock(prisma.bon.findMany).mockResolvedValue([pendingBon]);
+        asMock(prisma.notificationLog.create).mockResolvedValue({});
+        configService.get.mockImplementation((category: string, key: string) => {
+          if (category === 'general' && key === 'app_url') return Promise.resolve(null);
+          if (category === 'rappels' && key === 'enabled') return Promise.resolve('true');
+          if (category === 'rappels' && key === 'delay_1') return Promise.resolve('3');
+          if (category === 'smtp' && key === 'host') return Promise.resolve('smtp.test.local');
+          if (category === 'smtp' && key === 'from') return Promise.resolve('noreply@test.local');
+          return Promise.resolve(null);
+        });
+
+        await service.sendDailyReminders();
+
+        expect(mockSendMail).not.toHaveBeenCalled();
+        expect(prisma.notificationLog.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({
+            bonId: pendingBon.id,
+            type: 'reminder',
+            status: 'failed',
+            errorMessage: "URL de l'application (general.app_url) non configurée",
+          }),
+        });
+      } finally {
+        process.env.NODE_ENV = originalEnv;
+      }
+    });
+
+    it('does not regenerate an expired token when app_url is not configured (production) — no wasted token', async () => {
+      const originalEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+      try {
+        configService.set('rappels', 'enabled', 'true');
+        configService.set('rappels', 'delay_1', '3');
+
+        const bon = sentMiseDispoBon();
+        const pendingBon = {
+          ...bon,
+          updatedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+          signatures: [{
+            id: 'sig-expired-002',
+            type: 'mise_disposition',
+            signed: false,
+            token: 'expired-token-2',
+            tokenExpiresAt: new Date(Date.now() - 60_000), // expiré : déclencherait normalement une régénération
+          }],
+          notifications: [],
+        };
+
+        asMock(prisma.bon.findMany).mockResolvedValue([pendingBon]);
+        asMock(prisma.notificationLog.create).mockResolvedValue({});
+        configService.get.mockImplementation((category: string, key: string) => {
+          if (category === 'general' && key === 'app_url') return Promise.resolve(null);
+          if (category === 'rappels' && key === 'enabled') return Promise.resolve('true');
+          if (category === 'rappels' && key === 'delay_1') return Promise.resolve('3');
+          if (category === 'smtp' && key === 'host') return Promise.resolve('smtp.test.local');
+          if (category === 'smtp' && key === 'from') return Promise.resolve('noreply@test.local');
+          return Promise.resolve(null);
+        });
+
+        await service.sendDailyReminders();
+
+        // La garde app_url doit s'exécuter AVANT toute régénération de token
+        expect(prisma.signature.updateMany).not.toHaveBeenCalled();
+        expect(prisma.signature.create).not.toHaveBeenCalled();
+        expect(mockSendMail).not.toHaveBeenCalled();
+        expect(prisma.notificationLog.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({
+            bonId: pendingBon.id,
+            type: 'reminder',
+            status: 'failed',
+            errorMessage: "URL de l'application (general.app_url) non configurée",
+          }),
+        });
+      } finally {
+        process.env.NODE_ENV = originalEnv;
+      }
+    });
+  });
+
+  // ─── runRestitutionDueReminders ────────────────────────────────────────────
+
+  describe('runRestitutionDueReminders', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2026-04-10T08:00:00Z')); // 10h Paris (CEST, UTC+2)
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('does nothing when restitution_before_days is 0 (feature disabled)', async () => {
+      configService.set('rappels', 'restitution_before_days', '0');
+
+      await service.runRestitutionDueReminders();
+
+      expect(prisma.bon.findMany).not.toHaveBeenCalled();
+      expect(mockSendMail).not.toHaveBeenCalled();
+    });
+
+    it('does nothing when SMTP is not configured', async () => {
+      configService.set('rappels', 'restitution_before_days', '7');
+      configService.get.mockImplementation((category: string, key: string) => {
+        if (category === 'smtp' && key === 'host') return Promise.resolve(null);
+        if (category === 'rappels' && key === 'restitution_before_days') return Promise.resolve('7');
+        return Promise.resolve(null);
+      });
+
+      await service.runRestitutionDueReminders();
+
+      expect(prisma.bon.findMany).not.toHaveBeenCalled();
+      expect(mockSendMail).not.toHaveBeenCalled();
+      expect(prisma.notificationLog.create).not.toHaveBeenCalled();
+    });
+
+    it('queries eligible bons with the status/date-window/idempotence/equipment filters (default 7 days)', async () => {
+      asMock(prisma.bon.findMany).mockResolvedValue([]);
+
+      await service.runRestitutionDueReminders();
+
+      expect(prisma.bon.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            // active ET partially_returned : équipements encore prêtés dont la
+            // restitution approche, même si le bon a déjà entamé une restitution partielle
+            status: { in: ['active', 'partially_returned'] },
+            dateRestitution: {
+              gte: new Date('2026-04-10T00:00:00.000Z'),
+              lte: new Date('2026-04-17T23:59:59.999Z'),
+            },
+            notifications: { none: { type: 'restitution_due_reminder', status: 'sent' } },
+            equipments: { some: { returnedAt: null, notReturned: false } },
+          },
+        }),
+      );
+    });
+
+    it('does not exclude a bon whose only prior notification is failed (retries after a transient SMTP failure)', async () => {
+      // L'idempotence porte sur un log 'sent' uniquement : un échec transitoire
+      // (SMTP down, app_url absente le jour J) ne doit pas bloquer tout
+      // réessai les jours suivants — cf. runDailyReminders qui suit la même règle.
+      asMock(prisma.bon.findMany).mockResolvedValue([]);
+
+      await service.runRestitutionDueReminders();
+
+      expect(prisma.bon.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            notifications: { none: { type: 'restitution_due_reminder', status: 'sent' } },
+          }),
+        }),
+      );
+    });
+
+    it('uses the configured restitution_before_days value for the window', async () => {
+      configService.set('rappels', 'restitution_before_days', '3');
+      asMock(prisma.bon.findMany).mockResolvedValue([]);
+
+      await service.runRestitutionDueReminders();
+
+      expect(prisma.bon.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            dateRestitution: {
+              gte: new Date('2026-04-10T00:00:00.000Z'),
+              lte: new Date('2026-04-13T23:59:59.999Z'),
+            },
+          }),
+        }),
+      );
+    });
+
+    it('sends a reminder for each eligible bon and creates a sent NotificationLog', async () => {
+      const bon1 = { ...activeBon(), dateRestitution: new Date('2026-04-12') };
+      const bon2 = {
+        ...activeBon(),
+        id: 'bon-active-002',
+        reference: 'BON-2026-0021',
+        dateRestitution: new Date('2026-04-14'),
+      };
+      asMock(prisma.bon.findMany).mockResolvedValue([bon1, bon2]);
+      asMock(prisma.notificationLog.create).mockResolvedValue({});
+
+      await service.runRestitutionDueReminders();
+
+      expect(mockSendMail).toHaveBeenCalledTimes(2);
+      expect(prisma.notificationLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ bonId: bon1.id, type: 'restitution_due_reminder', status: 'sent' }),
+        }),
+      );
+      expect(prisma.notificationLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ bonId: bon2.id, type: 'restitution_due_reminder', status: 'sent' }),
+        }),
+      );
+    });
+
+    it('continues processing remaining bons when one bon fails unexpectedly (no fire-and-forget)', async () => {
+      const bon1 = { ...activeBon(), dateRestitution: new Date('2026-04-12') };
+      const bon2 = {
+        ...activeBon(),
+        id: 'bon-active-002',
+        reference: 'BON-2026-0021',
+        dateRestitution: new Date('2026-04-14'),
+      };
+      asMock(prisma.bon.findMany).mockResolvedValue([bon1, bon2]);
+      asMock(prisma.notificationLog.create).mockResolvedValue({});
+      templatesService.renderTemplate.mockRejectedValueOnce(new Error('boom'));
+
+      await service.runRestitutionDueReminders();
+
+      // bon1's render threw — caught per-bon, bon2 is still processed
+      expect(mockSendMail).toHaveBeenCalledTimes(1);
+      expect(prisma.notificationLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ bonId: bon2.id, status: 'sent' }),
+        }),
+      );
     });
   });
 

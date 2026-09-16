@@ -1,10 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import * as crypto from 'crypto';
 import * as nodemailer from 'nodemailer';
 import { AppConfigService } from '../config/config.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { TemplatesService } from '../templates/templates.service';
+import { generateSignatureToken } from '../common/tokens';
 import {
   emailWrapper,
   card,
@@ -17,7 +17,7 @@ import {
   equipList,
   refBadge,
 } from '../templates/email-layout';
-import { NotificationBon } from '../common/types';
+import { NotificationBon, NotificationType } from '../common/types';
 
 /** Escape user-supplied strings before embedding in HTML email templates */
 function escapeHtml(str: string): string {
@@ -27,6 +27,23 @@ function escapeHtml(str: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+/** Résultat d'un envoi d'email : conserve le détail de l'erreur SMTP réelle
+ *  (au lieu d'un libellé générique) pour la persister dans NotificationLog. */
+export interface SendEmailResult {
+  ok: boolean;
+  error?: string;
+}
+
+const MAX_ERROR_MESSAGE_LENGTH = 500;
+
+/** Tronque le message d'erreur avant persistance (colonne errorMessage). */
+function truncateErrorMessage(error: string | undefined): string {
+  const message = error ?? "Erreur d'envoi inconnue";
+  return message.length > MAX_ERROR_MESSAGE_LENGTH
+    ? message.slice(0, MAX_ERROR_MESSAGE_LENGTH)
+    : message;
 }
 
 @Injectable()
@@ -77,30 +94,46 @@ export class NotificationService {
     return this.cachedTransporter;
   }
 
+  /** Aucun expéditeur codé en dur : une config manquante est une erreur explicite,
+   *  pas un envoi silencieux depuis un domaine par défaut. */
   private async getFromAddress(): Promise<string> {
-    const from = await this.configService.get('smtp', 'from');
-    return from || 'noreply@groupelivio.fr';
+    return (await this.configService.get('smtp', 'from')) || '';
   }
 
+  /** Slash final retiré (évite les doubles slashes dans les liens de signature).
+   *  En production, une config absente est une erreur explicite plutôt qu'un
+   *  repli silencieux sur localhost. */
   private async getAppUrl(): Promise<string> {
     const url = await this.configService.get('general', 'app_url');
-    return url || (process.env.FRONTEND_URL ?? 'http://localhost:5173');
+    if (url) return url.replace(/\/+$/, '');
+    if (process.env.NODE_ENV === 'production') {
+      this.logger.error("URL de l'application (general.app_url) non configurée en production");
+      return '';
+    }
+    return (process.env.FRONTEND_URL ?? 'http://localhost:5173').replace(/\/+$/, '');
   }
 
-  async sendEmail(to: string, subject: string, html: string): Promise<boolean> {
+  async sendEmail(to: string, subject: string, html: string): Promise<SendEmailResult> {
     try {
       const transporter = await this.getTransporter();
       if (!transporter) {
-        this.logger.warn(`Email non envoyé (SMTP non configuré) → ${to}: ${subject}`);
-        return false;
+        const error = 'SMTP non configuré';
+        this.logger.warn(`Email non envoyé (${error}) → ${to}: ${subject}`);
+        return { ok: false, error };
       }
       const from = await this.getFromAddress();
+      if (!from) {
+        const error = 'Expéditeur SMTP (smtp.from) non configuré';
+        this.logger.error(error);
+        return { ok: false, error };
+      }
       await transporter.sendMail({ from, to, subject, html });
       this.logger.log(`Email envoyé → ${to}: ${subject}`);
-      return true;
+      return { ok: true };
     } catch (err) {
-      this.logger.error(`Erreur envoi email → ${to}: ${err}`);
-      return false;
+      const error = err instanceof Error ? err.message : String(err);
+      this.logger.error(`Erreur envoi email → ${to}: ${error}`);
+      return { ok: false, error };
     }
   }
 
@@ -142,10 +175,63 @@ export class NotificationService {
       : '<li style="padding:8px 0;font-size:14px;color:#A79F94;list-style:none">Voir le procès-verbal en ligne</li>';
   }
 
+  private buildLoanedEquipList(equipments: NonNullable<NotificationBon['equipments']>): string {
+    const items = (equipments ?? [])
+      .filter((eq) => !eq.returnedAt && !eq.notReturned)
+      .sort((a, b) => a.order - b.order)
+      .map((eq) => {
+        const label = eq.catalogItem
+          ? escapeHtml(`${eq.catalogItem.brand} ${eq.catalogItem.model}`)
+          : escapeHtml(eq.customLabel || 'Équipement');
+        const serial = eq.serialNumber
+          ? `<span style="color:#A79F94;font-size:12px;margin-left:6px">(N° série : ${escapeHtml(eq.serialNumber)})</span>`
+          : '';
+        return `<li style="padding:8px 0;border-bottom:1px solid #E2DFD9;font-size:14px;color:#4A463F;line-height:1.5;list-style:none">${label}${serial}</li>`;
+      });
+    return items.length
+      ? items.join('\n')
+      : '<li style="padding:8px 0;font-size:14px;color:#A79F94;list-style:none">Voir le bon en ligne</li>';
+  }
+
+  /**
+   * Garde commune à tous les emails "à lien" (signature ou portail) : un lien
+   * construit sur une app_url vide serait relatif (ex. "/signer/xxx" ou
+   * "/mes-bons") — un lien mort silencieusement envoyé et journalisé "sent".
+   * Bloque l'envoi, journalise explicitement l'échec (status 'failed') et
+   * retourne true pour que l'appelant s'arrête sans envoyer.
+   */
+  private async blockIfAppUrlMissing(
+    appUrl: string,
+    bonId: string,
+    recipientEmail: string,
+    type: NotificationType,
+    extra?: { reminderNumber?: number },
+  ): Promise<boolean> {
+    if (appUrl) return false;
+
+    const error = "URL de l'application (general.app_url) non configurée";
+    this.logger.error(`Email non envoyé (bon ${bonId}, type ${type}) : ${error}`);
+    await this.prisma.notificationLog.create({
+      data: {
+        bonId,
+        recipientEmail,
+        type,
+        status: 'failed',
+        errorMessage: error,
+        ...(extra?.reminderNumber !== undefined ? { reminderNumber: extra.reminderNumber } : {}),
+      },
+    });
+    return true;
+  }
+
   // ─── Email Templates ────────────────────────────────────────────────────────
 
   async sendMiseDispositionRequest(bon: NotificationBon, token: string): Promise<void> {
     const appUrl = await this.getAppUrl();
+    if (await this.blockIfAppUrlMissing(appUrl, bon.id, bon.collaborateurEmail, 'mise_dispo_request')) {
+      return;
+    }
+
     const filialeNom = bon.filiale?.displayName ?? bon.filiale?.name ?? '';
     const dateMise = new Date(bon.dateMiseDisposition ?? new Date()).toLocaleDateString('fr-FR', {
       day: '2-digit', month: 'long', year: 'numeric',
@@ -161,7 +247,7 @@ export class NotificationService {
       EQUIP_LIST: this.buildEquipList(bon.equipments ?? []),
     });
 
-    const ok = await this.sendEmail(
+    const result = await this.sendEmail(
       bon.collaborateurEmail,
       `[${bon.reference}] Bon de mise à disposition à signer — ${filialeNom}`,
       html,
@@ -172,14 +258,18 @@ export class NotificationService {
         bonId: bon.id,
         recipientEmail: bon.collaborateurEmail,
         type: 'mise_dispo_request',
-        status: ok ? 'sent' : 'failed',
-        errorMessage: ok ? null : "SMTP non configuré ou erreur d'envoi",
+        status: result.ok ? 'sent' : 'failed',
+        errorMessage: result.ok ? null : truncateErrorMessage(result.error),
       },
     });
   }
 
   async sendRestitutionRequest(bon: NotificationBon, token: string): Promise<void> {
     const appUrl = await this.getAppUrl();
+    if (await this.blockIfAppUrlMissing(appUrl, bon.id, bon.collaborateurEmail, 'restitution_request')) {
+      return;
+    }
+
     const filialeNom = bon.filiale?.displayName ?? bon.filiale?.name ?? '';
 
     // Only list equipment being returned (returnedAt set), not all bon equipment
@@ -208,7 +298,7 @@ export class NotificationService {
       REMAINING_SECTION: remainingSection,
     });
 
-    const ok = await this.sendEmail(
+    const result = await this.sendEmail(
       bon.collaborateurEmail,
       `[${bon.reference}] Bon de restitution à signer — ${filialeNom}`,
       html,
@@ -219,8 +309,8 @@ export class NotificationService {
         bonId: bon.id,
         recipientEmail: bon.collaborateurEmail,
         type: 'restitution_request',
-        status: ok ? 'sent' : 'failed',
-        errorMessage: ok ? null : "SMTP non configuré ou erreur d'envoi",
+        status: result.ok ? 'sent' : 'failed',
+        errorMessage: result.ok ? null : truncateErrorMessage(result.error),
       },
     });
   }
@@ -230,8 +320,12 @@ export class NotificationService {
     type: 'mise_disposition' | 'restitution' | 'pv_cloture',
   ): Promise<void> {
     const filialeNom = bon.filiale?.displayName ?? bon.filiale?.name ?? '';
-    // pv_cloture reuses the restitution confirmation template with its own label
-    const templateId = type === 'mise_disposition' ? 'confirmation_mise_disposition' : 'confirmation_restitution';
+    const templateId =
+      type === 'mise_disposition'
+        ? 'confirmation_mise_disposition'
+        : type === 'pv_cloture'
+          ? 'confirmation_pv_cloture'
+          : 'confirmation_restitution';
     const typLabel =
       type === 'pv_cloture'
         ? "procès-verbal d'équipements non restitués"
@@ -245,7 +339,7 @@ export class NotificationService {
       TYPE_LABEL: typLabel,
     });
 
-    const ok = await this.sendEmail(
+    const result = await this.sendEmail(
       bon.collaborateurEmail,
       `[${bon.reference}] Confirmation de signature — ${filialeNom}`,
       html,
@@ -256,14 +350,18 @@ export class NotificationService {
         bonId: bon.id,
         recipientEmail: bon.collaborateurEmail,
         type: 'confirmation',
-        status: ok ? 'sent' : 'failed',
-        errorMessage: ok ? null : 'SMTP non configuré',
+        status: result.ok ? 'sent' : 'failed',
+        errorMessage: result.ok ? null : truncateErrorMessage(result.error),
       },
     });
   }
 
   async sendPvClotureRequest(bon: NotificationBon, token: string): Promise<void> {
     const appUrl = await this.getAppUrl();
+    if (await this.blockIfAppUrlMissing(appUrl, bon.id, bon.collaborateurEmail, 'pv_cloture_request')) {
+      return;
+    }
+
     const filialeNom = bon.filiale?.displayName ?? bon.filiale?.name ?? '';
 
     const html = await this.templatesService.renderTemplate('pv_cloture_request', {
@@ -275,7 +373,7 @@ export class NotificationService {
       NOT_RETURNED_LIST: this.buildNotReturnedList(bon.equipments ?? []),
     });
 
-    const ok = await this.sendEmail(
+    const result = await this.sendEmail(
       bon.collaborateurEmail,
       `[${bon.reference}] Procès-verbal d'équipements non restitués à signer — ${filialeNom}`,
       html,
@@ -286,10 +384,60 @@ export class NotificationService {
         bonId: bon.id,
         recipientEmail: bon.collaborateurEmail,
         type: 'pv_cloture_request',
-        status: ok ? 'sent' : 'failed',
-        errorMessage: ok ? null : "SMTP non configuré ou erreur d'envoi",
+        status: result.ok ? 'sent' : 'failed',
+        errorMessage: result.ok ? null : truncateErrorMessage(result.error),
       },
     });
+  }
+
+  // ─── Rappel restitution prévue ──────────────────────────────────────────────
+  // Envoyé une seule fois par bon (idempotence portée par le cron via
+  // NotificationLog — voir runRestitutionDueReminders). Contrairement aux
+  // autres rappels, ce message ne porte pas de lien de signature : il pointe
+  // vers le portail collaborateur ({{PORTAIL_URL}} = getAppUrl() + '/mes-bons').
+
+  async sendRestitutionDueReminder(bon: NotificationBon): Promise<boolean> {
+    const appUrl = await this.getAppUrl();
+    const recipientEmail = bon.collaborateur?.email ?? bon.collaborateurEmail;
+
+    if (await this.blockIfAppUrlMissing(appUrl, bon.id, recipientEmail, 'restitution_due_reminder')) {
+      return false;
+    }
+
+    const filialeNom = bon.filiale?.displayName ?? bon.filiale?.name ?? '';
+    const dateRestitution = bon.dateRestitution
+      ? new Date(bon.dateRestitution).toLocaleDateString('fr-FR', {
+          day: '2-digit', month: 'long', year: 'numeric', timeZone: 'Europe/Paris',
+        })
+      : '';
+
+    const html = await this.templatesService.renderTemplate('restitution_due_reminder', {
+      COLLAB_CIVILITE: bon.civilite === 'mme' ? 'Madame' : 'Monsieur',
+      COLLAB_NAME: escapeHtml(bon.collaborateur?.displayName ?? ''),
+      FILIALE_NOM: escapeHtml(filialeNom),
+      REFERENCE: escapeHtml(bon.reference),
+      DATE_RESTITUTION: dateRestitution,
+      EQUIP_LIST: this.buildLoanedEquipList(bon.equipments ?? []),
+      PORTAIL_URL: `${appUrl}/mes-bons`,
+    });
+
+    const result = await this.sendEmail(
+      recipientEmail,
+      `Restitution prévue le ${dateRestitution} — bon ${bon.reference}`,
+      html,
+    );
+
+    await this.prisma.notificationLog.create({
+      data: {
+        bonId: bon.id,
+        recipientEmail,
+        type: 'restitution_due_reminder',
+        status: result.ok ? 'sent' : 'failed',
+        errorMessage: result.ok ? null : truncateErrorMessage(result.error),
+      },
+    });
+
+    return result.ok;
   }
 
   // ─── Contestation ────────────────────────────────────────────────────────────
@@ -303,7 +451,20 @@ export class NotificationService {
       where: { isItStaff: true, active: true },
       select: { email: true },
     });
-    if (itStaff.length === 0) return;
+    if (itStaff.length === 0) {
+      const error = 'Aucun utilisateur IT actif';
+      this.logger.warn(`Alerte contestation non envoyée (bon ${reference}) : ${error}`);
+      await this.prisma.notificationLog.create({
+        data: {
+          bonId: bon.id,
+          recipientEmail: '',
+          type: 'contestation_alert',
+          status: 'failed',
+          errorMessage: error,
+        },
+      });
+      return;
+    }
 
     const html = await this.templatesService.renderTemplate('contestation_alert', {
       USER_NAME: escapeHtml(userName),
@@ -322,14 +483,19 @@ export class NotificationService {
         ),
       ),
     );
+    const anyOk = results.some((r) => r.ok);
+    const combinedError = results
+      .filter((r) => !r.ok)
+      .map((r) => r.error ?? "Erreur d'envoi inconnue")
+      .join('; ');
 
     await this.prisma.notificationLog.create({
       data: {
         bonId: bon.id,
         recipientEmail: itStaff.map((s) => s.email).join(', '),
         type: 'contestation_alert',
-        status: results.some(Boolean) ? 'sent' : 'failed',
-        errorMessage: results.some(Boolean) ? null : "SMTP non configuré ou erreur d'envoi",
+        status: anyOk ? 'sent' : 'failed',
+        errorMessage: anyOk ? null : truncateErrorMessage(combinedError),
       },
     });
   }
@@ -349,7 +515,7 @@ export class NotificationService {
       RESOLUTION_MESSAGE: resolutionMessage ? escapeHtml(resolutionMessage) : '',
     });
 
-    const ok = await this.sendEmail(
+    const result = await this.sendEmail(
       collaborateur.email,
       `[${bon.reference}] Réponse à votre contestation — ${filialeNom}`,
       html,
@@ -360,8 +526,8 @@ export class NotificationService {
         bonId: bon.id,
         recipientEmail: collaborateur.email,
         type: 'contestation_resolution',
-        status: ok ? 'sent' : 'failed',
-        errorMessage: ok ? null : "SMTP non configuré ou erreur d'envoi",
+        status: result.ok ? 'sent' : 'failed',
+        errorMessage: result.ok ? null : truncateErrorMessage(result.error),
       },
     });
   }
@@ -390,7 +556,7 @@ export class NotificationService {
       footer(),
     ));
 
-    const ok = await this.sendEmail(
+    const result = await this.sendEmail(
       bon.collaborateurEmail,
       `Bon ${bon.reference} — annulé`,
       html,
@@ -401,8 +567,8 @@ export class NotificationService {
         bonId: bon.id,
         recipientEmail: bon.collaborateurEmail,
         type: 'cancellation',
-        status: ok ? 'sent' : 'failed',
-        errorMessage: ok ? null : "SMTP non configuré ou erreur d'envoi",
+        status: result.ok ? 'sent' : 'failed',
+        errorMessage: result.ok ? null : truncateErrorMessage(result.error),
       },
     });
   }
@@ -451,7 +617,7 @@ export class NotificationService {
       footer(),
     ));
 
-    const ok = await this.sendEmail(
+    const result = await this.sendEmail(
       bon.collaborateurEmail,
       `Bon ${bon.reference} — équipement(s) retrouvé(s)`,
       html,
@@ -462,8 +628,8 @@ export class NotificationService {
         bonId: bon.id,
         recipientEmail: bon.collaborateurEmail,
         type: 'mark_found',
-        status: ok ? 'sent' : 'failed',
-        errorMessage: ok ? null : "SMTP non configuré ou erreur d'envoi",
+        status: result.ok ? 'sent' : 'failed',
+        errorMessage: result.ok ? null : truncateErrorMessage(result.error),
       },
     });
   }
@@ -497,7 +663,7 @@ export class NotificationService {
       footer(),
     ));
 
-    const ok = await this.sendEmail(
+    const result = await this.sendEmail(
       bon.collaborateurEmail,
       `Bon ${bon.reference} — clôturé sans signature`,
       html,
@@ -508,8 +674,8 @@ export class NotificationService {
         bonId: bon.id,
         recipientEmail: bon.collaborateurEmail,
         type: 'unilateral_closure',
-        status: ok ? 'sent' : 'failed',
-        errorMessage: ok ? null : "SMTP non configuré ou erreur d'envoi",
+        status: result.ok ? 'sent' : 'failed',
+        errorMessage: result.ok ? null : truncateErrorMessage(result.error),
       },
     });
   }
@@ -554,7 +720,7 @@ export class NotificationService {
       data: {
         bonId,
         type,
-        token: crypto.randomUUID(),
+        token: generateSignatureToken(),
         tokenExpiresAt: new Date(Date.now() + validityDays * 24 * 60 * 60 * 1000),
         isInPerson: false,
         initiatedById: null,
@@ -564,7 +730,7 @@ export class NotificationService {
     return sig;
   }
 
-  @Cron('0 9 * * 1-5') // Lundi–Vendredi à 9h
+  @Cron('0 9 * * 1-5', { timeZone: 'Europe/Paris' }) // Lundi–Vendredi à 9h (heure de Paris)
   async sendDailyReminders(): Promise<void> {
     try {
       await this.runDailyReminders();
@@ -581,6 +747,15 @@ export class NotificationService {
     const remindersEnabled = await this.configService.get('rappels', 'enabled');
     if (remindersEnabled === 'false') {
       this.logger.log('Rappels désactivés par configuration');
+      return;
+    }
+
+    // Aucune régénération de token ni requête inutile si le SMTP n'est pas
+    // configuré : sans cette garde, chaque jour ouvré créait une nouvelle
+    // Signature + un NotificationLog "failed" par bon en attente.
+    const transporter = await this.getTransporter();
+    if (!transporter) {
+      this.logger.warn('Cron rappels : SMTP non configuré, aucun rappel envoyé');
       return;
     }
 
@@ -646,10 +821,33 @@ export class NotificationService {
         let sig = bon.signatures[0];
         if (!sig) continue; // aucun document en attente (ex: restitution partielle déjà signée)
 
+        // Signature présentielle avec un token ENCORE VALIDE : un technicien peut
+        // être en train de la faire signer sur place à cet instant. Régénérer
+        // (via updateMany sur bonId+type) invaliderait ce lien en cours d'usage.
+        // On saute simplement le rappel pour ce bon aujourd'hui.
+        if (sig.isInPerson && sig.tokenExpiresAt.getTime() > Date.now()) {
+          this.logger.debug(
+            `Rappel ignoré pour le bon ${bon.id} (${bon.reference}) : signature présentielle en attente avec un token encore valide`,
+          );
+          continue;
+        }
+
+        // Vérifiée AVANT toute régénération de token : inutile de consommer
+        // (et d'invalider) un token pour un email qui ne partira de toute
+        // façon pas — app_url absente bloque l'envoi plus bas.
+        if (
+          await this.blockIfAppUrlMissing(appUrl, bon.id, bon.collaborateurEmail, 'reminder', {
+            reminderNumber: reminderCount + 1,
+          })
+        ) {
+          continue;
+        }
+
         // Régénérer plutôt que d'envoyer un lien inutilisable :
         // - token expiré (sinon le rappel serait silencieusement un lien mort) ;
-        // - token PRÉSENTIEL (isInPerson saute la vérification du destinataire :
-        //   il ne doit jamais partir par email — on émet un token distant).
+        // - token PRÉSENTIEL EXPIRÉ (isInPerson saute la vérification du
+        //   destinataire : il ne doit jamais partir par email — on émet un
+        //   token distant).
         if (sig.isInPerson || sig.tokenExpiresAt.getTime() <= Date.now()) {
           const fresh = await this.regenerateSignatureToken(
             bon.id,
@@ -671,19 +869,20 @@ export class NotificationService {
         });
 
         const subjectDoc = sig.type === 'pv_cloture' ? 'Procès-verbal' : `Bon de ${typeLabel}`;
-        const ok = await this.sendEmail(
+        const result = await this.sendEmail(
           bon.collaborateurEmail,
           `[RAPPEL] [${bon.reference}] ${subjectDoc} à signer — ${filialeNom}`,
           html,
         );
-        if (ok) sentCount++;
+        if (result.ok) sentCount++;
 
         await this.prisma.notificationLog.create({
           data: {
             bonId: bon.id,
             recipientEmail: bon.collaborateurEmail,
             type: 'reminder',
-            status: ok ? 'sent' : 'failed',
+            status: result.ok ? 'sent' : 'failed',
+            errorMessage: result.ok ? null : truncateErrorMessage(result.error),
             reminderNumber: reminderCount + 1,
           },
         });
@@ -693,5 +892,113 @@ export class NotificationService {
     }
 
     this.logger.log(`Cron rappels terminé — ${pendingBons.length} bons éligibles, ${sentCount} rappels envoyés`);
+  }
+
+  // ─── Cron: Rappel avant restitution prévue ───────────────────────────────────
+  // Lit rappels.restitution_before_days (même catégorie que les rappels
+  // ci-dessus — cf. ALLOWED_CONFIG_KEYS.rappels dans admin.controller.ts).
+  // Défaut 7 jours ; 0 désactive la fonctionnalité. Idempotence : seul un
+  // NotificationLog de type restitution_due_reminder au statut 'sent' exclut
+  // le bon de la requête ci-dessous (comme runDailyReminders) — un échec
+  // transitoire (SMTP down, app_url absente) ne doit PAS bloquer tout
+  // réessai les jours suivants. Un envoi RÉUSSI, en revanche, reste unique
+  // pour ce bon même si sa dateRestitution change ensuite (report,
+  // correction) : le filtre porte sur l'existence du log 'sent', pas sur la
+  // date courante — un seul rappel réussi par bon, par construction.
+
+  /** Comme parseDelay, mais 0 est une valeur valide (désactive la fonctionnalité) —
+   *  parseDelay(...) rejette tout n <= 0 au profit du fallback, ce qui est
+   *  incorrect ici : 0 doit être respecté, pas remplacé par le défaut. */
+  private parseNonNegativeInt(raw: string | null, fallback: number): number {
+    if (raw === null) return fallback;
+    const n = parseInt(raw, 10);
+    return Number.isFinite(n) && n >= 0 ? n : fallback;
+  }
+
+  /** Date calendaire (YYYY-MM-DD) d'un instant dans un fuseau donné. */
+  private formatDateInTimeZone(date: Date, timeZone: string): string {
+    // Locale en-CA : seule locale ICU dont le format court est nativement YYYY-MM-DD.
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(date);
+  }
+
+  /**
+   * Fenêtre [aujourd'hui, aujourd'hui + N jours] en date locale Europe/Paris,
+   * fin de journée incluse. Bornes exprimées en UTC minuit/23:59:59.999 :
+   * cohérent avec les colonnes @db.Date (date calendaire sans heure, stockée
+   * comme minuit UTC), tout en calculant "aujourd'hui" sur le fuseau Paris.
+   */
+  private getRestitutionWindow(beforeDays: number): { start: Date; end: Date } {
+    const todayParis = this.formatDateInTimeZone(new Date(), 'Europe/Paris');
+    const [year, month, day] = todayParis.split('-').map(Number);
+    const start = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+    const end = new Date(Date.UTC(year, month - 1, day + beforeDays, 23, 59, 59, 999));
+    return { start, end };
+  }
+
+  @Cron('0 9 * * *', { name: 'restitution-due-reminder', timeZone: 'Europe/Paris' }) // Tous les jours à 9h (heure de Paris)
+  async runRestitutionDueReminders(): Promise<void> {
+    try {
+      this.logger.log('Cron rappel restitution démarré');
+
+      const rawDays = await this.configService.get('rappels', 'restitution_before_days');
+      const beforeDays = this.parseNonNegativeInt(rawDays, 7);
+      if (beforeDays === 0) {
+        this.logger.log('Rappel de restitution désactivé par configuration (restitution_before_days = 0)');
+        return;
+      }
+
+      // Même garde que les rappels quotidiens : pas de requête ni de log
+      // "failed" en boucle si le SMTP n'est pas configuré.
+      const transporter = await this.getTransporter();
+      if (!transporter) {
+        this.logger.warn('Cron rappel restitution : SMTP non configuré, aucun rappel envoyé');
+        return;
+      }
+
+      const { start, end } = this.getRestitutionWindow(beforeDays);
+
+      const eligibleBons = await this.prisma.bon.findMany({
+        where: {
+          // partially_returned inclus : équipements encore en possession du collaborateur
+          // dont la date de restitution approche — le rappel reste pertinent même si
+          // certains équipements ont déjà été restitués.
+          status: { in: ['active', 'partially_returned'] },
+          dateRestitution: { gte: start, lte: end },
+          notifications: { none: { type: 'restitution_due_reminder', status: 'sent' } },
+          equipments: { some: { returnedAt: null, notReturned: false } },
+        },
+        include: {
+          filiale: true,
+          collaborateur: { select: { id: true, displayName: true, email: true } },
+          equipments: {
+            orderBy: { order: 'asc' },
+            include: { catalogItem: { select: { brand: true, model: true } } },
+          },
+        },
+      });
+
+      let sentCount = 0;
+      let failedCount = 0;
+
+      for (const bon of eligibleBons) {
+        try {
+          const ok = await this.sendRestitutionDueReminder(bon as unknown as NotificationBon);
+          if (ok) sentCount++; else failedCount++;
+        } catch (err) {
+          failedCount++;
+          this.logger.error(`Erreur rappel restitution bon ${bon.id} (${bon.reference}): ${err}`);
+        }
+      }
+
+      this.logger.log(
+        `Cron rappel restitution terminé — ${eligibleBons.length} bon(s) éligible(s), ${sentCount} envoyé(s), ${failedCount} échoué(s)`,
+      );
+    } catch (err) {
+      // Le package cron ne rattrape pas les promesses rejetées — ne jamais
+      // laisser fuir ceci en unhandledRejection.
+      this.logger.error(`Cron rappel restitution en échec: ${(err as Error).stack ?? err}`);
+    }
   }
 }
