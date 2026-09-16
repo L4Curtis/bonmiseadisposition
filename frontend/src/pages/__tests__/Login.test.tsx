@@ -101,3 +101,35 @@ describe('LoginPage — protection open-redirect sur returnTo', () => {
     await waitFor(() => expect(window.location.href).toBe('/signer/abc123'));
   });
 });
+
+describe('LoginPage — lien de connexion Microsoft', () => {
+  beforeEach(() => {
+    mockAuthFetch();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('includes a valid returnTo in the Microsoft SSO link', async () => {
+    render(
+      <MemoryRouter initialEntries={['/login?returnTo=%2Fsigner%2Fabc123']}>
+        <LoginPage />
+      </MemoryRouter>,
+    );
+
+    const link = await screen.findByRole('link', { name: /continuer avec microsoft/i });
+    expect(link).toHaveAttribute('href', '/api/auth/login?returnTo=%2Fsigner%2Fabc123');
+  });
+
+  it('omits returnTo from the Microsoft SSO link when none is provided', async () => {
+    render(
+      <MemoryRouter initialEntries={['/login']}>
+        <LoginPage />
+      </MemoryRouter>,
+    );
+
+    const link = await screen.findByRole('link', { name: /continuer avec microsoft/i });
+    expect(link).toHaveAttribute('href', '/api/auth/login');
+  });
+});
