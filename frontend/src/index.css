@@ -50,6 +50,13 @@
 
     --sidebar-active-bg:   hsl(4 69% 51% / 0.08);
     --sidebar-active-glow: none;
+
+    /* Palette des graphiques (Recharts) — --chart-1 = accent de marque */
+    --chart-1:               4 69% 51%;    /* rouge Livio */
+    --chart-2:               217 91% 60%;  /* bleu */
+    --chart-3:               38 92% 50%;   /* ambre */
+    --chart-4:               160 60% 40%;  /* vert */
+    --chart-5:               262 60% 58%;  /* violet */
   }
 
   .dark {
@@ -92,6 +99,13 @@
 
     --sidebar-active-bg:   hsl(6 81% 60% / 0.16);
     --sidebar-active-glow: none;
+
+    /* Palette des graphiques (Recharts) — tons relevés pour le fond sombre */
+    --chart-1:               6 81% 60%;     /* rouge Livio (sombre) */
+    --chart-2:               217 91% 68%;   /* bleu */
+    --chart-3:               38 92% 58%;    /* ambre */
+    --chart-4:               160 55% 50%;   /* vert */
+    --chart-5:               262 65% 68%;   /* violet */
   }
 }
 

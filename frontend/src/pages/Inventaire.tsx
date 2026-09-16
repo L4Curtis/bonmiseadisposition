@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { StatCard } from '@/components/dashboard/StatCard';
 import { api } from '@/lib/api';
 import { errorMessage, showActionError } from '@/lib/errors';
 import { toast } from '@/hooks/use-toast';
 import { formatDate } from '@/lib/utils';
+import { todayInParis } from '@/lib/kpi-period';
 import { StatusBadge } from '@/components/StatusBadge';
 import type { BonStatus, Filiale } from '@/types';
 import {
@@ -84,52 +85,12 @@ const SEARCH_DEBOUNCE_MS = 300;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Date du jour (YYYY-MM-DD) dans le fuseau Europe/Paris — aligné sur le calcul
- *  SQL de InventoryService.getSummary (now() AT TIME ZONE 'Europe/Paris'), pour
- *  qu'un même équipement ne soit jamais « en retard » ici mais pas dans les
- *  tuiles de résumé (un minuit local dépendrait du fuseau du navigateur). */
-function todayInParis(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Paris' }).format(new Date());
-}
-
 function isOverdue(dateRestitution: string | null): boolean {
   if (!dateRestitution) return false;
   return dateRestitution.slice(0, 10) < todayInParis();
 }
 
 // ─── Composants utilitaires ───────────────────────────────────────────────────
-
-function StatCard({
-  icon: Icon,
-  label,
-  value,
-  danger = false,
-}: {
-  icon: React.ElementType;
-  label: string;
-  value: number;
-  danger?: boolean;
-}) {
-  return (
-    <Card>
-      <CardContent className="flex items-center gap-4 p-5">
-        <div
-          className={`flex h-11 w-11 items-center justify-center rounded-xl ${
-            danger ? 'bg-destructive/10 text-destructive' : 'bg-primary/10 text-primary'
-          }`}
-        >
-          <Icon className="h-5 w-5" />
-        </div>
-        <div>
-          <p className={`text-2xl font-bold leading-none ${danger ? 'text-destructive' : 'text-foreground'}`}>
-            {value}
-          </p>
-          <p className="text-xs text-muted-foreground mt-1">{label}</p>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
 
 function TableSkeleton() {
   return (
@@ -314,7 +275,12 @@ export function InventairePage() {
         ) : summary ? (
           <>
             <StatCard icon={Package} label="Équipements prêtés" value={summary.total} />
-            <StatCard icon={AlertTriangle} label="En retard de restitution" value={summary.overdue} danger={summary.overdue > 0} />
+            <StatCard
+              icon={AlertTriangle}
+              label="En retard de restitution"
+              value={summary.overdue}
+              tone={summary.overdue > 0 ? 'danger' : 'default'}
+            />
             <StatCard icon={Layers} label="Catégories" value={summary.byCategory.length} />
             <StatCard icon={Building2} label="Filiales" value={summary.byFiliale.length} />
           </>

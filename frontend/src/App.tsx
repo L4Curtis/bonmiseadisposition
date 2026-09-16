@@ -10,7 +10,7 @@ import { ChangePasswordPage } from '@/pages/ChangePassword';
 import { UnauthorizedPage } from '@/pages/Unauthorized';
 
 // Lazy-loaded pages (code splitting)
-const DashboardIT = lazy(() => import('@/pages/DashboardIT').then(m => ({ default: m.DashboardIT })));
+const DashboardPage = lazy(() => import('@/pages/dashboard/DashboardPage').then(m => ({ default: m.DashboardPage })));
 const PortailCollaborateur = lazy(() => import('@/pages/PortailCollaborateur').then(m => ({ default: m.PortailCollaborateur })));
 const AdminLayout = lazy(() => import('@/pages/admin/AdminLayout').then(m => ({ default: m.AdminLayout })));
 const LdapSyncPage = lazy(() => import('@/pages/admin/LdapSync').then(m => ({ default: m.LdapSyncPage })));
@@ -98,7 +98,7 @@ function AppRoutes() {
 
         <Route path="dashboard" element={
           <ProtectedRoute requiredRoles={['admin', 'technician']}>
-            <DashboardIT />
+            <DashboardPage />
           </ProtectedRoute>
         } />
 
