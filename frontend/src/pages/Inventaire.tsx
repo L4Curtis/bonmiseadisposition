@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -165,6 +165,15 @@ export function InventairePage() {
   const [reloadKey, setReloadKey] = useState(0);
 
   const [summary, setSummary] = useState<InventorySummary | null>(null);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
+
+  const loadSummary = useCallback(() => {
+    setSummaryError(null);
+    api
+      .get<InventorySummary>('/reporting/inventory/summary')
+      .then(setSummary)
+      .catch((e: unknown) => setSummaryError(errorMessage(e, 'Impossible de charger le résumé du parc')));
+  }, []);
   const [filiales, setFiliales] = useState<Filiale[]>([]);
 
   const [filialeFilter, setFilialeFilter] = useState(searchParams.get('filialeId') ?? '');
@@ -184,7 +193,7 @@ export function InventairePage() {
   // ── Référentiels (filiales, résumé/tuiles + options de catégorie) ──────────
   useEffect(() => {
     api.get<Filiale[]>('/filiales/active').then(setFiliales).catch(() => {});
-    api.get<InventorySummary>('/reporting/inventory/summary').then(setSummary).catch(() => {});
+    loadSummary();
   }, [reloadKey]);
 
   // ── Debounce de la recherche texte (300 ms), sans bloquer les autres filtres ──
@@ -295,7 +304,14 @@ export function InventairePage() {
 
       {/* Tuiles de résumé */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {summary ? (
+        {summaryError ? (
+          <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm flex items-center justify-between gap-3">
+            <span className="text-destructive">{summaryError}</span>
+            <Button type="button" variant="outline" size="sm" onClick={loadSummary}>
+              Réessayer
+            </Button>
+          </div>
+        ) : summary ? (
           <>
             <StatCard icon={Package} label="Équipements prêtés" value={summary.total} />
             <StatCard icon={AlertTriangle} label="En retard de restitution" value={summary.overdue} danger={summary.overdue > 0} />

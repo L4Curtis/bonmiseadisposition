@@ -165,6 +165,12 @@ export class InventoryService {
   /**
    * GET /reporting/inventory/summary — agrégats calculés en SQL (GROUP BY /
    * COUNT côté base), jamais en itérant tout le parc en JS.
+   *
+   * `b.status::text` : la colonne est un enum Postgres ("BonStatus") et
+   * $queryRaw lie les valeurs de Prisma.join comme des paramètres text. Sans
+   * le cast, Postgres refuse la comparaison (« operator does not exist:
+   * "BonStatus" = text ») — invisible dans les tests unitaires où $queryRaw
+   * est mocké, mais fatal en production (résumé jamais chargé).
    */
   async getSummary() {
     const [totalRows, byCategoryRows, byFilialeRows, overdueRows] = await Promise.all([
@@ -174,7 +180,7 @@ export class InventoryService {
         JOIN bons b ON b.id = be.bon_id
         WHERE be.returned_at IS NULL
           AND be.not_returned = false
-          AND b.status IN (${Prisma.join(LOANED_BON_STATUSES)})
+          AND b.status::text IN (${Prisma.join(LOANED_BON_STATUSES)})
       `),
       this.prisma.$queryRaw<{ category: string; count: bigint }[]>(Prisma.sql`
         SELECT COALESCE(ec.category::text, 'autre') AS category, COUNT(*)::bigint AS count
@@ -183,7 +189,7 @@ export class InventoryService {
         LEFT JOIN equipment_catalog ec ON ec.id = be.catalog_item_id
         WHERE be.returned_at IS NULL
           AND be.not_returned = false
-          AND b.status IN (${Prisma.join(LOANED_BON_STATUSES)})
+          AND b.status::text IN (${Prisma.join(LOANED_BON_STATUSES)})
         GROUP BY COALESCE(ec.category::text, 'autre')
         ORDER BY count DESC
       `),
@@ -194,7 +200,7 @@ export class InventoryService {
         JOIN filiales f ON f.id = b.filiale_id
         WHERE be.returned_at IS NULL
           AND be.not_returned = false
-          AND b.status IN (${Prisma.join(LOANED_BON_STATUSES)})
+          AND b.status::text IN (${Prisma.join(LOANED_BON_STATUSES)})
         GROUP BY f.id, f.display_name
         ORDER BY count DESC
       `),
@@ -204,7 +210,7 @@ export class InventoryService {
         JOIN bons b ON b.id = be.bon_id
         WHERE be.returned_at IS NULL
           AND be.not_returned = false
-          AND b.status IN (${Prisma.join(LOANED_BON_STATUSES)})
+          AND b.status::text IN (${Prisma.join(LOANED_BON_STATUSES)})
           AND b.date_restitution IS NOT NULL
           AND b.date_restitution < (now() AT TIME ZONE 'Europe/Paris')::date
       `),

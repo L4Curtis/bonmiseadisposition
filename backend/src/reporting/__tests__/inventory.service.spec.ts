@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { InventoryService, EXPORT_ROW_LIMIT, escapeCsvCell } from '../inventory.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
 
@@ -165,6 +166,19 @@ describe('InventoryService', () => {
       expect(summary.byFiliale).toEqual([{ filialeId: 'f-1', name: 'Paris', count: 5 }]);
       expect(summary.overdue).toBe(2);
       expect(prisma.$queryRaw).toHaveBeenCalledTimes(4);
+    });
+
+    it('compare le statut enum via un cast ::text (sinon Postgres refuse « "BonStatus" = text »)', async () => {
+      (prisma.$queryRaw as jest.Mock).mockResolvedValue([{ count: 0n }]);
+
+      await service.getSummary();
+
+      const calls = (prisma.$queryRaw as jest.Mock).mock.calls as [Prisma.Sql][];
+      expect(calls).toHaveLength(4);
+      for (const [query] of calls) {
+        expect(query.sql).toContain('b.status::text IN (');
+        expect(query.sql).not.toMatch(/b\.status IN \(/);
+      }
     });
 
     it('renvoie des agrégats à zéro quand le parc prêté est vide', async () => {
