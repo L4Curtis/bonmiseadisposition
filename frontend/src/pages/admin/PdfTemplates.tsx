@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '@/lib/api';
+import { showActionError } from '@/lib/errors';
 import { toast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -155,6 +156,43 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
   );
 }
 
+// ─── Champ numérique : état texte local, conversion/clamp au blur ────────────
+
+function NumberField({
+  value, min, max, onCommit,
+}: { value: number | undefined; min?: number; max?: number; onCommit: (v: number) => void }) {
+  const [text, setText] = useState(value !== undefined && value !== null ? String(value) : '');
+
+  useEffect(() => {
+    setText(value !== undefined && value !== null ? String(value) : '');
+  }, [value]);
+
+  const commit = () => {
+    const parsed = Number(text);
+    if (text.trim() === '' || Number.isNaN(parsed)) {
+      setText(value !== undefined && value !== null ? String(value) : '');
+      return;
+    }
+    let clamped = parsed;
+    if (min !== undefined) clamped = Math.max(min, clamped);
+    if (max !== undefined) clamped = Math.min(max, clamped);
+    setText(String(clamped));
+    if (clamped !== value) onCommit(clamped);
+  };
+
+  return (
+    <Input
+      type="number"
+      value={text}
+      min={min}
+      max={max}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={commit}
+      className="w-24"
+    />
+  );
+}
+
 // ─── Collapsible section ─────────────────────────────────────────────────────
 
 function SectionAccordion({
@@ -245,18 +283,24 @@ function EditDialog({
   const [openSections, setOpenSections] = useState<Set<string>>(new Set(['colors']));
 
   useEffect(() => {
-    if (!open || !templateId) return;
+    if (!open || !templateId) { setConfig(null); setVariables([]); return; }
+    let cancelled = false;
     setLoading(true);
     api.get<{ config: PdfTemplateConfig; variables: PdfTemplateVariable[] }>(
       `/admin/pdf-templates/${templateId}/config`,
     )
       .then((data) => {
+        if (cancelled) return;
         setConfig(data.config);
         setVariables(data.variables);
       })
-      .catch(() => toast({ title: 'Erreur', description: 'Impossible de charger la configuration', variant: 'destructive' }))
-      .finally(() => setLoading(false));
-  }, [open, templateId, toast]);
+      .catch(() => {
+        if (cancelled) return;
+        toast({ title: 'Erreur', description: 'Impossible de charger la configuration', variant: 'destructive' });
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [open, templateId]);
 
   const toggleSection = useCallback((key: string) => {
     setOpenSections((prev) => {
@@ -290,9 +334,13 @@ function EditDialog({
     }
   };
 
-  const copyVariable = (name: string) => {
-    navigator.clipboard.writeText(`{{${name}}}`);
-    toast({ title: `{{${name}}} copie` });
+  const copyVariable = async (name: string) => {
+    try {
+      await navigator.clipboard.writeText(`{{${name}}}`);
+      toast({ title: `{{${name}}} copié` });
+    } catch (e: unknown) {
+      showActionError(e, 'Impossible de copier dans le presse-papier');
+    }
   };
 
   return (
@@ -341,13 +389,11 @@ function EditDialog({
                       return (
                         <div key={field.key} className="flex items-center gap-3">
                           <Label className="text-sm w-40 shrink-0">{field.label}</Label>
-                          <Input
-                            type="number"
-                            value={value as number}
+                          <NumberField
+                            value={value as number | undefined}
                             min={field.min}
                             max={field.max}
-                            onChange={(e) => updateField(section.key, field.key, Number(e.target.value))}
-                            className="w-24"
+                            onCommit={(v) => updateField(section.key, field.key, v)}
                           />
                         </div>
                       );

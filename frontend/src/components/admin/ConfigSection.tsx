@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '@/lib/api';
+import { errorMessage, showActionError } from '@/lib/errors';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -7,6 +8,8 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/hooks/use-toast';
 import { CheckCircle, XCircle, Loader2, Check } from 'lucide-react';
+
+const SECRET_MASK = '••••••••';
 
 export type TestResult = { success: boolean; message: string } | null;
 
@@ -18,6 +21,10 @@ export type FieldDef = {
   encrypted?: boolean;
   toggle?: boolean;
   defaultValue?: string;
+  /** Texte d'aide affiché sous le champ. */
+  help?: string;
+  min?: number;
+  max?: number;
 };
 
 function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
@@ -141,41 +148,60 @@ export function ConfigSection({
   footer?: React.ReactNode;
 }) {
   const [values, setValues] = useState<Record<string, string>>({});
+  // Clés dont la valeur a été réellement modifiée par l'utilisateur (saisie),
+  // par opposition à un simple focus sur le masque du secret.
+  const [touched, setTouched] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [loaded, setLoaded] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  useEffect(() => {
-    api.get<Record<string, string>>(`/admin/config/${category}`).then((data) => {
-      const masked: Record<string, string> = {};
-      for (const f of fields) {
-        const raw = data[f.key];
-        if (f.encrypted && raw) {
-          masked[f.key] = '••••••••';
-        } else {
-          masked[f.key] = raw || f.defaultValue || '';
+  const load = useCallback(() => {
+    setLoading(true);
+    setLoadError(null);
+    api.get<Record<string, string>>(`/admin/config/${category}`)
+      .then((data) => {
+        const masked: Record<string, string> = {};
+        for (const f of fields) {
+          const raw = data[f.key];
+          if (f.encrypted && raw) {
+            masked[f.key] = SECRET_MASK;
+          } else {
+            masked[f.key] = raw || f.defaultValue || '';
+          }
         }
-      }
-      setValues(masked);
-      setLoaded(true);
-    });
+        setValues(masked);
+        setTouched(new Set());
+      })
+      .catch((e: unknown) => setLoadError(errorMessage(e, 'Erreur lors du chargement de la configuration')))
+      .finally(() => setLoading(false));
+    // La liste des champs est stable pour une catégorie donnée (définie par la
+    // page appelante) : on ne recharge que si la catégorie change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [category]);
+
+  useEffect(() => { load(); }, [load]);
 
   const save = async () => {
     setSaving(true);
     try {
       const toSave: Record<string, string> = {};
       for (const f of fields) {
-        if (values[f.key] !== '••••••••') {
-          toSave[f.key] = values[f.key] || '';
+        const val = values[f.key] ?? '';
+        // Un champ chiffré non modifié (masque intact) ou vidé par erreur
+        // (focus + Enregistrer sans saisie) ne doit jamais écraser le secret
+        // existant côté serveur.
+        if (f.encrypted && (val === '' || (val === SECRET_MASK && !touched.has(f.key)))) {
+          continue;
         }
+        toSave[f.key] = val;
       }
       await api.put(`/admin/config/${category}`, toSave);
       toast({ title: 'Configuration enregistrée', variant: 'success' });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
-    } catch {
-      toast({ title: 'Erreur lors de la sauvegarde', variant: 'destructive' });
+    } catch (e: unknown) {
+      showActionError(e, 'Erreur lors de la sauvegarde');
     } finally {
       setSaving(false);
     }
@@ -184,7 +210,7 @@ export function ConfigSection({
   const toggleFields = fields.filter((f) => f.toggle);
   const inputFields = fields.filter((f) => !f.toggle);
 
-  if (!loaded) {
+  if (loading) {
     return (
       <Card>
         <CardHeader>
@@ -198,6 +224,24 @@ export function ConfigSection({
                 <Skeleton className="h-9 w-full" />
               </div>
             ))}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>{title}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="rounded-lg border border-red-200 bg-red-50 dark:bg-red-900/20 p-4 text-center" role="alert">
+            <p className="text-sm text-red-700 dark:text-red-400">{loadError}</p>
+            <Button variant="outline" size="sm" className="mt-3" onClick={load}>
+              Réessayer
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -233,14 +277,24 @@ export function ConfigSection({
                   id={f.key}
                   type={f.type || 'text'}
                   placeholder={f.placeholder}
+                  min={f.min}
+                  max={f.max}
                   value={values[f.key] || ''}
-                  onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setValues((v) => ({ ...v, [f.key]: next }));
+                    setTouched((t) => (t.has(f.key) ? t : new Set(t).add(f.key)));
+                  }}
                   onFocus={(e) => {
-                    if (f.encrypted && e.target.value === '••••••••') {
-                      setValues((v) => ({ ...v, [f.key]: '' }));
+                    // Ne jamais effacer le masque au focus : on sélectionne le
+                    // texte pour que la première frappe le remplace naturellement,
+                    // sans risquer d'enregistrer un secret vidé par erreur.
+                    if (f.encrypted && e.target.value === SECRET_MASK) {
+                      e.target.select();
                     }
                   }}
                 />
+                {f.help && <p className="text-xs text-muted-foreground">{f.help}</p>}
               </div>
             ))}
           </div>

@@ -1,5 +1,5 @@
 import React, { Suspense, lazy } from 'react';
-import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { UiViewProvider, useUiView } from '@/contexts/UiViewContext';
@@ -48,8 +48,12 @@ function ProtectedRoute({
   requiredRoles?: string[];
 }) {
   const { user, loading } = useAuth();
+  const location = useLocation();
   if (loading) return <LoadingSpinner />;
   if (!user) return <Navigate to="/login" replace />;
+  if (user.mustChangePassword && location.pathname !== '/change-password') {
+    return <Navigate to="/change-password?forced=true" replace />;
+  }
   if (requiredRoles && !requiredRoles.includes(user.role)) return <Navigate to="/unauthorized" replace />;
   return <>{children}</>;
 }

@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '@/lib/api';
+import { errorMessage, showActionError } from '@/lib/errors';
 import { AlertOctagon, ChevronLeft, ChevronRight, CheckCircle, XCircle, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -34,6 +35,8 @@ interface ContestationResponse {
   total: number;
   page: number;
   limit: number;
+  /** Total des contestations ouvertes, indépendant des filtres appliqués. */
+  openCount?: number;
 }
 
 // ─── Statuts et couleurs ───────────────────────────────────────────────────
@@ -213,8 +216,13 @@ export function ContestationsPage() {
   const limit = 20;
 
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Identifie la requête la plus récente : ignore toute réponse arrivée après
+  // qu'une requête plus récente ait déjà été lancée (filtres/pagination changés
+  // entre-temps, ou rechargement manuel après une action).
+  const requestIdRef = useRef(0);
 
   const load = useCallback(() => {
+    const requestId = ++requestIdRef.current;
     setLoading(true);
     setLoadError(null);
     const params = new URLSearchParams();
@@ -222,32 +230,39 @@ export function ContestationsPage() {
     params.set('page', String(page));
     params.set('limit', String(limit));
     api.get<ContestationResponse>(`/contestations?${params}`)
-      .then(setData)
+      .then((res) => {
+        if (requestIdRef.current !== requestId) return;
+        setData(res);
+      })
       .catch((e: unknown) => {
+        if (requestIdRef.current !== requestId) return;
         // Une panne ne doit pas s'afficher comme « aucune contestation »
         setData(null);
-        setLoadError(e instanceof Error && e.message ? e.message : 'Erreur lors du chargement des contestations');
+        setLoadError(errorMessage(e, 'Erreur lors du chargement des contestations'));
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (requestIdRef.current === requestId) setLoading(false);
+      });
   }, [statusFilter, page]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    // Invalide toute requête encore en vol au démontage (ou avant le prochain
+    // appel de load) pour éviter un setState après démontage du composant.
+    return () => { requestIdRef.current += 1; };
+  }, [load]);
 
   const handleReview = async (id: string) => {
     try {
       await api.patch(`/contestations/${id}/review`);
     } catch (e: unknown) {
-      toast({
-        title: 'Erreur',
-        description: e instanceof Error && e.message ? e.message : 'Erreur lors de la prise en charge',
-        variant: 'destructive',
-      });
+      showActionError(e, 'Erreur lors de la prise en charge');
     }
     load();
   };
 
   const totalPages = data ? Math.ceil(data.total / limit) : 0;
-  const openCount = data?.contestations.filter(c => c.status === 'open').length ?? 0;
+  const openCount = data?.openCount ?? data?.contestations.filter((c) => c.status === 'open').length ?? 0;
 
   return (
     <div className="space-y-4">

@@ -190,7 +190,14 @@ export function ConfigRetentionPage() {
       category="retention"
       fields={[
         { key: 'enabled', label: 'Anonymisation automatique (cron hebdomadaire)', toggle: true },
-        { key: 'anonymize_months', label: 'Anonymiser après (mois)', placeholder: '36', type: 'number' },
+        {
+          key: 'anonymize_months',
+          label: 'Anonymiser après (mois)',
+          placeholder: '36',
+          type: 'number',
+          min: 60,
+          help: 'Minimum légal : 60 mois',
+        },
         { key: 'attachment_months', label: 'Purge pièces jointes après (mois)', placeholder: '36', type: 'number' },
         { key: 'expired_tokens_days', label: 'Purge tokens de signature expirés après (jours)', placeholder: '30', type: 'number' },
         { key: 'audit_logs_years', label: 'Purge journaux d’audit après (années)', placeholder: '5', type: 'number' },

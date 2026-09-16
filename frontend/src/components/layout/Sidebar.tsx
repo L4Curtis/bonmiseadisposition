@@ -9,6 +9,7 @@ import {
   Settings,
   Users,
   Package,
+  Boxes,
   Building2,
   ScrollText,
   MessageSquareWarning,
@@ -53,6 +54,7 @@ const technicienNavGroups: NavGroup[] = [
       { to: '/admin/utilisateurs', icon: Users, label: 'Collaborateurs' },
       { to: '/admin/filiales', icon: Building2, label: 'Filiales' },
       { to: '/admin/catalogue', icon: Package, label: 'Équipements' },
+      { to: '/inventaire', icon: Boxes, label: 'Inventaire' },
     ],
   },
 ];

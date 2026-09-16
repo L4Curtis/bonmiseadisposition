@@ -84,11 +84,16 @@ function PreviewDialog({
 
   useEffect(() => {
     if (!open || !template) { setHtml(null); return; }
+    let cancelled = false;
     setLoading(true);
     api.get<{ html: string }>(`/admin/email-templates/${template.id}/preview`)
-      .then((r) => setHtml(r.html))
-      .catch(() => toast({ title: 'Erreur', description: "Impossible de charger l'apercu.", variant: 'destructive' }))
-      .finally(() => setLoading(false));
+      .then((r) => { if (!cancelled) setHtml(r.html); })
+      .catch(() => {
+        if (cancelled) return;
+        toast({ title: 'Erreur', description: "Impossible de charger l'apercu.", variant: 'destructive' });
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [open, template]);
 
   return (
@@ -140,11 +145,20 @@ function EditDialog({
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (!open || !template) { setData(null); return; }
+    if (!open || !template) { setData(null); setHtml(''); return; }
+    let cancelled = false;
     setTab('code');
     api.get<TemplateHtml>(`/admin/email-templates/${template.id}/html`)
-      .then((d) => { setData(d); setHtml(d.html); })
-      .catch(() => toast({ title: 'Erreur', description: 'Impossible de charger le template.', variant: 'destructive' }));
+      .then((d) => {
+        if (cancelled) return;
+        setData(d);
+        setHtml(d.html);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        toast({ title: 'Erreur', description: 'Impossible de charger le template.', variant: 'destructive' });
+      });
+    return () => { cancelled = true; };
   }, [open, template]);
 
   const handleSave = async () => {

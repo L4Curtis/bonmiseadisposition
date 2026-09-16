@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '@/lib/api';
+import { showActionError } from '@/lib/errors';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -43,8 +44,9 @@ export function ConfigMonitoringPage() {
       } else {
         setFailed([]);
       }
-    } catch {
+    } catch (e: unknown) {
       setStatus(null);
+      showActionError(e, 'Erreur lors du chargement du statut SMB');
     } finally {
       setLoading(false);
     }
@@ -58,8 +60,8 @@ export function ConfigMonitoringPage() {
       await api.post(`/admin/smb/retry/${id}`);
       toast({ title: 'Export relancé', variant: 'success' });
       await load();
-    } catch {
-      toast({ title: 'Erreur lors du retry', variant: 'destructive' });
+    } catch (e: unknown) {
+      showActionError(e, 'Erreur lors du retry');
     } finally {
       setRetrying(null);
     }
@@ -74,8 +76,8 @@ export function ConfigMonitoringPage() {
         variant: result.failed > 0 ? 'destructive' : 'success',
       });
       await load();
-    } catch {
-      toast({ title: 'Erreur lors du retry', variant: 'destructive' });
+    } catch (e: unknown) {
+      showActionError(e, 'Erreur lors du retry');
     } finally {
       setRetryingAll(false);
     }

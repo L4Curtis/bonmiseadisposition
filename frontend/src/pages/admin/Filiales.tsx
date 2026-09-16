@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { api } from '@/lib/api';
+import { errorMessage, showActionError } from '@/lib/errors';
+import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -18,13 +20,33 @@ import { toast } from '@/hooks/use-toast';
 import { Plus, Pencil, Trash2, Upload, X, Check } from 'lucide-react';
 import type { Filiale } from '@/types';
 
+function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ${
+        checked ? 'bg-primary' : 'bg-muted-foreground/30'
+      }`}
+    >
+      <span
+        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ${
+          checked ? 'translate-x-4' : 'translate-x-0'
+        }`}
+      />
+    </button>
+  );
+}
+
 function FilialeForm({
   filiale,
   onSave,
   onCancel,
 }: {
   filiale?: Filiale;
-  onSave: (data: Partial<Filiale>) => void;
+  onSave: (data: Partial<Filiale>) => Promise<boolean>;
   onCancel: () => void;
 }) {
   const [form, setForm] = useState({
@@ -32,17 +54,42 @@ function FilialeForm({
     displayName: filiale?.displayName || '',
     address: filiale?.address || '',
     siret: filiale?.siret || '',
+    active: filiale?.active ?? true,
   });
+  const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleSave = () => {
-    onSave(form);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+  const handleSave = async () => {
+    if (!form.name.trim() || !form.displayName.trim()) {
+      setError('Le nom et le nom d’affichage sont obligatoires');
+      return;
+    }
+    setError('');
+    setSaving(true);
+    const payload: Partial<Filiale> = {
+      name: form.name.trim(),
+      displayName: form.displayName.trim(),
+      address: form.address,
+      siret: form.siret,
+    };
+    // active n'existe pas sur CreateFilialeDto : uniquement envoyé en édition
+    if (filiale) payload.active = form.active;
+    const ok = await onSave(payload);
+    setSaving(false);
+    if (ok) {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    }
   };
 
   return (
     <div className="rounded-lg border bg-muted/40 p-4 space-y-3">
+      {error && (
+        <div role="alert" className="rounded-md bg-destructive/10 border border-destructive/20 p-2">
+          <p className="text-sm text-destructive">{error}</p>
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
           <Label>Nom officiel (mappage AD)</Label>
@@ -77,15 +124,23 @@ function FilialeForm({
           />
         </div>
       </div>
+      {filiale && (
+        <div className="flex items-center gap-3">
+          <Toggle checked={form.active} onChange={(v) => setForm((f) => ({ ...f, active: v }))} />
+          <Label className="cursor-pointer select-none" onClick={() => setForm((f) => ({ ...f, active: !f.active }))}>
+            Active
+          </Label>
+        </div>
+      )}
       <div className="flex gap-2">
         <Button
           size="sm"
-          disabled={saved}
+          disabled={saving || saved}
           className={saved ? 'bg-green-600 hover:bg-green-600 text-white' : ''}
           onClick={handleSave}
         >
-          <Check className="h-3 w-3" />
-          {saved ? 'Enregistré' : 'Enregistrer'}
+          {saved ? <Check className="h-3 w-3" /> : null}
+          {saved ? 'Enregistré' : saving ? 'Enregistrement...' : 'Enregistrer'}
         </Button>
         <Button size="sm" variant="outline" onClick={onCancel}>
           <X className="h-3 w-3" /> Annuler
@@ -126,39 +181,52 @@ function FileUploadButton({
 }
 
 export function FilialesPage() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [filiales, setFiliales] = useState<Filiale[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Filiale | null>(null);
 
   const fetchFiliales = async () => {
-    const data = await api.get<Filiale[]>('/filiales');
-    setFiliales(data);
-    setLoading(false);
+    try {
+      const data = await api.get<Filiale[]>('/filiales');
+      setFiliales(data);
+      setLoadError(null);
+    } catch (e: unknown) {
+      setLoadError(errorMessage(e, 'Erreur lors du chargement des filiales'));
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { fetchFiliales(); }, []);
 
-  const create = async (data: Partial<Filiale>) => {
+  const create = async (data: Partial<Filiale>): Promise<boolean> => {
     try {
       await api.post('/filiales', data);
-      toast({ title: 'Filiale creee', variant: 'success' });
+      toast({ title: 'Filiale créée', variant: 'success' });
       setCreating(false);
-      fetchFiliales();
-    } catch {
-      toast({ title: 'Erreur lors de la creation', variant: 'destructive' });
+      await fetchFiliales();
+      return true;
+    } catch (e: unknown) {
+      showActionError(e, 'Erreur lors de la création');
+      return false;
     }
   };
 
-  const update = async (id: string, data: Partial<Filiale>) => {
+  const update = async (id: string, data: Partial<Filiale>): Promise<boolean> => {
     try {
       await api.put(`/filiales/${id}`, data);
-      toast({ title: 'Filiale mise a jour', variant: 'success' });
+      toast({ title: 'Filiale mise à jour', variant: 'success' });
       setEditingId(null);
-      fetchFiliales();
-    } catch {
-      toast({ title: 'Erreur lors de la mise a jour', variant: 'destructive' });
+      await fetchFiliales();
+      return true;
+    } catch (e: unknown) {
+      showActionError(e, 'Erreur lors de la mise à jour');
+      return false;
     }
   };
 
@@ -166,9 +234,9 @@ export function FilialesPage() {
     if (!deleteTarget) return;
     try {
       await api.delete(`/filiales/${deleteTarget.id}`);
-      toast({ title: 'Filiale supprimee', variant: 'success' });
-    } catch {
-      toast({ title: 'Erreur lors de la suppression', variant: 'destructive' });
+      toast({ title: 'Filiale supprimée', variant: 'success' });
+    } catch (e: unknown) {
+      showActionError(e, 'Erreur lors de la suppression');
     } finally {
       setDeleteTarget(null);
       fetchFiliales();
@@ -179,16 +247,10 @@ export function FilialesPage() {
     const form = new FormData();
     form.append('file', file);
     try {
-      const res = await fetch(`/api/filiales/${id}/${type}`, {
-        method: 'PATCH',
-        body: form,
-        credentials: 'include',
-        headers: { 'X-Requested-With': 'XMLHttpRequest' },
-      });
-      if (!res.ok) throw new Error('Upload échoué');
+      await api.patchForm(`/filiales/${id}/${type}`, form);
       toast({ title: `${type === 'logo' ? 'Logo' : 'Cachet'} mis à jour`, variant: 'success' });
-    } catch {
-      toast({ title: 'Erreur lors de l\'upload', variant: 'destructive' });
+    } catch (e: unknown) {
+      showActionError(e, "Erreur lors de l'upload");
     }
     fetchFiliales();
   };
@@ -204,6 +266,15 @@ export function FilialesPage() {
 
       {creating && (
         <FilialeForm onSave={create} onCancel={() => setCreating(false)} />
+      )}
+
+      {loadError && !loading && (
+        <div className="rounded-lg border border-red-200 bg-red-50 dark:bg-red-900/20 p-4 text-center" role="alert">
+          <p className="text-sm text-red-700 dark:text-red-400">{loadError}</p>
+          <Button variant="outline" size="sm" className="mt-3" onClick={fetchFiliales}>
+            Réessayer
+          </Button>
+        </div>
       )}
 
       <div className="space-y-3">
@@ -275,20 +346,22 @@ export function FilialesPage() {
                     <Button variant="outline" size="sm" onClick={() => setEditingId(f.id)}>
                       <Pencil className="h-3 w-3" />
                     </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setDeleteTarget(f)}
-                    >
-                      <Trash2 className="h-3 w-3 text-red-500" />
-                    </Button>
+                    {isAdmin && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setDeleteTarget(f)}
+                      >
+                        <Trash2 className="h-3 w-3 text-red-500" />
+                      </Button>
+                    )}
                   </div>
                 </div>
               )}
             </CardContent>
           </Card>
         ))}
-        {!loading && filiales.length === 0 && !creating && (
+        {!loading && !loadError && filiales.length === 0 && !creating && (
           <div className="text-center py-10 text-sm text-muted-foreground/70">
             Aucune filiale configuree
           </div>

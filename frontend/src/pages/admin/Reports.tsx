@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
 import { toast } from '@/hooks/use-toast';
 import { formatDateTime } from '@/lib/utils';
+import { notifTypeLabel } from '@/lib/labels';
 import { BarChart3, Package, Clock, Download, Loader2, MailWarning } from 'lucide-react';
 
 interface Overview {
@@ -26,19 +28,6 @@ interface Overview {
     items: { id: string; bonId: string | null; reference: string; recipient: string; type: string; sentAt: string; error: string }[];
   };
 }
-
-const NOTIF_TYPE_LABELS: Record<string, string> = {
-  mise_dispo_request: 'Demande de signature (mise à dispo)',
-  restitution_request: 'Demande de signature (restitution)',
-  pv_cloture_request: 'Demande de signature (PV)',
-  reminder: 'Rappel',
-  confirmation: 'Confirmation',
-  contestation_alert: 'Alerte contestation',
-  contestation_resolution: 'Résolution contestation',
-  cancellation: 'Annulation',
-  mark_found: 'Équipement retrouvé',
-  unilateral_closure: 'Clôture unilatérale',
-};
 
 function StatCard({ icon: Icon, label, value, hint }: { icon: React.ElementType; label: string; value: number; hint?: string }) {
   return (
@@ -230,9 +219,9 @@ export function ReportsPage() {
                   {data.failedNotifications.items.slice(0, 50).map((n) => (
                     <tr key={n.id} className="border-b last:border-0 hover:bg-muted/30">
                       <td className="px-3 py-2 font-mono text-xs">
-                        {n.bonId ? <a href={`/bons/${n.bonId}`} className="text-primary hover:underline">{n.reference}</a> : n.reference}
+                        {n.bonId ? <Link to={`/bons/${n.bonId}`} className="text-primary hover:underline">{n.reference}</Link> : n.reference}
                       </td>
-                      <td className="px-3 py-2">{NOTIF_TYPE_LABELS[n.type] ?? n.type}</td>
+                      <td className="px-3 py-2">{notifTypeLabel(n.type)}</td>
                       <td className="px-3 py-2 text-muted-foreground hidden sm:table-cell">{n.recipient}</td>
                       <td className="px-3 py-2 text-muted-foreground hidden md:table-cell">{formatDateTime(n.sentAt)}</td>
                     </tr>

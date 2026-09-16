@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '@/lib/api';
+import { errorMessage, showActionError } from '@/lib/errors';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -19,6 +20,14 @@ import { formatDate } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import type { Filiale } from '@/types';
 
+/** Statuts composites utilisés par le tableau de bord IT — pas de valeur
+ *  BonStatus unique, donc traités à part du select simple ci-dessous. */
+const WAITING_ALL_STATUS = 'sent_mise_dispo,sent_restitution,partially_returned';
+const IN_PROGRESS_EXCLUDE = 'cancelled,archived';
+/** Valeur factice du <select> pour le filtre « En cours » — piloté par
+ *  excludeStatus (pas par status), donc distingué par un préfixe dédié. */
+const IN_PROGRESS_OPTION_VALUE = `__exclude:${IN_PROGRESS_EXCLUDE}`;
+
 interface Bon {
   id: string;
   reference: string;
@@ -35,6 +44,8 @@ interface Bon {
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: '', label: 'Tous les statuts' },
+  { value: IN_PROGRESS_OPTION_VALUE, label: 'En cours (hors archivés/annulés)' },
+  { value: WAITING_ALL_STATUS, label: 'En attente de signature (tous)' },
   { value: 'draft', label: 'Brouillon' },
   { value: 'sent_mise_dispo', label: 'En attente de signature' },
   { value: 'active', label: 'Actif' },
@@ -78,7 +89,8 @@ export function BonsListPage() {
 
   const [search, setSearch] = useState(searchParams.get('search') ?? '');
   const [statusFilter, setStatusFilter] = useState(searchParams.get('status') ?? '');
-  const excludeStatus = searchParams.get('excludeStatus') ?? '';
+  const [excludeStatus, setExcludeStatus] = useState(searchParams.get('excludeStatus') ?? '');
+  const [overdue, setOverdue] = useState(searchParams.get('overdue') === '1');
   const [filialeFilter, setFilialeFilter] = useState(searchParams.get('filialeId') ?? '');
   const [searchInput, setSearchInput] = useState(searchParams.get('search') ?? '');
   const [exportLoading, setExportLoading] = useState(false);
@@ -86,16 +98,44 @@ export function BonsListPage() {
 
   const limit = 20;
 
+  const resetFilters = () => {
+    setSearch('');
+    setSearchInput('');
+    setStatusFilter('');
+    setExcludeStatus('');
+    setOverdue(false);
+    setFilialeFilter('');
+    setPage(1);
+  };
+
+  // Valeur affichée dans le select statut : les options composites pilotées
+  // par excludeStatus (pas par status) sont mappées vers leur valeur factice.
+  const statusSelectValue = !statusFilter && excludeStatus === IN_PROGRESS_EXCLUDE
+    ? IN_PROGRESS_OPTION_VALUE
+    : statusFilter;
+
+  const handleStatusSelect = (value: string) => {
+    if (value.startsWith('__exclude:')) {
+      setStatusFilter('');
+      setExcludeStatus(value.slice('__exclude:'.length));
+    } else {
+      // Un statut explicite retire le filtre « en cours » hérité du dashboard
+      setStatusFilter(value);
+      setExcludeStatus('');
+    }
+    setPage(1);
+  };
+
   const handleExport = async () => {
     setExportLoading(true);
     try {
       const params = new URLSearchParams();
       if (search) params.set('search', search);
       if (statusFilter) params.set('status', statusFilter);
+      if (excludeStatus) params.set('excludeStatus', excludeStatus);
+      if (overdue) params.set('overdue', '1');
       if (filialeFilter) params.set('filialeId', filialeFilter);
-      const response = await fetch(`/api/bons/export?${params}`, { credentials: 'include' });
-      if (!response.ok) throw new Error('Export échoué');
-      const blob = await response.blob();
+      const blob = await api.getBlob(`/bons/export?${params}`);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -103,8 +143,8 @@ export function BonsListPage() {
       a.click();
       URL.revokeObjectURL(url);
       toast({ title: 'Export réussi', description: 'Le fichier CSV a été téléchargé.', variant: 'success' });
-    } catch {
-      toast({ title: 'Erreur', description: "Erreur lors de l'export CSV.", variant: 'destructive' });
+    } catch (e: unknown) {
+      showActionError(e, "Erreur lors de l'export CSV.");
     } finally {
       setExportLoading(false);
     }
@@ -131,15 +171,20 @@ export function BonsListPage() {
     if (search) urlParams['search'] = search;
     if (statusFilter) urlParams['status'] = statusFilter;
     if (excludeStatus) urlParams['excludeStatus'] = excludeStatus;
+    if (overdue) urlParams['overdue'] = '1';
     if (filialeFilter) urlParams['filialeId'] = filialeFilter;
     setSearchParams(urlParams, { replace: true });
 
     setLoading(true);
     setLoadError(null);
+    // Ignore une réponse arrivée après que l'effet a été relancé (filtres/page
+    // changés entre-temps) — la dernière requête lancée doit toujours gagner.
+    let ignore = false;
     const params = new URLSearchParams();
     if (search) params.set('search', search);
     if (statusFilter) params.set('status', statusFilter);
     if (excludeStatus) params.set('excludeStatus', excludeStatus);
+    if (overdue) params.set('overdue', '1');
     if (filialeFilter) params.set('filialeId', filialeFilter);
     params.set('page', String(page));
     params.set('limit', String(limit));
@@ -147,20 +192,26 @@ export function BonsListPage() {
     api
       .get<{ bons: Bon[]; total: number }>(`/bons?${params}`)
       .then((data) => {
+        if (ignore) return;
         setBons(data.bons);
         setTotal(data.total);
       })
       .catch((e: unknown) => {
+        if (ignore) return;
         // Une panne serveur ne doit pas s'afficher comme « aucun bon »
         setBons([]);
         setTotal(0);
-        setLoadError(e instanceof Error && e.message ? e.message : 'Erreur lors du chargement des bons');
+        setLoadError(errorMessage(e, 'Erreur lors du chargement des bons'));
       })
-      .finally(() => setLoading(false));
-  }, [search, statusFilter, excludeStatus, filialeFilter, page, reloadKey]);
+      .finally(() => {
+        if (!ignore) setLoading(false);
+      });
+
+    return () => { ignore = true; };
+  }, [search, statusFilter, excludeStatus, overdue, filialeFilter, page, reloadKey]);
 
   const totalPages = Math.ceil(total / limit);
-  const hasActiveFilters = search || statusFilter || filialeFilter;
+  const hasActiveFilters = !!(search || statusFilter || excludeStatus || overdue || filialeFilter);
 
   const rangeStart = total === 0 ? 0 : (page - 1) * limit + 1;
   const rangeEnd = Math.min(page * limit, total);
@@ -221,8 +272,8 @@ export function BonsListPage() {
         {/* Status dropdown */}
         <select
           className="field-modern h-9 px-3 cursor-pointer"
-          value={statusFilter}
-          onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+          value={statusSelectValue}
+          onChange={(e) => handleStatusSelect(e.target.value)}
           aria-label="Filtrer par statut"
         >
           {STATUS_OPTIONS.map((o) => (
@@ -266,19 +317,43 @@ export function BonsListPage() {
         {/* Reset filters */}
         {hasActiveFilters && (
           <button
-            onClick={() => {
-              setSearch('');
-              setSearchInput('');
-              setStatusFilter('');
-              setFilialeFilter('');
-              setPage(1);
-            }}
+            onClick={resetFilters}
             className="text-sm text-rose-500 hover:text-rose-700 font-medium transition-colors px-1"
           >
             Réinitialiser
           </button>
         )}
       </div>
+
+      {/* Chips des filtres hérités (dashboard) non représentés par un champ */}
+      {(excludeStatus || overdue) && (
+        <div className="flex flex-wrap items-center gap-2 -mt-1.5">
+          {excludeStatus && (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
+              En cours (hors archivés/annulés)
+              <button
+                onClick={() => { setExcludeStatus(''); setPage(1); }}
+                className="hover:text-foreground transition-colors"
+                aria-label="Retirer le filtre « En cours »"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          )}
+          {overdue && (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400 px-2.5 py-1 text-xs font-medium">
+              En retard
+              <button
+                onClick={() => { setOverdue(false); setPage(1); }}
+                className="hover:opacity-70 transition-opacity"
+                aria-label="Retirer le filtre « En retard »"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Table container */}
       <div className="bg-card rounded-xl border border-border card-elevated overflow-hidden">
@@ -320,13 +395,7 @@ export function BonsListPage() {
             )}
             {hasActiveFilters && (
               <button
-                onClick={() => {
-                  setSearch('');
-                  setSearchInput('');
-                  setStatusFilter('');
-                  setFilialeFilter('');
-                  setPage(1);
-                }}
+                onClick={resetFilters}
                 className="mt-3 text-sm text-[hsl(var(--primary))] hover:opacity-80 font-medium transition-colors"
               >
                 Réinitialiser les filtres

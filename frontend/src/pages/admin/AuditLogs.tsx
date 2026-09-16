@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '@/lib/api';
+import { errorMessage } from '@/lib/errors';
 import { Search, ChevronLeft, ChevronRight, Shield, ExternalLink, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -195,7 +196,12 @@ export function AuditLogsPage() {
     api.get<string[]>('/audit/actions').then(setAvailableActions).catch(() => {});
   }, []);
 
+  // Identifie la requête la plus récente pour ignorer une réponse arrivée hors
+  // ordre (filtres changés rapidement pendant qu'une requête précédente est en vol).
+  const requestIdRef = useRef(0);
+
   const load = useCallback(() => {
+    const requestId = ++requestIdRef.current;
     setLoading(true);
     setLoadError(null);
     const params = new URLSearchParams();
@@ -207,12 +213,25 @@ export function AuditLogsPage() {
     params.set('limit', String(limit));
 
     api.get<AuditResponse>(`/audit?${params}`)
-      .then(setData)
-      .catch((e: unknown) => setLoadError(e instanceof Error ? e.message : 'Erreur lors du chargement des logs'))
-      .finally(() => setLoading(false));
+      .then((res) => {
+        if (requestIdRef.current !== requestId) return;
+        setData(res);
+      })
+      .catch((e: unknown) => {
+        if (requestIdRef.current !== requestId) return;
+        setLoadError(errorMessage(e, 'Erreur lors du chargement des logs'));
+      })
+      .finally(() => {
+        if (requestIdRef.current === requestId) setLoading(false);
+      });
   }, [userEmail, action, dateFrom, dateTo, page]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    // Invalide toute requête encore en vol au démontage (ou avant le prochain
+    // appel de load) pour éviter un setState après démontage du composant.
+    return () => { requestIdRef.current += 1; };
+  }, [load]);
 
   const applySearch = () => { setUserEmail(userEmailInput); setPage(1); };
   const resetFilters = () => {

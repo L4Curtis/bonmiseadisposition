@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '@/lib/api';
+import { errorMessage } from '@/lib/errors';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   FileText, Clock, CheckCircle, AlertTriangle, Plus,
@@ -134,16 +135,24 @@ export function DashboardIT() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [recent, setRecent] = useState<RecentBon[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
+    setLoading(true);
+    setLoadError(null);
     Promise.all([
       api.get<Stats>('/bons/stats'),
       api.get<RecentBon[]>('/bons/recent?limit=10'),
     ]).then(([s, r]) => {
       setStats(s);
       setRecent(r);
-    }).catch(() => {}).finally(() => setLoading(false));
-  }, []);
+    }).catch((e: unknown) => {
+      setStats(null);
+      setRecent([]);
+      setLoadError(errorMessage(e, 'Erreur lors du chargement du tableau de bord'));
+    }).finally(() => setLoading(false));
+  }, [reloadKey]);
 
   const statCards: StatCardProps[] = useMemo(() => [
     {
@@ -193,7 +202,7 @@ export function DashboardIT() {
       iconBg: 'bg-transparent border border-destructive/30',
       iconColor: 'text-destructive',
       valueColor: 'text-destructive',
-      onClick: () => navigate('/bons'),
+      onClick: () => navigate('/bons?overdue=1'),
     },
   ], [stats, navigate]);
 
@@ -248,6 +257,17 @@ export function DashboardIT() {
 
           {loading ? (
             <RecentListSkeleton />
+          ) : loadError ? (
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-red-50 dark:bg-red-900/20 mb-4">
+                <AlertTriangle className="h-6 w-6 text-red-500" />
+              </div>
+              <p className="text-sm font-medium text-foreground/80 mb-1">Erreur de chargement</p>
+              <p className="text-xs text-muted-foreground/70 max-w-xs">{loadError}</p>
+              <Button variant="outline" size="sm" onClick={() => setReloadKey((k) => k + 1)} className="mt-4">
+                Réessayer
+              </Button>
+            </div>
           ) : recent.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted mb-4">

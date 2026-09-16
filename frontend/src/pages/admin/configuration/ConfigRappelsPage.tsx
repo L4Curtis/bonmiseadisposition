@@ -10,6 +10,14 @@ export function ConfigRappelsPage() {
         { key: 'delay_1', label: '1er rappel (jours)', placeholder: '3' },
         { key: 'delay_2', label: '2ème rappel (jours)', placeholder: '7' },
         { key: 'delay_3', label: '3ème rappel (jours)', placeholder: '14' },
+        {
+          key: 'restitution_before_days',
+          label: 'Rappel avant restitution (jours)',
+          placeholder: '7',
+          type: 'number',
+          min: 0,
+          help: 'Rappel au collaborateur X jours avant la date de restitution prévue (0 = désactivé)',
+        },
       ]}
     />
   );

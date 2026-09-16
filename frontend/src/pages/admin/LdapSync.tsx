@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { api } from '@/lib/api';
+import { errorMessage, showActionError } from '@/lib/errors';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -23,39 +24,99 @@ interface SyncStatus {
   lastSyncError: string | null;
 }
 
+const POLL_INTERVAL_MS = 2500;
+const POLL_MAX_MS = 5 * 60 * 1000;
+const DEFAULT_SYNC_INTERVAL_HOURS = 6;
+
 export function LdapSyncPage() {
   const [status, setStatus] = useState<SyncStatus | null>(null);
+  const [loadingStatus, setLoadingStatus] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [purging, setPurging] = useState(false);
   const [purgeDialogOpen, setPurgeDialogOpen] = useState(false);
+  const [syncIntervalHours, setSyncIntervalHours] = useState<number | null>(null);
 
-  const fetchStatus = async () => {
-    const data = await api.get<SyncStatus>('/admin/ldap/status');
-    setStatus(data);
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopPolling = () => {
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  };
+
+  const fetchStatus = async (): Promise<SyncStatus | null> => {
+    try {
+      const data = await api.get<SyncStatus>('/admin/ldap/status');
+      setStatus(data);
+      setLoadError(null);
+      return data;
+    } catch (e: unknown) {
+      setLoadError(errorMessage(e, 'Erreur lors du chargement du statut de synchronisation'));
+      return null;
+    }
+  };
+
+  const loadInitial = async () => {
+    setLoadingStatus(true);
+    await fetchStatus();
+    setLoadingStatus(false);
   };
 
   useEffect(() => {
-    fetchStatus();
+    loadInitial();
+    api.get<Record<string, string>>('/admin/config/ldap')
+      .then((data) => {
+        const n = Number(data.sync_interval_hours);
+        setSyncIntervalHours(Number.isFinite(n) && n > 0 ? n : null);
+      })
+      .catch(() => { /* non bloquant — on affiche une valeur par défaut */ });
+    return () => stopPolling();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const pollUntilSynced = (previousLastSync: string | null) => {
+    stopPolling();
+    const startedAt = Date.now();
+    pollTimerRef.current = setInterval(async () => {
+      const data = await fetchStatus();
+      const changed = !!data && data.lastSync !== previousLastSync;
+      const timedOut = Date.now() - startedAt > POLL_MAX_MS;
+      if (changed || timedOut) {
+        stopPolling();
+        setSyncing(false);
+      }
+    }, POLL_INTERVAL_MS);
+  };
 
   const triggerSync = async () => {
     setSyncing(true);
-    await api.post('/admin/ldap/sync');
-    // Poll for result after a moment
-    setTimeout(async () => {
-      await fetchStatus();
+    const previousLastSync = status?.lastSync ?? null;
+    try {
+      await api.post('/admin/ldap/sync');
+    } catch (e: unknown) {
+      showActionError(e, 'Erreur lors du déclenchement de la synchronisation');
       setSyncing(false);
-    }, 3000);
+      return;
+    }
+    pollUntilSynced(previousLastSync);
   };
 
   const purgeUsers = async () => {
     setPurgeDialogOpen(false);
     setPurging(true);
     try {
-      const res = await api.delete<{ message: string }>('/admin/ldap/users');
-      toast({ title: res.message, variant: 'success' });
-    } catch {
-      toast({ title: 'Erreur lors de la suppression', variant: 'destructive' });
+      const res = await api.delete<{ message?: string; deactivated?: number }>('/admin/ldap/users');
+      toast({
+        title: typeof res.deactivated === 'number'
+          ? `${res.deactivated} compte(s) collaborateur désactivé(s)`
+          : (res.message ?? 'Comptes LDAP désactivés'),
+        variant: 'success',
+      });
+      await fetchStatus();
+    } catch (e: unknown) {
+      showActionError(e, 'Erreur lors de la désactivation des comptes LDAP');
     } finally {
       setPurging(false);
     }
@@ -70,7 +131,25 @@ export function LdapSyncPage() {
           <CardTitle>Statut de la synchronisation</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          {status ? (
+          {loadingStatus ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <Skeleton className="h-4 w-40" />
+                <Skeleton className="h-4 w-48" />
+              </div>
+              <div className="flex items-center gap-3">
+                <Skeleton className="h-4 w-40" />
+                <Skeleton className="h-6 w-32 rounded-full" />
+              </div>
+            </div>
+          ) : loadError && !status ? (
+            <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 p-4 text-center" role="alert">
+              <p className="text-sm text-red-700 dark:text-red-400">{loadError}</p>
+              <Button variant="outline" size="sm" className="mt-3" onClick={loadInitial}>
+                Réessayer
+              </Button>
+            </div>
+          ) : status ? (
             <div className="space-y-3">
               <div className="flex items-center gap-3">
                 <span className="text-sm text-muted-foreground w-40">Derniere sync :</span>
@@ -101,24 +180,13 @@ export function LdapSyncPage() {
               )}
               <div className="flex items-center gap-2 pt-2 text-xs text-muted-foreground/70">
                 <Clock className="h-3 w-3" />
-                Sync automatique toutes les 6 heures
+                Sync automatique toutes les {syncIntervalHours ?? DEFAULT_SYNC_INTERVAL_HOURS} heures
               </div>
             </div>
-          ) : (
-            <div className="space-y-3">
-              <div className="flex items-center gap-3">
-                <Skeleton className="h-4 w-40" />
-                <Skeleton className="h-4 w-48" />
-              </div>
-              <div className="flex items-center gap-3">
-                <Skeleton className="h-4 w-40" />
-                <Skeleton className="h-6 w-32 rounded-full" />
-              </div>
-            </div>
-          )}
+          ) : null}
 
           <div className="flex items-center gap-3 flex-wrap">
-            <Button onClick={triggerSync} disabled={syncing} className="gap-2">
+            <Button onClick={triggerSync} disabled={syncing || loadingStatus} className="gap-2">
               <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin motion-reduce:animate-none' : ''}`} />
               {syncing ? 'Synchronisation en cours...' : 'Lancer une sync manuelle'}
             </Button>
@@ -129,7 +197,7 @@ export function LdapSyncPage() {
               className="gap-2"
             >
               <Trash2 className="h-4 w-4" />
-              {purging ? 'Suppression...' : 'Purger les utilisateurs LDAP'}
+              {purging ? 'Désactivation...' : 'Désactiver les comptes LDAP'}
             </Button>
           </div>
         </CardContent>
@@ -138,9 +206,11 @@ export function LdapSyncPage() {
       <Dialog open={purgeDialogOpen} onOpenChange={setPurgeDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Purger les utilisateurs LDAP</DialogTitle>
+            <DialogTitle>Désactiver les comptes LDAP</DialogTitle>
             <DialogDescription>
-              Supprimer tous les utilisateurs LDAP importes ? Cette action ne supprime pas les comptes locaux.
+              Les comptes <strong>collaborateurs</strong> synchronisés depuis l&apos;Active Directory seront{' '}
+              <strong>désactivés</strong> (pas supprimés). Les comptes admin et technicien, ainsi que votre
+              propre compte, sont exclus et ne seront jamais désactivés par cette action.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -148,7 +218,7 @@ export function LdapSyncPage() {
               Annuler
             </Button>
             <Button variant="destructive" onClick={purgeUsers}>
-              Supprimer
+              Désactiver
             </Button>
           </DialogFooter>
         </DialogContent>

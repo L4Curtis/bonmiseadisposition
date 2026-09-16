@@ -26,6 +26,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
+import { errorMessage } from '@/lib/errors';
+import { validate, changePasswordSchema } from '@/lib/validation';
 import { BON_STATUS_LABELS, type BonStatus } from '@/types';
 
 function getInitials(name?: string): string {
@@ -62,35 +64,25 @@ function ChangePasswordDialog({
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (form.next !== form.confirm) {
-      setError('Les mots de passe ne correspondent pas');
-      return;
-    }
-    if (form.next.length < 12) {
-      setError('Minimum 12 caractères');
-      return;
-    }
-    if (!/[A-Z]/.test(form.next) || !/[a-z]/.test(form.next) || !/[0-9]/.test(form.next) || !/[@$!%*?&_#^+=\-.]/.test(form.next)) {
-      setError('Le mot de passe doit contenir une majuscule, une minuscule, un chiffre et un caractère spécial');
+    const result = validate(changePasswordSchema, {
+      currentPassword: form.current,
+      newPassword: form.next,
+      confirmPassword: form.confirm,
+    });
+    if (!result.success) {
+      setError(Object.values(result.errors)[0] ?? 'Formulaire invalide');
       return;
     }
     setLoading(true);
     setError('');
     try {
-      const res = await fetch('/api/auth/change-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-        body: JSON.stringify({ currentPassword: form.current, newPassword: form.next }),
-        credentials: 'include',
+      await api.post('/auth/change-password', {
+        currentPassword: result.data.currentPassword,
+        newPassword: result.data.newPassword,
       });
-      if (res.ok) {
-        setSuccess(true);
-      } else {
-        const d = await res.json();
-        setError(d.message || 'Erreur');
-      }
-    } catch {
-      setError('Erreur serveur');
+      setSuccess(true);
+    } catch (err: unknown) {
+      setError(errorMessage(err, 'Erreur lors du changement de mot de passe'));
     } finally {
       setLoading(false);
     }
@@ -191,14 +183,22 @@ function GlobalSearch() {
     const q = value.trim();
     if (q.length < 2) { setResults([]); setOpen(false); return; }
     setLoading(true);
+    // Ignore une réponse arrivée après que la saisie ait changé entre-temps
+    // (la requête réseau, une fois lancée, ne peut pas être annulée par clearTimeout).
+    let ignore = false;
     const t = setTimeout(() => {
       api
         .get<{ bons: SearchHit[] }>(`/bons?search=${encodeURIComponent(q)}&limit=6`)
-        .then((d) => { setResults(d.bons ?? []); setActive(0); setOpen(true); })
-        .catch(() => setResults([]))
-        .finally(() => setLoading(false));
+        .then((d) => {
+          if (ignore) return;
+          setResults(d.bons ?? []);
+          setActive(0);
+          setOpen(true);
+        })
+        .catch(() => { if (!ignore) setResults([]); })
+        .finally(() => { if (!ignore) setLoading(false); });
     }, 250);
-    return () => clearTimeout(t);
+    return () => { ignore = true; clearTimeout(t); };
   }, [value]);
 
   // Fermeture au clic extérieur
