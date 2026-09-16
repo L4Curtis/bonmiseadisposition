@@ -1,10 +1,13 @@
 # Structure du Projet — Bon de Mise a Disposition
 
-> **Mis a jour le 2026-03-26** — Corrections signatures PDF, restitution partielle, email restitution enrichi, déduplication hook signature
+> **Mis a jour le 2026-09-16** — Mise à jour pré-production : sécurité (verrouillage composite,
+> garde-fou LDAP, plancher RGPD), machine à états des bons corrigée, inventaire du parc prêté,
+> rappel avant restitution, historique des emails par bon, régénération des PDF manquants. Voir
+> [CHANGELOG.md](CHANGELOG.md) pour le détail complet.
 
 ## Vue d'ensemble
 
-Application interne **Groupe Livio** pour gerer la mise a disposition d'equipements informatiques aux collaborateurs : creation de bons, signature electronique, restitution, archivage PDF.
+Application interne pour gerer la mise a disposition d'equipements informatiques aux collaborateurs (organisation multi-filiales) : creation de bons, signature electronique, restitution, archivage PDF.
 
 | Couche | Stack |
 |--------|-------|
@@ -30,12 +33,17 @@ BonDeMiseADisposition/
 │   └── nginx.conf                      # Reverse proxy TLS, rate limiting, headers securite
 │
 ├── docs/
+│   ├── INDEX.md                        # Index de navigation de toute la documentation
 │   ├── phase1.md                       # Fondations : NestJS, Prisma, React, Docker, Auth
 │   ├── phase2.md                       # Admin : LDAP sync, catalogue, filiales, config UI
 │   ├── phase3.md                       # Coeur : bons, signatures, PDF, emails, portail collab
 │   ├── phase4.md                       # Dashboard IT, audit, export CSV
 │   ├── phase5.md                       # Securite, contestations, deploiement prod
-│   └── phase6-security.md              # Hardening : 10 vulnerabilites critiques corrigees (2026-03-21)
+│   ├── phase6.md                       # Switcher de vue utilisateur (style GLPI)
+│   ├── security.md                     # Reference securite consolidee (phases 6+7, mise a jour continue)
+│   ├── SAUVEGARDE-REPRISE.md           # Sauvegarde/restauration, sequestre ENCRYPTION_KEY
+│   ├── testing-guide.md                # Guide de tests backend (Jest) et frontend (Vitest)
+│   └── phase-legal-compliance.md       # Document de travail conformite legale (non implemente)
 │
 ├── backend/
 │   ├── Dockerfile                      # Multi-stage : build TS → prod Node.js (non-root)
@@ -131,6 +139,8 @@ BonDeMiseADisposition/
 │       │   ├── pdf.service.ts          # PDFKit : mise_dispo, restitution, PV cloture, avenant
 │       │   ├── pdf-template-config.ts  # Interfaces config + defaults + PREVIEW_BON + deepMerge + substituteVars
 │       │   ├── pdf-templates.service.ts # CRUD config PDF : getAll, getConfig, update, reset, export/import
+│       │   ├── pdf-admin.controller.ts # POST /admin/pdf/regenerate-missing (admin)
+│       │   ├── fonts/                  # DejaVu Sans (regular+bold) embarquee — rendu Unicode complet
 │       │   └── dto/
 │       │       └── update-pdf-template.dto.ts # Validation nested (couleurs hex, tailles, marges, textes)
 │       │
@@ -153,10 +163,28 @@ BonDeMiseADisposition/
 │       │   ├── audit.controller.ts     # GET /audit (filtre email/action/date), /audit/actions
 │       │   └── audit.service.ts        # Recherche paginee, actions distinctes
 │       │
-│       └── contestation/
-│           ├── contestation.module.ts  # Module contestations
-│           ├── contestation.controller.ts # GET liste, PATCH review/resolve
-│           └── contestation.service.ts # Creation, review, resolution + notifications
+│       ├── contestation/
+│       │   ├── contestation.module.ts  # Module contestations
+│       │   ├── contestation.controller.ts # GET liste (+ openCount), PATCH review/resolve
+│       │   └── contestation.service.ts # Creation, review, resolution + notifications
+│       │
+│       ├── attachments/
+│       │   ├── attachments.module.ts   # Module pieces jointes
+│       │   ├── attachments.controller.ts # Upload/telechargement/suppression (restrictions par statut du bon)
+│       │   └── attachments.service.ts  # Stockage chiffre, purge (retention.attachment_months)
+│       │
+│       ├── retention/
+│       │   ├── retention.module.ts     # Module retention RGPD
+│       │   └── retention.service.ts    # Anonymisation (plancher 60 mois, dry-run), purge tokens/audit/PJ
+│       │
+│       └── reporting/
+│           ├── reporting.module.ts     # Module rapports (inclut l'inventaire)
+│           ├── reporting.controller.ts # Endpoints de reporting existants
+│           ├── reporting.service.ts    # Agregations (stats, exports)
+│           ├── inventory.controller.ts # GET /reporting/inventory, /summary, /export (admin, technician)
+│           ├── inventory.service.ts    # Parc prete : equipements non retournes des bons actifs/en cours
+│           └── dto/
+│               └── inventory-query.dto.ts # Filtres (filiale, categorie, collaborateur, recherche, pagination, tri)
 │
 └── frontend/
     ├── Dockerfile                      # Multi-stage : build Vite → Nginx Alpine (non-root)
@@ -215,6 +243,7 @@ BonDeMiseADisposition/
             ├── ChangePassword.tsx       # Changement mdp (12 car, majuscule, chiffre, special)
             ├── Unauthorized.tsx         # Page 403
             ├── DashboardIT.tsx          # KPIs (5 cartes), bons recents, repartition filiales
+            ├── Inventaire.tsx           # Parc prete : filtres, tableau pagine, tuiles resume, export CSV
             ├── PortailCollaborateur.tsx  # Vue collab : a signer, actifs, contestes, historique
             │
             ├── bons/
@@ -244,7 +273,7 @@ BonDeMiseADisposition/
 
 ## Base de donnees (Prisma)
 
-### Modeles (13)
+### Modeles (17)
 
 | Modele | Role | Champs cles |
 |--------|------|-------------|
@@ -254,13 +283,17 @@ BonDeMiseADisposition/
 | **EquipmentCatalog** | Reference equipement IT | category (enum 11 valeurs), brand, model |
 | **EquipmentPack** | Lot pre-configure | name, items[] |
 | **EquipmentPackItem** | Element d'un pack | packId, catalogItemId, quantity |
-| **Bon** | Bon de mise a disposition | reference (BON-YYYY-NNNN), status, collaborateurId, filialeId, civilite |
+| **Bon** | Bon de mise a disposition | reference (BON-YYYY-NNNN), status, collaborateurId, filialeId, civilite, archivedAt |
 | **BonEquipment** | Ligne equipement d'un bon | serialNumber, inventoryNumber, returnedAt, notReturned, notReturnedReason |
-| **Signature** | Signature electronique | type, token (7j), signed, signatureImagePath (chiffre), signerEmail |
-| **PdfSnapshot** | Snapshot PDF immutable | type, data (BYTEA), filename |
+| **Signature** | Signature electronique | type, token, signed, signatureImagePath (chiffre), signerEmail, pdfType |
+| **Attachment** | Piece jointe d'un bon | bonId, stage, storedPath, mimeType, size, sha256 — purge par `retention.attachment_months` |
+| **ProofArchive** | Archive probante append-only (jamais ecrasee) | bonId, type, data (BYTEA), sha256 |
+| **PdfSnapshot** | Snapshot PDF « courant » par type (affichage) | type, data (BYTEA), filename, sha256 |
+| **SmbExport** | Suivi des exports PDF vers le partage reseau | bonId, filename, status, retryCount, errorMessage |
 | **Contestation** | Litige collaborateur | message, status (open→in_review→resolved/rejected) |
 | **NotificationLog** | Suivi envoi emails | recipientEmail, type, status, reminderNumber |
 | **AuditLog** | Journal d'activite | action, details (JSON), ipAddress |
+| **RevokedToken** | Liste de revocation des refresh tokens (persistante) | tokenHash, expiresAt |
 
 ### Enums
 
@@ -273,7 +306,7 @@ BonDeMiseADisposition/
 | **SignatureType** | mise_disposition, restitution, it_cachet, pv_cloture |
 | **PdfSnapshotType** | signature_it_mise_disposition, signature_collab_mise_disposition, signature_it_restitution, signature_collab_restitution, cloture_equipements_manquants, avenant_equipement_retrouve |
 | **ContestationStatus** | open, in_review, resolved, rejected |
-| **NotificationType** | mise_dispo_request, restitution_request, reminder, confirmation, contestation_alert |
+| **NotificationType** | mise_dispo_request, restitution_request, pv_cloture_request, reminder, confirmation, contestation_alert, contestation_resolution, cancellation, mark_found, unilateral_closure, restitution_due_reminder |
 | **NotificationStatus** | sent, failed, bounced |
 
 ---
@@ -309,8 +342,10 @@ BonDeMiseADisposition/
 | POST | `/smb/retry/:id` | admin | Relancer un export echoue |
 | POST | `/smb/retry-all` | admin | Relancer tous les exports echoues |
 | GET | `/ldap/status` | admin, tech | Statut derniere sync LDAP |
-| POST | `/ldap/sync` | admin | Lancer sync LDAP manuelle |
-| DELETE | `/ldap/users` | admin | Purger utilisateurs LDAP |
+| POST | `/ldap/sync` | admin | Lancer sync LDAP manuelle (interrompue si > 20 % des comptes actifs, et au moins 5, seraient desactives) |
+| DELETE | `/ldap/users` | admin | Purger utilisateurs LDAP (desactivation uniquement, jamais de suppression physique) |
+| POST | `/users/:id/unlock` | admin | Deverrouiller un compte local (purge les echecs recents, journalise `user_unlocked`) |
+| POST | `/pdf/regenerate-missing` | admin | Regenere les PdfSnapshot manquants pour les signatures deja signees (route `admin/pdf`, controleur dedie) |
 
 ### Templates Email (`/api/admin/email-templates`)
 
@@ -340,7 +375,7 @@ BonDeMiseADisposition/
 
 | Methode | Route | Roles | Description |
 |---------|-------|-------|-------------|
-| GET | `/` | admin, tech | Liste utilisateurs actifs |
+| GET | `/` | admin, tech | Liste utilisateurs actifs. Avec `?page=&limit=&search=` : reponse paginee ; sans `page`, comportement inchange (tableau complet) |
 | GET | `/search?q=` | admin, tech | Recherche (nom/email/sam, max 15) |
 | GET | `/:id` | admin, tech | Detail utilisateur |
 
@@ -384,27 +419,34 @@ BonDeMiseADisposition/
 | GET | `/recent?limit=` | admin, tech | Bons recents |
 | GET | `/export?...` | admin, tech | Export CSV (filtres statut/filiale/recherche) |
 | GET | `/mes-bons` | tous | Bons du collaborateur connecte |
-| GET | `/?page=&limit=&...` | admin, tech | Liste paginee avec filtres |
+| GET | `/?page=&limit=&...&overdue=1` | admin, tech | Liste paginee avec filtres ; `overdue=1` : bons en attente de signature depuis plus de 7 jours |
 | GET | `/:id` | admin, tech | Detail complet (equipements, signatures, etc.) |
-| POST | `/` | admin, tech | Creer bon (optionnel : depuis un pack) |
+| GET | `/:id/notifications` | tous* | Historique des emails du bon (statut envoi, erreur explicite si echec, ex. `smtp.from` absent) |
+| GET | `/:id/integrity` | tous* | Verifie les sceaux HMAC des signatures (preuve d'integrite) |
+| POST | `/` | admin, tech | Creer bon (optionnel : depuis un pack) ; refuse si collaborateur/filiale inactif |
 | PUT | `/:id` | admin, tech | Modifier bon (statut draft uniquement) |
-| DELETE | `/:id` | admin, tech | Annuler bon (status → cancelled) |
-| POST | `/:id/send` | admin, tech | Envoyer mise a disposition (email + token) |
+| DELETE | `/:id` | admin, tech | Annuler bon (status → cancelled) — **refuse (400) des qu'une signature de mise a disposition est signee** (statuts annulables : `draft`, `sent_mise_dispo`) |
+| POST | `/:id/send` | admin, tech | Envoyer mise a disposition (email + token). Body optionnel `{ confirmSerialConflicts: true }` : sans lui, un conflit de numero de serie actif renvoie `409 { code: 'serial_conflicts', conflicts }` |
 | POST | `/:id/initiate-restitution` | admin, tech | Lancer restitution (selection equipements) |
-| POST | `/:id/initiate-inperson` | admin, tech | Signature presentiel (token 24h, pas d'email) |
+| POST | `/:id/initiate-inperson` | admin, tech | Signature presentiel (token valable **2h**, pas d'email) |
 | POST | `/:id/declare-not-returned` | admin, tech | Declarer non restitue (PV + signature IT) |
-| POST | `/:id/mark-found` | admin, tech | Equipement retrouve (avenant ou MAJ PV) |
+| POST | `/:id/mark-found` | admin, tech | Equipement retrouve (avenant si archive ; MAJ du PV si equipements encore en attente — n'archive jamais tant qu'il reste des equipements non traites) |
 | POST | `/:id/sign-it` | admin, tech | Cachet IT direct (rate limit 10/min) |
 | POST | `/:id/resend` | admin, tech | Renvoyer lien signature |
-| GET | `/:id/pdf-snapshots` | tous | Liste snapshots PDF |
-| GET | `/:id/pdf?type=&stage=` | tous | Telecharger PDF |
+| POST | `/:id/close-unilateral` | admin, tech | Cloture unilaterale (sans signature collaborateur) |
+| GET | `/:id/pdf-snapshots` | tous* | Liste des snapshots PDF existants (tableau, contrat inchangé — consommé tel quel par le portail collaborateur) |
+| GET | `/:id/pdf-snapshots/missing` | tous* | `{ missing: string[] }` — types de snapshot attendus (signature signée) mais absents, régénérables via `POST /admin/pdf/regenerate-missing` |
+| GET | `/:id/pdf?type=&stage=` | tous* | Telecharger PDF |
 | POST | `/:id/contestation` | collab | Creer contestation |
+
+`tous*` = admin, technician, collaborateur (acces restreint a ses propres bons via `verifyCollaboratorAccess`).
 
 ### Signature (`/api/signature`)
 
 | Methode | Route | Auth | Description |
 |---------|-------|------|-------------|
-| GET | `/:token` | Oui | Info bon depuis token (pending/signed/expired) |
+| GET | `/:token` | Oui | Info bon depuis token (pending/signed/expired ; `{ status: 'cancelled' \| 'contested', reference }` si le bon a ete annule ou conteste entre-temps) |
+| GET | `/:token/preview` | Oui | Apercu du PDF avant signature |
 | POST | `/:token/sign` | Oui | Signer (canvas dataUrl + mention, rate limit 10/min) |
 
 ### Audit (`/api/audit`)
@@ -418,9 +460,17 @@ BonDeMiseADisposition/
 
 | Methode | Route | Roles | Description |
 |---------|-------|-------|-------------|
-| GET | `/?status=&page=&limit=` | admin, tech | Liste contestations paginee |
+| GET | `/?status=&page=&limit=` | admin, tech | Liste contestations paginee ; reponse inclut `openCount` (nombre total de contestations ouvertes, pour le badge de navigation) |
 | PATCH | `/:id/review` | admin, tech | Marquer en cours d'examen |
 | PATCH | `/:id/resolve` | admin, tech | Resoudre/rejeter (action + message) |
+
+### Inventaire (`/api/reporting/inventory`)
+
+| Methode | Route | Roles | Description |
+|---------|-------|-------|-------------|
+| GET | `/` | admin, tech | Equipements actuellement chez un collaborateur (bons `active`, `sent_restitution`, `partially_returned`, equipement non retourne). Filtres `filialeId`, `category`, `collaborateurId`, `search`, pagination `page`/`limit`, tri `sort` |
+| GET | `/summary` | admin, tech | Comptes agreges par categorie et par filiale |
+| GET | `/export` | admin, tech | Export CSV (mêmes filtres), en-tete `X-Truncated` si le resultat depasse la limite |
 
 ---
 
@@ -433,6 +483,7 @@ La sidebar est organisee en **3 sections principales**, chaque item peut avoir u
 #### Opérations
 - **Vue d'ensemble** → `/dashboard` (KPIs, activite recente, filiales)
 - **Bons** → `/bons` (Liste, detail, signatures)
+- **Inventaire** → `/inventaire` (Parc prete : filtres, export CSV)
 - **Contestations** → `/admin/contestations` (Litige collaborateur)
 
 #### Référentiel
@@ -486,6 +537,7 @@ type NavGroup = {
 | `/signer/:token` | SignaturePage | **public** | Signature electronique (canvas) |
 | `/` | redirect | auth | → /dashboard (IT) ou /mes-bons (collab) |
 | `/dashboard` | DashboardIT | admin, tech | KPIs, activite recente, filiales |
+| `/inventaire` | InventairePage | admin, tech | Parc prete : filtres, tableau pagine, export CSV |
 | `/mes-bons` | PortailCollaborateur | tous | Bons du collaborateur |
 | `/bons` | BonsListPage | admin, tech | Liste + filtres + export CSV |
 | `/bons/new` | BonCreatePage | admin, tech | Creation bon |
@@ -547,6 +599,21 @@ type NavGroup = {
                                            Avenant PDF (si archive)
                                            ou MAJ PV (si PV en cours)
 ```
+
+### Regles de transition (corrigees, 2026-09-16)
+
+- **PV de cloture derive de l'etat metier** : le PV n'est plus decide par un indicateur separe
+  mais recalcule a partir des equipements reellement en attente/non retournes au moment de
+  l'action (`emitPvClotureIfDue`, idempotente).
+- **`markFound` (equipement retrouve) n'archive jamais** tant qu'il reste des equipements en
+  attente de restitution : le bon reste `partially_returned` et seul le PV est mis a jour ; il
+  ne passe a `archived` (avec avenant) que si le bon etait deja archive.
+- **Transitions conditionnelles** : chaque changement de statut (`initiate-restitution`,
+  `declare-not-returned`, `mark-found`, `initiate-inperson`) verifie l'etat de depart dans la
+  meme transaction que la mise a jour (`updateMany` avec le statut source attendu) et renvoie
+  un conflit (`409`) si le bon a change d'etat entre-temps.
+- **Annulation interdite apres signature** : `DELETE /:id` n'est possible que depuis `draft` ou
+  `sent_mise_dispo` (voir [security.md](docs/security.md)).
 
 ### Actions cles par etape
 
@@ -633,6 +700,23 @@ type NavGroup = {
 
 ---
 
+## Nouveautes pre-production (2026-09-16)
+
+| Fonctionnalite | Description |
+|-----------------|-------------|
+| Vue Inventaire | Page `/inventaire` + `GET /api/reporting/inventory*` : parc d'equipements actuellement chez les collaborateurs |
+| Rappel avant restitution | Cron quotidien (config `rappels.restitution_before_days`, defaut 7 jours, 0 = desactive) ; template email `restitution_due_reminder` |
+| Historique des emails du bon | `GET /api/bons/:id/notifications` — statut d'envoi et message d'erreur explicite par email |
+| Regeneration des PDF manquants | `POST /api/admin/pdf/regenerate-missing` (admin) — regenere les `PdfSnapshot` absents pour des signatures deja signees |
+| Purge des pieces jointes | `retention.attachment_months` — purge independante du plancher de 60 mois de l'anonymisation |
+| Cachet de filiale sur le PDF | Le `stampPath` de la filiale est imprime dans la case IT si defini |
+| Numeros de ligne PDF | Colonne `#` optionnelle dans le tableau des equipements (`table.showRowNumbers`) |
+| Police Unicode embarquee | DejaVu Sans (regular + bold) remplace les polices AFM (Helvetica) non Unicode de PDFKit |
+
+Voir [CHANGELOG.md](CHANGELOG.md) pour la liste complete des corrections de cette mise a jour.
+
+---
+
 ## Infrastructure Docker
 
 ### 3 configurations
@@ -684,7 +768,7 @@ type NavGroup = {
 |----------|------------|-------------|
 | `ENCRYPTION_KEY` | Oui | Cle AES-256 (64 hex) — ne jamais changer apres 1er lancement |
 | `POSTGRES_PASSWORD` | Oui | Mot de passe PostgreSQL |
-| `FRONTEND_URL` | Oui | URL publique HTTPS (ex: `https://bons.groupelivio.local`) |
+| `FRONTEND_URL` | Oui | URL publique HTTPS (ex: `https://bons.exemple.local`) |
 | `FRONTEND_PORT` | Non | Port expose (defaut: 5147) |
 
 > Toute la config applicative (LDAP, SMTP, Entra ID, rappels, SMB) se gere via l'interface `/admin/configuration`.

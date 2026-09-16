@@ -76,7 +76,7 @@ Dans **Azure Portal → App Registrations → [ton app] → Token configuration*
 | `frontend/package.json` | React 18, React Router, Tailwind, shadcn/ui (Radix), Lucide |
 | `frontend/vite.config.ts` | Proxy `/api` → `localhost:4000` |
 | `frontend/tailwind.config.ts` | CSS variables pour le thème shadcn |
-| `frontend/index.html` | Titre "Bons de Mise à Disposition — Groupe Livio" |
+| `frontend/index.html` | Titre "Bons de Mise à Disposition" |
 | `frontend/Dockerfile` | Build Vite → Nginx alpine |
 | `frontend/nginx.conf` | SPA routing + proxy `/api` → backend |
 

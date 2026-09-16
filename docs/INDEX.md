@@ -71,6 +71,12 @@
 - Validation stricte (class-validator nested DTOs)
 - Page admin : `/admin/pdf-templates`
 
+### Mise à jour pré-production (2026-09-16)
+**[../CHANGELOG.md](../CHANGELOG.md)**
+- Corrections sécurité, workflow des bons, signature/portail, emails, PDF et données
+- Nouvelles fonctionnalités : vue Inventaire du parc prêté, rappel avant restitution prévue
+- Détail complet des corrections par domaine dans le changelog
+
 ---
 
 ## Références opérationnelles
@@ -97,6 +103,19 @@
 - Routing frontend et workflow métier
 - Infrastructure Docker et variables d'environnement
 
+### Guide de tests
+**[testing-guide.md](testing-guide.md)**
+- Stratégie de test (unitaire, intégration, E2E)
+- Patterns Jest/NestJS, fixtures, mocks
+- Objectifs de couverture, priorités par service
+
+### Conformité légale (document de travail, non implémenté)
+**[phase-legal-compliance.md](phase-legal-compliance.md)** ⚠️
+- Décrit des fonctionnalités **non présentes dans le code actuel** (conditions générales
+  versionnées, photos d'équipements, valeur estimée, police d'assurance) : à considérer comme
+  une proposition, pas comme une référence de l'existant. Le service de rétention/anonymisation
+  qu'il mentionne, lui, est bien implémenté — voir [security.md](security.md).
+
 ### README principal
 **[../README.md](../README.md)**
 - CI/CD GitHub Actions
@@ -120,6 +139,7 @@
 | **Comment personnaliser les PDFs ?** | [PROJECT_STRUCTURE.md](../PROJECT_STRUCTURE.md) (section "Système de templates PDF") |
 | **Quels sont les pièges à éviter ?** | [AGENDA.md](../AGENDA.md) (section 11) |
 | **Comment développer localement ?** | [README.md](../README.md) (section "Développement local") |
+| **Quelles sont les nouveautés de la dernière mise à jour ?** | [../CHANGELOG.md](../CHANGELOG.md) |
 
 ---
 
@@ -158,7 +178,8 @@
 | Phase 7 | 2026-03-21 | Audit OWASP + 22 fixes supplémentaires, TypeScript strict, 226 tests |
 | Phase 8 | 2026-03-25 | Templates PDF personnalisables |
 | Corrections | 2026-06 | Fixes catalogue, email, notifications |
+| Mise à jour pré-production | 2026-09-16 | Sécurité, workflow des bons, signature/portail, emails, PDF, données, inventaire, rappel de restitution — voir [CHANGELOG.md](../CHANGELOG.md) |
 
 ---
 
-**Dernière mise à jour** : 2026-09-15
+**Dernière mise à jour** : 2026-09-16

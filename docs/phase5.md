@@ -168,7 +168,7 @@ openssl req -x509 -newkey rsa:4096 \
   -keyout nginx/certs/key.pem \
   -out nginx/certs/cert.pem \
   -days 3650 -nodes \
-  -subj "/CN=bons.groupelivio.local"
+  -subj "/CN=bons.exemple.local"
 
 # 3. Lancer
 docker compose -f docker-compose.prod.yml up -d
@@ -184,7 +184,7 @@ docker compose -f docker-compose.prod.yml logs backend
 |---|---|---|
 | `ENCRYPTION_KEY` | Clé AES-256 chiffrement signatures (64 chars hex) | `openssl rand -hex 32` |
 | `POSTGRES_PASSWORD` | Mot de passe base de données | `openssl rand -base64 24` |
-| `FRONTEND_URL` | URL publique (dans les emails) | Ex: `https://bons.groupelivio.local` |
+| `FRONTEND_URL` | URL publique (dans les emails) | Ex: `https://bons.exemple.local` |
 
 ---
 
@@ -223,8 +223,8 @@ docker compose -f docker-compose.prod.yml logs backend
 - [ ] `docker compose -f docker-compose.prod.yml up -d` démarre sans erreur
 - [ ] Nginx répond sur le port 443 (HTTPS)
 - [ ] HTTP sur le port 80 redirige vers HTTPS
-- [ ] `GET /api/health` accessible via `https://bons.groupelivio.local/api/health`
-- [ ] Frontend accessible via `https://bons.groupelivio.local`
+- [ ] `GET /api/health` accessible via `https://bons.exemple.local/api/health`
+- [ ] Frontend accessible via `https://bons.exemple.local`
 - [ ] `docker compose logs backend` → `Backend running on http://localhost:4000`
 
 ---

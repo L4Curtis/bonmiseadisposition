@@ -1,4 +1,4 @@
-# Bons de mise à disposition — Groupe Livio
+# Bons de mise à disposition
 
 Application web interne de gestion des bons de mise à disposition et de restitution de matériel IT.
 
@@ -73,7 +73,7 @@ Section **"Environment variables"** → **Add environment variable** :
 | `ENCRYPTION_KEY` | *(résultat openssl rand -hex 32)* | ✅ |
 | `JWT_SECRET` | *(résultat openssl rand -hex 32, différent de ENCRYPTION_KEY)* | ✅ |
 | `POSTGRES_PASSWORD` | *(résultat openssl rand -base64 24)* | ✅ |
-| `FRONTEND_URL` | `https://bons.groupelivio.local` | ✅ |
+| `FRONTEND_URL` | `https://bons.exemple.local` | ✅ |
 | `FRONTEND_PORT` | `5147` | optionnel (défaut: 5147) |
 
 > ⚠️ `ENCRYPTION_KEY` ne doit jamais changer après le premier démarrage — les données chiffrées en base deviendraient illisibles.
@@ -97,7 +97,7 @@ Créer un **Proxy Host** :
 
 | Champ | Valeur |
 |-------|--------|
-| Domain Names | `bons.groupelivio.local` |
+| Domain Names | `bons.exemple.local` |
 | Scheme | `http` |
 | Forward Hostname / IP | IP de la VM Portainer |
 | Forward Port | `5147` (ou valeur de `FRONTEND_PORT`) |
@@ -145,12 +145,36 @@ confiance : `CF-Connecting-IP` → `X-Real-IP` → connexion directe).
 
 ### Étape 6 — Premier accès
 
-1. Ouvrir `https://bons.groupelivio.local`
-2. Connexion locale : `admin@local` / `admin` (mot de passe temporaire)
+1. Ouvrir `https://bons.exemple.local`
+2. Connexion locale : `admin@local` / mot de passe temporaire (voir ci-dessous)
 3. **Changer le mot de passe immédiatement** (obligatoire au premier login)
-4. **Admin → Configuration** : renseigner LDAP, Entra ID, SMTP
+4. **Admin → Configuration** : renseigner LDAP, Entra ID, SMTP — **et obligatoirement `smtp.from` et `general.app_url`** (voir [Configuration obligatoire après déploiement](#configuration-obligatoire-après-déploiement))
 5. **Admin → Filiales** : créer les filiales
 6. **Admin → Sync LDAP** : lancer la première synchronisation
+
+### Mot de passe admin initial
+
+Au premier démarrage, si aucun compte `admin@local` n'existe :
+- Si `DEFAULT_ADMIN_PASSWORD` est défini dans l'environnement, ce mot de passe est utilisé.
+- Sinon, un mot de passe aléatoire est généré et écrit dans `data/initial-admin-password.txt`
+  (à la racine du volume `data/` du conteneur backend). Consultez ce fichier pour récupérer
+  le mot de passe temporaire.
+- Le fichier est **supprimé automatiquement** dès que le mot de passe de `admin@local` est
+  changé avec succès (changement obligatoire à la première connexion). Il n'y a donc rien à
+  nettoyer manuellement.
+
+### Configuration obligatoire après déploiement
+
+Deux clés doivent être renseignées dans **Admin → Configuration** avant toute mise en
+production, sans quoi les emails de signature ne partent pas :
+
+| Clé | Où | Sans elle… |
+|-----|-----|-----------|
+| `smtp.from` (section SMTP) | Admin → Configuration → SMTP | Aucun email n'est envoyé : erreur explicite « Expéditeur SMTP (smtp.from) non configuré », visible dans l'historique des emails du bon concerné |
+| `general.app_url` (section Général) | Admin → Configuration → Général | Les liens de signature dans les emails sont invalides ou absents |
+
+Ces deux valeurs ne se configurent **pas** via des variables d'environnement : uniquement
+via l'interface d'administration, après le premier démarrage.
 
 ---
 
@@ -163,6 +187,36 @@ Chaque push sur `main` → GitHub Actions build les images → Portainer redépl
 **Portainer → Stacks → bons-disposition → Pull and redeploy**
 
 Les volumes `pgdata` et `data` sont conservés — aucune donnée perdue.
+
+### Migrations de base de données
+
+Au démarrage, le backend exécute automatiquement `prisma migrate deploy`. Au prochain
+redémarrage après cette mise à jour, **6 nouvelles migrations** s'appliquent (index de
+performance, normalisation de champs, contraintes d'unicité, colonnes additives).
+
+**Deux d'entre elles échouent volontairement** si des doublons existent déjà en base — pour
+que le déploiement s'arrête proprement plutôt que de corrompre des données. Avant de
+redéployer, vérifiez l'absence de doublons avec ces requêtes SQL (à exécuter sur la base de
+production) :
+
+```sql
+-- 1. Emails différant seulement par la casse (ex. "Jean.Dupont@x" et "jean.dupont@x")
+SELECT lower(trim(email)) AS email, count(*)
+FROM users GROUP BY lower(trim(email)) HAVING count(*) > 1;
+
+-- 2. Articles de catalogue identiques (même catégorie/marque/modèle)
+SELECT category, brand, model, count(*)
+FROM equipment_catalog GROUP BY category, brand, model HAVING count(*) > 1;
+
+-- 3. Noms de filiale identiques à la casse près
+SELECT lower(name) AS name, count(*)
+FROM filiales GROUP BY lower(name) HAVING count(*) > 1;
+```
+
+Si une de ces requêtes retourne des lignes, fusionnez ou renommez les doublons **avant** de
+redéployer. Sinon, `prisma migrate deploy` échoue avec un message explicite listant les
+doublons détectés et le backend ne démarre pas — c'est le comportement attendu, il suffit de
+corriger les données puis de relancer le déploiement.
 
 ---
 
@@ -263,17 +317,39 @@ Cette application a subi un audit de sécurité complet en mars 2026. **10+ vuln
 - Protection CSRF (header `X-Requested-With` obligatoire sur mutations)
 - Utilisateur non-root dans les containers Docker
 
-Pour les détails complets, consulter **[docs/phase6-security.md](docs/phase6-security.md)** et **[docs/phase7-security-audit.md](docs/phase7-security-audit.md)**.
+Pour les détails complets et les règles de sécurité à jour, consulter **[docs/security.md](docs/security.md)**.
 
 ---
 
 ## Développement local
 
+Le backend charge sa configuration depuis `backend/.env` (et non le `.env` à la racine, qui
+sert uniquement à `docker-compose.yml`/`docker-compose.prod.yml`) : les deux fichiers sont à
+créer séparément.
+
 ```bash
-cp .env.example .env   # renseigner ENCRYPTION_KEY, JWT_SECRET et POSTGRES_PASSWORD
+cp .env.example .env                     # variables pour docker compose (POSTGRES_PASSWORD...)
+cp backend/.env.example backend/.env     # variables lues par le backend en dev local
+# renseigner ENCRYPTION_KEY, JWT_SECRET, POSTGRES_PASSWORD dans les deux fichiers
 
 docker compose up db -d            # base PostgreSQL uniquement
 
 cd backend && npm install && npm run start:dev    # :4000
 cd frontend && npm install && npm run dev         # :5173
+```
+
+> `docker compose up` (sans argument) démarre la stack complète construite localement
+> (db + backend + frontend) : le frontend est alors exposé sur le port **3000** (voir
+> `docker-compose.yml`), à ne pas confondre avec le port `5173` de `npm run dev` (Vite) ou le
+> port `5147` de la stack de production.
+
+## Tests
+
+```bash
+cd backend
+npm test              # tests unitaires Jest
+npm run test:cov      # avec rapport de couverture (backend/coverage/lcov-report/index.html)
+
+cd frontend
+npm test              # tests unitaires Vitest
 ```

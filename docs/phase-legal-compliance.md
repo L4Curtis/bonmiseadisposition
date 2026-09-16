@@ -1,7 +1,7 @@
 # Phases de Conformité Légale — Bons de Mise à Disposition
 
 **Mise à jour** : 31 mars 2026
-**Auteur** : Analyse technique — Groupe Livio
+**Auteur** : Analyse technique
 **Statut** : Implémentation complète (Phases A, B, C)
 
 ---
@@ -946,7 +946,7 @@ npx prisma migrate deploy
    - Confirmer la traçabilité
 
 4. **Direction** : Approbation des conditions générales
-   - Adapter le texte aux risques spécifiques de Groupe Livio
+   - Adapter le texte aux risques spécifiques à votre organisation
    - Communiquer aux collaborateurs via le règlement intérieur
 
 ### Points d'amélioration futurs

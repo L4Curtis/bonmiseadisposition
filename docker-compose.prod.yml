@@ -6,7 +6,7 @@
 #   ENCRYPTION_KEY    = openssl rand -hex 32
 #   JWT_SECRET        = openssl rand -hex 32  (DOIT être différent de ENCRYPTION_KEY)
 #   POSTGRES_PASSWORD = openssl rand -base64 24
-#   FRONTEND_URL      = https://bons.groupelivio.local
+#   FRONTEND_URL      = https://bons.exemple.local
 #   FRONTEND_PORT     = 5147  (optionnel, défaut 5147)
 #   FRONTEND_BIND     = 127.0.0.1 si NPM tourne sur la même machine (recommandé :
 #                       évite l'accès HTTP direct en clair qui contournerait NPM

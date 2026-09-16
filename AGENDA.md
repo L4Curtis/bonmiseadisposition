@@ -7,7 +7,7 @@
 
 ## 1. Qu'est-ce que ce projet
 
-Application web interne pour le **Groupe Livio** (14 filiales) qui remplace les bons papier de mise a disposition et restitution de materiel IT.
+Application web interne multi-filiales qui remplace les bons papier de mise a disposition et restitution de materiel IT.
 
 **Cycle de vie d'un bon :**
 ```
@@ -71,13 +71,15 @@ Technicien cree le bon → appose son cachet IT → envoie au collaborateur
 
 ---
 
-## 4. Modele de donnees — 13 modeles Prisma
+## 4. Modele de donnees — 17 modeles Prisma
 
 ```
 AppConfig, User, Filiale, EquipmentCatalog, EquipmentPack, EquipmentPackItem,
-Bon, BonEquipment, Signature, Contestation, NotificationLog, AuditLog
+Bon, BonEquipment, Signature, Attachment, ProofArchive, PdfSnapshot, SmbExport,
+Contestation, NotificationLog, AuditLog, RevokedToken
 + enums : BonStatus, UserRole, Civilite, EquipmentCategory, SignatureType,
-          ContestationStatus, NotificationType, NotificationStatus
+          PdfSnapshotType, SmbExportStatus, ContestationStatus, NotificationType,
+          NotificationStatus
 ```
 
 **BonStatus (8 valeurs) :**
@@ -87,6 +89,15 @@ Bon, BonEquipment, Signature, Contestation, NotificationLog, AuditLog
 > `partially_returned` : restitution partielle — le bon reste ouvert pour traiter les équipements restants.
 > Signature restitution depuis `partially_returned` → reste `partially_returned` (ne passe PAS à `archived`).
 > `pv_cloture` depuis `partially_returned` → `archived` (tous les équipements traités ou déclarés perdus).
+>
+> **Corrections 2026-09-16** : le PV de clôture est désormais **dérivé de l'état métier**
+> (équipements réellement en attente au moment de l'action), plus d'indicateur séparé —
+> méthode idempotente `emitPvClotureIfDue`. `markFound` (équipement retrouvé) **n'archive
+> jamais** tant qu'il reste des équipements en attente ; il ne passe à `archived` (avec
+> avenant) que si le bon était déjà archivé. Chaque transition vérifie le statut de départ
+> dans la même transaction que la mise à jour et renvoie `409` en cas de changement d'état
+> concurrent. Annulation (`DELETE /bons/:id`) refusée dès qu'une signature de mise à
+> disposition est signée (statuts annulables : `draft`, `sent_mise_dispo`).
 
 **SignatureType (4 valeurs) :** `mise_disposition`, `restitution`, `it_cachet`, `pv_cloture`
 
@@ -181,7 +192,7 @@ Bon, BonEquipment, Signature, Contestation, NotificationLog, AuditLog
 ENCRYPTION_KEY=<openssl rand -hex 32>   # jamais changer apres 1er lancement
 JWT_SECRET=<openssl rand -hex 32>       # different de ENCRYPTION_KEY
 POSTGRES_PASSWORD=<openssl rand -base64 24>
-FRONTEND_URL=https://bons.groupelivio.local
+FRONTEND_URL=https://bons.exemple.local
 ```
 
 ---
@@ -219,7 +230,7 @@ FRONTEND_URL=https://bons.groupelivio.local
 | `POST` | `/api/auth/local-login` | - |
 | `GET` | `/api/auth/dev-login` | DEV only |
 
-### Bons (12 endpoints)
+### Bons
 | Methode | Route | Auth |
 |---------|-------|------|
 | `GET` | `/api/bons/mes-bons` | collaborator+ |
@@ -228,16 +239,31 @@ FRONTEND_URL=https://bons.groupelivio.local
 | `GET` | `/api/bons/stats` | admin/technician |
 | `GET` | `/api/bons/recent` | admin/technician |
 | `GET` | `/api/bons/export` | admin/technician |
+| `GET` | `/api/bons?overdue=1` | admin/technician (`overdue=1` : en retard > 7 j) |
 | `GET` | `/api/bons` | admin/technician |
 | `GET` | `/api/bons/:id` | admin/technician |
+| `GET` | `/api/bons/:id/notifications` | tous* (historique emails du bon) |
+| `GET` | `/api/bons/:id/integrity` | tous* (verif sceaux HMAC) |
 | `POST` | `/api/bons` | admin/technician |
 | `PUT` | `/api/bons/:id` | admin/technician |
-| `DELETE` | `/api/bons/:id` | admin/technician |
-| `POST` | `/api/bons/:id/send` | admin/technician |
+| `DELETE` | `/api/bons/:id` | admin/technician (refuse si deja signe, cf. §4) |
+| `POST` | `/api/bons/:id/send` | admin/technician (body `confirmSerialConflicts`, sinon `409` si conflit) |
 | `POST` | `/api/bons/:id/initiate-restitution` | admin/technician |
-| `POST` | `/api/bons/:id/initiate-inperson` | admin/technician |
+| `POST` | `/api/bons/:id/initiate-inperson` | admin/technician (token 2h) |
+| `POST` | `/api/bons/:id/close-unilateral` | admin/technician |
+| `GET` | `/api/bons/:id/pdf-snapshots` | tous* |
+| `GET` | `/api/bons/:id/pdf-snapshots/missing` | tous* (`{ missing }`, cf. §16) |
 | `GET` | `/api/bons/:id/pdf` | admin/technician |
 | `POST` | `/api/bons/:id/sign-it` | admin/technician |
+
+`tous*` = admin, technician, collaborateur (acces restreint a ses propres bons).
+
+### Reporting / Inventaire
+| Methode | Route | Auth |
+|---------|-------|------|
+| `GET` | `/api/reporting/inventory` | admin/technician |
+| `GET` | `/api/reporting/inventory/summary` | admin/technician |
+| `GET` | `/api/reporting/inventory/export` | admin/technician |
 
 ### Signature
 | Methode | Route | Auth |
@@ -256,6 +282,8 @@ FRONTEND_URL=https://bons.groupelivio.local
 | `GET` | `/api/admin/ldap/status` | admin/technician |
 | `POST` | `/api/admin/ldap/sync` | admin |
 | `DELETE` | `/api/admin/ldap/users` | admin |
+| `POST` | `/api/admin/users/:id/unlock` | admin |
+| `POST` | `/api/admin/pdf/regenerate-missing` | admin |
 
 ### Audit
 | Methode | Route | Auth |
@@ -266,7 +294,7 @@ FRONTEND_URL=https://bons.groupelivio.local
 ### Contestations
 | Methode | Route | Auth |
 |---------|-------|------|
-| `GET` | `/api/contestations` | admin/technician |
+| `GET` | `/api/contestations` | admin/technician (reponse inclut `openCount`) |
 | `PATCH` | `/api/contestations/:id/review` | admin/technician |
 | `PATCH` | `/api/contestations/:id/resolve` | admin/technician |
 
@@ -287,7 +315,7 @@ FRONTEND_URL=https://bons.groupelivio.local
 | `GET` | `/health` | - |
 | CRUD | `/api/filiales` | admin |
 | CRUD | `/api/equipment` | admin |
-| CRUD | `/api/users` | admin/technician |
+| CRUD | `/api/users` (`?page=&limit=&search=` optionnel) | admin/technician |
 
 ---
 
@@ -357,6 +385,12 @@ Internet → Nginx Proxy Manager (SSL:443)
 | Puppeteer dans Docker Alpine | Installer Chromium via apk + `--no-sandbox` |
 | `ENCRYPTION_KEY` changee | Toutes les donnees chiffrees sont perdues (config DB + signatures PNG) |
 | Config LDAP `bind_password` dans la reponse API | `maskSecrets: true` dans `getAll()` |
+| Double `@nestjs/throttler` : `@UseGuards(ThrottlerGuard)` sur une methode en plus du guard global | Double comptage des requetes contre le meme quota → `429` prematures. Un seul `ThrottlerGuard` global (`APP_GUARD`) ; ajuster une route via `@Throttle(...)` uniquement, jamais un guard supplementaire |
+| Champ secret masque renvoye vide par le front (focus sans modification) | Ecraserait silencieusement un secret existant si on l'ecrivait tel quel. `bulkSetConfig` ignore une cle chiffree recue vide (`admin.service.ts`) |
+| PDFKit `doc.text()` avec le comportement par defaut (`lineBreak: true`) sur du texte destine a tenir sur une seule ligne | Le texte peut deborder sur la ligne suivante et chevaucher le contenu qui suit. Passer `lineBreak: false` pour les libelles a une ligne (ex. user-agent tronque) |
+| Polices standard PDFKit (Helvetica, AFM) | Rendu incomplet des caracteres hors jeu de base. Polices DejaVu Sans (regular + bold) embarquees dans `backend/src/pdf/fonts/` pour un rendu Unicode complet |
+| `mkdir({ recursive: true })` sur la racine d'un export SMB | Creerait silencieusement un dossier local dans le conteneur si le partage reseau n'est pas monte, et l'export « reussirait » sans rien ecrire sur le partage reel. La racine doit deja exister (`fs.existsSync`) ; seuls les sous-dossiers (filiale/annee/bon) sont crees a la volee |
+| Deduire un etat metier (ex. « PV en attente ») de la simple existence d'une ligne `Signature` non signee | Cette ligne peut etre purgee par la retention (`purgeExpiredTokens`, tokens expires) independamment du statut du bon. Deriver l'etat des champs metier reels (`BonEquipment.returnedAt`/`notReturned`), comme le fait `emitPvClotureIfDue` |
 
 ---
 
@@ -504,6 +538,28 @@ await this.prisma.auditLog.create({
 - Par type d'action (dropdown, alimente dynamiquement depuis `/api/audit/actions`)
 - Par plage de dates (from / to)
 - Pagination : 50 par page
+
+---
+
+## 16. Mise a jour pre-production (2026-09-16)
+
+Revue complete pre-livraison : securite (verrouillage compose compte+IP, garde-fou sync LDAP,
+plancher RGPD 60 mois avec dry-run obligatoire), machine a etats des bons corrigee (PV derive
+de l'etat metier, annulation interdite apres signature), et deux nouvelles fonctionnalites :
+
+- **Vue Inventaire** (`/inventaire`, `GET /api/reporting/inventory*`) : parc d'equipements
+  actuellement chez les collaborateurs, filtrable et exportable en CSV.
+- **Rappel avant restitution** : cron quotidien, config `rappels.restitution_before_days`
+  (defaut 7 jours), template email `restitution_due_reminder`.
+
+Egalement : historique des emails par bon (`GET /bons/:id/notifications`), regeneration des
+PDF manquants (`POST /admin/pdf/regenerate-missing`), purge independante des pieces jointes
+(`retention.attachment_months`), cachet de filiale et numeros de ligne optionnels sur le PDF,
+police Unicode embarquee (DejaVu Sans), 6 migrations Prisma (dont 2 qui echouent
+volontairement en cas de doublons — voir [README.md](README.md)).
+
+Detail complet des ~40 corrections par domaine : [CHANGELOG.md](CHANGELOG.md). Regles de
+securite a jour : [docs/security.md](docs/security.md).
 
 ---
 

@@ -302,8 +302,8 @@ import { v4 as uuid } from 'uuid';
 
 const BASE_FILIALE = {
   id: uuid(),
-  name: 'livio',
-  displayName: 'Groupe Livio',
+  name: 'demo',
+  displayName: 'Filiale Demo',
   logoPath: null,
   stampPath: null,
   address: '123 rue Exemple',
@@ -316,7 +316,7 @@ const BASE_FILIALE = {
 const BASE_USER = {
   id: uuid(),
   displayName: 'Jean Dupont',
-  email: 'jean.dupont@livio.fr',
+  email: 'jean.dupont@exemple.fr',
 };
 
 const BASE_BON = {
@@ -324,7 +324,7 @@ const BASE_BON = {
   reference: 'BMD-2026-001',
   filialeId: BASE_FILIALE.id,
   collaborateurId: uuid(),
-  collaborateurEmail: 'collab@livio.fr',
+  collaborateurEmail: 'collab@exemple.fr',
   createdById: BASE_USER.id,
   civilite: 'M.',
   notes: null,
@@ -333,7 +333,7 @@ const BASE_BON = {
   createdAt: new Date('2026-03-01'),
   updatedAt: new Date('2026-03-01'),
   filiale: BASE_FILIALE,
-  collaborateur: { id: uuid(), displayName: 'Paul Martin', email: 'paul@livio.fr', department: 'IT' },
+  collaborateur: { id: uuid(), displayName: 'Paul Martin', email: 'paul@exemple.fr', department: 'IT' },
   createdBy: BASE_USER,
   equipments: [],
   signatures: [],
@@ -358,7 +358,7 @@ export const ADMIN_USER = {
   id: uuid(),
   samAccountName: 'admin.test',
   displayName: 'Admin Test',
-  email: 'admin@livio.fr',
+  email: 'admin@exemple.fr',
   role: 'admin',
   isItStaff: true,
   filialeId: null,
@@ -369,7 +369,7 @@ export const TECHNICIAN_USER = {
   id: uuid(),
   samAccountName: 'tech.test',
   displayName: 'Technicien Test',
-  email: 'tech@livio.fr',
+  email: 'tech@exemple.fr',
   role: 'technician',
   isItStaff: true,
   filialeId: 'filiale-1',
@@ -380,7 +380,7 @@ export const COLLABORATOR_USER = {
   id: uuid(),
   samAccountName: 'collab.test',
   displayName: 'Collaborateur Test',
-  email: 'collab@livio.fr',
+  email: 'collab@exemple.fr',
   role: 'collaborator',
   isItStaff: false,
   filialeId: 'filiale-1',

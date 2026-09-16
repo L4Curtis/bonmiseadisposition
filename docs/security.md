@@ -1,6 +1,96 @@
 # Sécurité — Référence complète
 
-> Document consolidé issu des phases 6 et 7 (2026-03-21). Contient toutes les corrections implémentées, les règles non-négociables pour le développement futur, et les checklists de validation.
+> Document consolidé issu des phases 6 et 7 (2026-03-21), mis à jour le 2026-09-16 (revue
+> pré-production). Contient toutes les corrections implémentées, les règles non-négociables
+> pour le développement futur, et les checklists de validation.
+
+---
+
+## Mise à jour 2026-09-16 — règles modifiées ou précisées
+
+Ces points remplacent ou complètent les règles historiques ci-dessous (issues des phases 6/7)
+là où elles ont changé depuis.
+
+### Rate limiting — un seul ThrottlerGuard global
+
+- Un unique `ThrottlerGuard` global est enregistré (`APP_GUARD`). **Ne jamais ajouter
+  `@UseGuards(ThrottlerGuard)` sur une méthode de contrôleur** : le guard global s'applique déjà
+  partout, en rajouter un sur une méthode double-compte les requêtes contre le même quota et
+  peut déclencher des `429` prématurés. Utiliser uniquement `@Throttle({ default: { limit, ttl } })`
+  pour ajuster la limite d'une route précise.
+- `POST /api/auth/refresh` est limité **par utilisateur** (`UserThrottlerGuard`, tracker basé sur
+  le `sub` du refresh token) plutôt que par IP : plusieurs postes derrière un même NAT
+  (agence, VPN) ne se pénalisent plus mutuellement, tout en gardant une limite par compte.
+
+### Brute-force — verrouillage composite compte + IP
+
+- **Verrou de compte** : ≥ 10 échecs `login_local_failed` pour le même couple (email, IP) en
+  30 minutes.
+- **Verrou d'IP** : ≥ 30 échecs `login_local_failed` depuis la même IP, toutes cibles (emails)
+  confondues, en 30 minutes — protège contre un balayage d'emails depuis une même source.
+- Les rejets pendant un verrou sont journalisés en `login_local_locked` (pas `login_local_failed`)
+  pour qu'une tentative sur un compte déjà verrouillé ne prolonge pas indéfiniment la fenêtre.
+- **Déverrouillage manuel** : `POST /admin/users/:id/unlock` (bouton « Déverrouiller » sur la
+  page Admin → Utilisateurs, visible sur un compte verrouillé). Supprime les `login_local_failed`
+  des 30 dernières minutes pour l'email ciblé et journalise `user_unlocked`. Remplace la
+  procédure manuelle par requête SQL décrite plus bas dans ce document (toujours valable si
+  besoin, mais l'endpoint est la voie recommandée).
+
+### Cookies — refresh_token path `/api/auth`
+
+- `refresh_token` a pour path `/api/auth` (et non `/api/auth/refresh`) : ce chemin couvre aussi
+  `/api/auth/logout`, ce qui garantit que le logout peut effectivement lire et révoquer le
+  cookie. `access_token` garde son path `/api`.
+
+### returnTo — validation par comparaison d'origine
+
+- La validation de `returnTo` (redirection post-login) se fait **par comparaison d'origine**
+  (`new URL(returnTo, base).origin === new URL(base).origin`), backend (`isSafeReturnTo` dans
+  `auth.controller.ts`) et frontend (`Login.tsx`), jamais par une simple regex de préfixe
+  (`/^\/[^/]/`) : une regex seule reste contournable par des variantes d'encodage. La
+  vérification `origin` après résolution de l'URL couvre ce cas.
+
+### Emails — normalisation systématique
+
+- Tous les emails utilisateurs sont normalisés en minuscules (+ trim) à l'écriture : sync LDAP,
+  callback SSO, création admin locale, `users.service`. Un index unique fonctionnel
+  `lower(email)` empêche deux comptes différant seulement par la casse.
+
+### Signature en présentiel — validité 2 heures
+
+- Un token de signature généré en mode présentiel (`isInPerson=true`) est valable **2 heures**,
+  quelle que soit la durée configurée (`tokens.expiry_days`) pour les liens envoyés par email.
+
+### Annulation d'un bon — interdite après signature de mise à disposition
+
+- `DELETE /api/bons/:id` (annulation) n'est possible que si le bon est au statut `draft` ou
+  `sent_mise_dispo`. Dès qu'une signature de mise à disposition est apposée (statut `active` ou
+  au-delà), l'annulation est refusée (`400`) : passer par la restitution ou la clôture
+  unilatérale. Le chemin interne de résolution de contestation n'est pas concerné par cette
+  règle.
+
+### Anonymisation RGPD — plancher et dry-run obligatoires
+
+- `retention.anonymize_months` ne peut pas être configuré en dessous de **60 mois** (plancher
+  légal, refusé à la fois côté validation de configuration et côté service).
+- Un run réel d'anonymisation (hors cron) exige qu'un **dry-run de moins de 24h** ait été
+  exécuté au préalable ; sinon la requête est refusée.
+- Sont **anonymisés** (bons éligibles) : l'identité du collaborateur (transférée vers un compte
+  technique `anonymise@rgpd.local`), l'email destinataire dans `NotificationLog`, les champs
+  utilisateur/IP/user-agent et certains détails (nom de fichier, email du titulaire) dans
+  `AuditLog`, le message de contestation, le nom de fichier d'export SMB, et les sceaux de
+  signature (`seal`, `sealedAt`, `tsToken`).
+- Sont **conservés** : les snapshots PDF (preuve contractuelle), les références de bon, les
+  dates et statuts.
+- Purge indépendante des pièces jointes après `retention.attachment_months` (fichiers sur disque
+  + lignes en base), déconnectée du plancher des 60 mois de l'anonymisation.
+
+### Garde-fou synchronisation LDAP
+
+- Une synchronisation LDAP qui désactiverait plus de **20 % des comptes LDAP actifs** (et au
+  moins 5 comptes) est **interrompue** avant toute désactivation : la passe est journalisée
+  (`ldap_sync_aborted`, audit + log d'erreur) et aucun compte n'est désactivé. Symptôme probable :
+  `search_base` ou `user_filter` mal configuré, ou base LDAP temporairement inaccessible.
 
 ---
 
@@ -46,6 +136,7 @@
 | L-02 | Basse | CSP header complet dans `frontend/nginx.conf` | `frontend/nginx.conf` |
 | L-03 | Basse | Dockerfile frontend : `USER nginx-app` (non-root, port 8080) | `frontend/Dockerfile` |
 | L-04 | Basse | Docker-compose mis à jour pour le port 8080 | `docker-compose.*.yml` |
+| L-05 | Basse | Token présentiel (`isInPerson`) limité à 2h (vs 7j configurable pour email) | `signature.service.ts` |
 
 ---
 
@@ -110,7 +201,7 @@ const allowedMime = /^image\/(jpeg|png|gif|webp)$/;
 ### 5. Les cookies d'auth ont un path restreint
 ```typescript
 // access_token  → path: '/api'
-// refresh_token → path: '/api/auth/refresh'
+// refresh_token → path: '/api/auth'   (couvre aussi /api/auth/logout — révocation au logout)
 ```
 
 ### 6. Le SMB path est validé avant écriture
@@ -142,18 +233,25 @@ if (!this.isSafeExportPath(smbPath)) return;
 - [ ] Filtre LDAP invalide (`(|(objectClass=*))`) → `400`
 
 ### Moyenne
-- [ ] 11 `login_local_failed` en 30 min → verrouillage persisté après restart
+- [ ] 10 `login_local_failed` pour le même (email, IP) en 30 min → verrouillage de compte
+- [ ] 30 `login_local_failed` depuis la même IP toutes cibles en 30 min → verrouillage d'IP
+- [ ] `POST /admin/users/:id/unlock` sur un compte verrouillé → débloque, journalise `user_unlocked`
 - [ ] `GET /api/users` → aucun champ `passwordHash` dans la réponse
-- [ ] Redirect `returnTo=//evil.com` → redirige vers `/` uniquement
+- [ ] Redirect `returnTo=//evil.com` → redirige vers `/` uniquement (comparaison d'origine)
 - [ ] Upload logo 6 fois en 1 min → `429`
 - [ ] `GET /api/audit?limit=999999` → retourne max 100 entrées
-- [ ] 21 appels `POST /auth/refresh` en 1 min → `429`
+- [ ] Aucune méthode de contrôleur ne porte `@UseGuards(ThrottlerGuard)` (double comptage) — seul le guard global compte
+- [ ] `DELETE /api/bons/:id` sur un bon `active` (déjà signé) → `400`
+- [ ] `retention.anonymize_months` réglé à une valeur < 60 → rejeté
+- [ ] Anonymisation réelle sans dry-run < 24h → rejetée
+- [ ] Sync LDAP simulée avec > 20 % de comptes actifs absents → interrompue, `ldap_sync_aborted` journalisé
 
 ### Infrastructure
 - [ ] Header `Content-Security-Policy` présent sur toutes les réponses
 - [ ] Container frontend tourne en user `nginx-app` (`docker exec <frontend> whoami`)
 - [ ] `X-Forwarded-For` = IP réelle (non spoofable via nginx)
 - [ ] `Strict-Transport-Security` présent sur les réponses HTTPS
+- [ ] Cookie `refresh_token` a pour path `/api/auth` (vérifiable dans les headers `Set-Cookie` au login)
 
 ---
 
@@ -163,7 +261,10 @@ if (!this.isSafeExportPath(smbPath)) return;
 **Symptôme** : `403 — Compte temporairement verrouillé`
 - Attendre 30 minutes (automatique, compteur en DB sur `AuditLog`)
 - Ou redémarrer le backend **ne suffit plus** (brute-force persisté en DB depuis M-01)
-- Pour déverrouiller manuellement : supprimer les `AuditLog` `login_local_failed` des 30 dernières minutes pour cet email
+- Déverrouillage recommandé : bouton « Déverrouiller » sur la fiche utilisateur, page
+  Admin → Utilisateurs (`POST /admin/users/:id/unlock`)
+- Déverrouillage manuel alternatif : supprimer les `AuditLog` `login_local_failed` des 30
+  dernières minutes pour cet email
 
 ### Filtre LDAP rejeté
 **Symptôme** : `400 — LDAP filter contains invalid characters`
