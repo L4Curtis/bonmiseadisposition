@@ -173,7 +173,9 @@ export class AttachmentsService {
           details: { attachmentId: created.id, stage: effectiveStage, filename: safeName, mimeType: detectedMime, size: file.buffer.length, sha256 },
         },
       })
-      .catch(() => { /* non-blocking */ });
+      .catch((err) =>
+        this.logger.warn(`Audit non journalisé (attachment_uploaded, attachmentId=${created.id}): ${(err as Error).message}`),
+      );
 
     this.logger.log(`Pièce jointe ajoutée au bon ${bon.reference} (${detectedMime}, ${file.buffer.length}o)`);
     return this.toSafe(created);
@@ -226,7 +228,9 @@ export class AttachmentsService {
           details: { attachmentId, filename: att.filename },
         },
       })
-      .catch(() => { /* non-blocking */ });
+      .catch((err) =>
+        this.logger.warn(`Audit non journalisé (attachment_deleted, attachmentId=${attachmentId}): ${(err as Error).message}`),
+      );
 
     this.logger.log(`Pièce jointe ${attachmentId} supprimée du bon ${bonId} par ${user.email ?? 'inconnu'}`);
     return { ok: true };
@@ -239,7 +243,9 @@ export class AttachmentsService {
       const basename = path.basename(r.storedPath);
       const fullPath = path.join(this.UPLOADS_DIR, basename);
       if (fullPath.startsWith(this.UPLOADS_DIR) && fs.existsSync(fullPath)) {
-        await unlink(fullPath).catch(() => { /* best-effort */ });
+        await unlink(fullPath).catch((err) =>
+          this.logger.warn(`Fichier pièce jointe non supprimé lors de la purge (${basename}): ${(err as Error).message}`),
+        );
       }
     }
     const { count } = await this.prisma.attachment.deleteMany({ where: { bonId } });

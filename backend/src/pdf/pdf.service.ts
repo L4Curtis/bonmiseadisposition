@@ -2,11 +2,12 @@ import { Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { existsSync } from 'fs';
 import { readFile } from 'fs/promises';
-import { join } from 'path';
+import { basename, join } from 'path';
 import * as PDFDocument from 'pdfkit';
 import { PrismaService } from '../prisma/prisma.service';
+import { EncryptionService } from '../config/encryption.service';
 import { STATUS_LABELS } from '../common/status-labels';
-import { PdfSnapshotType } from '../common/types';
+import { PdfSnapshotType, SignatureType } from '../common/types';
 import { PdfTemplatesService } from './pdf-templates.service';
 import { PdfTemplateConfig, substituteVars } from './pdf-template-config';
 
@@ -28,6 +29,7 @@ export interface BonForPdf {
     displayName?: string;
     name?: string;
     logoPath?: string | null;
+    stampPath?: string | null;
     address?: string | null;
     siret?: string | null;
   };
@@ -73,10 +75,42 @@ export interface BonForPdf {
 export class PdfService {
   private readonly logger = new Logger(PdfService.name);
 
+  // ─── Polices Unicode embarquées ─────────────────────────────────────────────
+  // Les polices AFM standard de PDFKit (Helvetica…) n'encodent que Latin-1 :
+  // tout caractère hors de ce jeu (Ł, cyrillique, CJK, emoji…) est rendu en
+  // glyphe faux. Sur un document de preuve légale (identité du signataire),
+  // c'est inacceptable. On embarque donc DejaVu Sans (licence Bitstream Vera,
+  // libre et redistribuable) et on l'enregistre sur chaque document généré.
+  // __dirname résout correctement en dev (ts-jest / ts-node : backend/src/pdf)
+  // ET en prod (dist/pdf, copié par compilerOptions.assets de nest-cli.json).
+  private readonly fontsDir = join(__dirname, 'fonts');
+  private readonly fontRegularPath = join(this.fontsDir, 'DejaVuSans.ttf');
+  private readonly fontBoldPath = join(this.fontsDir, 'DejaVuSans-Bold.ttf');
+  private readonly customFontsAvailable: boolean =
+    existsSync(this.fontRegularPath) && existsSync(this.fontBoldPath);
+
+  /** Nom de police (corps de texte) à utiliser dans tout le document. */
+  private readonly FONT_REGULAR: string = this.customFontsAvailable ? 'Body' : 'Helvetica';
+  /** Nom de police (gras) à utiliser dans tout le document. */
+  private readonly FONT_BOLD: string = this.customFontsAvailable ? 'Body-Bold' : 'Helvetica-Bold';
+
+  /** Signatures manuscrites chiffrées — même convention que SignatureService,
+   *  dupliquée ici pour éviter une dépendance croisée pdf ↔ signature (le
+   *  module signature dépend déjà du module pdf). */
+  private readonly signaturesDir = join(process.cwd(), 'data', 'signatures');
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly pdfTemplatesService: PdfTemplatesService,
-  ) {}
+    private readonly encryption: EncryptionService,
+  ) {
+    if (!this.customFontsAvailable) {
+      this.logger.warn(
+        `Polices Unicode introuvables (${this.fontRegularPath}) — repli sur Helvetica : ` +
+        'les caractères hors Latin-1 (accents étendus, cyrillique, CJK, emoji…) seront mal rendus dans les PDF.',
+      );
+    }
+  }
 
   /**
    * Génère le PDF d'un bon et le sauvegarde en base.
@@ -108,13 +142,13 @@ export class PdfService {
     if (snapshotType === 'signature_collab_mise_disposition') {
       const existing = await this.prisma.pdfSnapshot.findUnique({
         where: { bonId_type: { bonId: bon.id, type: snapshotType } },
-        select: { id: true },
+        select: { id: true, data: true },
       });
       if (existing) {
         this.logger.warn(
           `Snapshot ${snapshotType} existe déjà pour le bon ${bon.reference} — document signé conservé, régénération ignorée`,
         );
-        return pdf;
+        return Buffer.from(existing.data);
       }
     }
 
@@ -122,34 +156,37 @@ export class PdfService {
     // que le PDF archivé (DB ou partage SMB) n'a pas été altéré
     const sha256 = createHash('sha256').update(pdf).digest('hex');
 
-    // Upsert into PdfSnapshot table (le « courant » par type, pour l'affichage)
-    await this.prisma.pdfSnapshot.upsert({
-      where: { bonId_type: { bonId: bon.id, type: snapshotType as PdfSnapshotType } },
-      update: { data: pdf, filename, sha256 },
-      create: { bonId: bon.id, type: snapshotType as PdfSnapshotType, data: pdf, filename, sha256 },
-    });
-
-    // Archive APPEND-ONLY : copie scellée immuable de CE document. Garantit
-    // qu'une preuve co-signée (ex. 1re restitution partielle) ne disparaît pas
-    // quand un document du même type est régénéré plus tard.
-    try {
-      await this.prisma.proofArchive.create({
+    // Chaîne de preuve ATOMIQUE : l'archive probante APPEND-ONLY, le snapshot
+    // « courant » (pour l'affichage) et la trace d'audit du hash sont écrits
+    // dans la même transaction. Si l'une des trois écritures échoue, TOUT est
+    // annulé et l'erreur remonte à l'appelant : la preuve n'est jamais
+    // considérée comme archivée en cas d'échec partiel.
+    await this.prisma.$transaction(async (tx) => {
+      // Archive APPEND-ONLY : copie scellée immuable de CE document. Garantit
+      // qu'une preuve co-signée (ex. 1re restitution partielle) ne disparaît pas
+      // quand un document du même type est régénéré plus tard. Créée AVANT le
+      // snapshot « courant » : c'est la preuve légale, jamais écrasée.
+      await tx.proofArchive.create({
         data: { bonId: bon.id, type: snapshotType, filename, data: pdf, sha256 },
       });
-    } catch (err) {
-      this.logger.error(`Échec archivage probant [${bon.reference}/${snapshotType}]: ${(err as Error).message}`);
-    }
 
-    // Trace d'audit immuable du hash (le snapshot lui-même peut être ré-upserté)
-    try {
-      await this.prisma.auditLog.create({
+      // Upsert dans PdfSnapshot (le « courant » par type, pour l'affichage)
+      await tx.pdfSnapshot.upsert({
+        where: { bonId_type: { bonId: bon.id, type: snapshotType as PdfSnapshotType } },
+        update: { data: pdf, filename, sha256 },
+        create: { bonId: bon.id, type: snapshotType as PdfSnapshotType, data: pdf, filename, sha256 },
+      });
+
+      // Trace d'audit immuable du hash — jamais avalée : un échec ici annule
+      // aussi l'archive et le snapshot ci-dessus (rollback de la transaction).
+      await tx.auditLog.create({
         data: {
           bonId: bon.id,
           action: 'pdf_snapshot_saved',
           details: { type: snapshotType, filename, sha256 },
         },
       });
-    } catch { /* non-blocking */ }
+    });
 
     this.logger.log(`PDF snapshot ${snapshotType} sauvegardé pour le bon ${bon.reference} (sha256=${sha256.slice(0, 12)}…)`);
     return pdf;
@@ -206,8 +243,16 @@ export class PdfService {
       avenant: `Avenant — Équipement(s) retrouvé(s) - ${bon.reference}`,
     };
 
-    // Pre-load logo buffer asynchronously before synchronous PDF build
+    // Pre-load logo/stamp buffers asynchronously before synchronous PDF build
     const logoBuffer = await this.getLogoBuffer(bon.filiale?.logoPath || null);
+    const stampBuffer = await this.getLogoBuffer(bon.filiale?.stampPath || null);
+
+    // Déterminisme des métadonnées PDF : PDFKit fixe par défaut
+    // info.CreationDate/ModDate à `new Date()` (horloge murale), ce qui ferait
+    // varier le hash SHA-256 à chaque rendu du MÊME bon. On les ancre sur une
+    // date métier stable (mise à disposition) — les horodatages réels des
+    // signatures restent dans le certificat annexé, jamais dans les métadonnées.
+    const anchorDate = new Date(bon.dateMiseDisposition);
 
     return new Promise((resolve, reject) => {
       const doc = new PDFDocument({
@@ -217,8 +262,17 @@ export class PdfService {
         info: {
           Title: titleMap[documentType],
           Author: bon.createdBy?.displayName || 'Service IT',
+          CreationDate: anchorDate,
+          ModDate: anchorDate,
         },
       });
+
+      // Enregistrement des polices Unicode (une fois par document — l'API
+      // PDFKit registerFont() est scopée à l'instance PDFDocument)
+      if (this.customFontsAvailable) {
+        doc.registerFont('Body', this.fontRegularPath);
+        doc.registerFont('Body-Bold', this.fontBoldPath);
+      }
 
       const chunks: Buffer[] = [];
       doc.on('data', (chunk: Buffer) => chunks.push(chunk));
@@ -226,7 +280,7 @@ export class PdfService {
       doc.on('error', reject);
 
       try {
-        this.buildPdf(doc, bon, sigImages, documentType, logoBuffer, config, templateVars);
+        this.buildPdf(doc, bon, sigImages, documentType, logoBuffer, stampBuffer, config, templateVars);
         doc.end();
       } catch (err) {
         reject(err);
@@ -240,6 +294,7 @@ export class PdfService {
     sigImages: SigImages,
     documentType: 'mise_disposition' | 'restitution' | 'cloture' | 'avenant',
     logoBuffer: Buffer | null,
+    stampBuffer: Buffer | null,
     config: PdfTemplateConfig,
     templateVars: Record<string, string>,
   ): void {
@@ -254,38 +309,39 @@ export class PdfService {
 
     // Row 1: Title (full width, centered, on its own line)
     const titleText = substituteVars(config.header.titleText, templateVars);
-    doc.font('Helvetica-Bold').fontSize(fonts.titleSize).fillColor(colors.primary);
+    doc.font(this.FONT_BOLD).fontSize(fonts.titleSize).fillColor(colors.primary);
     doc.text(titleText, leftX, headerY, { width: pageWidth, align: 'center' });
     const afterTitleY = doc.y + 4;
 
     // Row 2: Logo (left) | Subtitle (center) | Reference + dates (right)
     const row2Y = afterTitleY;
 
-    // Logo (left)
+    // Logo (left) — { fit } respecte le ratio d'aspect (jamais de déformation)
     if (config.header.showLogo && logoBuffer) {
       try {
-        doc.image(logoBuffer, leftX, row2Y, { height: config.header.logoMaxHeight, width: config.header.logoMaxWidth });
-      } catch {
-        doc.font('Helvetica-Bold').fontSize(10).fillColor(colors.primary).text(filialeName, leftX, row2Y);
+        doc.image(logoBuffer, leftX, row2Y, { fit: [config.header.logoMaxWidth, config.header.logoMaxHeight] });
+      } catch (err) {
+        this.logger.warn(`Logo illisible (filiale=${filialeName}, chemin=${bon.filiale?.logoPath ?? '—'}) : ${(err as Error).message}`);
+        doc.font(this.FONT_BOLD).fontSize(10).fillColor(colors.primary).text(filialeName, leftX, row2Y);
       }
     } else if (config.header.showLogo && filialeName) {
-      doc.font('Helvetica-Bold').fontSize(10).fillColor(colors.primary).text(filialeName, leftX, row2Y);
+      doc.font(this.FONT_BOLD).fontSize(10).fillColor(colors.primary).text(filialeName, leftX, row2Y);
     }
 
     // Subtitle (center)
     const subtitleText = substituteVars(config.header.subtitleText, templateVars);
-    doc.font('Helvetica').fontSize(fonts.subtitleSize).fillColor(colors.gray);
+    doc.font(this.FONT_REGULAR).fontSize(fonts.subtitleSize).fillColor(colors.gray);
     doc.text(subtitleText, leftX, row2Y + 4, { width: pageWidth, align: 'center' });
 
     // Reference + dates (right)
     let rightY = row2Y;
     if (config.header.showReference) {
-      doc.font('Helvetica-Bold').fontSize(10).fillColor(colors.dark);
+      doc.font(this.FONT_BOLD).fontSize(10).fillColor(colors.dark);
       doc.text(bon.reference, leftX, rightY, { width: pageWidth, align: 'right' });
       rightY += 13;
     }
     if (config.header.showDates) {
-      doc.font('Helvetica').fontSize(fonts.labelSize).fillColor(colors.gray);
+      doc.font(this.FONT_REGULAR).fontSize(fonts.labelSize).fillColor(colors.gray);
       doc.text(`Émis le : ${this.formatDate(bon.dateMiseDisposition)}`, leftX, rightY, { width: pageWidth, align: 'right' });
       rightY += 9;
       if (bon.dateRestitution) {
@@ -337,12 +393,12 @@ export class PdfService {
       doc.y += 6;
       const noteY = doc.y;
       doc.rect(leftX, noteY, pageWidth, 28).fill('#f0fdf4').stroke();
-      doc.font('Helvetica-Bold').fontSize(fonts.bodySize).fillColor('#15803d');
+      doc.font(this.FONT_BOLD).fontSize(fonts.bodySize).fillColor('#15803d');
       doc.text(
         'Ce document atteste que les équipements ci-dessous, précédemment déclarés non restitués,',
         leftX + 8, noteY + 6, { width: pageWidth - 16 },
       );
-      doc.font('Helvetica').fontSize(fonts.bodySize).fillColor('#15803d');
+      doc.font(this.FONT_REGULAR).fontSize(fonts.bodySize).fillColor('#15803d');
       doc.text(
         'ont été retrouvés et récupérés par le service informatique. Le procès-verbal de clôture initial reste valide.',
         leftX + 8, noteY + 16, { width: pageWidth - 16 },
@@ -372,58 +428,67 @@ export class PdfService {
     }
 
     const hasStatutCol = documentType === 'restitution' || documentType === 'cloture';
-    const colWidths = hasStatutCol
-      ? [24, pageWidth * 0.24, pageWidth * 0.16, pageWidth * 0.16, pageWidth * 0.20, pageWidth - 24 - pageWidth * 0.76]
-      : [28, pageWidth * 0.32, pageWidth * 0.22, pageWidth * 0.22, pageWidth - 28 - pageWidth * 0.76];
-    const headers = hasStatutCol
-      ? ['#', 'Désignation', 'N° Série', 'N° Inventaire', 'Statut', 'Remarques']
-      : ['#', 'Désignation', 'N° Série', 'N° Inventaire', 'Remarques'];
+    // showRowNumbers (config admin) : la colonne « # » est optionnelle — quand
+    // elle est masquée, les autres colonnes récupèrent proportionnellement sa
+    // largeur au lieu de laisser un vide.
+    const showRowNum = config.table.showRowNumbers;
+    const NUM_COL_WIDTH = hasStatutCol ? 24 : 28;
+    const availableWidth = showRowNum ? pageWidth - NUM_COL_WIDTH : pageWidth;
+
+    let baseWidths: number[];
+    let baseHeaders: string[];
+    if (hasStatutCol) {
+      const w1 = availableWidth * 0.24;
+      const w2 = availableWidth * 0.16;
+      const w3 = availableWidth * 0.16;
+      const w4 = availableWidth * 0.20;
+      const w5 = availableWidth - w1 - w2 - w3 - w4;
+      baseWidths = [w1, w2, w3, w4, w5];
+      baseHeaders = ['Désignation', 'N° Série', 'N° Inventaire', 'Statut', 'Remarques'];
+    } else {
+      const w1 = availableWidth * 0.32;
+      const w2 = availableWidth * 0.22;
+      const w3 = availableWidth * 0.22;
+      const w4 = availableWidth - w1 - w2 - w3;
+      baseWidths = [w1, w2, w3, w4];
+      baseHeaders = ['Désignation', 'N° Série', 'N° Inventaire', 'Remarques'];
+    }
+    const colWidths = showRowNum ? [NUM_COL_WIDTH, ...baseWidths] : baseWidths;
+    const headers = showRowNum ? ['#', ...baseHeaders] : baseHeaders;
+    const numIdx = showRowNum ? 0 : -1;
+    const designationIdx = showRowNum ? 1 : 0;
+    const statutIdx = hasStatutCol ? (showRowNum ? 4 : 3) : -1;
+    const lastIdx = colWidths.length - 1;
+
+    const drawTableHeaderRow = (y: number): void => {
+      doc.rect(leftX, y, pageWidth, 18).fill(colors.headerBg);
+      doc.font(this.FONT_BOLD).fontSize(fonts.tableHeaderSize).fillColor('#ffffff');
+      let hColX = leftX + 4;
+      headers.forEach((h, hi) => {
+        doc.text(h.toUpperCase(), hColX, y + 5, { width: colWidths[hi] - 8 });
+        hColX += colWidths[hi];
+      });
+    };
 
     // Table header
     const tableY = doc.y;
-    doc.rect(leftX, tableY, pageWidth, 18).fill(colors.headerBg);
-    doc.font('Helvetica-Bold').fontSize(fonts.tableHeaderSize).fillColor('#ffffff');
-    let colX = leftX + 4;
-    headers.forEach((h, i) => {
-      doc.text(h.toUpperCase(), colX, tableY + 5, { width: colWidths[i] - 8 });
-      colX += colWidths[i];
-    });
+    drawTableHeaderRow(tableY);
     doc.y = tableY + 18;
 
     // Table rows
-    const ROW_HEIGHT = 16;
+    const ROW_HEIGHT_MIN = 16;
+    const ROW_PADDING_V = 8; // haut + bas autour du texte (cohérent avec l'offset rowY+4 existant)
     const PAGE_BOTTOM = doc.page.height - doc.page.margins.bottom;
 
     if (equipments.length === 0) {
-      doc.font('Helvetica').fontSize(fonts.tableBodySize).fillColor(colors.lightGray);
+      doc.font(this.FONT_REGULAR).fontSize(fonts.tableBodySize).fillColor(colors.lightGray);
       doc.text(config.table.emptyMessage, leftX, doc.y + 6, { width: pageWidth, align: 'center' });
       doc.y += 24;
     } else {
       equipments.forEach((eq, i) => {
-        // Page overflow: add new page and redraw table header if needed
-        if (doc.y + ROW_HEIGHT > PAGE_BOTTOM - 40) {
-          doc.addPage();
-          // Redraw table header on new page
-          const newHeaderY = doc.y;
-          doc.rect(leftX, newHeaderY, pageWidth, 18).fill(colors.headerBg);
-          doc.font('Helvetica-Bold').fontSize(fonts.tableHeaderSize).fillColor('#ffffff');
-          let hColX = leftX + 4;
-          headers.forEach((h, hi) => {
-            doc.text(h.toUpperCase(), hColX, newHeaderY + 5, { width: colWidths[hi] - 8 });
-            hColX += colWidths[hi];
-          });
-          doc.y = newHeaderY + 18;
-        }
-
-        const rowY = doc.y;
         const label = eq.catalogItem
           ? `${eq.catalogItem.brand} ${eq.catalogItem.model}`
           : eq.customLabel || '—';
-
-        // Alternate row background
-        if (i % 2 === 1) {
-          doc.rect(leftX, rowY, pageWidth, ROW_HEIGHT).fill(colors.rowAlt);
-        }
 
         // Statut (restitution/clôture) : pastille colorée + libellé propre
         // (remplace les anciens placeholders ASCII V / X / ...).
@@ -439,29 +504,60 @@ export class PdfService {
           ? (eq.notes ? `${eq.notes} — ${eq.notReturnedReason}` : eq.notReturnedReason)
           : (eq.notes || '');
 
-        colX = leftX + 4;
-        const STATUT_COL = 4;
-        const rowData: (string | null)[] = hasStatutCol
-          ? [`${i + 1}`, label, eq.serialNumber || '—', eq.inventoryNumber || '—', null, remarks]
-          : [`${i + 1}`, label, eq.serialNumber || '—', eq.inventoryNumber || '—', remarks];
-        rowData.forEach((val, ci) => {
-          const lastIdx = rowData.length - 1;
-          if (hasStatutCol && ci === STATUT_COL && statut) {
-            doc.circle(colX + 3, rowY + ROW_HEIGHT / 2, 2.2).fillColor(statut.color).fill();
-            doc.font('Helvetica-Bold').fontSize(fonts.tableBodySize).fillColor(statut.color);
-            doc.text(statut.label, colX + 9, rowY + 4, { width: colWidths[ci] - 13, lineBreak: false });
+        const rowValues: (string | null)[] = [];
+        if (showRowNum) rowValues.push(`${i + 1}`);
+        rowValues.push(label, eq.serialNumber || '—', eq.inventoryNumber || '—');
+        if (hasStatutCol) rowValues.push(null); // Statut : dessiné à part (pastille), pas de wrap à mesurer
+        rowValues.push(remarks);
+
+        // Hauteur de ligne nécessaire : une désignation ou une remarque longue
+        // ne doit plus déborder sur les colonnes voisines (N° série / inventaire) —
+        // on mesure chaque cellule à sa largeur réelle et on prend le maximum,
+        // avec un plancher pour ne pas resserrer les lignes courtes.
+        let rowHeight = ROW_HEIGHT_MIN;
+        rowValues.forEach((val, ci) => {
+          if (ci === statutIdx) return; // pastille : hauteur fixe, une ligne
+          const font = ci === designationIdx ? this.FONT_BOLD : this.FONT_REGULAR;
+          doc.font(font).fontSize(fonts.tableBodySize);
+          const h = doc.heightOfString(val ?? '', { width: colWidths[ci] - 8 }) + ROW_PADDING_V;
+          if (h > rowHeight) rowHeight = h;
+        });
+
+        // Saut de page si la ligne (avec sa hauteur réelle) ne tient pas dans
+        // l'espace restant — réutilise la même marge de sécurité (40) que le
+        // reste du document pour laisser la place aux signatures/certificat.
+        if (doc.y + rowHeight > PAGE_BOTTOM - 40) {
+          doc.addPage();
+          const newHeaderY = doc.y;
+          drawTableHeaderRow(newHeaderY);
+          doc.y = newHeaderY + 18;
+        }
+
+        const rowY = doc.y;
+
+        // Alternate row background
+        if (i % 2 === 1) {
+          doc.rect(leftX, rowY, pageWidth, rowHeight).fill(colors.rowAlt);
+        }
+
+        let colX = leftX + 4;
+        rowValues.forEach((val, ci) => {
+          if (ci === statutIdx && statut) {
+            doc.circle(colX + 3, rowY + rowHeight / 2, 2.2).fillColor(statut.color).fill();
+            doc.font(this.FONT_BOLD).fontSize(fonts.tableBodySize).fillColor(statut.color);
+            doc.text(statut.label, colX + 9, rowY + 4, { width: colWidths[ci] - 13, lineBreak: true });
           } else {
-            doc.font(ci === 1 ? 'Helvetica-Bold' : 'Helvetica').fontSize(fonts.tableBodySize);
-            doc.fillColor(ci === 0 || ci === lastIdx ? colors.gray : colors.dark);
-            doc.text(val ?? '', colX, rowY + 4, { width: colWidths[ci] - 8, lineBreak: false });
+            doc.font(ci === designationIdx ? this.FONT_BOLD : this.FONT_REGULAR).fontSize(fonts.tableBodySize);
+            doc.fillColor(ci === numIdx || ci === lastIdx ? colors.gray : colors.dark);
+            doc.text(val ?? '', colX, rowY + 4, { width: colWidths[ci] - 8, lineBreak: true });
           }
           colX += colWidths[ci];
         });
 
         // Row bottom border
-        doc.moveTo(leftX, rowY + ROW_HEIGHT).lineTo(leftX + pageWidth, rowY + ROW_HEIGHT)
+        doc.moveTo(leftX, rowY + rowHeight).lineTo(leftX + pageWidth, rowY + rowHeight)
           .lineWidth(0.5).strokeColor(colors.border).stroke();
-        doc.y = rowY + ROW_HEIGHT;
+        doc.y = rowY + rowHeight;
       });
     }
 
@@ -470,9 +566,9 @@ export class PdfService {
       doc.y += 8;
       doc.rect(leftX, doc.y, pageWidth, 1).fill(colors.border);
       doc.y += 6;
-      doc.font('Helvetica-Bold').fontSize(fonts.labelSize).fillColor(colors.lightGray).text('REMARQUES GÉNÉRALES', leftX);
+      doc.font(this.FONT_BOLD).fontSize(fonts.labelSize).fillColor(colors.lightGray).text('REMARQUES GÉNÉRALES', leftX);
       doc.y += 4;
-      doc.font('Helvetica').fontSize(fonts.bodySize).fillColor(colors.dark).text(bon.notes, leftX, doc.y, { width: pageWidth });
+      doc.font(this.FONT_REGULAR).fontSize(fonts.bodySize).fillColor(colors.dark).text(bon.notes, leftX, doc.y, { width: pageWidth });
       doc.y += 12;
     }
 
@@ -495,6 +591,19 @@ export class PdfService {
       const collabSig = allSigs.find((s) => s.signed && s.signatureImagePath && s.type !== 'it_cachet');
       const itDate = itSig?.signedAt ? this.formatDate(itSig.signedAt) : '_______________';
       const collabDate = collabSig?.signedAt ? this.formatDate(collabSig.signedAt) : '_______________';
+
+      // Hauteur RÉELLE d'une case signature (cf. drawSignatureBox : hauteur
+      // fixe passée à roundedRect). Le cachet doit toujours démarrer sous ce
+      // bas de case, jamais en fonction de la valeur — parfois plus petite —
+      // à laquelle le curseur `doc.y` est ensuite avancé (avant correctif, la
+      // case à deux colonnes avançait doc.y de 130 seulement, soit 15pt
+      // AVANT le bas réel de la case, faisant chevaucher le cachet sur la
+      // ligne « Date : … »).
+      const SIGNATURE_BOX_HEIGHT = 145;
+      // Point de départ commun aux deux mises en page (case unique avenant ou
+      // case IT + case collaborateur), capturé AVANT que doc.y n'avance —
+      // sert de référence fixe pour positionner le cachet.
+      const signatureBoxTopY = doc.y;
 
       if (documentType === 'avenant') {
         // IT signature only — full width
@@ -531,6 +640,27 @@ export class PdfService {
 
         doc.y = sigY + 130;
       }
+
+      // ─── CACHET DE FILIALE ──────────────────────────────────────────────────
+      // Apposé sous la case « signature IT », sans jamais la recouvrir. Ancré
+      // sur signatureBoxTopY + SIGNATURE_BOX_HEIGHT (bas RÉEL de la case),
+      // pas sur doc.y (qui peut avoir été avancé de moins que la hauteur de
+      // la case — cf. commentaire ci-dessus). Rendu déterministe : { fit }
+      // respecte le ratio d'aspect, aucune date apposée.
+      if (stampBuffer) {
+        const STAMP_MARGIN_TOP = 10;
+        const stampMaxW = 70;
+        const stampMaxH = 40;
+        const stampY = signatureBoxTopY + SIGNATURE_BOX_HEIGHT + STAMP_MARGIN_TOP;
+        try {
+          doc.image(stampBuffer, leftX, stampY, { fit: [stampMaxW, stampMaxH] });
+          // Ne jamais reculer le curseur : la case (ou son avance normale)
+          // peut déjà avoir poussé doc.y plus bas que le cachet.
+          doc.y = Math.max(doc.y, stampY + stampMaxH + 6);
+        } catch (err) {
+          this.logger.warn(`Cachet de filiale illisible (${bon.filiale?.stampPath ?? '—'}) : ${(err as Error).message}`);
+        }
+      }
     }
 
     // ─── CERTIFICAT DE SIGNATURE ÉLECTRONIQUE ────────────────────────────────
@@ -538,11 +668,17 @@ export class PdfService {
 
     // ─── FOOTER ──────────────────────────────────────────────────────────────
     if (config.footer.showFooter) {
+      // Comme pour les signatures : vérifier l'espace restant avant de dessiner,
+      // pour éviter un footer livré seul en haut d'une nouvelle page.
+      const FOOTER_HEIGHT = 30;
+      if (doc.y + FOOTER_HEIGHT > doc.page.height - doc.page.margins.bottom) {
+        doc.addPage();
+      }
       doc.y += 12;
       doc.moveTo(leftX, doc.y).lineTo(leftX + pageWidth, doc.y).lineWidth(0.5).strokeColor(colors.border).stroke();
       doc.y += 6;
       const footerText = substituteVars(config.footer.footerText, templateVars);
-      doc.font('Helvetica').fontSize(fonts.labelSize).fillColor(colors.lightGray);
+      doc.font(this.FONT_REGULAR).fontSize(fonts.labelSize).fillColor(colors.lightGray);
       doc.text(footerText, leftX, doc.y, { width: pageWidth, align: 'center' });
     }
   }
@@ -553,7 +689,7 @@ export class PdfService {
     doc: PDFKit.PDFDocument, x: number, title: string, width: number,
     colors: PdfTemplateConfig['colors'],
   ): void {
-    doc.font('Helvetica-Bold').fontSize(8).fillColor(colors.primary).text(title, x, doc.y);
+    doc.font(this.FONT_BOLD).fontSize(8).fillColor(colors.primary).text(title, x, doc.y);
     doc.y += 2;
     doc.moveTo(x, doc.y).lineTo(x + width, doc.y).lineWidth(1.5).strokeColor('#F2DAD7').stroke();
     doc.y += 4;
@@ -576,7 +712,7 @@ export class PdfService {
 
     // Measure each row height (value may wrap)
     const rowHeights = rows.map(([, value]) => {
-      const h = doc.font('Helvetica-Bold').fontSize(8).heightOfString(value, { width: valueWidth });
+      const h = doc.font(this.FONT_BOLD).fontSize(8).heightOfString(value, { width: valueWidth });
       return Math.max(ROW_MIN, h + 4);
     });
     const totalRowsH = rowHeights.reduce((s, h) => s + h, 0);
@@ -585,15 +721,15 @@ export class PdfService {
     doc.roundedRect(x, y, width, boxHeight, 8).lineWidth(0.5).fillAndStroke(colors.rowAlt, colors.border);
 
     // Title
-    doc.font('Helvetica-Bold').fontSize(7).fillColor(colors.primary);
+    doc.font(this.FONT_BOLD).fontSize(7).fillColor(colors.primary);
     doc.text(title.toUpperCase(), x + PAD, y + 7, { width: width - PAD * 2, characterSpacing: 0.4 });
     doc.moveTo(x + PAD, y + 17).lineTo(x + width - PAD, y + 17).lineWidth(0.3).strokeColor(colors.border).stroke();
 
     // Rows
     let rowY = y + 22;
     rows.forEach(([label, value], i) => {
-      doc.font('Helvetica').fontSize(7).fillColor(colors.gray).text(label, x + PAD, rowY, { width: LABEL_COL });
-      doc.font('Helvetica-Bold').fontSize(8).fillColor(colors.dark).text(value, x + PAD + LABEL_COL, rowY, { width: valueWidth });
+      doc.font(this.FONT_REGULAR).fontSize(7).fillColor(colors.gray).text(label, x + PAD, rowY, { width: LABEL_COL });
+      doc.font(this.FONT_BOLD).fontSize(8).fillColor(colors.dark).text(value, x + PAD + LABEL_COL, rowY, { width: valueWidth });
       rowY += rowHeights[i];
     });
 
@@ -610,9 +746,9 @@ export class PdfService {
   ): void {
     doc.roundedRect(x, y, width, 145, 8).lineWidth(0.5).strokeColor(colors.border).stroke();
 
-    doc.font('Helvetica-Bold').fontSize(7).fillColor(colors.primary).text(opts.title.toUpperCase(), x + 10, y + 9, { width: width - 20, characterSpacing: 0.4 });
-    doc.font('Helvetica-Bold').fontSize(9).fillColor(colors.dark).text(opts.name, x + 10, y + 21, { width: width - 20 });
-    doc.font('Helvetica').fontSize(6.5).fillColor(colors.gray).text(opts.mention, x + 10, y + 33, { width: width - 20 });
+    doc.font(this.FONT_BOLD).fontSize(7).fillColor(colors.primary).text(opts.title.toUpperCase(), x + 10, y + 9, { width: width - 20, characterSpacing: 0.4 });
+    doc.font(this.FONT_BOLD).fontSize(9).fillColor(colors.dark).text(opts.name, x + 10, y + 21, { width: width - 20 });
+    doc.font(this.FONT_REGULAR).fontSize(6.5).fillColor(colors.gray).text(opts.mention, x + 10, y + 33, { width: width - 20 });
 
     // Signature zone
     const sigZoneY = y + 48;
@@ -629,13 +765,13 @@ export class PdfService {
         }
       } catch {
         // Fallback: placeholder text
-        doc.font('Helvetica').fontSize(7).fillColor(colors.lightGray).text('Signature', x + 8, sigZoneY + 20, { width: width - 16, align: 'center' });
+        doc.font(this.FONT_REGULAR).fontSize(7).fillColor(colors.lightGray).text('Signature', x + 8, sigZoneY + 20, { width: width - 16, align: 'center' });
       }
     } else {
-      doc.font('Helvetica').fontSize(7).fillColor(colors.lightGray).text('Signature', x + 8, sigZoneY + 20, { width: width - 16, align: 'center' });
+      doc.font(this.FONT_REGULAR).fontSize(7).fillColor(colors.lightGray).text('Signature', x + 8, sigZoneY + 20, { width: width - 16, align: 'center' });
     }
 
-    doc.font('Helvetica').fontSize(7).fillColor(colors.gray).text(`Date : ${opts.date}`, x + 8, y + 128, { width: width - 16 });
+    doc.font(this.FONT_REGULAR).fontSize(7).fillColor(colors.gray).text(`Date : ${opts.date}`, x + 8, y + 128, { width: width - 16 });
   }
 
   // ─── Certificat de signature électronique ────────────────────────────────────
@@ -675,7 +811,7 @@ export class PdfService {
 
     this.drawSectionTitle(doc, leftX, 'CERTIFICAT DE SIGNATURE ÉLECTRONIQUE', pageWidth, colors);
     doc.y += 6;
-    doc.font('Helvetica').fontSize(fonts.labelSize).fillColor(colors.gray);
+    doc.font(this.FONT_REGULAR).fontSize(fonts.labelSize).fillColor(colors.gray);
     doc.text(
       `Réf. ${bon.reference} — Les signatures ci-dessous ont été recueillies électroniquement par l'application Bons IT.`,
       leftX, doc.y, { width: pageWidth },
@@ -690,16 +826,16 @@ export class PdfService {
       // Pastille de rôle + « signé électroniquement »
       const role = PdfService.ROLE_LABELS[sig.type] || 'Signataire';
       doc.circle(leftX + 14, cardY + 14, 2.6).fillColor('#16a34a').fill();
-      doc.font('Helvetica-Bold').fontSize(8).fillColor(colors.dark).text(role, leftX + 22, cardY + 10, { width: pageWidth - 220 });
-      doc.font('Helvetica').fontSize(6.5).fillColor('#16a34a').text('SIGNÉ ÉLECTRONIQUEMENT', leftX + 22, cardY + 22, { width: pageWidth - 220, characterSpacing: 0.4 });
+      doc.font(this.FONT_BOLD).fontSize(8).fillColor(colors.dark).text(role, leftX + 22, cardY + 10, { width: pageWidth - 220 });
+      doc.font(this.FONT_REGULAR).fontSize(6.5).fillColor('#16a34a').text('SIGNÉ ÉLECTRONIQUEMENT', leftX + 22, cardY + 22, { width: pageWidth - 220, characterSpacing: 0.4 });
       if (sig.isInPerson) {
         const presLabel = sig.signedByProxy
           ? 'Signature recueillie en présentiel (mandataire)'
           : 'Signature recueillie en présentiel';
-        doc.font('Helvetica').fontSize(6.5).fillColor(colors.gray).text(presLabel, leftX + 22, cardY + 32, { width: pageWidth - 220 });
+        doc.font(this.FONT_REGULAR).fontSize(6.5).fillColor(colors.gray).text(presLabel, leftX + 22, cardY + 32, { width: pageWidth - 220 });
       }
       if (sig.mentionLuApprouve) {
-        doc.font('Helvetica-Bold').fontSize(6.5).fillColor(colors.gray).text('« Lu et approuvé »', leftX + 22, cardY + (sig.isInPerson ? 41 : 32), { width: pageWidth - 220 });
+        doc.font(this.FONT_BOLD).fontSize(6.5).fillColor(colors.gray).text('« Lu et approuvé »', leftX + 22, cardY + (sig.isInPerson ? 41 : 32), { width: pageWidth - 220 });
       }
 
       // Colonne droite : identité, horodatage, IP, UA. En présentiel par
@@ -720,19 +856,19 @@ export class PdfService {
             ['Adresse IP', sig.signerIp || '—'],
           ];
       for (const [k, v] of meta) {
-        doc.font('Helvetica').fontSize(6.5).fillColor(colors.gray).text(`${k} : `, rX, ry, { width: rW, continued: true });
-        doc.font('Helvetica-Bold').fillColor(colors.dark).text(v, { width: rW });
+        doc.font(this.FONT_REGULAR).fontSize(6.5).fillColor(colors.gray).text(`${k} : `, rX, ry, { width: rW, continued: true });
+        doc.font(this.FONT_BOLD).fillColor(colors.dark).text(v, { width: rW });
         ry += 11;
       }
       if (sig.signerUserAgent) {
-        doc.font('Helvetica').fontSize(5.5).fillColor(colors.lightGray).text(sig.signerUserAgent.slice(0, 70), rX, ry, { width: rW, lineBreak: false });
+        doc.font(this.FONT_REGULAR).fontSize(5.5).fillColor(colors.lightGray).text(sig.signerUserAgent.slice(0, 70), rX, ry, { width: rW, lineBreak: false });
       }
 
       doc.y = cardY + cardH + 8;
     }
 
     // Sceau d'intégrité
-    doc.font('Helvetica').fontSize(6.5).fillColor(colors.lightGray);
+    doc.font(this.FONT_REGULAR).fontSize(6.5).fillColor(colors.lightGray);
     doc.text(
       "L'intégrité de ce document est scellée par une empreinte numérique SHA-256 conservée dans le journal d'audit du système. Toute modification ultérieure du fichier invaliderait cette empreinte.",
       leftX, doc.y + 2, { width: pageWidth, align: 'left' },
@@ -741,6 +877,7 @@ export class PdfService {
 
   // ─── Utility methods ─────────────────────────────────────────────────────────
 
+  /** Lit un fichier image (logo OU cachet de filiale) depuis data/uploads. */
   private async getLogoBuffer(logoPath: string | null): Promise<Buffer | null> {
     if (!logoPath) return null;
     const filename = logoPath.split('/').pop() || '';
@@ -748,7 +885,8 @@ export class PdfService {
     if (!existsSync(fullPath)) return null;
     try {
       return await readFile(fullPath);
-    } catch {
+    } catch (err) {
+      this.logger.warn(`Image illisible (${fullPath}) : ${(err as Error).message}`);
       return null;
     }
   }
@@ -769,6 +907,7 @@ export class PdfService {
       day: '2-digit',
       month: '2-digit',
       year: 'numeric',
+      timeZone: 'Europe/Paris',
     });
   }
 
@@ -784,5 +923,186 @@ export class PdfService {
 
   private getStatusLabel(status: string): string {
     return STATUS_LABELS[status] || status;
+  }
+
+  // ─── Régénération des snapshots manquants ────────────────────────────────────
+
+  /**
+   * Régénère les PdfSnapshot manquants pour toute Signature déjà signée dont
+   * le document de preuve correspondant n'existe pas en base (ex. incident,
+   * perte de données partielle, migration). Le rendu reste déterministe :
+   * la régénération ne modifie jamais le contenu métier du bon, elle ne fait
+   * que reconstruire un document déjà dû.
+   *
+   * Déduction du type de snapshot pour un cachet IT (`it_cachet`) : le champ
+   * `Signature.pdfType` ('mise_disposition' | 'restitution', renseigné par
+   * signItCachet depuis LOT H/B) fait foi quand il est présent. Limite
+   * connue : pour les signatures antérieures à son introduction (`pdfType`
+   * null), la phase est déduite par ordre chronologique parmi les cachets IT
+   * signés du même bon (1er = mise à disposition, suivants = restitution) —
+   * une heuristique qui peut être prise en défaut sur un historique non
+   * standard (plusieurs cycles de restitution partielle avec plusieurs
+   * cachets non typés).
+   */
+  async regenerateMissingSnapshots(): Promise<{ regenerated: number; failed: number }> {
+    let regenerated = 0;
+    let failed = 0;
+
+    const signedSignatures = await this.prisma.signature.findMany({
+      where: {
+        signed: true,
+        type: {
+          in: [
+            SignatureType.mise_disposition,
+            SignatureType.restitution,
+            SignatureType.pv_cloture,
+            SignatureType.it_cachet,
+          ],
+        },
+      },
+      orderBy: { signedAt: 'asc' },
+      select: { bonId: true, type: true, pdfType: true },
+    });
+
+    const byBon = new Map<string, typeof signedSignatures>();
+    for (const sig of signedSignatures) {
+      const list = byBon.get(sig.bonId);
+      if (list) list.push(sig);
+      else byBon.set(sig.bonId, [sig]);
+    }
+
+    for (const [bonId, sigs] of byBon) {
+      const targets = new Set<PdfSnapshotType>();
+      let itCachetCount = 0;
+      for (const sig of sigs) {
+        if (sig.type === SignatureType.mise_disposition) {
+          targets.add(PdfSnapshotType.signature_collab_mise_disposition);
+        } else if (sig.type === SignatureType.restitution) {
+          targets.add(PdfSnapshotType.signature_collab_restitution);
+        } else if (sig.type === SignatureType.pv_cloture) {
+          targets.add(PdfSnapshotType.cloture_equipements_manquants);
+        } else if (sig.type === SignatureType.it_cachet) {
+          itCachetCount++;
+          // pdfType fait foi quand renseigné ; sinon repli sur l'ordre
+          // chronologique (voir limite documentée ci-dessus).
+          const snapshotType = sig.pdfType === 'restitution'
+            ? PdfSnapshotType.signature_it_restitution
+            : sig.pdfType === 'mise_disposition'
+              ? PdfSnapshotType.signature_it_mise_disposition
+              : (itCachetCount === 1
+                  ? PdfSnapshotType.signature_it_mise_disposition
+                  : PdfSnapshotType.signature_it_restitution);
+          targets.add(snapshotType);
+        }
+      }
+
+      for (const snapshotType of targets) {
+        try {
+          const existing = await this.prisma.pdfSnapshot.findUnique({
+            where: { bonId_type: { bonId, type: snapshotType } },
+            select: { id: true },
+          });
+          if (existing) continue;
+
+          const bon = await this.loadBonForPdf(bonId);
+          if (!bon) {
+            failed++;
+            this.logger.warn(`Régénération snapshot ${snapshotType} ignorée : bon ${bonId} introuvable`);
+            continue;
+          }
+
+          const sigImages = await this.buildSigImagesForRegeneratedSnapshot(bon, snapshotType);
+          const collabPart = this.toFilenamePart(bon.collaborateur?.displayName || 'INCONNU');
+          const filename = `${bon.reference}_${collabPart}_${snapshotType}.pdf`;
+          await this.generateAndSave(bon, snapshotType, sigImages, filename);
+          regenerated++;
+        } catch (err) {
+          failed++;
+          this.logger.error(`Échec régénération snapshot ${snapshotType} (bon ${bonId}): ${(err as Error).message}`);
+        }
+      }
+    }
+
+    this.logger.log(`Régénération des snapshots manquants terminée : ${regenerated} régénéré(s), ${failed} échec(s)`);
+    return { regenerated, failed };
+  }
+
+  /** Recharge un bon avec toutes les relations nécessaires au rendu PDF. */
+  private async loadBonForPdf(bonId: string): Promise<BonForPdf | null> {
+    const bon = await this.prisma.bon.findUnique({
+      where: { id: bonId },
+      include: {
+        filiale: true,
+        collaborateur: { select: { displayName: true, department: true } },
+        createdBy: { select: { displayName: true } },
+        equipments: {
+          orderBy: { order: 'asc' },
+          include: { catalogItem: { select: { brand: true, model: true } } },
+        },
+        signatures: true,
+      },
+    });
+    return bon;
+  }
+
+  /**
+   * Reconstruit les SigImages pertinentes pour un type de snapshot donné —
+   * même logique que SignatureService.buildSigImagesForSnapshot (dupliquée :
+   * le module signature dépend déjà du module pdf, l'inverse créerait un cycle).
+   */
+  private async buildSigImagesForRegeneratedSnapshot(bon: BonForPdf, snapshotType: string): Promise<SigImages> {
+    const sigImages: SigImages = { it: null, collab: null };
+    for (const sig of bon.signatures || []) {
+      if (!sig.signed || !sig.signatureImagePath) continue;
+      const raw = await this.getSignatureImageDecrypted(sig.signatureImagePath);
+      if (!raw) continue;
+      const src = raw.startsWith('data:') ? raw : `data:image/png;base64,${raw}`;
+
+      if (sig.type === 'it_cachet') {
+        sigImages.it = src;
+      } else if (snapshotType === 'cloture_equipements_manquants') {
+        if (sig.type === 'pv_cloture') sigImages.collab = src;
+      } else if (snapshotType.includes('collab')) {
+        const isRestitutionSnapshot = snapshotType.includes('restitution');
+        const isRestitutionSig = sig.type === 'restitution';
+        if (isRestitutionSnapshot === isRestitutionSig) sigImages.collab = src;
+      }
+    }
+    return sigImages;
+  }
+
+  /** Déchiffre une image de signature stockée sur disque (usage PDF uniquement). */
+  private async getSignatureImageDecrypted(signatureImagePath: string): Promise<string | null> {
+    try {
+      const base = basename(signatureImagePath);
+      if (base !== signatureImagePath) return null;
+      const fullPath = join(this.signaturesDir, base);
+      if (!fullPath.startsWith(this.signaturesDir) || !existsSync(fullPath)) return null;
+      const encrypted = await readFile(fullPath, 'utf8');
+      return this.encryption.decrypt(encrypted);
+    } catch {
+      return null;
+    }
+  }
+
+  /** Fragment de nom de fichier sûr (sans accents/espaces) — usage interne uniquement. */
+  private toFilenamePart(name: string): string {
+    // Retire les diacritiques laissés par normalize('NFKD') (plage Unicode
+    // « Combining Diacritical Marks », U+0300-U+036F). Filtrage par code
+    // point plutôt que par classe de caractères regex, pour éviter toute
+    // ambiguïté d'échappement Unicode dans la classe de caractères.
+    const COMBINING_MARKS_START = 0x0300;
+    const COMBINING_MARKS_END = 0x036f;
+    let withoutDiacritics = '';
+    for (const ch of name.normalize('NFKD')) {
+      const code = ch.codePointAt(0) ?? 0;
+      if (code >= COMBINING_MARKS_START && code <= COMBINING_MARKS_END) continue;
+      withoutDiacritics += ch;
+    }
+    const cleaned = withoutDiacritics
+      .replace(/[^a-zA-Z0-9-]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
+    return cleaned || 'INCONNU';
   }
 }

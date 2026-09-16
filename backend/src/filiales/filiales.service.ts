@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateFilialeDto, UpdateFilialeDto } from './dto/filiale.dto';
 import { existsSync, unlinkSync } from 'fs';
@@ -22,13 +23,34 @@ export class FilialesService {
     return filiale;
   }
 
-  create(dto: CreateFilialeDto) {
-    return this.prisma.filiale.create({ data: dto });
+  async create(dto: CreateFilialeDto) {
+    try {
+      return await this.prisma.filiale.create({ data: dto });
+    } catch (err) {
+      throw this.toBadRequestOnUniqueNameViolation(err);
+    }
   }
 
   async update(id: string, dto: UpdateFilialeDto) {
     await this.findOne(id);
-    return this.prisma.filiale.update({ where: { id }, data: dto });
+    try {
+      return await this.prisma.filiale.update({ where: { id }, data: dto });
+    } catch (err) {
+      throw this.toBadRequestOnUniqueNameViolation(err);
+    }
+  }
+
+  /**
+   * Traduit la violation de l'index unique insensible à la casse sur le nom
+   * (migration 20260916100400_unique_constraints, sur lower(name)) en 400
+   * lisible, plutôt que de laisser remonter un 500 Prisma brut au client.
+   * Toute autre erreur Prisma (panne DB, etc.) est relancée telle quelle.
+   */
+  private toBadRequestOnUniqueNameViolation(err: unknown): Error {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+      return new BadRequestException('Une filiale avec ce nom existe déjà.');
+    }
+    return err instanceof Error ? err : new Error(String(err));
   }
 
   async updateLogo(id: string, filename: string) {

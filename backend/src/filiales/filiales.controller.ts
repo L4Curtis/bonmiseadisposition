@@ -6,7 +6,7 @@ import { Throttle } from '@nestjs/throttler';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { join, basename } from 'path';
-import { existsSync } from 'fs';
+import { existsSync, unlinkSync } from 'fs';
 import { FilialesService } from './filiales.service';
 import { CreateFilialeDto, UpdateFilialeDto } from './dto/filiale.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -68,11 +68,19 @@ export class FilialesController {
   @Roles('admin', 'technician')
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @UseInterceptors(FileInterceptor('file'))
-  uploadLogo(@Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
+  async uploadLogo(@Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
     if (!file) {
       throw new BadRequestException('Aucun fichier fourni');
     }
-    return this.filialesService.updateLogo(id, file.filename);
+    try {
+      return await this.filialesService.updateLogo(id, file.filename);
+    } catch (err) {
+      // La filiale ciblée n'existe pas (ou autre échec) : multer a déjà écrit
+      // le fichier sur disque avant l'appel du service — on le supprime pour
+      // ne pas laisser de fichier orphelin.
+      this.cleanupOrphanUpload(file.filename);
+      throw err;
+    }
   }
 
   @Patch(':id/stamp')
@@ -80,11 +88,16 @@ export class FilialesController {
   @Roles('admin', 'technician')
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @UseInterceptors(FileInterceptor('file'))
-  uploadStamp(@Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
+  async uploadStamp(@Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
     if (!file) {
       throw new BadRequestException('Aucun fichier fourni');
     }
-    return this.filialesService.updateStamp(id, file.filename);
+    try {
+      return await this.filialesService.updateStamp(id, file.filename);
+    } catch (err) {
+      this.cleanupOrphanUpload(file.filename);
+      throw err;
+    }
   }
 
   @Delete(':id')
@@ -92,5 +105,15 @@ export class FilialesController {
   @Roles('admin')
   remove(@Param('id') id: string) {
     return this.filialesService.remove(id);
+  }
+
+  /** Supprime (best-effort) un fichier déjà écrit par multer quand l'upload échoue en aval (ex. filiale introuvable) — évite un fichier orphelin sur disque. */
+  private cleanupOrphanUpload(filename: string): void {
+    const fullPath = join(process.cwd(), 'data', 'uploads', basename(filename));
+    try {
+      if (existsSync(fullPath)) unlinkSync(fullPath);
+    } catch {
+      // best-effort : un fichier orphelin résiduel n'est pas bloquant
+    }
   }
 }

@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { BadRequestException, Module } from '@nestjs/common';
 import { MulterModule } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname, join } from 'path';
@@ -17,13 +17,16 @@ import { FilialesService } from './filiales.service';
       }),
       limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
       fileFilter: (_req, file, cb) => {
-        // SVG intentionally excluded: SVG files can contain embedded JavaScript (XSS risk)
-        const allowedExt = /\.(jpg|jpeg|png|gif|webp)$/i;
-        const allowedMime = /^image\/(jpeg|png|gif|webp)$/;
+        // JPEG/PNG uniquement : ce sont les deux seuls formats que PDFKit sait
+        // dessiner (doc.image). GIF/WebP étaient acceptés à l'upload mais
+        // rendaient le logo/cachet silencieusement absent du PDF. SVG reste
+        // exclu (peut embarquer du JavaScript — risque XSS).
+        const allowedExt = /\.(jpg|jpeg|png)$/i;
+        const allowedMime = /^image\/(jpeg|png)$/;
         if (allowedExt.test(file.originalname) && allowedMime.test(file.mimetype)) {
           cb(null, true);
         } else {
-          cb(new Error('Type de fichier non autorisé. Formats acceptés : JPG, PNG, GIF, WebP'), false);
+          cb(new BadRequestException('Format non supporté : JPEG ou PNG uniquement'), false);
         }
       },
     }),

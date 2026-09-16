@@ -1,0 +1,18 @@
+Polices Unicode DejaVu Sans (licence Bitstream Vera, libre et redistribuable)
+=============================================================================
+
+Ce répertoire doit contenir :
+  - DejaVuSans.ttf      (police corps de texte)
+  - DejaVuSans-Bold.ttf (police grasse)
+
+Téléchargement :
+  https://dejavu-fonts.github.io/  (archive DejaVu_Fonts-*.zip)
+  ou : https://github.com/dejavu-fonts/dejavu-fonts/releases
+
+Une fois les fichiers copiés ici, redémarrer le backend.
+Sans ces fichiers, le service utilise Helvetica (Latin-1 uniquement) avec un
+avertissement dans les logs — les PDF restent fonctionnels mais les caractères
+hors Latin-1 (Ł, cyrillique, CJK, emoji…) seront mal rendus.
+
+nest-cli.json copie automatiquement ce dossier dans dist/ via :
+  "assets": ["pdf/fonts/**/*"]

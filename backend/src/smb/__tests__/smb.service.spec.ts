@@ -68,6 +68,7 @@ describe('SmbService', () => {
         if (cat === 'smb' && key === 'path') return Promise.resolve('/mnt/share');
         return Promise.resolve(null);
       });
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
       prisma.smbExport.create.mockResolvedValue({ id: 'exp-1' });
       prisma.smbExport.update.mockResolvedValue({});
       (fsPromises.mkdir as jest.Mock).mockResolvedValue(undefined);
@@ -100,6 +101,7 @@ describe('SmbService', () => {
         if (cat === 'smb' && key === 'path') return Promise.resolve('/mnt/share');
         return Promise.resolve(null);
       });
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
       prisma.smbExport.create.mockResolvedValue({ id: 'exp-2' });
       prisma.smbExport.update.mockResolvedValue({});
       (fsPromises.mkdir as jest.Mock).mockResolvedValue(undefined);
@@ -147,6 +149,24 @@ describe('SmbService', () => {
       const result = await service.exportPdf(mockBon, 'test.pdf', Buffer.from('pdf'));
 
       expect(result.success).toBe(false);
+    });
+
+    it('should fail explicitly (without creating the root) when the share is not mounted', async () => {
+      configService.get.mockImplementation((cat: string, key: string) => {
+        if (cat === 'smb' && key === 'enabled') return Promise.resolve('true');
+        if (cat === 'smb' && key === 'path') return Promise.resolve('/mnt/share');
+        return Promise.resolve(null);
+      });
+      (fs.existsSync as jest.Mock).mockReturnValue(false);
+
+      const result = await service.exportPdf(mockBon, 'test.pdf', Buffer.from('pdf'));
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("n'existe pas ou le partage n'est pas monté");
+      // Jamais de création automatique de la racine (mkdir recursive local)
+      expect(fsPromises.mkdir).not.toHaveBeenCalled();
+      expect(fsPromises.writeFile).not.toHaveBeenCalled();
+      expect(prisma.smbExport.create).not.toHaveBeenCalled();
     });
   });
 
@@ -231,6 +251,23 @@ describe('SmbService', () => {
 
       expect(result.success).toBe(true);
     });
+
+    it('should fail explicitly (without creating the root) when the share is not mounted', async () => {
+      const smbPath = '/mnt/share';
+      configService.get.mockResolvedValue(smbPath);
+      (fs.existsSync as jest.Mock).mockReturnValue(false);
+
+      const result = await service.testConnection();
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain("n'existe pas ou le partage n'est pas monté");
+      // Assertion discriminante : ni création de dossier sur la racine, ni
+      // tentative d'écriture du fichier-sonde — la fonction doit sortir AVANT
+      // toute opération disque, pas seulement s'abstenir de mkdirSync (API
+      // qui n'est de toute façon plus appelée par le code actuel).
+      expect(fsPromises.mkdir).not.toHaveBeenCalledWith(smbPath, expect.anything());
+      expect(fsPromises.writeFile).not.toHaveBeenCalled();
+    });
   });
 
   describe('retryOne', () => {
@@ -242,6 +279,105 @@ describe('SmbService', () => {
       expect(result.success).toBe(false);
       expect(result.error).toContain('non activé');
     });
+
+    it('should retry successfully when the snapshot filename matches exactly', async () => {
+      configService.get.mockImplementation((cat: string, key: string) => {
+        if (cat === 'smb' && key === 'enabled') return Promise.resolve('true');
+        if (cat === 'smb' && key === 'path') return Promise.resolve('/mnt/share');
+        return Promise.resolve(null);
+      });
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+      (fsPromises.mkdir as jest.Mock).mockResolvedValue(undefined);
+      (fsPromises.writeFile as jest.Mock).mockResolvedValue(undefined);
+      prisma.smbExport.findUnique.mockResolvedValue({
+        id: 'exp-1',
+        status: 'failed',
+        filename: 'BON-1_Jean_signature_collab_mise_disposition.pdf',
+        bon: {
+          reference: 'BON-2026-0001',
+          createdAt: new Date('2026-01-01'),
+          filiale: { displayName: 'Livio' },
+          collaborateur: { displayName: 'Jean' },
+          pdfSnapshots: [
+            { filename: 'BON-1_Jean_signature_collab_mise_disposition.pdf', data: Buffer.from('pdf-data') },
+          ],
+        },
+      });
+      prisma.smbExport.update.mockResolvedValue({});
+
+      const result = await service.retryOne('exp-1');
+
+      expect(result.success).toBe(true);
+      expect(fsPromises.writeFile).toHaveBeenCalled();
+    });
+
+    // Régression : avant correctif, l'absence de correspondance retombait sur
+    // pdfSnapshots[0] et écrivait un document ARBITRAIRE sous ce nom de
+    // fichier (ex. la clôture unilatérale, dont le PDF n'est jamais persisté
+    // comme PdfSnapshot sous ce nom — voir bons.service.ts).
+    it('should fail explicitly (no arbitrary fallback) when no snapshot matches the export filename', async () => {
+      configService.get.mockImplementation((cat: string, key: string) => {
+        if (cat === 'smb' && key === 'enabled') return Promise.resolve('true');
+        if (cat === 'smb' && key === 'path') return Promise.resolve('/mnt/share');
+        return Promise.resolve(null);
+      });
+      prisma.smbExport.findUnique.mockResolvedValue({
+        id: 'exp-2',
+        status: 'failed',
+        filename: 'BON-1_Jean_signature_collab_mise_disposition_cloture_unilaterale.pdf',
+        bon: {
+          reference: 'BON-2026-0001',
+          pdfSnapshots: [
+            { filename: 'BON-1_Jean_cloture_equipements_manquants.pdf', data: Buffer.from('unrelated-document') },
+          ],
+        },
+      });
+      prisma.smbExport.update.mockResolvedValue({});
+
+      const result = await service.retryOne('exp-2');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Snapshot introuvable pour ce fichier');
+      expect(prisma.smbExport.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'exp-2' },
+          data: expect.objectContaining({ status: 'failed', errorMessage: 'Snapshot introuvable pour ce fichier' }),
+        }),
+      );
+      expect(fsPromises.writeFile).not.toHaveBeenCalled();
+    });
+
+    it('should fail explicitly (without creating the root) when the share is not mounted during a retry', async () => {
+      configService.get.mockImplementation((cat: string, key: string) => {
+        if (cat === 'smb' && key === 'enabled') return Promise.resolve('true');
+        if (cat === 'smb' && key === 'path') return Promise.resolve('/mnt/share');
+        return Promise.resolve(null);
+      });
+      (fs.existsSync as jest.Mock).mockReturnValue(false);
+      prisma.smbExport.findUnique.mockResolvedValue({
+        id: 'exp-3',
+        status: 'failed',
+        filename: 'BON-1_Jean_signature_collab_mise_disposition.pdf',
+        bon: {
+          reference: 'BON-2026-0001',
+          pdfSnapshots: [
+            { filename: 'BON-1_Jean_signature_collab_mise_disposition.pdf', data: Buffer.from('pdf-data') },
+          ],
+        },
+      });
+
+      const result = await service.retryOne('exp-3');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("n'existe pas ou le partage n'est pas monté");
+      expect(fsPromises.mkdir).not.toHaveBeenCalled();
+      expect(fsPromises.writeFile).not.toHaveBeenCalled();
+      // Le compteur de tentatives n'est pas incrémenté pour un chemin non monté
+      // (config invalide), au même titre qu'un chemin SMB non sûr.
+      expect(prisma.smbExport.update).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ retryCount: expect.anything() }) }),
+      );
+    });
   });
 
   describe('retryAllFailed', () => {
@@ -251,6 +387,39 @@ describe('SmbService', () => {
       const result = await service.retryAllFailed();
 
       expect(result).toEqual({ retried: 0, succeeded: 0, failed: 0 });
+    });
+
+    it('should fail explicitly (no arbitrary fallback) when no snapshot matches an export filename', async () => {
+      configService.get.mockImplementation((cat: string, key: string) => {
+        if (cat === 'smb' && key === 'enabled') return Promise.resolve('true');
+        if (cat === 'smb' && key === 'path') return Promise.resolve('/mnt/share');
+        return Promise.resolve(null);
+      });
+      prisma.smbExport.findMany.mockResolvedValue([
+        {
+          id: 'exp-4',
+          status: 'failed',
+          filename: 'BON-1_Jean_signature_collab_mise_disposition_cloture_unilaterale.pdf',
+          bon: {
+            reference: 'BON-2026-0001',
+            pdfSnapshots: [
+              { filename: 'BON-1_Jean_cloture_equipements_manquants.pdf', data: Buffer.from('unrelated-document') },
+            ],
+          },
+        },
+      ]);
+      prisma.smbExport.update.mockResolvedValue({});
+
+      const result = await service.retryAllFailed();
+
+      expect(result).toEqual({ retried: 1, succeeded: 0, failed: 1 });
+      expect(prisma.smbExport.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'exp-4' },
+          data: expect.objectContaining({ status: 'failed', errorMessage: 'Snapshot introuvable pour ce fichier' }),
+        }),
+      );
+      expect(fsPromises.writeFile).not.toHaveBeenCalled();
     });
   });
 
@@ -288,6 +457,27 @@ describe('SmbService', () => {
 
     it('should collapse multiple hyphens', () => {
       expect(service.sanitizeName('a - - b')).toBe('a-b');
+    });
+
+    // Régression : trim() était appliqué APRÈS la conversion espaces → tirets,
+    // donc un espace de tête/fin devenait un tiret de tête/fin ('-Jean-')
+    // au lieu d'être retiré.
+    it('should not leave leading/trailing hyphens for a name with surrounding whitespace', () => {
+      expect(service.sanitizeName('  Jean  ')).toBe('Jean');
+    });
+
+    it('should fall back to INCONNU for a name with no Latin characters', () => {
+      expect(service.sanitizeName('Иван Иванов')).toBe('INCONNU');
+    });
+
+    it('should suffix a reserved Windows device name', () => {
+      expect(service.sanitizeName('CON')).toBe('CON_');
+      expect(service.sanitizeName('con')).toBe('con_');
+      expect(service.sanitizeName('LPT1')).toBe('LPT1_');
+    });
+
+    it('should not suffix a name that merely contains a reserved word', () => {
+      expect(service.sanitizeName('CONSTANTIN')).toBe('CONSTANTIN');
     });
   });
 });

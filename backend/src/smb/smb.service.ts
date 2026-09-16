@@ -68,6 +68,17 @@ export class SmbService {
       return { success: false, error: 'Nom de fichier invalide' };
     }
 
+    // Le partage doit déjà être monté : on ne crée JAMAIS la racine (mkdir
+    // recursive sur un chemin absent créerait un dossier local dans le
+    // conteneur, et l'export « réussirait » sans que rien n'atteigne le
+    // partage réseau réel). Seuls les sous-dossiers (filiale/année/bon) sont
+    // créés à la volée, une fois la racine confirmée présente.
+    if (!fs.existsSync(smbPath)) {
+      const msg = `Le chemin d'export n'existe pas ou le partage n'est pas monté : ${smbPath}`;
+      this.logger.error(`SMB: ${msg}`);
+      return { success: false, error: msg };
+    }
+
     // Create tracking record
     const bonId = 'id' in bon ? (bon as { id: string }).id : undefined;
     const record = bonId
@@ -125,12 +136,10 @@ export class SmbService {
         return { success: false, message: `Chemin rejeté (répertoire système ou invalide): ${smbPath}` };
       }
 
+      // Ne jamais créer la racine du partage : son absence signifie que le
+      // partage SMB n'est pas monté, pas qu'il faut créer un dossier local.
       if (!fs.existsSync(smbPath)) {
-        try {
-          fs.mkdirSync(smbPath, { recursive: true });
-        } catch {
-          return { success: false, message: `Le chemin ${smbPath} n'existe pas et ne peut pas être créé` };
-        }
+        return { success: false, message: `Le chemin d'export n'existe pas ou le partage n'est pas monté : ${smbPath}` };
       }
 
       const testFile = path.join(smbPath, `.smb-test-${Date.now()}`);
@@ -225,10 +234,25 @@ export class SmbService {
     if (!record) return { success: false, error: 'Export introuvable' };
     if (record.status === 'success') return { success: true };
 
-    const snapshot = record.bon.pdfSnapshots.find((s) => record.filename.includes(s.filename))
-      ?? record.bon.pdfSnapshots[0];
+    // Correspondance EXACTE uniquement : le schéma actuel (SmbExport) n'a pas
+    // de champ dédié (type de snapshot, sha256) pour relier de façon fiable
+    // un export à SON document. Un fallback (ex. le snapshot le plus récent)
+    // écrirait un document ARBITRAIRE sous ce nom de fichier — inacceptable
+    // pour une preuve légale. Limite connue : la clôture unilatérale génère
+    // parfois un PDF qui n'est jamais persisté comme PdfSnapshot (voir
+    // bons.service.ts) ; son export ne peut alors pas être réessayé tant que
+    // ce cas n'est pas corrigé côté génération (hors périmètre de ce lot).
+    const snapshot = record.bon.pdfSnapshots.find((s) => s.filename === record.filename);
 
-    if (!snapshot) return { success: false, error: 'Aucun snapshot PDF trouvé pour ce bon' };
+    if (!snapshot) {
+      const errorMessage = 'Snapshot introuvable pour ce fichier';
+      this.logger.error(`SMB retry: ${errorMessage} [bon=${record.bon.reference}, fichier=${record.filename}]`);
+      await this.prisma.smbExport.update({
+        where: { id: record.id },
+        data: { status: 'failed', errorMessage, lastAttemptAt: new Date() },
+      });
+      return { success: false, error: errorMessage };
+    }
 
     return this.retryExport(record.id, record.bon, record.filename, Buffer.from(snapshot.data));
   }
@@ -255,9 +279,16 @@ export class SmbService {
     let failed = 0;
 
     for (const record of failedExports) {
-      const snapshot = record.bon.pdfSnapshots.find((s) => record.filename.includes(s.filename))
-        ?? record.bon.pdfSnapshots[0];
+      // Voir retryOne() : correspondance exacte uniquement, jamais de fallback
+      // arbitraire sur un document de preuve.
+      const snapshot = record.bon.pdfSnapshots.find((s) => s.filename === record.filename);
       if (!snapshot) {
+        const errorMessage = 'Snapshot introuvable pour ce fichier';
+        this.logger.error(`SMB retry: ${errorMessage} [bon=${record.bon.reference}, fichier=${record.filename}]`);
+        await this.prisma.smbExport.update({
+          where: { id: record.id },
+          data: { status: 'failed', errorMessage, lastAttemptAt: new Date() },
+        });
         failed++;
         continue;
       }
@@ -271,7 +302,7 @@ export class SmbService {
   }
 
   /** Cron: retry failed exports every 6 hours */
-  @Cron('0 */6 * * *')
+  @Cron('0 */6 * * *', { timeZone: 'Europe/Paris' })
   async cronRetryFailedExports(): Promise<void> {
     try {
       const enabled = await this.configService.get('smb', 'enabled');
@@ -322,6 +353,14 @@ export class SmbService {
     const smbPath = await this.configService.get('smb', 'path');
     if (!smbPath || !this.isSafeExportPath(smbPath)) {
       return { success: false, error: 'Chemin SMB invalide' };
+    }
+
+    // Comme pour l'export initial : la racine du partage ne doit jamais être
+    // créée automatiquement — son absence signale un partage non monté.
+    if (!fs.existsSync(smbPath)) {
+      const msg = `Le chemin d'export n'existe pas ou le partage n'est pas monté : ${smbPath}`;
+      this.logger.error(`SMB retry: ${msg}`);
+      return { success: false, error: msg };
     }
 
     await this.prisma.smbExport.update({
@@ -397,14 +436,33 @@ export class SmbService {
     return true;
   }
 
-  /** Remove accents and special characters from a name for filesystem use */
+  // Noms de p\u00e9riph\u00e9riques r\u00e9serv\u00e9s par Windows (interdits comme nom de
+  // fichier/dossier, avec ou sans extension) \u2014 cf. documentation Microsoft.
+  private static readonly RESERVED_WINDOWS_NAMES = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i;
+
+  /**
+   * Remove accents and special characters from a name for filesystem use.
+   *
+   * L'ordre importe : trim() doit pr\u00e9c\u00e9der la conversion espaces \u2192 tirets
+   * (sinon un nom avec espace de t\u00eate/fin devient '-Nom-' au lieu de 'Nom' \u2014
+   * trim() ne retire que des espaces, pas des tirets). Un nom enti\u00e8rement
+   * non latin (ex. \u00e9crit uniquement en alphabet non latin) peut se r\u00e9duire \u00e0
+   * une cha\u00eene vide apr\u00e8s filtrage : on retombe alors sur 'INCONNU'. Enfin,
+   * les noms r\u00e9serv\u00e9s Windows (CON, PRN, NUL, COM1\u2026) sont suffix\u00e9s pour
+   * rester utilisables comme composant de chemin sur un partage Windows.
+   */
   sanitizeName(name: string): string {
-    return name
-      .normalize('NFD')
+    const cleaned = name
+      .trim()
+      .normalize('NFKD')
       .replace(/[\u0300-\u036f]/g, '')
       .replace(/[^a-zA-Z0-9\s-]/g, '')
+      .trim()
       .replace(/\s+/g, '-')
       .replace(/-+/g, '-')
-      .trim();
+      .replace(/^-+|-+$/g, '');
+
+    const base = cleaned || 'INCONNU';
+    return SmbService.RESERVED_WINDOWS_NAMES.test(base) ? `${base}_` : base;
   }
 }

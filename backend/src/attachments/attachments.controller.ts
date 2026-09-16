@@ -24,6 +24,14 @@ import { AuthUser } from '../auth/auth-user.interface';
 
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 
+/**
+ * Statuts pendant lesquels un collaborateur peut encore ajouter/supprimer des
+ * pièces jointes — la « période de signature ». Hors de cette fenêtre (bon
+ * brouillon, archivé, contesté…) le bon est figé côté collaborateur : ajouter
+ * une PJ après coup modifierait un dossier déjà clos/probant.
+ */
+const COLLAB_ATTACHMENT_WINDOW_STATUSES = ['sent_mise_dispo', 'sent_restitution', 'partially_returned'];
+
 @Controller('bons/:bonId/attachments')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('admin', 'technician', 'collaborator')
@@ -49,6 +57,11 @@ export class AttachmentsController {
     @CurrentUser() user: AuthUser,
   ) {
     await this.verifyAccess(bonId, user);
+    await this.verifyCollaboratorWriteWindow(
+      bonId,
+      user,
+      'Vous ne pouvez ajouter des pièces jointes que pendant la période de signature',
+    );
     if (!file) throw new BadRequestException('Aucun fichier reçu (champ "file" attendu)');
     return this.attachments.create(
       bonId,
@@ -75,14 +88,25 @@ export class AttachmentsController {
     return res.send(buffer);
   }
 
+  // Un collaborateur ne peut supprimer que SES PROPRES pièces jointes,
+  // pendant la même fenêtre que l'upload — pas de @Roles restrictif ici :
+  // hérite du niveau classe (admin, technician, collaborator), la
+  // restriction fine est appliquée dans le corps de la méthode.
   @Delete(':attachmentId')
-  @Roles('admin', 'technician')
   async remove(
     @Param('bonId') bonId: string,
     @Param('attachmentId') attachmentId: string,
     @CurrentUser() user: AuthUser,
   ) {
     await this.verifyAccess(bonId, user);
+    await this.verifyCollaboratorWriteWindow(
+      bonId,
+      user,
+      'Vous ne pouvez supprimer des pièces jointes que pendant la période de signature',
+    );
+    if (user.role === 'collaborator') {
+      await this.verifyOwnAttachment(bonId, attachmentId, user);
+    }
     return this.attachments.remove(bonId, attachmentId, { id: user.id, email: user.email });
   }
 
@@ -97,6 +121,37 @@ export class AttachmentsController {
     if (!bon) return; // 404 produit par le service
     if (bon.collaborateurId !== user.id) {
       throw new ForbiddenException('Accès refusé à ce bon');
+    }
+  }
+
+  /**
+   * Un collaborateur ne peut ajouter/supprimer des pièces jointes que pendant
+   * la période de signature (bon envoyé, en attente de signature ou de
+   * restitution partielle). Admin/technician : sans restriction.
+   */
+  private async verifyCollaboratorWriteWindow(bonId: string, user: AuthUser, message: string): Promise<void> {
+    if (user.role !== 'collaborator') return;
+    const bon = await this.prisma.bon.findUnique({
+      where: { id: bonId },
+      select: { status: true },
+    });
+    if (!bon) return; // 404 produit par le service en aval
+    if (!COLLAB_ATTACHMENT_WINDOW_STATUSES.includes(bon.status)) {
+      throw new ForbiddenException(message);
+    }
+  }
+
+  /**
+   * Un collaborateur ne peut supprimer que ses propres pièces jointes.
+   * Si l'auteur n'est pas tracé (PJ ancienne, email non renseigné), on ne
+   * peut pas vérifier la propriété : seule la fenêtre de statut s'applique.
+   */
+  private async verifyOwnAttachment(bonId: string, attachmentId: string, user: AuthUser): Promise<void> {
+    const list = await this.attachments.list(bonId);
+    const attachment = list.find((a) => a.id === attachmentId);
+    if (!attachment) return; // 404 produit par le service en aval
+    if (attachment.uploadedByEmail && attachment.uploadedByEmail !== user.email) {
+      throw new ForbiddenException('Vous ne pouvez supprimer que vos propres pièces jointes');
     }
   }
 }
