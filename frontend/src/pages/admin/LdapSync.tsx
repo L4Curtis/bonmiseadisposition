@@ -15,13 +15,17 @@ import {
 } from '@/components/ui/dialog';
 import { toast } from '@/hooks/use-toast';
 import { formatDateTime } from '@/lib/utils';
-import { RefreshCw, CheckCircle, XCircle, Clock, Trash2 } from 'lucide-react';
+import { RefreshCw, CheckCircle, XCircle, AlertTriangle, Clock, Trash2 } from 'lucide-react';
 
 interface SyncStatus {
   lastSync: string | null;
   lastSyncSuccess: boolean | null;
   lastSyncCount: number | null;
   lastSyncError: string | null;
+  /** Sync interrompue par un garde-fou (ex: > 20 % de désactivations) — succès
+   *  partiel, à distinguer du succès plein et de l'échec. */
+  lastSyncAborted?: boolean;
+  lastSyncWarning?: string | null;
 }
 
 const POLL_INTERVAL_MS = 2500;
@@ -163,6 +167,10 @@ export function LdapSyncPage() {
                 <span className="text-sm text-muted-foreground w-40">Resultat :</span>
                 {status.lastSyncSuccess === null ? (
                   <Badge variant="outline">En attente</Badge>
+                ) : status.lastSyncSuccess && status.lastSyncAborted ? (
+                  <Badge variant="warning" className="flex items-center gap-1">
+                    <AlertTriangle className="h-3 w-3" /> Synchronisation partielle ({status.lastSyncCount} utilisateurs)
+                  </Badge>
                 ) : status.lastSyncSuccess ? (
                   <Badge variant="success" className="flex items-center gap-1">
                     <CheckCircle className="h-3 w-3" /> Succes ({status.lastSyncCount} utilisateurs)
@@ -173,6 +181,11 @@ export function LdapSyncPage() {
                   </Badge>
                 )}
               </div>
+              {status.lastSyncAborted && status.lastSyncWarning && (
+                <div className="rounded-lg bg-orange-50 dark:bg-orange-900/15 border border-orange-200 p-3" role="alert">
+                  <p className="text-sm text-orange-700 dark:text-orange-400 font-mono">{status.lastSyncWarning}</p>
+                </div>
+              )}
               {status.lastSyncError && (
                 <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 p-3" role="alert">
                   <p className="text-sm text-red-700 dark:text-red-400 font-mono">{status.lastSyncError}</p>
