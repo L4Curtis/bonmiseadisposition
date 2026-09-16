@@ -14,7 +14,7 @@ import {
 import { ModuleRef } from '@nestjs/core';
 import { SignatureService } from '../signature.service';
 import { TimestampService } from '../timestamp.service';
-import { BonsService } from '../../bons/bons.service';
+import { BONS_SERVICE } from '../../bons/bons.tokens';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EncryptionService } from '../../config/encryption.service';
 import { AppConfigService } from '../../config/config.service';
@@ -52,7 +52,7 @@ function createMockBonsService() {
 /**
  * BonsService n'est plus injecté au constructeur (ça formerait un cycle de
  * modules, cf. signature.module.ts) : SignatureService le résout
- * paresseusement via ModuleRef.get(BonsService, { strict: false }) au moment
+ * paresseusement via ModuleRef.get(BONS_SERVICE, { strict: false }) au moment
  * du hook. On mocke donc ModuleRef.get pour renvoyer le mock BonsService.
  */
 function createMockModuleRef(bonsServiceMock: ReturnType<typeof createMockBonsService>) {
@@ -591,7 +591,7 @@ describe('SignatureService', () => {
 
       await service.sign('test-token-uuid', VALID_SIGNATURE_DATA_URL, true, SIGNER_EMAIL, SIGNER_IP, SIGNER_UA);
 
-      expect(moduleRefMock.get).toHaveBeenCalledWith(BonsService, { strict: false });
+      expect(moduleRefMock.get).toHaveBeenCalledWith(BONS_SERVICE, { strict: false });
       expect(bonsService.emitPvClotureIfDue).toHaveBeenCalledWith(sig.bon.id);
       // Pas encore clôturé (partially_returned) : pas d'archivedAt à cette étape
       const statusUpdateArgs = prisma.bon.updateMany.mock.calls[0][0] as { data: Record<string, unknown> };

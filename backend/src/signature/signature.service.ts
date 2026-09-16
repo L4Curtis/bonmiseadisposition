@@ -17,7 +17,10 @@ import { AppConfigService } from '../config/config.service';
 import { TimestampService } from './timestamp.service';
 import { PdfService, SigImages, BonForPdf } from '../pdf/pdf.service';
 import { SmbService } from '../smb/smb.service';
-import { BonsService } from '../bons/bons.service';
+// Import de TYPE uniquement (effacé à la compilation) : importer la classe
+// formerait un cycle de fichiers avec bons.service.ts (cf. bons.tokens.ts).
+import type { BonsService } from '../bons/bons.service';
+import { BONS_SERVICE } from '../bons/bons.tokens';
 import { BonStatus, SignatureEntry, BON_SELECT_SHAPE, sanitizeBonForResponse, toSafeSignature } from '../common/types';
 import { generateSignatureToken } from '../common/tokens';
 import { assertPngDataUrl } from '../common/signature-data-url';
@@ -469,7 +472,7 @@ export class SignatureService {
         // (ça formerait un cycle de modules, cf. commentaire du constructeur) —
         // { strict: false } cherche dans tout le conteneur, pas seulement les
         // providers visibles depuis SignatureModule.
-        const bonsService = this.moduleRef.get(BonsService, { strict: false });
+        const bonsService = this.moduleRef.get<BonsService>(BONS_SERVICE, { strict: false });
         const emitted = await bonsService.emitPvClotureIfDue(updatedBon.id);
         if (!emitted) {
           this.logger.warn(
