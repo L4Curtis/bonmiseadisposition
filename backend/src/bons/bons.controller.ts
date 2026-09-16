@@ -13,7 +13,7 @@ import {
   ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
-import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import { Throttle } from '@nestjs/throttler';
 import { Response, Request } from 'express';
 import { BonsService } from './bons.service';
 import { PdfService } from '../pdf/pdf.service';
@@ -70,9 +70,10 @@ export class BonsController {
     return this.contestationService.create(id, user.id, dto.message);
   }
 
-  /** POST /bons/:id/resend — IT renvoie le lien de signature */
+  /** POST /bons/:id/resend — IT renvoie le lien de signature
+   *  (pas de @UseGuards(ThrottlerGuard) local : le guard global compte déjà
+   *  la requête — l'ajouter ici double-comptait la même requête). */
   @Post(':id/resend')
-  @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   resend(@Param('id') id: string, @Body() body: { force?: boolean }, @CurrentUser() user: AuthUser) {
     return this.bonsService.resendSignatureLink(id, user.id, body?.force === true);
@@ -93,22 +94,30 @@ export class BonsController {
 
   @Get('export')
   async exportCsv(@Query() dto: QueryBonsDto, @Res() res: Response) {
-    const { status, filialeId, search } = dto;
-    const csv = await this.bonsService.getExportData({ status, filialeId, search });
+    const { status, excludeStatus, filialeId, search, overdue } = dto;
+    const { csv, truncated } = await this.bonsService.getExportData({
+      status,
+      excludeStatus,
+      filialeId,
+      search,
+      overdue,
+    });
     const filename = `bons-export-${new Date().toISOString().slice(0, 10)}.csv`;
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    if (truncated) res.setHeader('X-Truncated', 'true');
     res.send(csv);
   }
 
   @Get()
   findAll(@Query() dto: QueryBonsDto) {
-    const { status, excludeStatus, filialeId, search, page, limit } = dto;
+    const { status, excludeStatus, filialeId, search, overdue, page, limit } = dto;
     return this.bonsService.findAll({
       status,
       excludeStatus,
       filialeId,
       search,
+      overdue,
       page: page ?? 1,
       limit: Math.min(limit ?? 20, 100),
     });
@@ -145,9 +154,13 @@ export class BonsController {
   }
 
   @Post(':id/send')
-  async send(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+  async send(
+    @Param('id') id: string,
+    @Body() body: { confirmSerialConflicts?: boolean },
+    @CurrentUser() user: AuthUser,
+  ) {
     await this.verifyCollaboratorAccess(id, user);
-    return this.bonsService.send(id, user?.id);
+    return this.bonsService.send(id, user?.id, body?.confirmSerialConflicts === true);
   }
 
   @Post(':id/initiate-restitution')
@@ -199,6 +212,12 @@ export class BonsController {
     return this.signatureService.verifyBonIntegrity(id);
   }
 
+  /** GET /bons/:id/pdf-snapshots — reste un TABLEAU (contrat existant) : le
+   *  portail collaborateur (BonDetailCollaborateur.tsx) consomme cette route
+   *  telle quelle (`api.get<PdfSnapshotInfo[]>`) sans gérer la forme
+   *  { snapshots, missing }. Le duo BonDetail IT (useBonActions.ts) gère déjà
+   *  défensivement les deux formes, mais changer la forme ici casserait le
+   *  portail collaborateur — d'où l'endpoint séparé ci-dessous. */
   @Get(':id/pdf-snapshots')
   @Roles('admin', 'technician', 'collaborator')
   async getPdfSnapshots(@Param('id') id: string, @CurrentUser() user: AuthUser) {
@@ -209,6 +228,41 @@ export class BonsController {
       orderBy: { createdAt: 'asc' },
     });
     return snapshots;
+  }
+
+  /** GET /bons/:id/pdf-snapshots/missing — types de snapshot attendus (une
+   *  signature signée existe) mais absents de PdfSnapshot, ex. échec silencieux
+   *  d'un generateAndSave passé (cf. audit pdf_snapshot_failed). Régénérable
+   *  via POST /admin/pdf/regenerate-missing. */
+  @Get(':id/pdf-snapshots/missing')
+  @Roles('admin', 'technician', 'collaborator')
+  async getMissingPdfSnapshots(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    await this.verifyCollaboratorAccess(id, user);
+    const bon = await this.bonsService.findOne(id);
+    const [signedSignatures, existingSnapshots] = await Promise.all([
+      this.prisma.signature.findMany({ where: { bonId: id, signed: true }, select: { type: true, pdfType: true } }),
+      this.prisma.pdfSnapshot.findMany({ where: { bonId: id }, select: { type: true } }),
+    ]);
+    const existingTypes = new Set(existingSnapshots.map((s) => s.type as string));
+
+    const expectedTypes = new Set<string>();
+    for (const sig of signedSignatures) {
+      if (sig.type === 'mise_disposition') expectedTypes.add('signature_collab_mise_disposition');
+      else if (sig.type === 'restitution') expectedTypes.add('signature_collab_restitution');
+      else if (sig.type === 'pv_cloture') expectedTypes.add('cloture_equipements_manquants');
+      else if (sig.type === 'it_cachet') {
+        // pdfType est renseigné par le flux récent (signItCachet) ; pour un
+        // enregistrement plus ancien sans pdfType, on déduit depuis le statut
+        // courant du bon (même heuristique que signItCachet).
+        const isRestitution =
+          sig.pdfType === 'restitution' ||
+          (sig.pdfType == null && ['sent_restitution', 'partially_returned', 'archived'].includes(bon.status));
+        expectedTypes.add(isRestitution ? 'signature_it_restitution' : 'signature_it_mise_disposition');
+      }
+    }
+
+    const missing = [...expectedTypes].filter((type) => !existingTypes.has(type));
+    return { missing };
   }
 
   @Get(':id/pdf')

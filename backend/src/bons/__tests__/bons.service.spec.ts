@@ -6,12 +6,14 @@ import { SignatureService } from '../../signature/signature.service';
 import { NotificationService } from '../../notification/notification.service';
 import { PdfService } from '../../pdf/pdf.service';
 import { SmbService } from '../../smb/smb.service';
+import { AppConfigService } from '../../config/config.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
 import {
   createMockNotificationService,
   createMockSignatureService,
   createMockPdfService,
   createMockSmbService,
+  createMockConfigService,
 } from '../../common/__tests__/helpers/mock-services';
 import {
   draftBon,
@@ -25,6 +27,11 @@ import {
 import { collaboratorUser, technicianUser } from '../../common/__tests__/fixtures/user.fixtures';
 import { BonStatus } from '../../common/types';
 
+// Vraie image PNG 1x1 valide (magic bytes corrects) — assertPngDataUrl (LOT A1
+// correction #6) rejette désormais un faux base64 comme l'ancien 'abc123'.
+const VALID_SIGNATURE_DATA_URL =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+
 describe('BonsService', () => {
   let service: BonsService;
   let prisma: ReturnType<typeof createMockPrismaService>;
@@ -32,6 +39,7 @@ describe('BonsService', () => {
   let notificationService: ReturnType<typeof createMockNotificationService>;
   let pdfService: ReturnType<typeof createMockPdfService>;
   let smbService: ReturnType<typeof createMockSmbService>;
+  let configService: ReturnType<typeof createMockConfigService>;
 
   beforeEach(async () => {
     prisma = createMockPrismaService();
@@ -39,6 +47,27 @@ describe('BonsService', () => {
     notificationService = createMockNotificationService();
     pdfService = createMockPdfService();
     smbService = createMockSmbService();
+    configService = createMockConfigService();
+
+    // Défauts partagés par (quasi) tous les tests — LOT A2 a ajouté des
+    // vérifications (filiale/collaborateur/catalogue actifs, conflits de
+    // série, création directe de token PV sous verrou advisory) qui touchent
+    // des méthodes Prisma non mockées jusqu'ici dans chaque describe. Un test
+    // qui a besoin d'un scénario différent (filiale inactive, collaborateur
+    // désactivé, catalogue introuvable…) écrase l'un de ces défauts localement.
+    prisma.user.findUnique.mockResolvedValue(collaboratorUser());
+    prisma.filiale.findUnique.mockResolvedValue({ id: 'filiale-001', active: true });
+    prisma.equipmentCatalog.findMany.mockImplementation(
+      ({ where }: { where: { id: { in: string[] } } }) =>
+        Promise.resolve(where.id.in.map((id) => ({ id, active: true }))),
+    );
+    prisma.bonEquipment.findMany.mockResolvedValue([]);
+    prisma.bonEquipment.count.mockResolvedValue(0);
+    prisma.signature.findFirst.mockResolvedValue(null);
+    // emitPvClotureIfDue (LOT A2, correction #C1) crée le token pv_cloture
+    // directement via tx.signature.create (verrou advisory) — plus via
+    // signatureService.generateToken.
+    prisma.signature.create.mockResolvedValue({ token: 'mock-generated-pv-token' });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -48,6 +77,7 @@ describe('BonsService', () => {
         { provide: NotificationService, useValue: notificationService },
         { provide: PdfService, useValue: pdfService },
         { provide: SmbService, useValue: smbService },
+        { provide: AppConfigService, useValue: configService },
       ],
     }).compile();
 
@@ -95,6 +125,7 @@ describe('BonsService', () => {
       prisma.equipmentPack.findUnique.mockResolvedValue({
         id: 'pack-001',
         name: 'Pack Standard',
+        active: true,
         items: [
           {
             id: 'pack-item-001',
@@ -102,7 +133,7 @@ describe('BonsService', () => {
             catalogItemId: 'cat-laptop-001',
             quantity: 1,
             order: 1,
-            catalogItem: { id: 'cat-laptop-001', brand: 'Lenovo', model: 'ThinkBook', category: 'pc_portable' },
+            catalogItem: { id: 'cat-laptop-001', brand: 'Lenovo', model: 'ThinkBook', category: 'pc_portable', active: true },
           },
           {
             id: 'pack-item-002',
@@ -110,7 +141,7 @@ describe('BonsService', () => {
             catalogItemId: 'cat-screen-001',
             quantity: 2,
             order: 2,
-            catalogItem: { id: 'cat-screen-001', brand: 'Dell', model: 'UltraSharp', category: 'ecran' },
+            catalogItem: { id: 'cat-screen-001', brand: 'Dell', model: 'UltraSharp', category: 'ecran', active: true },
           },
         ],
       });
@@ -132,6 +163,98 @@ describe('BonsService', () => {
       prisma.user.findUnique.mockResolvedValue(null);
 
       await expect(service.create(dto, userId)).rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw BadRequestException when the collaborateur is deactivated (LOT A2)', async () => {
+      prisma.user.findUnique.mockResolvedValue({ ...collaboratorUser(), active: false });
+
+      await expect(service.create(dto, userId)).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw NotFoundException when the filiale does not exist or is inactive (LOT A2)', async () => {
+      prisma.filiale.findUnique.mockResolvedValue({ id: dto.filialeId, active: false });
+
+      await expect(service.create(dto, userId)).rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw NotFoundException when packId is unknown or inactive (LOT A2)', async () => {
+      prisma.equipmentPack.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.create({ ...dto, packId: 'pack-unknown', equipments: undefined }, userId),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('should ignore inactive catalog items when importing from a pack (LOT A2)', async () => {
+      prisma.equipmentPack.findUnique.mockResolvedValue({
+        id: 'pack-001',
+        name: 'Pack Standard',
+        active: true,
+        items: [
+          {
+            id: 'pack-item-001',
+            packId: 'pack-001',
+            catalogItemId: 'cat-laptop-001',
+            quantity: 1,
+            order: 1,
+            catalogItem: { id: 'cat-laptop-001', brand: 'Lenovo', model: 'ThinkBook', category: 'pc_portable', active: true },
+          },
+          {
+            id: 'pack-item-002',
+            packId: 'pack-001',
+            catalogItemId: 'cat-old-001',
+            quantity: 1,
+            order: 2,
+            catalogItem: { id: 'cat-old-001', brand: 'Old', model: 'Model', category: 'pc_fixe', active: false },
+          },
+        ],
+      });
+
+      await service.create({ ...dto, packId: 'pack-001', equipments: undefined }, userId);
+
+      const createCall = prisma.bon.create.mock.calls[0][0] as {
+        data: { equipments: { create: Array<{ catalogItemId: string | null }> } };
+      };
+      expect(createCall.data.equipments.create).toHaveLength(1);
+      expect(createCall.data.equipments.create[0].catalogItemId).toBe('cat-laptop-001');
+    });
+
+    it('should throw BadRequestException listing unknown/inactive catalog item ids (LOT A2)', async () => {
+      prisma.equipmentCatalog.findMany.mockResolvedValue([{ id: 'cat-laptop-001', active: false }]);
+
+      await expect(service.create(dto, userId)).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException on duplicate serial numbers within the same bon (LOT A2)', async () => {
+      const dupDto = {
+        ...dto,
+        equipments: [
+          { catalogItemId: 'cat-laptop-001', serialNumber: 'SN-DUP', order: 0 },
+          { catalogItemId: 'cat-screen-001', serialNumber: 'sn-dup', order: 1 },
+        ],
+      };
+
+      await expect(service.create(dupDto, userId)).rejects.toThrow(BadRequestException);
+    });
+
+    it('should trim serial/inventory/customLabel and turn blanks into null (LOT A2)', async () => {
+      const spacedDto = {
+        ...dto,
+        equipments: [
+          { customLabel: '  Souris sans fil  ', serialNumber: '  ', inventoryNumber: '', order: 0 },
+        ],
+      };
+
+      await service.create(spacedDto, userId);
+
+      const createCall = prisma.bon.create.mock.calls[0][0] as {
+        data: { equipments: { create: Array<Record<string, unknown>> } };
+      };
+      expect(createCall.data.equipments.create[0]).toMatchObject({
+        customLabel: 'Souris sans fil',
+        serialNumber: null,
+        inventoryNumber: null,
+      });
     });
   });
 
@@ -212,6 +335,17 @@ describe('BonsService', () => {
       expect(findManyCall.where.OR).toBeDefined();
       expect(findManyCall.where.OR).toHaveLength(4);
     });
+
+    it('should apply the overdue filter (LOT A2)', async () => {
+      await service.findAll({ overdue: true });
+
+      const findManyCall = prisma.bon.findMany.mock.calls[0][0] as {
+        where: { AND?: Array<{ updatedAt?: unknown; OR?: unknown[] }> };
+      };
+      expect(findManyCall.where.AND).toHaveLength(1);
+      expect(findManyCall.where.AND?.[0].OR).toHaveLength(2);
+      expect(findManyCall.where.AND?.[0].updatedAt).toBeDefined();
+    });
   });
 
   // ── findOne ─────────────────────────────────────────────────────────────────
@@ -239,6 +373,12 @@ describe('BonsService', () => {
   // ── update ──────────────────────────────────────────────────────────────────
 
   describe('update', () => {
+    beforeEach(() => {
+      // LOT A2 (correction) : le statut est désormais claim conditionnel via
+      // tx.bon.updateMany (comme partout ailleurs), plus tx.bon.findUnique.
+      prisma.bon.updateMany.mockResolvedValue({ count: 1 });
+    });
+
     it('should update a draft bon', async () => {
       const bon = draftBon();
       prisma.bon.findUnique.mockResolvedValue(bon);
@@ -284,6 +424,96 @@ describe('BonsService', () => {
           }),
         }),
       );
+    });
+
+    it('should clear dateRestitution when explicitly set to null (LOT A2)', async () => {
+      const bon = { ...draftBon(), dateRestitution: new Date('2026-03-01') };
+      prisma.bon.findUnique.mockResolvedValue(bon);
+      prisma.bon.update.mockResolvedValue({ ...bon, dateRestitution: null });
+
+      await service.update(bon.id, { dateRestitution: null });
+
+      expect(prisma.bon.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ dateRestitution: null }) }),
+      );
+    });
+
+    it('should leave dateRestitution unchanged when omitted (undefined)', async () => {
+      const bon = { ...draftBon(), dateRestitution: new Date('2026-03-01') };
+      prisma.bon.findUnique.mockResolvedValue(bon);
+      prisma.bon.update.mockResolvedValue(bon);
+
+      await service.update(bon.id, { notes: 'Just notes' });
+
+      const call = prisma.bon.update.mock.calls[0][0] as { data: Record<string, unknown> };
+      expect(call.data).not.toHaveProperty('dateRestitution');
+    });
+
+    it('should clear notes when set to an empty string', async () => {
+      const bon = draftBon();
+      prisma.bon.findUnique.mockResolvedValue(bon);
+      prisma.bon.update.mockResolvedValue({ ...bon, notes: null });
+
+      await service.update(bon.id, { notes: '' });
+
+      expect(prisma.bon.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ notes: null }) }),
+      );
+    });
+
+    it('should throw NotFoundException when filiale does not exist or is inactive (LOT A2)', async () => {
+      const bon = draftBon();
+      prisma.bon.findUnique.mockResolvedValue(bon);
+      prisma.filiale.findUnique.mockResolvedValue({ id: 'filiale-002', active: false });
+
+      await expect(
+        service.update(bon.id, { filialeId: 'filiale-002' }),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw BadRequestException listing unknown/inactive catalog item ids (LOT A2)', async () => {
+      const bon = draftBon();
+      prisma.bon.findUnique.mockResolvedValue(bon);
+      prisma.equipmentCatalog.findMany.mockResolvedValue([{ id: 'cat-bad-001', active: false }]);
+
+      await expect(
+        service.update(bon.id, { equipments: [{ catalogItemId: 'cat-bad-001' }] }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException on duplicate serial numbers within the same bon (LOT A2)', async () => {
+      const bon = draftBon();
+      prisma.bon.findUnique.mockResolvedValue(bon);
+
+      await expect(
+        service.update(bon.id, {
+          equipments: [
+            { catalogItemId: 'cat-laptop-001', serialNumber: 'SN-DUP' },
+            { catalogItemId: 'cat-screen-001', serialNumber: ' sn-dup ' },
+          ],
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException when the collaborateur is deactivated (LOT A2)', async () => {
+      const bon = draftBon();
+      prisma.bon.findUnique.mockResolvedValue(bon);
+      prisma.user.findUnique.mockResolvedValue({ ...collaboratorUser(), active: false });
+
+      await expect(
+        service.update(bon.id, { collaborateurId: 'user-collab-002' }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw ConflictException when the transition raced (bon sent concurrently, LOT A2)', async () => {
+      const bon = draftBon();
+      prisma.bon.findUnique.mockResolvedValue(bon);
+      prisma.bon.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.update(bon.id, { notes: 'too late' }),
+      ).rejects.toThrow(ConflictException);
+      expect(prisma.bon.update).not.toHaveBeenCalled();
     });
   });
 
@@ -368,6 +598,70 @@ describe('BonsService', () => {
         'mock-token-uuid',
       );
     });
+
+    it('should throw BadRequestException when the collaborator is deactivated (assertSendable, LOT A2)', async () => {
+      const bon = draftBon();
+      prisma.bon.findUnique.mockResolvedValue(bon);
+      prisma.user.findUnique.mockResolvedValue({ ...collaboratorUser(), active: false });
+
+      await expect(service.send(bon.id, initiatedById)).rejects.toThrow(BadRequestException);
+      expect(prisma.bon.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('should throw BadRequestException when the filiale is inactive (assertSendable, LOT A2)', async () => {
+      const bon = { ...draftBon(), filiale: { ...draftBon().filiale, active: false } };
+      prisma.bon.findUnique.mockResolvedValue(bon);
+
+      await expect(service.send(bon.id, initiatedById)).rejects.toThrow(BadRequestException);
+      expect(prisma.bon.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('should return 409 serial_conflicts when a serial number is already in circulation elsewhere (LOT A2)', async () => {
+      const bon = draftBon();
+      prisma.bon.findUnique.mockResolvedValue(bon);
+      prisma.bonEquipment.findMany.mockResolvedValue([
+        {
+          serialNumber: 'SN-LP-2026-001',
+          bon: { id: 'bon-other-001', reference: 'BON-2026-0099' },
+        },
+      ] as never);
+
+      await expect(service.send(bon.id, initiatedById)).rejects.toMatchObject({
+        response: {
+          code: 'serial_conflicts',
+          conflicts: [{ serialNumber: 'SN-LP-2026-001', bonReference: 'BON-2026-0099' }],
+        },
+      });
+      expect(prisma.bon.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('should send despite serial conflicts when confirmSerialConflicts is true, and audit it (LOT A2)', async () => {
+      const bon = draftBon();
+      prisma.bon.findUnique.mockResolvedValue(bon);
+      prisma.bonEquipment.findMany.mockResolvedValue([
+        {
+          serialNumber: 'SN-LP-2026-001',
+          bon: { id: 'bon-other-001', reference: 'BON-2026-0099' },
+        },
+      ] as never);
+      const sentBon = { ...bon, status: 'sent_mise_dispo' as const };
+      prisma.bon.updateMany.mockResolvedValue({ count: 1 });
+      prisma.bon.findUniqueOrThrow.mockResolvedValue(sentBon);
+
+      const result = await service.send(bon.id, initiatedById, true);
+
+      expect(result.status).toBe('sent_mise_dispo');
+      expect(prisma.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            action: 'bon_sent_with_serial_conflicts',
+            details: expect.objectContaining({
+              conflicts: [{ serialNumber: 'SN-LP-2026-001', bonReference: 'BON-2026-0099' }],
+            }),
+          }),
+        }),
+      );
+    });
   });
 
   // ── cancel ──────────────────────────────────────────────────────────────────
@@ -387,7 +681,7 @@ describe('BonsService', () => {
 
       expect(result.status).toBe('cancelled');
       expect(prisma.bon.updateMany).toHaveBeenCalledWith({
-        where: { id: bon.id, status: bon.status },
+        where: { id: bon.id, status: { in: ['draft', 'sent_mise_dispo'] } },
         data: { status: 'cancelled' },
       });
       expect(signatureService.invalidateUnsignedTokens).toHaveBeenCalledWith(bon.id);
@@ -396,6 +690,29 @@ describe('BonsService', () => {
           data: expect.objectContaining({ action: 'bon_cancelled' }),
         }),
       );
+    });
+
+    it('should refuse to cancel a bon that has already been signed (LOT A2)', async () => {
+      prisma.bon.findUnique.mockResolvedValue(activeBon());
+
+      await expect(service.cancel('bon-active-001', userId)).rejects.toThrow(BadRequestException);
+      expect(prisma.bon.updateMany).not.toHaveBeenCalled();
+      expect(signatureService.invalidateUnsignedTokens).not.toHaveBeenCalled();
+    });
+
+    it('should refuse to cancel a sent_restitution bon (LOT A2)', async () => {
+      const bon = { ...sentMiseDispoBon(), status: 'sent_restitution' as const };
+      prisma.bon.findUnique.mockResolvedValue(bon);
+
+      await expect(service.cancel(bon.id, userId)).rejects.toThrow(BadRequestException);
+      expect(prisma.bon.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('should refuse to cancel a partially_returned bon (LOT A2)', async () => {
+      prisma.bon.findUnique.mockResolvedValue(partiallyReturnedBon());
+
+      await expect(service.cancel('bon-partial-001', userId)).rejects.toThrow(BadRequestException);
+      expect(prisma.bon.updateMany).not.toHaveBeenCalled();
     });
 
     it('should lose the race if status changed concurrently (Conflict)', async () => {
@@ -453,8 +770,9 @@ describe('BonsService', () => {
       prisma.bon.findUnique.mockResolvedValue(bon);
       prisma.bonEquipment.updateMany.mockResolvedValue({ count: 3 });
       prisma.bonEquipment.count.mockResolvedValue(0);
+      prisma.bon.updateMany.mockResolvedValue({ count: 1 });
       const updatedBon = { ...bon, status: 'sent_restitution' as const };
-      prisma.bon.update.mockResolvedValue(updatedBon);
+      prisma.bon.findUniqueOrThrow.mockResolvedValue(updatedBon);
       prisma.auditLog.create.mockResolvedValue({} as never);
 
       const result = await service.initiateRestitution(
@@ -477,7 +795,8 @@ describe('BonsService', () => {
       prisma.bon.findUnique.mockResolvedValue(bon);
       prisma.bonEquipment.updateMany.mockResolvedValue({ count: 2 });
       prisma.bonEquipment.count.mockResolvedValue(1);
-      prisma.bon.update.mockResolvedValue({ ...bon, status: 'partially_returned' as const });
+      prisma.bon.updateMany.mockResolvedValue({ count: 1 });
+      prisma.bon.findUniqueOrThrow.mockResolvedValue({ ...bon, status: 'partially_returned' as const });
       prisma.auditLog.create.mockResolvedValue({} as never);
 
       await service.initiateRestitution(bon.id, initiatedById, ['equip-001', 'equip-002']);
@@ -499,16 +818,16 @@ describe('BonsService', () => {
       prisma.bon.findUnique.mockResolvedValue(bon);
       prisma.bonEquipment.updateMany.mockResolvedValue({ count: 3 });
       prisma.bonEquipment.count.mockResolvedValue(0); // none remaining
-      prisma.bon.update.mockResolvedValue({ ...bon, status: 'sent_restitution' as const });
+      prisma.bon.updateMany.mockResolvedValue({ count: 1 });
+      prisma.bon.findUniqueOrThrow.mockResolvedValue({ ...bon, status: 'sent_restitution' as const });
       prisma.auditLog.create.mockResolvedValue({} as never);
 
       await service.initiateRestitution(bon.id, initiatedById, ['equip-001', 'equip-002', 'equip-003']);
 
-      expect(prisma.bon.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: { status: 'sent_restitution' },
-        }),
-      );
+      expect(prisma.bon.updateMany).toHaveBeenCalledWith({
+        where: { id: bon.id, status: { in: ['active', 'partially_returned'] } },
+        data: { status: 'sent_restitution' },
+      });
     });
 
     it('should set status to partially_returned when some remain', async () => {
@@ -516,16 +835,16 @@ describe('BonsService', () => {
       prisma.bon.findUnique.mockResolvedValue(bon);
       prisma.bonEquipment.updateMany.mockResolvedValue({ count: 1 });
       prisma.bonEquipment.count.mockResolvedValue(2); // 2 remaining
-      prisma.bon.update.mockResolvedValue({ ...bon, status: 'partially_returned' as const });
+      prisma.bon.updateMany.mockResolvedValue({ count: 1 });
+      prisma.bon.findUniqueOrThrow.mockResolvedValue({ ...bon, status: 'partially_returned' as const });
       prisma.auditLog.create.mockResolvedValue({} as never);
 
       await service.initiateRestitution(bon.id, initiatedById, ['equip-001']);
 
-      expect(prisma.bon.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: { status: 'partially_returned' },
-        }),
-      );
+      expect(prisma.bon.updateMany).toHaveBeenCalledWith({
+        where: { id: bon.id, status: { in: ['active', 'partially_returned'] } },
+        data: { status: 'partially_returned' },
+      });
     });
 
     it('should throw if bon not active/partially_returned', async () => {
@@ -535,6 +854,41 @@ describe('BonsService', () => {
         service.initiateRestitution('bon-draft-001', initiatedById),
       ).rejects.toThrow(BadRequestException);
     });
+
+    it('should throw when no equipment id is provided (LOT A1 correction #3)', async () => {
+      const bon = activeBon();
+      prisma.bon.findUnique.mockResolvedValue(bon);
+
+      await expect(
+        service.initiateRestitution(bon.id, initiatedById, []),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.bonEquipment.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('should throw ConflictException when some ids are invalid (LOT A1 correction #9)', async () => {
+      const bon = activeBon();
+      prisma.bon.findUnique.mockResolvedValue(bon);
+      // 1 of 2 requested ids actually matched (not already returned / belongs to bon)
+      prisma.bonEquipment.updateMany.mockResolvedValue({ count: 1 });
+
+      await expect(
+        service.initiateRestitution(bon.id, initiatedById, ['equip-001', 'equip-bogus']),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.bon.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('should throw ConflictException when the transition raced (LOT A1 correction #10)', async () => {
+      const bon = activeBon();
+      prisma.bon.findUnique.mockResolvedValue(bon);
+      prisma.bonEquipment.updateMany.mockResolvedValue({ count: 1 });
+      prisma.bonEquipment.count.mockResolvedValue(0);
+      prisma.bon.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.initiateRestitution(bon.id, initiatedById, ['equip-001']),
+      ).rejects.toThrow(ConflictException);
+      expect(signatureService.generateToken).not.toHaveBeenCalled();
+    });
   });
 
   // ── declareNotReturned ──────────────────────────────────────────────────────
@@ -542,7 +896,7 @@ describe('BonsService', () => {
   describe('declareNotReturned', () => {
     const userId = 'user-tech-001';
     const reason = 'Equipement perdu';
-    const signatureDataUrl = 'data:image/png;base64,abc123';
+    const signatureDataUrl = VALID_SIGNATURE_DATA_URL;
 
     it('should mark equipments as not returned', async () => {
       const bon = activeBon();
@@ -551,7 +905,8 @@ describe('BonsService', () => {
       prisma.bonEquipment.updateMany.mockResolvedValue({ count: 1 });
       prisma.auditLog.create.mockResolvedValue({} as never);
       prisma.bonEquipment.count.mockResolvedValue(2); // some still pending
-      prisma.bon.update.mockResolvedValue({ ...bon, status: 'partially_returned' as const });
+      prisma.bon.updateMany.mockResolvedValue({ count: 1 });
+      prisma.signature.findFirst.mockResolvedValue(null); // no pending restitution signature
 
       await service.declareNotReturned(bon.id, ['equip-001'], reason, userId);
 
@@ -564,15 +919,21 @@ describe('BonsService', () => {
 
     it('should create PV and send email when all resolved', async () => {
       const bon = activeBon();
+      const bonPartial = { ...bon, status: 'partially_returned' as const };
       prisma.bon.findUnique
-        .mockResolvedValueOnce(bon) // findOne in declareNotReturned
-        .mockResolvedValueOnce(bon); // findOne at end
+        .mockResolvedValueOnce(bon) // findOne in declareNotReturned (still 'active')
+        .mockResolvedValue(bonPartial); // emitPvClotureIfDue reload + final findOne
       prisma.bonEquipment.updateMany.mockResolvedValue({ count: 1 });
       prisma.auditLog.create.mockResolvedValue({} as never);
-      prisma.bonEquipment.count.mockResolvedValue(0); // all resolved
-      prisma.bon.update.mockResolvedValue({ ...bon, status: 'partially_returned' as const });
+      prisma.bon.updateMany.mockResolvedValue({ count: 1 });
+      prisma.signature.findFirst.mockResolvedValue(null);
+      prisma.signature.findMany.mockResolvedValue([]);
       prisma.user.findUnique.mockResolvedValue(technicianUser());
-      prisma.bon.findUniqueOrThrow.mockResolvedValue(bon);
+      // Ordre des appels bonEquipment.count : [remaining (tx)=0, pending (emitPvClotureIfDue)=0, notReturnedCount (emitPvClotureIfDue)=1]
+      prisma.bonEquipment.count
+        .mockResolvedValueOnce(0)
+        .mockResolvedValueOnce(0)
+        .mockResolvedValueOnce(1);
 
       await service.declareNotReturned(
         bon.id,
@@ -594,11 +955,13 @@ describe('BonsService', () => {
         expect.objectContaining({ it: signatureDataUrl, collab: null }),
         expect.stringContaining('cloture_equipements_manquants'),
       );
-      expect(signatureService.generateToken).toHaveBeenCalledWith(
-        bon.id,
-        'pv_cloture',
-        userId,
-        false,
+      // LOT A2 (correction #C1) : le token pv_cloture est désormais créé
+      // directement via tx.signature.create (verrou advisory), plus via
+      // signatureService.generateToken.
+      expect(prisma.signature.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ bonId: bon.id, type: 'pv_cloture', initiatedById: userId }),
+        }),
       );
       expect(notificationService.sendPvClotureRequest).toHaveBeenCalled();
     });
@@ -611,13 +974,38 @@ describe('BonsService', () => {
         service.declareNotReturned(bon.id, [], reason, userId),
       ).rejects.toThrow(BadRequestException);
     });
+
+    it('should throw BadRequestException for an invalid signature image before writing anything (LOT A1 correction #6)', async () => {
+      const bon = activeBon();
+      prisma.bon.findUnique.mockResolvedValue(bon);
+
+      await expect(
+        service.declareNotReturned(bon.id, ['equip-001'], reason, userId, 'data:image/png;base64,not-a-real-png'),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.bonEquipment.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('should throw ConflictException when a restitution signature is pending (LOT A1 correction #4)', async () => {
+      const bon = activeBon();
+      prisma.bon.findUnique.mockResolvedValue(bon);
+      prisma.signature.findFirst.mockResolvedValue({
+        id: 'sig-pending-restit',
+        type: 'restitution',
+        signed: false,
+      } as never);
+
+      await expect(
+        service.declareNotReturned(bon.id, ['equip-001'], reason, userId),
+      ).rejects.toThrow(ConflictException);
+      expect(prisma.bonEquipment.updateMany).not.toHaveBeenCalled();
+    });
   });
 
   // ── markFound ───────────────────────────────────────────────────────────────
 
   describe('markFound', () => {
     const userId = 'user-tech-001';
-    const signatureDataUrl = 'data:image/png;base64,abc123';
+    const signatureDataUrl = VALID_SIGNATURE_DATA_URL;
 
     it('should mark not-returned equipment as found', async () => {
       const bon = partiallyReturnedBon();
@@ -628,8 +1016,9 @@ describe('BonsService', () => {
       prisma.auditLog.create.mockResolvedValue({} as never);
       prisma.user.findUnique.mockResolvedValue(technicianUser());
       prisma.bon.findUniqueOrThrow.mockResolvedValue(bon);
-      prisma.bonEquipment.count.mockResolvedValue(0); // no more not-returned
-      prisma.bon.update.mockResolvedValue({ ...bon, status: 'sent_restitution' as const });
+      prisma.bonEquipment.count.mockResolvedValue(0); // no more pending / not-returned
+      prisma.bon.updateMany.mockResolvedValue({ count: 1 });
+      prisma.signature.findFirst.mockResolvedValue(null);
 
       await service.markFound(bon.id, ['equip-002'], userId, signatureDataUrl);
 
@@ -656,6 +1045,8 @@ describe('BonsService', () => {
       prisma.auditLog.create.mockResolvedValue({} as never);
       prisma.user.findUnique.mockResolvedValue(technicianUser());
       prisma.bon.findUniqueOrThrow.mockResolvedValue(bon);
+      prisma.signature.findFirst.mockResolvedValue(null);
+      prisma.signature.findMany.mockResolvedValue([]);
 
       await service.markFound(bon.id, ['equip-001'], userId, signatureDataUrl);
 
@@ -677,16 +1068,16 @@ describe('BonsService', () => {
       prisma.auditLog.create.mockResolvedValue({} as never);
       prisma.user.findUnique.mockResolvedValue(technicianUser());
       prisma.bon.findUniqueOrThrow.mockResolvedValue(bon);
-      prisma.bonEquipment.count.mockResolvedValue(0); // no more not-returned
-      prisma.bon.update.mockResolvedValue({ ...bon, status: 'sent_restitution' as const });
+      prisma.bonEquipment.count.mockResolvedValue(0); // no more pending / not-returned
+      prisma.bon.updateMany.mockResolvedValue({ count: 1 });
+      prisma.signature.findFirst.mockResolvedValue(null);
 
       await service.markFound(bon.id, ['equip-002'], userId);
 
-      expect(prisma.bon.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: { status: 'sent_restitution' },
-        }),
-      );
+      expect(prisma.bon.updateMany).toHaveBeenCalledWith({
+        where: { id: bon.id, status: 'partially_returned' },
+        data: { status: 'sent_restitution' },
+      });
       expect(signatureService.generateToken).toHaveBeenCalledWith(
         bon.id,
         'restitution',
@@ -696,32 +1087,91 @@ describe('BonsService', () => {
       expect(notificationService.sendRestitutionRequest).toHaveBeenCalled();
     });
 
-    it('should regenerate PV when some still not returned', async () => {
+    it('should regenerate PV when nothing pending but some still not returned', async () => {
       const bon = partiallyReturnedBon();
       prisma.bon.findUnique
         .mockResolvedValueOnce(bon)
-        .mockResolvedValueOnce(bon);
+        .mockResolvedValue(bon); // emitPvClotureIfDue reload + final findOne
       prisma.bonEquipment.updateMany.mockResolvedValue({ count: 1 });
       prisma.auditLog.create.mockResolvedValue({} as never);
       prisma.user.findUnique.mockResolvedValue(technicianUser());
-      prisma.bon.findUniqueOrThrow.mockResolvedValue(bon);
-      prisma.bonEquipment.count.mockResolvedValue(1); // still 1 not-returned
+      prisma.signature.findFirst.mockResolvedValue(null);
+      prisma.signature.findMany.mockResolvedValue([]);
+      // Ordre des appels bonEquipment.count : [pending(tx)=0, stillNotReturned(tx)=1, pending(emitPvClotureIfDue)=0, notReturnedCount(emitPvClotureIfDue)=1]
+      prisma.bonEquipment.count
+        .mockResolvedValueOnce(0)
+        .mockResolvedValueOnce(1)
+        .mockResolvedValueOnce(0)
+        .mockResolvedValueOnce(1);
 
       await service.markFound(bon.id, ['equip-002'], userId, signatureDataUrl);
 
+      expect(prisma.bon.updateMany).not.toHaveBeenCalled();
       expect(pdfService.generateAndSave).toHaveBeenCalledWith(
         expect.anything(),
         'cloture_equipements_manquants',
         expect.objectContaining({ it: signatureDataUrl, collab: null }),
         expect.stringContaining('cloture_equipements_manquants'),
       );
-      expect(signatureService.generateToken).toHaveBeenCalledWith(
-        bon.id,
-        'pv_cloture',
-        userId,
-        false,
+      // LOT A2 (correction #C1) : création directe via tx.signature.create.
+      expect(prisma.signature.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ bonId: bon.id, type: 'pv_cloture', initiatedById: userId }),
+        }),
       );
       expect(notificationService.sendPvClotureRequest).toHaveBeenCalled();
+    });
+
+    it('should keep partially_returned and emit nothing when other equipment is still pending restitution (LOT A1 correction #1)', async () => {
+      const base = partiallyReturnedBon();
+      // Simulate a 3rd equipment never processed by initiateRestitution (neither returned nor declared lost)
+      const bon = { ...base, equipments: base.equipments.map((e, i) => (i === 2 ? { ...e, returnedAt: null } : e)) };
+      prisma.bon.findUnique
+        .mockResolvedValueOnce(bon)
+        .mockResolvedValueOnce(bon);
+      prisma.bonEquipment.updateMany.mockResolvedValue({ count: 1 });
+      prisma.auditLog.create.mockResolvedValue({} as never);
+      prisma.user.findUnique.mockResolvedValue(technicianUser());
+      prisma.signature.findFirst.mockResolvedValue(null);
+      // pending(tx)=1 (equip-003 still pending) — short-circuits before stillNotReturned matters
+      prisma.bonEquipment.count.mockResolvedValueOnce(1).mockResolvedValueOnce(0);
+
+      await service.markFound(bon.id, ['equip-002'], userId, signatureDataUrl);
+
+      expect(prisma.bon.updateMany).not.toHaveBeenCalled();
+      expect(signatureService.generateToken).not.toHaveBeenCalled();
+      expect(pdfService.generateAndSave).not.toHaveBeenCalled();
+      expect(signatureService.saveItPvSignature).toHaveBeenCalledWith(
+        bon.id,
+        signatureDataUrl,
+        technicianUser().email,
+        userId,
+      );
+    });
+
+    it('should throw ConflictException when a restitution signature is pending (LOT A1 correction #4)', async () => {
+      const bon = partiallyReturnedBon();
+      prisma.bon.findUnique.mockResolvedValue(bon);
+      prisma.signature.findFirst.mockResolvedValue({
+        id: 'sig-pending-restit',
+        type: 'restitution',
+        signed: false,
+      } as never);
+
+      await expect(
+        service.markFound(bon.id, ['equip-002'], userId),
+      ).rejects.toThrow(ConflictException);
+      expect(prisma.bonEquipment.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('should throw BadRequestException for an invalid signature image before writing anything (LOT A1 correction #6)', async () => {
+      const bon = partiallyReturnedBon();
+      prisma.bon.findUnique.mockResolvedValue(bon);
+
+      await expect(
+        service.markFound(bon.id, ['equip-002'], userId, 'data:image/png;base64,not-a-real-png'),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.bonEquipment.updateMany).not.toHaveBeenCalled();
     });
   });
 
@@ -734,7 +1184,8 @@ describe('BonsService', () => {
       const bon = draftBon();
       prisma.bon.findUnique.mockResolvedValue(bon);
       const updatedBon = { ...bon, status: 'sent_mise_dispo' as const };
-      prisma.bon.update.mockResolvedValue(updatedBon);
+      prisma.bon.updateMany.mockResolvedValue({ count: 1 });
+      prisma.bon.findUniqueOrThrow.mockResolvedValue(updatedBon);
 
       const result = await service.initiateInPersonSignature(
         bon.id,
@@ -750,6 +1201,26 @@ describe('BonsService', () => {
         initiatedById,
         true,
       );
+      // Depuis draft : audit bon_sent {inPerson:true} (LOT A2)
+      expect(prisma.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ action: 'bon_sent', details: { inPerson: true } }),
+        }),
+      );
+    });
+
+    it('should roll back equipment marking when the transition loses the race (LOT A2)', async () => {
+      const bon = activeBon();
+      prisma.bon.findUnique.mockResolvedValue(bon);
+      prisma.bonEquipment.updateMany.mockResolvedValue({ count: 3 });
+      prisma.bon.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.initiateInPersonSignature(bon.id, 'restitution', initiatedById),
+      ).rejects.toThrow(ConflictException);
+      // Marquage + transition sont dans la MÊME transaction (LOT A2) : la
+      // génération de token ne doit jamais être atteinte si elle a perdu la course.
+      expect(signatureService.generateToken).not.toHaveBeenCalled();
     });
 
     it('should return in-person token for restitution', async () => {
@@ -757,7 +1228,8 @@ describe('BonsService', () => {
       prisma.bon.findUnique.mockResolvedValue(bon);
       prisma.bonEquipment.updateMany.mockResolvedValue({ count: 3 });
       const updatedBon = { ...bon, status: 'sent_restitution' as const };
-      prisma.bon.update.mockResolvedValue(updatedBon);
+      prisma.bon.updateMany.mockResolvedValue({ count: 1 });
+      prisma.bon.findUniqueOrThrow.mockResolvedValue(updatedBon);
 
       const result = await service.initiateInPersonSignature(
         bon.id,
@@ -786,6 +1258,106 @@ describe('BonsService', () => {
       await expect(
         service.initiateInPersonSignature(bon.id, 'mise_disposition', initiatedById),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException when the collaborator is deactivated (assertSendable, LOT A2)', async () => {
+      const bon = draftBon();
+      prisma.bon.findUnique.mockResolvedValue(bon);
+      prisma.user.findUnique.mockResolvedValue({ ...collaboratorUser(), active: false });
+
+      await expect(
+        service.initiateInPersonSignature(bon.id, 'mise_disposition', initiatedById),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.bon.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('should refuse in-person restitution when a PV de clôture is due (LOT A2)', async () => {
+      const bon = partiallyReturnedBon(); // pending=0, notReturned=1 (equip-002)
+      prisma.bon.findUnique.mockResolvedValue(bon);
+      prisma.bonEquipment.count.mockResolvedValueOnce(0).mockResolvedValueOnce(1);
+      prisma.signature.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.initiateInPersonSignature(bon.id, 'restitution', initiatedById),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.bon.updateMany).not.toHaveBeenCalled();
+      expect(signatureService.generateToken).not.toHaveBeenCalled();
+    });
+
+    it('should refuse in-person restitution when a PV de clôture is already pending co-signature (LOT A2)', async () => {
+      const bon = activeBon();
+      prisma.bon.findUnique.mockResolvedValue(bon);
+      prisma.bonEquipment.count.mockResolvedValue(0);
+      prisma.signature.findFirst.mockResolvedValue({ id: 'sig-pv-pending', type: 'pv_cloture', signed: false } as never);
+
+      await expect(
+        service.initiateInPersonSignature(bon.id, 'restitution', initiatedById),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.bon.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('should reuse the existing pending in-person token on reinit instead of generating a new one (LOT A2)', async () => {
+      const bon = sentMiseDispoBon();
+      prisma.bon.findUnique.mockResolvedValue(bon);
+      prisma.signature.findFirst.mockResolvedValue({ token: 'existing-inperson-token' } as never);
+
+      const result = await service.initiateInPersonSignature(bon.id, 'mise_disposition', initiatedById);
+
+      expect(result.token).toBe('existing-inperson-token');
+      expect(signatureService.generateToken).not.toHaveBeenCalled();
+      expect(signatureService.invalidateUnsignedTokens).not.toHaveBeenCalled();
+      expect(prisma.bon.updateMany).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── findByCollaborateur (LOT A2) ────────────────────────────────────────────
+
+  describe('findByCollaborateur', () => {
+    const userId = 'user-collab-001';
+
+    it('should exclude draft bons', async () => {
+      prisma.bon.findMany.mockResolvedValue([]);
+
+      await service.findByCollaborateur(userId);
+
+      const call = prisma.bon.findMany.mock.calls[0][0] as { where: { status: { notIn: string[] } } };
+      expect(call.where.status.notIn).toEqual(expect.arrayContaining(['cancelled', 'draft']));
+    });
+
+    it('should mask the token of a pending in-person signature and expose inPersonPending instead', async () => {
+      const bon = sentMiseDispoBon();
+      const inPersonSig = {
+        ...bon.signatures[0],
+        isInPerson: true,
+        token: 'secret-inperson-token',
+        tokenExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        signed: false,
+      };
+      prisma.bon.findMany.mockResolvedValue([{ ...bon, signatures: [inPersonSig] }]);
+
+      const result = await service.findByCollaborateur(userId);
+
+      const sig = result[0].signatures[0] as { token?: string; inPersonPending?: boolean };
+      expect(sig.token).toBeUndefined();
+      expect(sig.inPersonPending).toBe(true);
+    });
+
+    it('should still expose the token of a signable, non-in-person signature', async () => {
+      const bon = sentMiseDispoBon();
+      const remoteSig = {
+        ...bon.signatures[0],
+        isInPerson: false,
+        token: 'remote-token',
+        tokenExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        signed: false,
+      };
+      prisma.bon.findMany.mockResolvedValue([{ ...bon, signatures: [remoteSig] }]);
+
+      const result = await service.findByCollaborateur(userId);
+
+      const sig = result[0].signatures[0] as { token?: string; inPersonPending?: boolean };
+      expect(sig.token).toBe('remote-token');
+      expect(sig.inPersonPending).toBeUndefined();
     });
   });
 
@@ -849,6 +1421,155 @@ describe('BonsService', () => {
       // Should NOT check for recent token when force=true
       expect(prisma.signature.findFirst).not.toHaveBeenCalled();
     });
+
+    it('should emit the PV via emitPvClotureIfDue when due and never generated before (LOT A1 correction #2c)', async () => {
+      const bon = partiallyReturnedBon(); // equip-002 notReturned, equip-001/003 returned → pending=0, notReturned=1
+      prisma.bon.findUnique
+        .mockResolvedValueOnce(bon) // findOne in resendSignatureLink
+        .mockResolvedValue(bon); // emitPvClotureIfDue reload
+      // signature.findFirst is reused for: recentSig, everGenerated (none), existingPvToken (none)
+      prisma.signature.findFirst.mockResolvedValue(null);
+      prisma.signature.findMany.mockResolvedValue([]);
+      prisma.bonEquipment.count.mockResolvedValueOnce(0).mockResolvedValueOnce(1);
+      prisma.auditLog.create.mockResolvedValue({} as never);
+
+      const result = await service.resendSignatureLink(bon.id, initiatedById);
+
+      expect(result.ok).toBe(true);
+      // LOT A2 : plus d'invalidateUnsignedTokens ici (hors verrou) —
+      // emitPvClotureIfDue invalide déjà les autres tokens sous son propre
+      // verrou advisory (cf. #C1 / relecture resendSignatureLink).
+      expect(signatureService.invalidateUnsignedTokens).not.toHaveBeenCalled();
+      // LOT A2 (correction #C1) : création directe via tx.signature.create.
+      expect(prisma.signature.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ bonId: bon.id, type: 'pv_cloture', initiatedById }),
+        }),
+      );
+      expect(notificationService.sendPvClotureRequest).toHaveBeenCalled();
+      expect(pdfService.generateAndSave).toHaveBeenCalledWith(
+        expect.anything(),
+        'cloture_equipements_manquants',
+        expect.anything(),
+        expect.stringContaining('cloture_equipements_manquants'),
+      );
+    });
+
+    it('should just resend the pv_cloture token without regenerating the PDF when one was already issued', async () => {
+      const bon = partiallyReturnedBon();
+      prisma.bon.findUnique.mockResolvedValue(bon);
+      // 1st call: recentSig -> null ; 2nd call: everGenerated -> a past pv_cloture record exists
+      prisma.signature.findFirst
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ id: 'old-pv-sig', type: 'pv_cloture' } as never);
+      prisma.auditLog.create.mockResolvedValue({} as never);
+
+      const result = await service.resendSignatureLink(bon.id, initiatedById);
+
+      expect(result.ok).toBe(true);
+      expect(signatureService.invalidateUnsignedTokens).toHaveBeenCalledWith(bon.id);
+      expect(signatureService.generateToken).toHaveBeenCalledWith(bon.id, 'pv_cloture', initiatedById, false);
+      expect(notificationService.sendPvClotureRequest).toHaveBeenCalled();
+      expect(pdfService.generateAndSave).not.toHaveBeenCalled();
+    });
+
+    it('should throw when equipment is still pending and no restitution token exists (LOT A1 correction #2c)', async () => {
+      const base = partiallyReturnedBon();
+      // equip-003 never processed by initiateRestitution → still pending
+      const bon = { ...base, equipments: base.equipments.map((e, i) => (i === 2 ? { ...e, returnedAt: null } : e)) };
+      prisma.bon.findUnique.mockResolvedValue(bon);
+      // 1st call: recentSig -> null ; 2nd call: pendingRestitutionSig -> none
+      prisma.signature.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+
+      await expect(service.resendSignatureLink(bon.id, initiatedById)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(signatureService.invalidateUnsignedTokens).not.toHaveBeenCalled();
+    });
+
+    it('should resend the existing pending restitution token when equipment is still pending', async () => {
+      const base = partiallyReturnedBon();
+      const bon = { ...base, equipments: base.equipments.map((e, i) => (i === 2 ? { ...e, returnedAt: null } : e)) };
+      prisma.bon.findUnique.mockResolvedValue(bon);
+      prisma.signature.findFirst
+        .mockResolvedValueOnce(null) // recentSig
+        .mockResolvedValueOnce({ id: 'sig-restit-pending', type: 'restitution', signed: false } as never); // pendingRestitutionSig
+      prisma.auditLog.create.mockResolvedValue({} as never);
+
+      const result = await service.resendSignatureLink(bon.id, initiatedById);
+
+      expect(result.ok).toBe(true);
+      expect(signatureService.invalidateUnsignedTokens).toHaveBeenCalledWith(bon.id);
+      expect(signatureService.generateToken).toHaveBeenCalledWith(bon.id, 'restitution', initiatedById, false);
+      expect(notificationService.sendRestitutionRequest).toHaveBeenCalled();
+    });
+  });
+
+  // ── emitPvClotureIfDue (LOT A1 correction #2) ──────────────────────────────
+
+  describe('emitPvClotureIfDue', () => {
+    const actorId = 'user-tech-001';
+
+    it('should return false when the bon is not partially_returned', async () => {
+      prisma.bon.findUnique.mockResolvedValue(activeBon());
+
+      const result = await service.emitPvClotureIfDue('bon-active-001', undefined, actorId);
+
+      expect(result).toBe(false);
+      expect(signatureService.generateToken).not.toHaveBeenCalled();
+    });
+
+    it('should return false when equipment is still pending', async () => {
+      const bon = partiallyReturnedBon();
+      prisma.bon.findUnique.mockResolvedValue(bon);
+      prisma.bonEquipment.count.mockResolvedValueOnce(1).mockResolvedValueOnce(1); // pending=1
+
+      const result = await service.emitPvClotureIfDue(bon.id, undefined, actorId);
+
+      expect(result).toBe(false);
+      expect(signatureService.generateToken).not.toHaveBeenCalled();
+    });
+
+    it('should return false (idempotent) when a pv_cloture token is already pending', async () => {
+      const bon = partiallyReturnedBon();
+      prisma.bon.findUnique.mockResolvedValue(bon);
+      prisma.bonEquipment.count.mockResolvedValueOnce(0).mockResolvedValueOnce(1); // pending=0, notReturned=1
+      prisma.signature.findFirst.mockResolvedValue({ id: 'sig-existing-pv', type: 'pv_cloture' } as never);
+
+      const result = await service.emitPvClotureIfDue(bon.id, undefined, actorId);
+
+      expect(result).toBe(false);
+      expect(signatureService.generateToken).not.toHaveBeenCalled();
+      expect(prisma.signature.create).not.toHaveBeenCalled();
+      expect(pdfService.generateAndSave).not.toHaveBeenCalled();
+    });
+
+    it('should emit the PV when due and no token is pending', async () => {
+      const bon = partiallyReturnedBon();
+      prisma.bon.findUnique.mockResolvedValue(bon);
+      prisma.bonEquipment.count.mockResolvedValueOnce(0).mockResolvedValueOnce(1); // pending=0, notReturned=1
+      prisma.signature.findFirst.mockResolvedValue(null);
+      prisma.signature.findMany.mockResolvedValue([]);
+      prisma.auditLog.create.mockResolvedValue({} as never);
+
+      const result = await service.emitPvClotureIfDue(bon.id, undefined, actorId);
+
+      expect(result).toBe(true);
+      // LOT A2 (correction #C1) : verrou advisory + création directe via
+      // tx.signature.create (plus via signatureService.generateToken).
+      expect(prisma.signature.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ bonId: bon.id, type: 'pv_cloture', initiatedById: actorId }),
+        }),
+      );
+      expect(notificationService.sendPvClotureRequest).toHaveBeenCalled();
+      expect(pdfService.generateAndSave).toHaveBeenCalledWith(
+        expect.anything(),
+        'cloture_equipements_manquants',
+        expect.objectContaining({ collab: null }),
+        expect.stringContaining('cloture_equipements_manquants'),
+      );
+    });
   });
 
   // ── closeUnilaterally ───────────────────────────────────────────────────────
@@ -876,7 +1597,12 @@ describe('BonsService', () => {
         where: { id: bon.id, status: 'sent_mise_dispo' },
         data: { status: 'active' },
       });
-      expect(signatureService.invalidateUnsignedTokens).toHaveBeenCalledWith(bon.id);
+      // LOT A2 (correction #C2) : transition + invalidation des tokens dans
+      // la MÊME transaction interactive (plus via signatureService.invalidateUnsignedTokens).
+      expect(prisma.signature.updateMany).toHaveBeenCalledWith({
+        where: { bonId: bon.id, signed: false, tokenExpiresAt: { gt: new Date(1000) } },
+        data: { tokenExpiresAt: new Date(0) },
+      });
       expect(prisma.auditLog.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
@@ -900,7 +1626,7 @@ describe('BonsService', () => {
 
       expect(prisma.bon.updateMany).toHaveBeenCalledWith({
         where: { id: bon.id, status: 'sent_restitution' },
-        data: { status: 'archived' },
+        data: { status: 'archived', archivedAt: expect.any(Date) },
       });
       expect(pdfService.generateAndSave.mock.calls[0][1]).toBe('signature_collab_restitution');
     });
@@ -914,7 +1640,7 @@ describe('BonsService', () => {
 
       expect(prisma.bon.updateMany).toHaveBeenCalledWith({
         where: { id: bon.id, status: 'partially_returned' },
-        data: { status: 'archived' },
+        data: { status: 'archived', archivedAt: expect.any(Date) },
       });
       expect(pdfService.generateAndSave.mock.calls[0][1]).toBe('cloture_equipements_manquants');
     });
@@ -946,9 +1672,12 @@ describe('BonsService', () => {
       await expect(service.closeUnilaterally(bon.id, userId, reason)).rejects.toThrow(
         ConflictException,
       );
-      // L'invalidation précède volontairement la transition (elle fait échouer
-      // une signature en vol sur son re-check d'expiration) — mais aucun PDF
-      // ni notification ne part quand la transition perd la course
+      // LOT A1 correction #11 / LOT A2 correction #C2 : la transition
+      // conditionnelle et l'invalidation des tokens sont dans la MÊME
+      // transaction interactive ; quand la transition perd la course
+      // (count=0 → Conflict), rien n'est invalidé (l'état gagnant garde un
+      // lien valide), et aucun PDF ni notification ne part.
+      expect(prisma.signature.updateMany).not.toHaveBeenCalled();
       expect(pdfService.generateAndSave).not.toHaveBeenCalled();
       expect(notificationService.sendUnilateralCloseNotice).not.toHaveBeenCalled();
     });
@@ -1016,6 +1745,55 @@ describe('BonsService', () => {
       });
       // Filiale with 0 bons should be filtered out
       expect(stats.byFiliale).toHaveLength(1);
+    });
+
+    it('should compute the month boundary in UTC, not local time (LOT A2)', async () => {
+      // 2026-03-01T00:30:00Z : en UTC-1 (ou plus à l'ouest), l'heure locale
+      // serait encore le 28/02 — un calcul en heure locale décalerait le
+      // début de mois d'une journée.
+      jest.useFakeTimers().setSystemTime(new Date('2026-03-01T00:30:00Z'));
+      try {
+        prisma.bon.count.mockResolvedValue(0);
+        prisma.filiale.findMany.mockResolvedValue([]);
+
+        await service.getStats();
+
+        const archivedThisMonthCall = prisma.bon.count.mock.calls.find(
+          (call) => (call[0] as { where?: { status?: string } })?.where?.status === 'archived',
+        ) as [{ where: { updatedAt: { gte: Date } } }] | undefined;
+        expect(archivedThisMonthCall).toBeDefined();
+        expect(archivedThisMonthCall?.[0].where.updatedAt.gte.toISOString()).toBe('2026-03-01T00:00:00.000Z');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+  });
+
+  // ── getExportData ───────────────────────────────────────────────────────────
+
+  describe('getExportData', () => {
+    it('should return the csv with truncated:false under the export limit', async () => {
+      prisma.bon.findMany.mockResolvedValue([]);
+
+      const result = await service.getExportData({});
+
+      expect(result.truncated).toBe(false);
+      expect(result.csv.startsWith('﻿')).toBe(true);
+    });
+
+    it('should report truncated:true and cap rows at 5000 when the limit is exceeded', async () => {
+      const rows = Array.from({ length: 5001 }, (_, i) => ({
+        ...draftBon(),
+        id: `bon-${i}`,
+        reference: `BON-2026-${String(i).padStart(4, '0')}`,
+      }));
+      prisma.bon.findMany.mockResolvedValue(rows as never);
+
+      const result = await service.getExportData({});
+
+      expect(result.truncated).toBe(true);
+      // 1 header line + 5000 data lines
+      expect(result.csv.split('\n')).toHaveLength(5001);
     });
   });
 });
