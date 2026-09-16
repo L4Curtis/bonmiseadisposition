@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { ContestationService } from '../contestation.service';
 import { NotificationService } from '../../notification/notification.service';
 import { SignatureService } from '../../signature/signature.service';
@@ -62,6 +62,7 @@ describe('ContestationService', () => {
         user: { id: collab.id, displayName: collab.displayName, email: collab.email },
       });
       prisma.bon.update.mockResolvedValue({ ...bon, status: 'contested' });
+      prisma.bon.updateMany.mockResolvedValue({ count: 1 });
       prisma.auditLog.create.mockResolvedValue({});
       return bon;
     }
@@ -91,10 +92,19 @@ describe('ContestationService', () => {
 
       await service.create(bon.id, collab.id, message);
 
-      expect(prisma.bon.update).toHaveBeenCalledWith({
-        where: { id: bon.id },
+      expect(prisma.bon.updateMany).toHaveBeenCalledWith({
+        where: { id: bon.id, status: 'active' },
         data: { status: 'contested' },
       });
+    });
+
+    it('should refuse (ConflictException) if the bon changed status concurrently', async () => {
+      const bon = setupActiveBon();
+      prisma.bon.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.create(bon.id, collab.id, message),
+      ).rejects.toThrow(ConflictException);
     });
 
     it('should invalidate unsigned tokens', async () => {
@@ -135,7 +145,7 @@ describe('ContestationService', () => {
       ).rejects.toThrow(ForbiddenException);
     });
 
-    it('should throw if contestation already open', async () => {
+    it('should throw (ConflictException) if contestation already open', async () => {
       const bon = activeBon();
       prisma.bon.findUnique.mockResolvedValue(bon);
       prisma.contestation.findFirst.mockResolvedValue({
@@ -146,7 +156,7 @@ describe('ContestationService', () => {
 
       await expect(
         service.create(bon.id, collab.id, message),
-      ).rejects.toThrow(BadRequestException);
+      ).rejects.toThrow(ConflictException);
     });
   });
 
@@ -186,6 +196,8 @@ describe('ContestationService', () => {
         .mockResolvedValue(resolvedVersion);
       // Claim conditionnel : la résolution gagne la course
       prisma.contestation.updateMany.mockResolvedValue({ count: 1 });
+      // Lecture fraîche du bon dans la transaction : toujours "contested" à ce stade
+      prisma.bon.findUnique.mockResolvedValue({ status: 'contested' });
       prisma.auditLog.findFirst.mockResolvedValue({
         details: { previousStatus: 'active' },
       });
@@ -240,6 +252,16 @@ describe('ContestationService', () => {
       await expect(
         service.resolve('contestation-closed-001', admin.id, 'resolved'),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should refuse (ConflictException) if the bon is no longer "contested" when resolving', async () => {
+      const { contestation } = setupOpenContestation();
+      // Le bon a été modifié entre-temps par un autre traitement (ex: annulé)
+      prisma.bon.findUnique.mockResolvedValue({ status: 'cancelled' });
+
+      await expect(
+        service.resolve(contestation.id, admin.id, 'resolved', 'OK'),
+      ).rejects.toThrow(ConflictException);
     });
 
     it('should cancel the bon and create a corrected draft when correct=true', async () => {
@@ -330,6 +352,23 @@ describe('ContestationService', () => {
       await expect(
         service.markInReview('contestation-closed-002', admin.id),
       ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  // ─── findAll ───────────────────────────────────────────────────────────────
+
+  describe('findAll', () => {
+    it('should return openCount independently of the applied status filter', async () => {
+      prisma.contestation.findMany.mockResolvedValue([]);
+      prisma.contestation.count
+        .mockResolvedValueOnce(3) // total (filtré par status='resolved')
+        .mockResolvedValueOnce(7); // openCount (toujours status='open', indépendant du filtre)
+
+      const result = await service.findAll({ status: 'resolved', page: 1, limit: 20 });
+
+      expect(result.total).toBe(3);
+      expect(result.openCount).toBe(7);
+      expect(prisma.contestation.count).toHaveBeenNthCalledWith(2, { where: { status: 'open' } });
     });
   });
 });

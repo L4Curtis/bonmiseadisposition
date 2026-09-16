@@ -1,6 +1,16 @@
-import { Inject, Injectable, NotFoundException, BadRequestException, ForbiddenException, forwardRef } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+  ForbiddenException,
+  ConflictException,
+  forwardRef,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { BonStatus } from '../common/types';
+import { BON_REFERENCE_TX_OPTIONS } from '../common/bon-reference';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 import { SignatureService } from '../signature/signature.service';
@@ -8,6 +18,8 @@ import { BonsService } from '../bons/bons.service';
 
 @Injectable()
 export class ContestationService {
+  private readonly logger = new Logger(ContestationService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
@@ -33,30 +45,33 @@ export class ContestationService {
     if (bon.status !== 'active')
       throw new BadRequestException('Ce bon ne peut pas être contesté dans son statut actuel');
 
-    // Vérifier qu'il n'y a pas déjà une contestation ouverte pour ce bon
-    const existing = await this.prisma.contestation.findFirst({
-      where: { bonId, status: { in: ['open', 'in_review'] } },
-    });
-    if (existing)
-      throw new BadRequestException('Une contestation est déjà en cours pour ce bon');
+    // Transaction unique : vérification "pas déjà ouverte" + création + passage
+    // du bon en "contested" sont atomiques — un double clic concurrent ne peut
+    // plus créer deux contestations, ni contester un bon déjà changé de statut
+    // entre la lecture ci-dessus et l'écriture.
+    const contestation = await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.contestation.findFirst({
+        where: { bonId, status: { in: ['open', 'in_review'] } },
+      });
+      if (existing) throw new ConflictException('Une contestation est déjà ouverte');
 
-    const contestation = await this.prisma.contestation.create({
-      data: {
-        bonId,
-        userId,
-        message,
-        status: 'open',
-      },
-      include: {
-        bon: { select: { id: true, reference: true } },
-        user: { select: { id: true, displayName: true, email: true } },
-      },
-    });
+      const created = await tx.contestation.create({
+        data: { bonId, userId, message, status: 'open' },
+        include: {
+          bon: { select: { id: true, reference: true } },
+          user: { select: { id: true, displayName: true, email: true } },
+        },
+      });
 
-    // Passer le bon en statut "contested" pour signaler visuellement
-    await this.prisma.bon.update({
-      where: { id: bonId },
-      data: { status: 'contested' },
+      const claimed = await tx.bon.updateMany({
+        where: { id: bonId, status: 'active' },
+        data: { status: 'contested' },
+      });
+      if (claimed.count === 0) {
+        throw new ConflictException("Le bon n'est plus contestable");
+      }
+
+      return created;
     });
 
     // Invalider tous les tokens de signature en attente pour éviter qu'un ancien lien
@@ -66,7 +81,11 @@ export class ContestationService {
     // Notifier les IT staff par email (fire and forget)
     this.notificationService
       .sendContestationAlert(bon, contestation.user, message)
-      .catch(() => {});
+      .catch((err: unknown) =>
+        this.logger.warn(
+          `Alerte contestation non envoyée pour le bon ${bonId}: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      );
 
     // Log d'audit (previousStatus stored for restoration on resolution)
     await this.prisma.auditLog.create({
@@ -89,7 +108,7 @@ export class ContestationService {
     const where: Prisma.ContestationWhereInput = {};
     if (status) where.status = status as Prisma.EnumContestationStatusFilter;
 
-    const [contestations, total] = await Promise.all([
+    const [contestations, total, openCount] = await Promise.all([
       this.prisma.contestation.findMany({
         where,
         orderBy: { createdAt: 'desc' },
@@ -102,9 +121,11 @@ export class ContestationService {
         },
       }),
       this.prisma.contestation.count({ where }),
+      // Indépendant des filtres/pagination — compteur global pour le badge IT
+      this.prisma.contestation.count({ where: { status: 'open' } }),
     ]);
 
-    return { contestations, total, page, limit };
+    return { contestations, total, page, limit, openCount };
   }
 
   // ─── Résoudre ou rejeter une contestation (IT) ───────────────────────────────
@@ -137,6 +158,8 @@ export class ContestationService {
     // résolutions concurrentes → une seule gagne), changement de statut du bon
     // et création du brouillon corrigé. Si la duplication échoue (P2002, panne
     // DB…), TOUT est rollbacké — la contestation reste ouverte et rejouable.
+    // BON_REFERENCE_TX_OPTIONS (timeout 10s) : duplicateAsDraft → generateBonReference
+    // pose un verrou advisory qui peut dépasser le timeout Prisma par défaut (5s).
     const correctedBon = await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.contestation.updateMany({
         where: { id, status: { in: ['open', 'in_review'] } },
@@ -149,6 +172,15 @@ export class ContestationService {
       });
       if (claimed.count === 0) {
         throw new BadRequestException('Cette contestation est déjà clôturée');
+      }
+
+      // Garde-fou : le bon doit toujours être au statut "contested" à cet
+      // instant (lecture fraîche, pas celle faite avant la transaction) avant
+      // de le restaurer ou de l'annuler — il a pu être modifié entre-temps par
+      // un autre traitement concurrent.
+      const freshBon = await tx.bon.findUnique({ where: { id: contestation.bonId }, select: { status: true } });
+      if (freshBon?.status !== 'contested') {
+        throw new ConflictException("Ce bon n'est plus au statut contesté");
       }
 
       if (correct) {
@@ -190,7 +222,7 @@ export class ContestationService {
         data: { status: previousStatus as BonStatus },
       });
       return null;
-    });
+    }, BON_REFERENCE_TX_OPTIONS);
 
     // Notifier le collaborateur du résultat
     this.notificationService
@@ -200,7 +232,11 @@ export class ContestationService {
         action,
         resolutionMessage,
       )
-      .catch(() => {});
+      .catch((err: unknown) =>
+        this.logger.warn(
+          `Notification de résolution non envoyée pour la contestation ${id}: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      );
 
     // Log d'audit
     await this.prisma.auditLog.create({
