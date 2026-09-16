@@ -3,7 +3,8 @@
  *
  * Each fixture is a factory function that returns a fresh object to prevent
  * mutation leaking between tests. The shape matches the BON_SELECT_SHAPE
- * query result (BonWithRelations).
+ * query result (see ../../types.ts) — references follow the real
+ * BON-YYYY-NNNN format produced by generateBonReference (../../bon-reference.ts).
  */
 
 // ── Shared IDs (deterministic for assertions) ────────────────────────────────
@@ -127,7 +128,7 @@ export function draftBon() {
   const id = 'bon-draft-001';
   return {
     id,
-    reference: 'BMD-2026-0001',
+    reference: 'BON-2026-0001',
     filialeId: IDS.filiale,
     collaborateurId: IDS.collaborateur,
     collaborateurEmail: 'jean.dupont@groupelivio.fr',
@@ -168,7 +169,7 @@ export function sentMiseDispoBon() {
   const id = 'bon-sent-mise-001';
   return {
     id,
-    reference: 'BMD-2026-0010',
+    reference: 'BON-2026-0010',
     filialeId: IDS.filiale,
     collaborateurId: IDS.collaborateur,
     collaborateurEmail: 'jean.dupont@groupelivio.fr',
@@ -211,7 +212,7 @@ export function activeBon() {
   const id = 'bon-active-001';
   return {
     id,
-    reference: 'BMD-2026-0020',
+    reference: 'BON-2026-0020',
     filialeId: IDS.filiale,
     collaborateurId: IDS.collaborateur,
     collaborateurEmail: 'jean.dupont@groupelivio.fr',
@@ -273,7 +274,7 @@ export function sentRestitutionBon() {
   return {
     ...active,
     id,
-    reference: 'BMD-2026-0030',
+    reference: 'BON-2026-0030',
     status: 'sent_restitution' as const,
     dateRestitution: new Date('2026-03-15'),
     updatedAt: new Date('2026-03-15T10:00:00Z'),
@@ -318,7 +319,7 @@ export function partiallyReturnedBon() {
 
   return {
     id,
-    reference: 'BMD-2026-0040',
+    reference: 'BON-2026-0040',
     filialeId: IDS.filiale,
     collaborateurId: IDS.collaborateur,
     collaborateurEmail: 'jean.dupont@groupelivio.fr',
@@ -400,7 +401,7 @@ export function archivedBon() {
 
   return {
     id,
-    reference: 'BMD-2026-0050',
+    reference: 'BON-2026-0050',
     filialeId: IDS.filiale,
     collaborateurId: IDS.collaborateur,
     collaborateurEmail: 'jean.dupont@groupelivio.fr',
@@ -477,7 +478,7 @@ export function cancelledBon() {
   const id = 'bon-cancelled-001';
   return {
     id,
-    reference: 'BMD-2026-0060',
+    reference: 'BON-2026-0060',
     filialeId: IDS.filiale,
     collaborateurId: IDS.collaborateur,
     collaborateurEmail: 'jean.dupont@groupelivio.fr',
@@ -520,7 +521,7 @@ export function contestedBon() {
   const id = 'bon-contested-001';
   return {
     id,
-    reference: 'BMD-2026-0070',
+    reference: 'BON-2026-0070',
     filialeId: IDS.filiale,
     collaborateurId: IDS.collaborateur,
     collaborateurEmail: 'jean.dupont@groupelivio.fr',

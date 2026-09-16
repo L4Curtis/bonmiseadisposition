@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   CreateCatalogItemDto, UpdateCatalogItemDto,
@@ -21,7 +22,7 @@ export class EquipmentService {
    * récent au plus ancien. Répond à « où est le portable SN-1234 ? ».
    */
   async getSerialHistory(serialNumber: string) {
-    const query = serialNumber.trim();
+    const query = (serialNumber ?? '').trim();
     if (!query) return [];
     const entries = await this.prisma.bonEquipment.findMany({
       where: { serialNumber: { equals: query, mode: 'insensitive' } },
@@ -127,17 +128,77 @@ export class EquipmentService {
     return item;
   }
 
-  createCatalogItem(dto: CreateCatalogItemDto) {
-    return this.prisma.equipmentCatalog.create({ data: dto });
+  async createCatalogItem(dto: CreateCatalogItemDto) {
+    try {
+      return await this.prisma.equipmentCatalog.create({ data: dto });
+    } catch (error: unknown) {
+      this.throwIfDuplicateCatalogItem(error);
+    }
   }
 
   async updateCatalogItem(id: string, dto: UpdateCatalogItemDto) {
-    await this.findOneCatalog(id);
-    return this.prisma.equipmentCatalog.update({ where: { id }, data: dto });
+    const existing = await this.findOneCatalog(id);
+
+    // brand/model/category identifient l'article sur les bons déjà émis
+    // (PDF, preuves signées) : les modifier a posteriori romprait la
+    // cohérence entre le document signé et le catalogue. Seuls les articles
+    // non référencés par un bon sorti de l'état draft peuvent être modifiés
+    // sur ces champs ; description/autres champs restent libres.
+    const changesIdentity = dto.category !== undefined || dto.brand !== undefined || dto.model !== undefined;
+    if (changesIdentity) {
+      const referencedBySignedBon = await this.prisma.bonEquipment.count({
+        where: {
+          catalogItemId: id,
+          bon: { status: { not: 'draft' } },
+        },
+      });
+      if (referencedBySignedBon > 0) {
+        throw new BadRequestException(
+          'Article référencé par des bons signés : créez un nouvel article plutôt que de modifier celui-ci.',
+        );
+      }
+    }
+
+    // `active` reste accepté par ce endpoint (le frontend réactive via
+    // PUT { active: true }) : seule une transition true → false doit passer
+    // par la même garde que removeCatalogItem, sinon un simple PUT
+    // contournerait la vérification « référencé sur N bons/packs actifs ».
+    // La réactivation (false → true, ou active absent du body) reste libre.
+    if (dto.active === false && existing.active !== false) {
+      await this.assertNotReferencedForDeactivation(id);
+    }
+
+    try {
+      return await this.prisma.equipmentCatalog.update({ where: { id }, data: dto });
+    } catch (error: unknown) {
+      this.throwIfDuplicateCatalogItem(error);
+    }
   }
 
   async removeCatalogItem(id: string) {
     await this.findOneCatalog(id);
+    await this.assertNotReferencedForDeactivation(id);
+    return this.prisma.equipmentCatalog.update({ where: { id }, data: { active: false } });
+  }
+
+  /**
+   * Traduit une violation de la contrainte d'unicité (category, brand, model)
+   * — code Prisma P2002 — en 400 explicite plutôt que de laisser remonter un
+   * 500 générique. Toute autre erreur est repropagée telle quelle.
+   */
+  private throwIfDuplicateCatalogItem(error: unknown): never {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      throw new BadRequestException('Cet article (catégorie / marque / modèle) existe déjà.');
+    }
+    throw error;
+  }
+
+  /**
+   * Garde partagée entre removeCatalogItem (DELETE) et updateCatalogItem
+   * (PUT { active: false }) : un article ne peut être désactivé ni s'il est
+   * référencé sur un bon actif, ni s'il figure dans un pack actif.
+   */
+  private async assertNotReferencedForDeactivation(id: string): Promise<void> {
     const activeBonCount = await this.prisma.bonEquipment.count({
       where: {
         catalogItemId: id,
@@ -149,7 +210,42 @@ export class EquipmentService {
         `Cet équipement est référencé sur ${activeBonCount} bon(s) actif(s) et ne peut pas être désactivé.`,
       );
     }
-    return this.prisma.equipmentCatalog.update({ where: { id }, data: { active: false } });
+
+    const activePackCount = await this.prisma.equipmentPackItem.count({
+      where: {
+        catalogItemId: id,
+        pack: { active: true },
+      },
+    });
+    if (activePackCount > 0) {
+      throw new BadRequestException(
+        `Cet article est présent dans ${activePackCount} pack(s) actif(s) et ne peut pas être désactivé.`,
+      );
+    }
+  }
+
+  /**
+   * Vérifie que chaque id de catalogue fourni existe et est actif — appelé
+   * avant toute création/mise à jour de pack pour empêcher qu'un pack
+   * référence un article inexistant ou désactivé (le pack deviendrait
+   * incomplet silencieusement à l'usage).
+   */
+  private async assertCatalogItemsActive(catalogItemIds: string[]): Promise<void> {
+    const uniqueIds = [...new Set(catalogItemIds)];
+    if (uniqueIds.length === 0) return;
+
+    const items = await this.prisma.equipmentCatalog.findMany({
+      where: { id: { in: uniqueIds } },
+      select: { id: true, active: true },
+    });
+    const activeById = new Map(items.map((item) => [item.id, item.active]));
+    const invalidIds = uniqueIds.filter((id) => activeById.get(id) !== true);
+
+    if (invalidIds.length > 0) {
+      throw new BadRequestException(
+        `Article(s) de catalogue introuvable(s) ou inactif(s) : ${invalidIds.join(', ')}`,
+      );
+    }
   }
 
   // ── Packs ──────────────────────────────────────────────────
@@ -195,6 +291,9 @@ export class EquipmentService {
 
   async createPack(dto: CreatePackDto) {
     const { items, ...packData } = dto;
+    if (items && items.length > 0) {
+      await this.assertCatalogItemsActive(items.map((item) => item.catalogItemId));
+    }
     return this.prisma.equipmentPack.create({
       data: {
         ...packData,
@@ -215,6 +314,9 @@ export class EquipmentService {
   async updatePack(id: string, dto: UpdatePackDto) {
     await this.findOnePack(id);
     const { items, ...packData } = dto;
+    if (items && items.length > 0) {
+      await this.assertCatalogItemsActive(items.map((item) => item.catalogItemId));
+    }
 
     // Atomic transaction: delete old items + create new + update pack metadata
     return this.prisma.$transaction(async (tx) => {

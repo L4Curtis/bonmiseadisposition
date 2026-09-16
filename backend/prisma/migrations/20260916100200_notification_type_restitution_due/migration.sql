@@ -1,0 +1,11 @@
+-- AlterEnum : nouveau type de notification pour les relances automatiques de
+-- restitution en retard.
+--
+-- IMPORTANT : cette instruction doit rester seule dans son fichier de
+-- migration. PostgreSQL interdit d'utiliser une valeur ajoutee par
+-- ALTER TYPE ... ADD VALUE dans la meme transaction que celle qui l'ajoute ;
+-- comme `prisma migrate deploy` execute chaque migration.sql dans sa propre
+-- transaction, toute utilisation de 'restitution_due_reminder' (ex. un
+-- INSERT/UPDATE la referencant) doit se trouver dans une migration
+-- ulterieure.
+ALTER TYPE "NotificationType" ADD VALUE IF NOT EXISTS 'restitution_due_reminder';

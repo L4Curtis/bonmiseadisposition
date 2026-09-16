@@ -1,8 +1,11 @@
 import { BadRequestException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { validate } from 'class-validator';
+import { plainToInstance } from 'class-transformer';
 import { EquipmentService } from '../equipment.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
-import { EquipmentCategoryEnum } from '../dto/equipment.dto';
+import { EquipmentCategoryEnum, PackItemDto } from '../dto/equipment.dto';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type MockPrisma = Record<string, Record<string, jest.Mock<any, any>>>;
@@ -13,6 +16,10 @@ describe('EquipmentService', () => {
 
   beforeEach(() => {
     prisma = createMockPrismaService() as unknown as MockPrisma;
+    // equipmentPackItem.count n'existe pas dans le mock partagé
+    // (helpers/mock-prisma.ts, hors périmètre de ce lot) : on l'ajoute ici,
+    // par défaut sans pack actif référençant l'article.
+    prisma.equipmentPackItem.count = jest.fn().mockResolvedValue(0);
     service = new EquipmentService(prisma as unknown as PrismaService);
   });
 
@@ -55,6 +62,14 @@ describe('EquipmentService', () => {
   }
 
   // ─── catalog CRUD ──────────────────────────────────────────────────────────
+
+  function uniqueViolation() {
+    return new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+      code: 'P2002',
+      clientVersion: '5.22.0',
+      meta: { target: ['category', 'brand', 'model'] },
+    });
+  }
 
   describe('catalog CRUD', () => {
     it('should find all catalog items', async () => {
@@ -117,9 +132,24 @@ describe('EquipmentService', () => {
       expect(prisma.equipmentCatalog.create).toHaveBeenCalledWith({ data: dto });
     });
 
-    it('should update a catalog item', async () => {
+    it('should reject creating a duplicate (category, brand, model) with a clear 400', async () => {
+      const dto = {
+        category: EquipmentCategoryEnum.pc_portable,
+        brand: 'Lenovo',
+        model: 'ThinkBook 16 G6',
+      };
+      prisma.equipmentCatalog.create.mockRejectedValue(uniqueViolation());
+
+      await expect(service.createCatalogItem(dto)).rejects.toThrow(BadRequestException);
+      await expect(service.createCatalogItem(dto)).rejects.toThrow(
+        'Cet article (catégorie / marque / modèle) existe déjà.',
+      );
+    });
+
+    it('should update a catalog item (identity field, no signed bon referencing it)', async () => {
       const existing = catalogItem();
       prisma.equipmentCatalog.findUnique.mockResolvedValue(existing);
+      prisma.bonEquipment.count.mockResolvedValue(0);
       const updated = { ...existing, brand: 'HP' };
       prisma.equipmentCatalog.update.mockResolvedValue(updated);
 
@@ -132,10 +162,64 @@ describe('EquipmentService', () => {
       });
     });
 
+    it('should update description without checking bon references (non-identity field)', async () => {
+      const existing = catalogItem();
+      prisma.equipmentCatalog.findUnique.mockResolvedValue(existing);
+      const updated = { ...existing, description: 'Nouvelle description' };
+      prisma.equipmentCatalog.update.mockResolvedValue(updated);
+
+      const result = await service.updateCatalogItem('cat-001', {
+        description: 'Nouvelle description',
+      });
+
+      expect(result.description).toBe('Nouvelle description');
+      expect(prisma.bonEquipment.count).not.toHaveBeenCalled();
+    });
+
+    it('should reject changing brand/model/category when referenced by a non-draft bon', async () => {
+      const existing = catalogItem();
+      prisma.equipmentCatalog.findUnique.mockResolvedValue(existing);
+      prisma.bonEquipment.count.mockResolvedValue(1);
+
+      await expect(
+        service.updateCatalogItem('cat-001', { brand: 'HP' }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.bonEquipment.count).toHaveBeenCalledWith({
+        where: { catalogItemId: 'cat-001', bon: { status: { not: 'draft' } } },
+      });
+      expect(prisma.equipmentCatalog.update).not.toHaveBeenCalled();
+    });
+
+    it('should allow changing category/model when only referenced by draft bons', async () => {
+      const existing = catalogItem();
+      prisma.equipmentCatalog.findUnique.mockResolvedValue(existing);
+      prisma.bonEquipment.count.mockResolvedValue(0);
+      prisma.equipmentCatalog.update.mockResolvedValue({ ...existing, model: 'ThinkBook 16 G7' });
+
+      const result = await service.updateCatalogItem('cat-001', { model: 'ThinkBook 16 G7' });
+
+      expect(result.model).toBe('ThinkBook 16 G7');
+    });
+
+    it('should reject updating into a duplicate (category, brand, model) with a clear 400', async () => {
+      const existing = catalogItem();
+      prisma.equipmentCatalog.findUnique.mockResolvedValue(existing);
+      prisma.bonEquipment.count.mockResolvedValue(0);
+      prisma.equipmentCatalog.update.mockRejectedValue(uniqueViolation());
+
+      await expect(
+        service.updateCatalogItem('cat-001', { brand: 'Dell' }),
+      ).rejects.toThrow(BadRequestException);
+      await expect(
+        service.updateCatalogItem('cat-001', { brand: 'Dell' }),
+      ).rejects.toThrow('Cet article (catégorie / marque / modèle) existe déjà.');
+    });
+
     it('should soft-delete (deactivate) a catalog item', async () => {
       const existing = catalogItem();
       prisma.equipmentCatalog.findUnique.mockResolvedValue(existing);
       prisma.bonEquipment.count.mockResolvedValue(0);
+      prisma.equipmentPackItem.count.mockResolvedValue(0);
       prisma.equipmentCatalog.update.mockResolvedValue({
         ...existing,
         active: false,
@@ -158,6 +242,135 @@ describe('EquipmentService', () => {
       await expect(service.removeCatalogItem('cat-001')).rejects.toThrow(
         BadRequestException,
       );
+      expect(prisma.equipmentPackItem.count).not.toHaveBeenCalled();
+    });
+
+    it('should throw when deactivating an item referenced by an active pack', async () => {
+      const existing = catalogItem();
+      prisma.equipmentCatalog.findUnique.mockResolvedValue(existing);
+      prisma.bonEquipment.count.mockResolvedValue(0);
+      prisma.equipmentPackItem.count.mockResolvedValue(2);
+
+      await expect(service.removeCatalogItem('cat-001')).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(prisma.equipmentPackItem.count).toHaveBeenCalledWith({
+        where: { catalogItemId: 'cat-001', pack: { active: true } },
+      });
+      expect(prisma.equipmentCatalog.update).not.toHaveBeenCalled();
+    });
+
+    it('should reject deactivating via update (active: true -> false) when referenced by an active bon', async () => {
+      const existing = catalogItem({ active: true });
+      prisma.equipmentCatalog.findUnique.mockResolvedValue(existing);
+      prisma.bonEquipment.count.mockResolvedValue(2);
+
+      await expect(
+        service.updateCatalogItem('cat-001', { active: false }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.bonEquipment.count).toHaveBeenCalledWith({
+        where: { catalogItemId: 'cat-001', bon: { status: { notIn: ['cancelled', 'archived'] } } },
+      });
+      expect(prisma.equipmentCatalog.update).not.toHaveBeenCalled();
+    });
+
+    it('should reject deactivating via update (active: true -> false) when referenced by an active pack', async () => {
+      const existing = catalogItem({ active: true });
+      prisma.equipmentCatalog.findUnique.mockResolvedValue(existing);
+      prisma.bonEquipment.count.mockResolvedValue(0);
+      prisma.equipmentPackItem.count.mockResolvedValue(1);
+
+      await expect(
+        service.updateCatalogItem('cat-001', { active: false }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.equipmentCatalog.update).not.toHaveBeenCalled();
+    });
+
+    it('should allow deactivating via update when not referenced by any active bon or pack', async () => {
+      const existing = catalogItem({ active: true });
+      prisma.equipmentCatalog.findUnique.mockResolvedValue(existing);
+      prisma.bonEquipment.count.mockResolvedValue(0);
+      prisma.equipmentPackItem.count.mockResolvedValue(0);
+      prisma.equipmentCatalog.update.mockResolvedValue({ ...existing, active: false });
+
+      const result = await service.updateCatalogItem('cat-001', { active: false });
+
+      expect(result.active).toBe(false);
+      expect(prisma.equipmentCatalog.update).toHaveBeenCalledWith({
+        where: { id: 'cat-001' },
+        data: { active: false },
+      });
+    });
+
+    it('should accept reactivation via update (active: false -> true) without any bon/pack guard', async () => {
+      const existing = catalogItem({ active: false });
+      prisma.equipmentCatalog.findUnique.mockResolvedValue(existing);
+      prisma.equipmentCatalog.update.mockResolvedValue({ ...existing, active: true });
+
+      const result = await service.updateCatalogItem('cat-001', { active: true });
+
+      expect(result.active).toBe(true);
+      expect(prisma.equipmentCatalog.update).toHaveBeenCalledWith({
+        where: { id: 'cat-001' },
+        data: { active: true },
+      });
+      expect(prisma.bonEquipment.count).not.toHaveBeenCalled();
+      expect(prisma.equipmentPackItem.count).not.toHaveBeenCalled();
+    });
+
+    it('should not re-check the guard when `active` is already false (no-op transition)', async () => {
+      const existing = catalogItem({ active: false });
+      prisma.equipmentCatalog.findUnique.mockResolvedValue(existing);
+      prisma.equipmentCatalog.update.mockResolvedValue({ ...existing, active: false });
+
+      await service.updateCatalogItem('cat-001', { active: false });
+
+      expect(prisma.bonEquipment.count).not.toHaveBeenCalled();
+      expect(prisma.equipmentPackItem.count).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── numeros de serie : trim + comparaison insensible a la casse ───────────
+
+  describe('serial number matching', () => {
+    it('should trim the query before searching serial history', async () => {
+      prisma.bonEquipment.findMany.mockResolvedValue([]);
+
+      await service.getSerialHistory('  SN-1234  ');
+
+      expect(prisma.bonEquipment.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { serialNumber: { equals: 'SN-1234', mode: 'insensitive' } },
+        }),
+      );
+    });
+
+    it('should return an empty list for a blank serial history query without hitting the DB', async () => {
+      const result = await service.getSerialHistory('   ');
+
+      expect(result).toEqual([]);
+      expect(prisma.bonEquipment.findMany).not.toHaveBeenCalled();
+    });
+
+    it('should trim serials and drop blank entries before checking conflicts', async () => {
+      prisma.bonEquipment.findMany.mockResolvedValue([]);
+
+      await service.findSerialConflicts(['  SN-1  ', '', '   ', 'SN-2']);
+
+      expect(prisma.bonEquipment.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            serialNumber: { in: ['SN-1', 'SN-2'], mode: 'insensitive' },
+          }),
+        }),
+      );
+    });
+
+    it('should return an empty list when every serial is blank', async () => {
+      const result = await service.findSerialConflicts(['', '   ', '\t']);
+
+      expect(result).toEqual([]);
+      expect(prisma.bonEquipment.findMany).not.toHaveBeenCalled();
     });
   });
 
@@ -192,12 +405,20 @@ describe('EquipmentService', () => {
           { catalogItemId: 'cat-002', quantity: 2, order: 1 },
         ],
       };
+      prisma.equipmentCatalog.findMany.mockResolvedValue([
+        { id: 'cat-001', active: true },
+        { id: 'cat-002', active: true },
+      ]);
       const created = packFixture();
       prisma.equipmentPack.create.mockResolvedValue(created);
 
       const result = await service.createPack(dto);
 
       expect(result).toEqual(created);
+      expect(prisma.equipmentCatalog.findMany).toHaveBeenCalledWith({
+        where: { id: { in: ['cat-001', 'cat-002'] } },
+        select: { id: true, active: true },
+      });
       expect(prisma.equipmentPack.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
@@ -214,9 +435,29 @@ describe('EquipmentService', () => {
       );
     });
 
+    it('should reject creating a pack referencing an inactive catalog item', async () => {
+      prisma.equipmentCatalog.findMany.mockResolvedValue([{ id: 'cat-001', active: false }]);
+
+      await expect(
+        service.createPack({ name: 'Pack Test', items: [{ catalogItemId: 'cat-001' }] }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.equipmentPack.create).not.toHaveBeenCalled();
+    });
+
+    it('should reject creating a pack referencing a non-existent catalog item', async () => {
+      // cat-999 absent du resultat findMany : introuvable
+      prisma.equipmentCatalog.findMany.mockResolvedValue([]);
+
+      await expect(
+        service.createPack({ name: 'Pack Test', items: [{ catalogItemId: 'cat-999' }] }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.equipmentPack.create).not.toHaveBeenCalled();
+    });
+
     it('should update pack (replace items)', async () => {
       const existing = packFixture();
       prisma.equipmentPack.findUnique.mockResolvedValue(existing);
+      prisma.equipmentCatalog.findMany.mockResolvedValue([{ id: 'cat-003', active: true }]);
 
       const updatedPack = {
         ...existing,
@@ -259,5 +500,44 @@ describe('EquipmentService', () => {
         ],
       });
     });
+
+    it('should reject updating a pack to reference an inactive catalog item', async () => {
+      const existing = packFixture();
+      prisma.equipmentPack.findUnique.mockResolvedValue(existing);
+      prisma.equipmentCatalog.findMany.mockResolvedValue([{ id: 'cat-003', active: false }]);
+
+      await expect(
+        service.updatePack('pack-001', { items: [{ catalogItemId: 'cat-003' }] }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.equipmentPackItem.deleteMany).not.toHaveBeenCalled();
+      expect(prisma.equipmentPack.update).not.toHaveBeenCalled();
+    });
   });
+
+  // ─── PackItemDto quantity bounds ────────────────────────────────────────────
+
+  describe('PackItemDto validation', () => {
+    async function validateQuantity(quantity: number) {
+      const dto = plainToInstance(PackItemDto, { catalogItemId: 'cat-001', quantity });
+      return validate(dto);
+    }
+
+    it('should accept a quantity within [1, 20]', async () => {
+      expect(await validateQuantity(1)).toHaveLength(0);
+      expect(await validateQuantity(20)).toHaveLength(0);
+    });
+
+    it('should reject a quantity below 1', async () => {
+      const errors = await validateQuantity(0);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].constraints).toHaveProperty('min');
+    });
+
+    it('should reject a quantity above 20', async () => {
+      const errors = await validateQuantity(21);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].constraints).toHaveProperty('max');
+    });
+  });
+
 });

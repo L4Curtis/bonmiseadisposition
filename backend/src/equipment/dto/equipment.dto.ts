@@ -1,4 +1,4 @@
-import { IsString, IsEnum, IsOptional, IsBoolean, IsInt, IsArray, ValidateNested, Min } from 'class-validator';
+import { IsString, IsEnum, IsOptional, IsBoolean, IsInt, IsArray, ValidateNested, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export enum EquipmentCategoryEnum {
@@ -47,6 +47,11 @@ export class UpdateCatalogItemDto {
   @IsString()
   description?: string;
 
+  // `active` reste accepté ici (le frontend réactive via PUT { active: true })
+  // mais equipment.service#updateCatalogItem applique, pour une transition
+  // true → false, exactement la même garde que removeCatalogItem : sinon un
+  // simple PUT contournerait la vérification « référencé sur N bons/packs
+  // actifs ». La réactivation (false → true) reste libre.
   @IsOptional()
   @IsBoolean()
   active?: boolean;
@@ -59,6 +64,7 @@ export class PackItemDto {
   @IsOptional()
   @IsInt()
   @Min(1)
+  @Max(20)
   quantity?: number;
 
   @IsOptional()

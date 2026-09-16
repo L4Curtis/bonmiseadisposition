@@ -67,7 +67,7 @@ export class AuditService {
     ];
     if (emailsToResolve.length > 0) {
       const users = await this.prisma.user.findMany({
-        where: { email: { in: emailsToResolve } },
+        where: { email: { in: emailsToResolve, mode: 'insensitive' } },
         select: { email: true, displayName: true },
       });
       const nameByEmail = new Map(users.map((u) => [u.email.toLowerCase(), u.displayName]));

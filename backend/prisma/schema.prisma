@@ -9,15 +9,15 @@ datasource db {
 }
 
 model AppConfig {
-  id          String    @id @default(uuid())
+  id          String   @id @default(uuid())
   category    String
   key         String
   value       String?
-  encrypted   Boolean   @default(false)
+  encrypted   Boolean  @default(false)
   description String?
-  updatedAt   DateTime  @updatedAt @map("updated_at")
-  updatedById String?   @map("updated_by_id")
-  updatedBy   User?     @relation(fields: [updatedById], references: [id])
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  updatedById String?  @map("updated_by_id")
+  updatedBy   User?    @relation(fields: [updatedById], references: [id])
 
   @@unique([category, key])
   @@map("app_config")
@@ -25,6 +25,13 @@ model AppConfig {
 
 model Filiale {
   id          String   @id @default(uuid())
+  // Unicité insensible à la casse assurée par un index fonctionnel en base
+  // (migration 20260916100400_unique_constraints : UNIQUE INDEX sur
+  // lower(name)), non représentable ici — Prisma ne sait pas déclarer
+  // d'index sur une expression sans les previewFeatures extendedIndexes.
+  // Le matching LDAP compare les noms en insensible à la casse : une
+  // contrainte @unique classique (sensible à la casse) sur ce champ
+  // n'empêcherait pas deux filiales "Nord"/"nord" de collisionner côté LDAP.
   name        String
   displayName String   @map("display_name")
   logoPath    String?  @map("logo_path")
@@ -48,25 +55,30 @@ enum UserRole {
 }
 
 model User {
-  id              String    @id @default(uuid())
-  samAccountName  String    @unique @map("sam_account_name")
-  displayName     String    @map("display_name")
-  email           String    @unique
-  department      String?
-  company         String?
-  title           String?
-  filialeId       String?   @map("filiale_id")
-  filiale         Filiale?  @relation(fields: [filialeId], references: [id])
-  isItStaff       Boolean   @default(false) @map("is_it_staff")
-  role            UserRole  @default(collaborator)
-  lastLdapSync    DateTime? @map("last_ldap_sync")
-  active          Boolean   @default(true)
-  passwordHash    String?   @map("password_hash")
-  isLocalAccount      Boolean   @default(false) @map("is_local_account")
-  mustChangePassword  Boolean   @default(false) @map("must_change_password")
-  passwordChangedAt   DateTime? @map("password_changed_at")
-  createdAt           DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
+  id                 String    @id @default(uuid())
+  samAccountName     String    @unique @map("sam_account_name")
+  displayName        String    @map("display_name")
+  // @unique ci-dessous reste sensible à la casse (comportement Prisma par
+  // défaut) ; l'unicité réellement appliquée est insensible à la casse via
+  // l'index fonctionnel users_email_lower_idx (migration
+  // 20260916100100_normalize_emails : UNIQUE INDEX sur lower(email)), non
+  // représentable dans ce schéma sans les previewFeatures extendedIndexes.
+  email              String    @unique
+  department         String?
+  company            String?
+  title              String?
+  filialeId          String?   @map("filiale_id")
+  filiale            Filiale?  @relation(fields: [filialeId], references: [id])
+  isItStaff          Boolean   @default(false) @map("is_it_staff")
+  role               UserRole  @default(collaborator)
+  lastLdapSync       DateTime? @map("last_ldap_sync")
+  active             Boolean   @default(true)
+  passwordHash       String?   @map("password_hash")
+  isLocalAccount     Boolean   @default(false) @map("is_local_account")
+  mustChangePassword Boolean   @default(false) @map("must_change_password")
+  passwordChangedAt  DateTime? @map("password_changed_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
 
   bonsCreated           Bon[]          @relation("BonCreatedBy")
   bonsCollaborateur     Bon[]          @relation("BonCollaborateur")
@@ -76,6 +88,7 @@ model User {
   configUpdates         AppConfig[]
   auditLogs             AuditLog[]
 
+  @@index([filialeId])
   @@map("users")
 }
 
@@ -106,6 +119,7 @@ model EquipmentCatalog {
   packItems     EquipmentPackItem[]
   bonEquipments BonEquipment[]
 
+  @@unique([category, brand, model])
   @@map("equipment_catalog")
 }
 
@@ -131,6 +145,7 @@ model EquipmentPackItem {
   quantity      Int              @default(1)
   order         Int              @default(0)
 
+  @@index([packId])
   @@map("equipment_pack_items")
 }
 
@@ -151,20 +166,20 @@ enum Civilite {
 }
 
 model Bon {
-  id                  String    @id @default(uuid())
-  reference           String    @unique
-  filialeId           String    @map("filiale_id")
-  filiale             Filiale   @relation(fields: [filialeId], references: [id])
-  collaborateurId     String    @map("collaborateur_id")
-  collaborateur       User      @relation("BonCollaborateur", fields: [collaborateurId], references: [id])
-  collaborateurEmail  String    @map("collaborateur_email")
-  createdById         String    @map("created_by_id")
-  createdBy           User      @relation("BonCreatedBy", fields: [createdById], references: [id])
-  civilite            Civilite
-  status              BonStatus @default(draft)
-  dateMiseDisposition DateTime  @map("date_mise_disposition") @db.Date
-  dateRestitution     DateTime? @map("date_restitution") @db.Date
-  notes               String?
+  id                       String    @id @default(uuid())
+  reference                String    @unique
+  filialeId                String    @map("filiale_id")
+  filiale                  Filiale   @relation(fields: [filialeId], references: [id])
+  collaborateurId          String    @map("collaborateur_id")
+  collaborateur            User      @relation("BonCollaborateur", fields: [collaborateurId], references: [id])
+  collaborateurEmail       String    @map("collaborateur_email")
+  createdById              String    @map("created_by_id")
+  createdBy                User      @relation("BonCreatedBy", fields: [createdById], references: [id])
+  civilite                 Civilite
+  status                   BonStatus @default(draft)
+  dateMiseDisposition      DateTime  @map("date_mise_disposition") @db.Date
+  dateRestitution          DateTime? @map("date_restitution") @db.Date
+  notes                    String?
   pdfMiseDispoSnapshot     Bytes?    @map("pdf_mise_dispo_snapshot")
   pdfMiseDispoSnapshotAt   DateTime? @map("pdf_mise_dispo_snapshot_at")
   pdfRestitutionSnapshot   Bytes?    @map("pdf_restitution_snapshot")
@@ -172,8 +187,11 @@ model Bon {
   // RGPD : horodatage de l'anonymisation (PII purgées, preuves détruites) une
   // fois la durée de rétention dépassée. Null = bon actif / non anonymisé.
   anonymizedAt             DateTime? @map("anonymized_at")
+  // Horodatage d'archivage (bascule vers le statut archived). Null tant que
+  // le bon n'a jamais été archivé.
+  archivedAt               DateTime? @map("archived_at")
   createdAt                DateTime  @default(now()) @map("created_at")
-  updatedAt           DateTime  @updatedAt @map("updated_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
 
   equipments    BonEquipment[]
   signatures    Signature[]
@@ -188,25 +206,30 @@ model Bon {
   @@index([status])
   @@index([collaborateurId])
   @@index([filialeId])
+  @@index([createdAt])
+  @@index([status, updatedAt])
   @@map("bons")
 }
 
 model BonEquipment {
-  id              String            @id @default(uuid())
-  bonId           String            @map("bon_id")
-  bon             Bon               @relation(fields: [bonId], references: [id], onDelete: Cascade)
-  catalogItemId   String?           @map("catalog_item_id")
-  catalogItem     EquipmentCatalog? @relation(fields: [catalogItemId], references: [id])
-  customLabel     String?           @map("custom_label")
-  serialNumber    String?           @map("serial_number")
-  inventoryNumber String?           @map("inventory_number")
-  notes           String?
-  order           Int               @default(0)
-  returnedAt        DateTime? @map("returned_at")
-  notReturned       Boolean   @default(false) @map("not_returned")
-  notReturnedReason String?   @map("not_returned_reason")
-  createdAt       DateTime          @default(now()) @map("created_at")
+  id                String            @id @default(uuid())
+  bonId             String            @map("bon_id")
+  bon               Bon               @relation(fields: [bonId], references: [id], onDelete: Cascade)
+  catalogItemId     String?           @map("catalog_item_id")
+  catalogItem       EquipmentCatalog? @relation(fields: [catalogItemId], references: [id])
+  customLabel       String?           @map("custom_label")
+  serialNumber      String?           @map("serial_number")
+  inventoryNumber   String?           @map("inventory_number")
+  notes             String?
+  order             Int               @default(0)
+  returnedAt        DateTime?         @map("returned_at")
+  notReturned       Boolean           @default(false) @map("not_returned")
+  notReturnedReason String?           @map("not_returned_reason")
+  createdAt         DateTime          @default(now()) @map("created_at")
 
+  @@index([bonId])
+  @@index([catalogItemId])
+  @@index([serialNumber])
   @@map("bon_equipments")
 }
 
@@ -256,9 +279,13 @@ model Signature {
   tsAt               DateTime?     @map("ts_at")
   initiatedById      String?       @map("initiated_by_id")
   initiatedBy        User?         @relation("SignatureInitiatedBy", fields: [initiatedById], references: [id])
+  // Type de document du cachet IT (mise_disposition | restitution) — écrit
+  // par le flux de signature pour distinguer les cachets multi-documents.
+  pdfType            String?       @map("pdf_type")
   createdAt          DateTime      @default(now()) @map("created_at")
 
   @@index([bonId, type, signed])
+  @@index([signed, tokenExpiresAt])
   @@map("signatures")
 }
 
@@ -362,6 +389,7 @@ model Contestation {
   createdAt         DateTime           @default(now()) @map("created_at")
   updatedAt         DateTime           @updatedAt @map("updated_at")
 
+  @@index([bonId])
   @@map("contestations")
 }
 
@@ -376,6 +404,7 @@ enum NotificationType {
   cancellation
   mark_found
   unilateral_closure
+  restitution_due_reminder
 }
 
 enum NotificationStatus {
@@ -396,6 +425,7 @@ model NotificationLog {
   reminderNumber Int?               @map("reminder_number")
 
   @@index([bonId, type])
+  @@index([status, sentAt])
   @@map("notification_logs")
 }
 
