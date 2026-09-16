@@ -106,13 +106,33 @@ export class ReportingService {
     };
   }
 
-  /** Bons en attente de signature depuis plus de OVERDUE_DAYS jours. */
+  /** Bons en attente de signature depuis plus de OVERDUE_DAYS jours. Inclut
+   *  les bons partially_returned dont le PV de clôture ou la restitution
+   *  co-signataire est encore en attente depuis plus de OVERDUE_DAYS jours —
+   *  sans quoi ces dossiers restaient invisibles du reporting de retard. */
   private async getOverdue() {
     const cutoff = new Date(Date.now() - OVERDUE_DAYS * DAY_MS);
     const bons = await this.prisma.bon.findMany({
       where: {
-        status: { in: ['sent_mise_dispo', 'sent_restitution'] },
-        updatedAt: { lt: cutoff },
+        OR: [
+          { status: { in: ['sent_mise_dispo', 'sent_restitution'] }, updatedAt: { lt: cutoff } },
+          {
+            status: 'partially_returned',
+            signatures: {
+              // tokenExpiresAt > epoch exclut les lignes invalidées VOLONTAIREMENT
+              // (resend, contestation, clôture — mises à epoch 0 par
+              // regenerateSignatureToken) : sans ce filtre, une ligne non
+              // signée invalidée depuis des semaines matche indéfiniment et
+              // rend le bon faussement "en retard" même après un rappel récent.
+              some: {
+                type: { in: ['pv_cloture', 'restitution'] },
+                signed: false,
+                createdAt: { lt: cutoff },
+                tokenExpiresAt: { gt: new Date(1000) },
+              },
+            },
+          },
+        ],
       },
       select: {
         id: true,
@@ -156,14 +176,19 @@ export class ReportingService {
     };
   }
 
-  /** Bons créés / archivés par mois sur les 12 derniers mois. */
+  /** Bons créés / archivés par mois sur les 12 derniers mois. Les bornes et le
+   *  libellé sont construits à partir des composantes UTC (Date.UTC) : un
+   *  découpage sur une date locale + toISOString() décale le libellé d'un
+   *  mois dès que le fuseau serveur n'est pas UTC (ex: Europe/Paris en hiver
+   *  la nuit, ou n'importe quand côté ouest de l'UTC). */
   private async getMonthly() {
     const now = new Date();
     const buckets: { month: string; start: Date; end: Date }[] = [];
     for (let i = 11; i >= 0; i--) {
-      const start = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const end = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);
-      buckets.push({ month: start.toISOString().slice(0, 7), start, end });
+      const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+      const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i + 1, 1));
+      const month = `${start.getUTCFullYear()}-${String(start.getUTCMonth() + 1).padStart(2, '0')}`;
+      buckets.push({ month, start, end });
     }
 
     const results = await Promise.all(

@@ -65,6 +65,37 @@ describe('ReportingService', () => {
       expect(r.monthly[0].created).toBe(3);
     });
 
+    describe('getMonthly at a month boundary (UTC vs. server-local timezone)', () => {
+      const originalTz = process.env.TZ;
+
+      beforeEach(() => {
+        // Fuseau à l'ouest de l'UTC : minuit UTC == encore la veille en heure
+        // locale — reproduit exactement le bug (libellé décalé d'un mois si le
+        // découpage utilisait les composantes LOCALES au lieu d'UTC).
+        process.env.TZ = 'America/New_York'; // UTC-5 (hiver)
+        jest.useFakeTimers();
+        jest.setSystemTime(new Date('2026-01-01T02:00:00Z')); // 21h locale le 31/12/2025
+      });
+
+      afterEach(() => {
+        jest.useRealTimers();
+        process.env.TZ = originalTz;
+      });
+
+      it('labels the current month using UTC components, not the server local timezone', async () => {
+        (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
+        (prisma.bon.findMany as jest.Mock).mockResolvedValue([]);
+        (prisma.bon.count as jest.Mock).mockResolvedValue(0);
+
+        const r = await service.getOverview();
+
+        // Dernier bucket = mois courant : doit être 2026-01 (UTC), pas 2025-12
+        // (ce que donnerait un découpage sur l'heure locale New York).
+        expect(r.monthly[11].month).toBe('2026-01');
+        expect(r.monthly[10].month).toBe('2025-12');
+      });
+    });
+
     it('surfaces failed notifications (emails non délivrés)', async () => {
       (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
       (prisma.bon.findMany as jest.Mock).mockResolvedValue([]);
@@ -78,6 +109,58 @@ describe('ReportingService', () => {
       expect(r.failedNotifications.count).toBe(1);
       expect(r.failedNotifications.items[0].reference).toBe('BMD-1');
       expect(r.failedNotifications.items[0].error).toBe('SMTP refusé');
+    });
+
+    describe('getOverdue — partially_returned signature validity', () => {
+      it('includes a partially_returned bon whose pending pv_cloture/restitution signature is old and not invalidated', async () => {
+        (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
+        (prisma.bon.count as jest.Mock).mockResolvedValue(0);
+        const tenDaysAgo = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000);
+        // Le mock renvoie directement ce qu'une requête correctement filtrée
+        // retournerait — la ligne ci-dessous vérifie le câblage sortie/mapping.
+        (prisma.bon.findMany as jest.Mock).mockResolvedValue([
+          {
+            id: 'b1', reference: 'BMD-PR-1', status: 'partially_returned', updatedAt: tenDaysAgo,
+            collaborateur: { displayName: 'Jean', email: 'j@x.fr', department: 'IT' },
+            filiale: { displayName: 'Paris' },
+          },
+        ]);
+
+        const r = await service.getOverview();
+
+        expect(r.overdue.items.map((i) => i.reference)).toContain('BMD-PR-1');
+      });
+
+      it('builds the where clause so an invalidated signature (tokenExpiresAt = epoch) cannot match', async () => {
+        (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
+        (prisma.bon.findMany as jest.Mock).mockResolvedValue([]);
+        (prisma.bon.count as jest.Mock).mockResolvedValue(0);
+
+        await service.getOverview();
+
+        expect(prisma.bon.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              OR: expect.arrayContaining([
+                {
+                  status: 'partially_returned',
+                  signatures: {
+                    some: {
+                      type: { in: ['pv_cloture', 'restitution'] },
+                      signed: false,
+                      createdAt: { lt: expect.any(Date) },
+                      // Une signature invalidée (regenerateSignatureToken met
+                      // tokenExpiresAt à epoch) ne peut plus jamais satisfaire
+                      // ce filtre, même des semaines après — fini le faux positif.
+                      tokenExpiresAt: { gt: new Date(1000) },
+                    },
+                  },
+                },
+              ]),
+            }),
+          }),
+        );
+      });
     });
   });
 
