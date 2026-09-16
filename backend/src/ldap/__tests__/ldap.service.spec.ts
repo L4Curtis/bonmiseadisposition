@@ -1,9 +1,17 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { Prisma } from '@prisma/client';
 import { LdapService } from '../ldap.service';
 import { AppConfigService } from '../../config/config.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
 import { createMockConfigService } from '../../common/__tests__/helpers/mock-services';
+
+// Accès aux méthodes privées d'upsert/désactivation pour les tester isolément
+// sans simuler tout le flux LDAP (bind + search par événements).
+interface PrivateLdapService {
+  upsertUsers: (users: Array<{ sAMAccountName: string; displayName: string; mail: string; department?: string; company?: string; title?: string }>) => Promise<{ skipped: number }>;
+  deactivateAbsentUsers: (syncStart: Date) => Promise<{ aborted: boolean; abortMessage: string | null }>;
+}
 
 // Mock ldapjs — we never want real LDAP connections in unit tests
 const mockClient = {
@@ -26,11 +34,12 @@ const ldapMock = require('ldapjs') as { createClient: jest.Mock };
 describe('LdapService', () => {
   let service: LdapService;
   let configService: ReturnType<typeof createMockConfigService>;
+  let prisma: ReturnType<typeof createMockPrismaService>;
 
   beforeEach(async () => {
     jest.clearAllMocks();
 
-    const prisma = createMockPrismaService();
+    prisma = createMockPrismaService();
     configService = createMockConfigService();
 
     // Default LDAP config
@@ -122,6 +131,139 @@ describe('LdapService', () => {
       await service.syncUsers();
 
       expect(ldapMock.createClient).not.toHaveBeenCalled();
+    });
+
+    it('should search with server-side paging (LOT C bug #8)', async () => {
+      mockClient.bind.mockImplementation((_dn: string, _pw: string, cb: (err: Error | null) => void) => cb(null));
+      mockClient.search.mockImplementation(
+        (_base: string, _opts: unknown, cb: (err: Error | null, res: unknown) => void) => {
+          const handlers: Record<string, (...args: unknown[]) => void> = {};
+          cb(null, {
+            on: (event: string, handler: (...args: unknown[]) => void) => {
+              handlers[event] = handler;
+              if (event === 'end') handler(null);
+            },
+          });
+        },
+      );
+      prisma.filiale.findMany.mockResolvedValue([]);
+      prisma.user.count.mockResolvedValue(0);
+      prisma.user.updateMany.mockResolvedValue({ count: 0 });
+
+      await service.syncUsers();
+
+      expect(mockClient.search).toHaveBeenCalledWith(
+        'dc=test,dc=local',
+        expect.objectContaining({ paged: { pageSize: 500 } }),
+        expect.any(Function),
+      );
+    });
+  });
+
+  // ─── upsertUsers (collision handling — LOT C bug #6c) ───────────────────────
+
+  describe('upsertUsers', () => {
+    const ldapUser = {
+      sAMAccountName: 'jdupont',
+      displayName: 'Jean Dupont',
+      mail: 'Jean.Dupont@Exemple.fr',
+      department: undefined,
+      company: undefined,
+      title: undefined,
+    };
+
+    beforeEach(() => {
+      prisma.filiale.findMany.mockResolvedValue([]);
+    });
+
+    it('normalizes the email before writing and upserts by sAMAccountName when no match exists', async () => {
+      prisma.user.findFirst.mockResolvedValue(null);
+      prisma.user.upsert.mockResolvedValue({});
+
+      const result = await (service as unknown as PrivateLdapService).upsertUsers([ldapUser]);
+
+      expect(result.skipped).toBe(0);
+      expect(prisma.user.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { samAccountName: 'jdupont' },
+          update: expect.objectContaining({ email: 'jean.dupont@exemple.fr' }),
+        }),
+      );
+    });
+
+    it('updates the existing record by id when found by email under a different sAMAccountName', async () => {
+      prisma.user.findFirst.mockResolvedValue({ id: 'user-1', samAccountName: 'old.sam' });
+      prisma.user.update.mockResolvedValue({});
+
+      const result = await (service as unknown as PrivateLdapService).upsertUsers([ldapUser]);
+
+      expect(result.skipped).toBe(0);
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'user-1' } }),
+      );
+      expect(prisma.user.upsert).not.toHaveBeenCalled();
+    });
+
+    it('continues past a P2002 collision on one user instead of aborting the whole sync', async () => {
+      prisma.user.findFirst.mockResolvedValue(null);
+      prisma.user.upsert.mockRejectedValueOnce(
+        new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+          code: 'P2002',
+          clientVersion: 'test',
+        }),
+      );
+
+      const secondUser = { ...ldapUser, sAMAccountName: 'other', mail: 'other@exemple.fr' };
+      prisma.user.upsert.mockResolvedValueOnce(undefined as never).mockResolvedValueOnce({});
+
+      const result = await (service as unknown as PrivateLdapService).upsertUsers([ldapUser, secondUser]);
+
+      // First user's P2002 is counted as skipped; the second is still processed.
+      expect(result.skipped).toBe(1);
+      expect(prisma.user.upsert).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  // ─── deactivateAbsentUsers (mass-deactivation guardrail — LOT C bug #7) ─────
+
+  describe('deactivateAbsentUsers', () => {
+    it('deactivates absent accounts when under the 20% threshold', async () => {
+      prisma.user.count
+        .mockResolvedValueOnce(2) // toDeactivate
+        .mockResolvedValueOnce(100); // activeLdapAccounts
+      prisma.user.updateMany.mockResolvedValue({ count: 2 });
+
+      const result = await (service as unknown as PrivateLdapService).deactivateAbsentUsers(new Date());
+
+      expect(result).toEqual({ aborted: false, abortMessage: null });
+      expect(prisma.user.updateMany).toHaveBeenCalled();
+    });
+
+    it('aborts when >20% AND at least 5 accounts would be deactivated', async () => {
+      prisma.user.count
+        .mockResolvedValueOnce(30) // toDeactivate
+        .mockResolvedValueOnce(100); // activeLdapAccounts (30% > 20%)
+
+      const result = await (service as unknown as PrivateLdapService).deactivateAbsentUsers(new Date());
+
+      expect(result.aborted).toBe(true);
+      expect(result.abortMessage).toContain('Sync interrompue');
+      expect(prisma.user.updateMany).not.toHaveBeenCalled();
+      expect(prisma.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ action: 'ldap_sync_aborted' }) }),
+      );
+    });
+
+    it('does NOT abort when the ratio is high but the absolute count is below the floor', async () => {
+      prisma.user.count
+        .mockResolvedValueOnce(3) // toDeactivate — below MASS_DEACTIVATION_MIN_COUNT (5)
+        .mockResolvedValueOnce(5); // activeLdapAccounts (60% ratio, but too few accounts to matter)
+      prisma.user.updateMany.mockResolvedValue({ count: 3 });
+
+      const result = await (service as unknown as PrivateLdapService).deactivateAbsentUsers(new Date());
+
+      expect(result.aborted).toBe(false);
+      expect(prisma.user.updateMany).toHaveBeenCalled();
     });
   });
 });

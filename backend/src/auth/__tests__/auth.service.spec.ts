@@ -1,13 +1,18 @@
-import { UnauthorizedException, BadRequestException } from '@nestjs/common';
+import { UnauthorizedException, BadRequestException, ServiceUnavailableException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import type { Response } from 'express';
 import * as bcrypt from 'bcryptjs';
+import { Prisma } from '@prisma/client';
 import { AuthService } from '../auth.service';
 
-// Prevent ensureDefaultAdmin from writing the initial password file on disk
+// Prevent ensureDefaultAdmin/changePassword from touching the real filesystem
 jest.mock('fs', () => ({
   ...jest.requireActual('fs'),
   writeFileSync: jest.fn(),
+  existsSync: jest.fn().mockReturnValue(false),
+  unlinkSync: jest.fn(),
 }));
+import { existsSync, unlinkSync } from 'fs';
 import { AppConfigService } from '../../config/config.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
@@ -52,6 +57,8 @@ describe('AuthService', () => {
 
   // ─── localLogin ──────────────────────────────────────────────────────────────
 
+  const TEST_IP = '10.0.0.1';
+
   describe('localLogin', () => {
     it('should authenticate valid local user', async () => {
       const password = STRONG_PASSWORD;
@@ -60,12 +67,16 @@ describe('AuthService', () => {
         ...localAdminUser(),
         passwordHash: hash,
         mustChangePassword: false,
+        // Récent : ne doit pas déclencher la dérivation à 90 jours (testée
+        // séparément ci-dessous) — le fixture par défaut a une date fixe qui
+        // finit par dépasser 90 jours au fil du temps.
+        passwordChangedAt: new Date(),
       };
 
       prisma.auditLog.count.mockResolvedValue(0);
       prisma.user.findFirst.mockResolvedValue(user);
 
-      const result = await service.localLogin(user.email, password);
+      const result = await service.localLogin(user.email, password, TEST_IP);
 
       expect(result).toEqual({
         accessToken: 'mock-jwt-token',
@@ -77,6 +88,40 @@ describe('AuthService', () => {
       });
     });
 
+    it('should normalize email casing/whitespace before lookup', async () => {
+      const password = STRONG_PASSWORD;
+      const hash = await bcrypt.hash(password, 10);
+      const user = { ...localAdminUser(), passwordHash: hash, mustChangePassword: false };
+
+      prisma.auditLog.count.mockResolvedValue(0);
+      prisma.user.findFirst.mockResolvedValue(user);
+
+      await service.localLogin(`  ${user.email.toUpperCase()}  `, password, TEST_IP);
+
+      expect(prisma.user.findFirst).toHaveBeenCalledWith({
+        where: { email: user.email, isLocalAccount: true, active: true },
+      });
+    });
+
+    it('should derive mustChangePassword when the local password is older than 90 days', async () => {
+      const password = STRONG_PASSWORD;
+      const hash = await bcrypt.hash(password, 10);
+      const oldDate = new Date(Date.now() - 91 * 24 * 60 * 60 * 1000);
+      const user = {
+        ...localAdminUser(),
+        passwordHash: hash,
+        mustChangePassword: false,
+        passwordChangedAt: oldDate,
+      };
+
+      prisma.auditLog.count.mockResolvedValue(0);
+      prisma.user.findFirst.mockResolvedValue(user);
+
+      const result = await service.localLogin(user.email, password, TEST_IP);
+
+      expect(result.mustChangePassword).toBe(true);
+    });
+
     it('should throw UnauthorizedException for wrong password', async () => {
       const hash = await bcrypt.hash('CorrectPassword1!', 10);
       const user = { ...localAdminUser(), passwordHash: hash };
@@ -85,7 +130,7 @@ describe('AuthService', () => {
       prisma.user.findFirst.mockResolvedValue(user);
 
       await expect(
-        service.localLogin(user.email, 'WrongPassword1!'),
+        service.localLogin(user.email, 'WrongPassword1!', TEST_IP),
       ).rejects.toThrow(UnauthorizedException);
     });
 
@@ -94,18 +139,44 @@ describe('AuthService', () => {
       prisma.user.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.localLogin('nobody@local', 'Whatever1!@#'),
+        service.localLogin('nobody@local', 'Whatever1!@#', TEST_IP),
       ).rejects.toThrow(UnauthorizedException);
     });
 
-    it('should throw UnauthorizedException when brute-force locked (10+ failures)', async () => {
+    it('should throw UnauthorizedException when brute-force locked (10+ failures for this account+IP)', async () => {
       prisma.auditLog.count.mockResolvedValue(10);
 
       await expect(
-        service.localLogin('locked@local', 'Whatever1!@#'),
+        service.localLogin('locked@local', 'Whatever1!@#', TEST_IP),
       ).rejects.toThrow(UnauthorizedException);
 
       // Should NOT even try to look up the user
+      expect(prisma.user.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('should lock by account+IP but NOT by email alone (LOT C bug #2)', async () => {
+      // 10 failures for this email from a DIFFERENT ip, 0 from the current IP
+      // and 0 for the IP-wide dimension: must NOT lock.
+      prisma.auditLog.count
+        .mockResolvedValueOnce(0) // (email, ip) dimension
+        .mockResolvedValueOnce(0); // ip-wide dimension
+
+      const password = STRONG_PASSWORD;
+      const hash = await bcrypt.hash(password, 10);
+      const user = { ...localAdminUser(), passwordHash: hash, mustChangePassword: false };
+      prisma.user.findFirst.mockResolvedValue(user);
+
+      await expect(service.localLogin(user.email, password, TEST_IP)).resolves.toBeDefined();
+    });
+
+    it('should throw when a single IP has 30+ failures across different targets', async () => {
+      prisma.auditLog.count
+        .mockResolvedValueOnce(0) // (email, ip) dimension — under the per-account threshold
+        .mockResolvedValueOnce(30); // ip-wide dimension — credential stuffing
+
+      await expect(
+        service.localLogin('anyone@local', 'Whatever1!@#', TEST_IP),
+      ).rejects.toThrow(UnauthorizedException);
       expect(prisma.user.findFirst).not.toHaveBeenCalled();
     });
   });
@@ -155,6 +226,16 @@ describe('AuthService', () => {
       await expect(
         service.refreshAccessToken('some-refresh-token'),
       ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('should return 503 (not 401) for an unexpected DB error after a valid token (LOT C bug #11)', async () => {
+      jwtService.verify.mockReturnValue({ sub: 'some-user-id', type: 'refresh' });
+      // The token itself is valid — the failure happens fetching the user (DB down)
+      prisma.user.findUniqueOrThrow.mockRejectedValue(new Error('connect ECONNREFUSED'));
+
+      await expect(
+        service.refreshAccessToken('valid-token-db-down'),
+      ).rejects.toThrow(ServiceUnavailableException);
     });
   });
 
@@ -242,6 +323,38 @@ describe('AuthService', () => {
         service.changePassword(user.id, currentPw, 'NoSpecial12345'),
       ).rejects.toThrow(BadRequestException);
     });
+
+    it('should delete the initial admin password file after admin@local changes password (LOT C bug #11)', async () => {
+      const currentPw = 'OldPassw0rd_Ok!';
+      const newPw = 'NewPassw0rd_Ok!';
+      const hash = await bcrypt.hash(currentPw, 10);
+      const admin = { ...localAdminUser(), email: 'admin@local', passwordHash: hash };
+
+      prisma.user.findUniqueOrThrow.mockResolvedValue(admin);
+      prisma.user.update.mockResolvedValue({ ...admin, mustChangePassword: false });
+      (existsSync as jest.Mock).mockReturnValueOnce(true);
+
+      await service.changePassword(admin.id, currentPw, newPw);
+
+      expect(unlinkSync).toHaveBeenCalledWith(
+        expect.stringContaining('initial-admin-password.txt'),
+      );
+    });
+
+    it('should NOT touch the password file for a non-admin@local account', async () => {
+      const currentPw = 'OldPassw0rd_Ok!';
+      const newPw = 'NewPassw0rd_Ok!';
+      const hash = await bcrypt.hash(currentPw, 10);
+      const user = { ...localAdminUser(), email: 'someone-else@exemple.fr', passwordHash: hash };
+
+      prisma.user.findUniqueOrThrow.mockResolvedValue(user);
+      prisma.user.update.mockResolvedValue({ ...user, mustChangePassword: false });
+      (unlinkSync as jest.Mock).mockClear();
+
+      await service.changePassword(user.id, currentPw, newPw);
+
+      expect(unlinkSync).not.toHaveBeenCalled();
+    });
   });
 
   // ─── revokeToken / isTokenRevoked ────────────────────────────────────────────
@@ -311,6 +424,57 @@ describe('AuthService', () => {
       // Should NOT call create or update (admin exists and is already a local account)
       expect(prisma.user.create).not.toHaveBeenCalled();
       expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+
+    it('should silently swallow a P2002 (admin created concurrently) (LOT C bug #11)', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.user.create.mockRejectedValue(
+        new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+          code: 'P2002',
+          clientVersion: 'test',
+        }),
+      );
+
+      await expect(service.ensureDefaultAdmin()).resolves.toBeUndefined();
+    });
+
+    it('should log and rethrow any error that is NOT a P2002 (LOT C bug #11)', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.user.create.mockRejectedValue(new Error('connect ECONNREFUSED'));
+
+      await expect(service.ensureDefaultAdmin()).rejects.toThrow('connect ECONNREFUSED');
+    });
+  });
+
+  // ─── setAuthCookies / clearAuthCookies ────────────────────────────────────────
+
+  describe('setAuthCookies / clearAuthCookies', () => {
+    it('should scope the refresh_token cookie to /api/auth (not /api/auth/refresh) so logout can revoke it (LOT C bug #3)', () => {
+      const cookieCalls: Array<[string, string, Record<string, unknown>]> = [];
+      const res = {
+        cookie: jest.fn((name: string, value: string, opts: Record<string, unknown>) => {
+          cookieCalls.push([name, value, opts]);
+        }),
+      };
+
+      service.setAuthCookies(res as unknown as Response, 'access-tok', 'refresh-tok');
+
+      const refreshCall = cookieCalls.find(([name]) => name === 'refresh_token');
+      expect(refreshCall?.[2]).toMatchObject({ path: '/api/auth' });
+    });
+
+    it('should clear the refresh_token cookie with the same /api/auth path', () => {
+      const clearCalls: Array<[string, Record<string, unknown>]> = [];
+      const res = {
+        clearCookie: jest.fn((name: string, opts: Record<string, unknown>) => {
+          clearCalls.push([name, opts]);
+        }),
+      };
+
+      service.clearAuthCookies(res as unknown as Response);
+
+      const refreshClear = clearCalls.find(([name]) => name === 'refresh_token');
+      expect(refreshClear?.[1]).toMatchObject({ path: '/api/auth' });
     });
   });
 });

@@ -39,6 +39,46 @@ export class UsersService {
     });
   }
 
+  /** Pagination optionnelle pour GET /users (LOT C bug #11) : renvoie
+   *  { users, total, page, limit } plutôt qu'un tableau brut quand ?page est
+   *  fourni — findAll() reste inchangée pour ne pas casser les appelants
+   *  existants qui attendent un tableau. */
+  async findAllPaginated(options: {
+    filialeId?: string;
+    role?: string;
+    search?: string;
+    page: number;
+    limit: number;
+  }) {
+    const where = {
+      active: true,
+      filialeId: options.filialeId,
+      role: options.role as UserRole | undefined,
+      ...(options.search
+        ? {
+            OR: [
+              { displayName: { contains: options.search, mode: 'insensitive' as const } },
+              { email: { contains: options.search, mode: 'insensitive' as const } },
+              { samAccountName: { contains: options.search, mode: 'insensitive' as const } },
+            ],
+          }
+        : {}),
+    };
+
+    const [users, total] = await Promise.all([
+      this.prisma.user.findMany({
+        where,
+        select: this.safeSelect,
+        orderBy: { displayName: 'asc' },
+        skip: (options.page - 1) * options.limit,
+        take: options.limit,
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+
+    return { users, total, page: options.page, limit: options.limit };
+  }
+
   async search(query: string) {
     return this.prisma.user.findMany({
       where: {

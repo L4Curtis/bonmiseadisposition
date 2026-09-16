@@ -1,21 +1,38 @@
-import { Injectable, UnauthorizedException, BadRequestException, Logger, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException, ServiceUnavailableException, ConflictException, Logger, OnModuleDestroy } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Response, Request } from 'express';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
-import { writeFileSync } from 'fs';
+import { writeFileSync, existsSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { ConfidentialClientApplication, AuthorizationCodeRequest } from '@azure/msal-node';
+import { Prisma } from '@prisma/client';
 import { AppConfigService } from '../config/config.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { normalizeEmail } from './utils/normalize-email.util';
+import { computeMustChangePassword } from './password-policy';
 
 /** Thrown when an account is locked by brute-force protection — the controller
  *  logs it as login_local_locked (NOT login_local_failed) so that lockout
  *  attempts do not extend the lockout window indefinitely. */
 export class AccountLockedException extends UnauthorizedException {}
 
+/** Thrown when creating a new SSO-provisioned user hits a residual unique
+ *  constraint violation — the controller redirects to a distinct error code
+ *  (account_conflict) instead of the generic auth_failed (LOT C bug #4). */
+export class AccountConflictException extends ConflictException {}
+
+interface RefreshTokenPayload {
+  sub: string;
+  type: string;
+  authTime?: number;
+  iat?: number;
+}
+
 // Absolute session lifetime: refresh rotation cannot extend a session past this.
 const MAX_SESSION_MS = 24 * 60 * 60 * 1000;
+
+const ADMIN_LOCAL_EMAIL = normalizeEmail('admin@local');
 
 // Pre-computed hash to equalize timing between "unknown user" and "wrong password"
 // (prevents user enumeration through bcrypt timing).
@@ -129,7 +146,7 @@ export class AuthService implements OnModuleDestroy {
     return 'http://localhost:4000/api/auth/callback';
   }
 
-  async getLoginUrl(state: string): Promise<{ url: string; codeVerifier: string }> {
+  async getLoginUrl(state: string, prompt?: string): Promise<{ url: string; codeVerifier: string }> {
     const msalClient = await this.getMsalClient();
     const redirectUri = await this.getRedirectUri();
 
@@ -144,6 +161,11 @@ export class AuthService implements OnModuleDestroy {
       responseMode: 'query',
       codeChallenge,
       codeChallengeMethod: 'S256',
+      // Seule la valeur 'select_account' est acceptée depuis la requête HTTP
+      // (liste blanche) — force l'écran de sélection de compte Microsoft au
+      // lieu du SSO silencieux, utile pour changer de compte sans se déconnecter
+      // de Windows/Microsoft 365.
+      ...(prompt === 'select_account' ? { prompt: 'select_account' } : {}),
     });
 
     return { url, codeVerifier };
@@ -167,23 +189,56 @@ export class AuthService implements OnModuleDestroy {
       throw new UnauthorizedException('Failed to authenticate with Microsoft');
     }
 
-    const email = response.account.username;
+    const email = normalizeEmail(response.account.username);
     const displayName = response.account.name || email;
 
-    // Find or create user in DB (email has unique constraint)
-    let user = await this.prisma.user.findUnique({ where: { email } });
+    // Recherche insensible à la casse : SSO et LDAP peuvent renvoyer la même
+    // adresse avec une casse différente (LOT C bug #6) — findUnique({email})
+    // sur la colonne (sensible à la casse) créerait un doublon et finirait en
+    // P2002 sur la contrainte unique, ou pire, deux identités pour la même
+    // personne.
+    let user = await this.prisma.user.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' } },
+    });
 
-    if (!user) {
-      // Create minimal user record — LDAP sync will enrich it later
-      user = await this.prisma.user.create({
-        data: {
-          samAccountName: email.split('@')[0],
-          displayName,
-          email,
-          role: 'collaborator',
-          active: true,
-        },
-      });
+    if (user) {
+      const updateData: Prisma.UserUpdateInput = {};
+      if (user.email !== email) updateData.email = email;
+      if (!user.displayName) updateData.displayName = displayName;
+      if (Object.keys(updateData).length > 0) {
+        user = await this.prisma.user.update({ where: { id: user.id }, data: updateData });
+      }
+    } else {
+      // Create minimal user record — LDAP sync will enrich it later.
+      // samAccountName = email normalisé complet (unique par construction,
+      // comme la colonne email elle-même) — PAS la partie locale
+      // (email.split('@')[0]) : celle-ci peut entrer en collision avec un
+      // sAMAccountName LDAP existant pour une personne différente (ex. LDAP
+      // "jdupont" vs SSO "jdupont@domaine.fr"), ce qui faisait échouer la
+      // création avec un P2002 remonté comme un auth_failed générique
+      // (LOT C bug #4).
+      try {
+        user = await this.prisma.user.create({
+          data: {
+            samAccountName: email,
+            displayName,
+            email,
+            role: 'collaborator',
+            active: true,
+          },
+        });
+      } catch (err: unknown) {
+        const isUniqueConstraintViolation =
+          err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
+        if (isUniqueConstraintViolation) {
+          // Résiduel : création concurrente (deux callbacks SSO simultanés
+          // pour le même utilisateur) ou collision imprévue. Le contrôleur
+          // distingue ce cas (error=account_conflict) de l'échec générique.
+          this.logger.warn(`SSO ${email}: création en conflit (P2002 résiduel) — probable création concurrente`);
+          throw new AccountConflictException('Conflit lors de la création du compte SSO');
+        }
+        throw err;
+      }
     }
 
     // Offboarded accounts must not get a session even if Entra still authenticates them
@@ -231,25 +286,53 @@ export class AuthService implements OnModuleDestroy {
   async refreshAccessToken(refreshToken: string): Promise<{ accessToken: string; refreshToken: string }> {
     const jwtSecret = this.getJwtSecret();
 
+    // ── Phase 1 : validité PURE du jeton (signature/type/session absolue) —
+    // aucun accès DB ici. Toute erreur est un problème d'authentification
+    // légitime → 401. isRefreshTokenRevoked() (accès DB) est volontairement
+    // exclu de cette phase : une panne DB ne doit pas se traduire par un 401
+    // (cf. phase 2) — voir LOT C bug #2 (relecture).
+    let payload: RefreshTokenPayload;
     try {
-      // Check if the refresh token has been revoked (rotation replay detection)
-      if (await this.isRefreshTokenRevoked(refreshToken)) {
-        throw new UnauthorizedException('Refresh token has been revoked');
-      }
-
-      const payload = this.jwtService.verify(refreshToken, { secret: jwtSecret, algorithms: ['HS256'] });
+      payload = this.jwtService.verify<RefreshTokenPayload>(refreshToken, { secret: jwtSecret, algorithms: ['HS256'] });
       if (payload.type !== 'refresh') throw new UnauthorizedException();
 
       // Absolute session lifetime: rotation cannot extend a session forever
-      const authTime: number = payload.authTime ?? payload.iat;
+      const authTime: number | undefined = payload.authTime ?? payload.iat;
       if (authTime && Date.now() - authTime * 1000 > MAX_SESSION_MS) {
         throw new UnauthorizedException('Session expirée — reconnexion requise');
+      }
+    } catch (err) {
+      if (err instanceof UnauthorizedException) throw err;
+      // Erreurs jsonwebtoken (signature invalide, expiré, malformé...)
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+
+    // ── Phase 2 : persistance (DB) — une erreur inattendue ici (Prisma,
+    // connexion DB...) n'est PAS un problème d'authentification : la
+    // remonter en 401 laisserait croire à l'utilisateur qu'il doit se
+    // reconnecter alors que le service est simplement indisponible.
+    // Exception : un P2025 sur findUniqueOrThrow (utilisateur supprimé)
+    // reste un vrai 401 — ce n'est pas une panne, le compte n'existe plus.
+    try {
+      const authTime: number | undefined = payload.authTime ?? payload.iat;
+
+      if (await this.isRefreshTokenRevoked(refreshToken)) {
+        throw new UnauthorizedException('Refresh token has been revoked');
       }
 
       // Revoke old refresh token (8h TTL to match refresh token lifetime)
       await this.revokeRefreshToken(refreshToken);
 
-      const user = await this.prisma.user.findUniqueOrThrow({ where: { id: payload.sub } });
+      let user: { id: string; email: string; role: string; active: boolean; passwordChangedAt: Date | null };
+      try {
+        user = await this.prisma.user.findUniqueOrThrow({ where: { id: payload.sub } });
+      } catch (err: unknown) {
+        const isRecordNotFound = err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025';
+        if (isRecordNotFound) {
+          throw new UnauthorizedException('Utilisateur introuvable');
+        }
+        throw err;
+      }
       if (!user.active) {
         throw new UnauthorizedException('Account is inactive');
       }
@@ -258,10 +341,14 @@ export class AuthService implements OnModuleDestroy {
         throw new UnauthorizedException('Session invalidée par un changement de mot de passe');
       }
 
-      return this.createTokensForUser(user, authTime);
+      return await this.createTokensForUser(user, authTime);
     } catch (err) {
       if (err instanceof UnauthorizedException) throw err;
-      throw new UnauthorizedException('Invalid or expired refresh token');
+      this.logger.error(
+        `refreshAccessToken: échec inattendu (DB ?) après validation du jeton: ${(err as Error).message}`,
+        (err as Error).stack,
+      );
+      throw new ServiceUnavailableException('Service temporairement indisponible, réessayez.');
     }
   }
 
@@ -299,13 +386,17 @@ export class AuthService implements OnModuleDestroy {
       secure: isProduction,
       sameSite: 'lax',
       maxAge: 8 * 60 * 60 * 1000, // 8h
-      path: '/api/auth/refresh',
+      // Path '/api/auth' (et non '/api/auth/refresh') : le cookie doit aussi
+      // être envoyé sur POST /api/auth/logout, sinon le navigateur ne
+      // l'inclut jamais sur cette route et le refresh token n'est jamais
+      // révoqué à la déconnexion (LOT C bug #3).
+      path: '/api/auth',
     });
   }
 
   clearAuthCookies(res: Response) {
     res.clearCookie('access_token', { path: '/api' });
-    res.clearCookie('refresh_token', { path: '/api/auth/refresh' });
+    res.clearCookie('refresh_token', { path: '/api/auth' });
   }
 
   getJwtSecret(): string {
@@ -319,12 +410,13 @@ export class AuthService implements OnModuleDestroy {
     return secret;
   }
 
-  async localLogin(email: string, password: string): Promise<{ accessToken: string; refreshToken: string; mustChangePassword: boolean }> {
+  async localLogin(email: string, password: string, ip: string): Promise<{ accessToken: string; refreshToken: string; mustChangePassword: boolean }> {
+    const normalizedEmail = normalizeEmail(email);
     // Check brute-force lock (persistent, survives restarts)
-    await this.checkBruteForce(email);
+    await this.checkBruteForce(normalizedEmail, ip);
 
     const user = await this.prisma.user.findFirst({
-      where: { email, isLocalAccount: true, active: true },
+      where: { email: normalizedEmail, isLocalAccount: true, active: true },
     });
 
     if (!user || !user.passwordHash) {
@@ -339,26 +431,37 @@ export class AuthService implements OnModuleDestroy {
     }
 
     const tokens = await this.createTokensForUser(user);
-    return { ...tokens, mustChangePassword: user.mustChangePassword };
+    return { ...tokens, mustChangePassword: computeMustChangePassword(user) };
   }
 
   // ─── Brute-force protection (persistent via AuditLog, survives restarts) ─
-  // Counts login_local_failed entries in the last 30 minutes for a given email.
+  // Deux dimensions indépendantes (LOT C bug #2) :
+  //  - verrou par COMPTE : ≥10 échecs pour (email, IP) en 30 min. Sans la
+  //    dimension IP, n'importe qui pouvait verrouiller admin@local (compte de
+  //    secours) depuis n'importe où en renvoyant juste le bon email.
+  //  - verrou par IP : ≥30 échecs depuis une même IP en 30 min, toutes cibles
+  //    confondues — bloque le credential-stuffing qui teste beaucoup d'emails
+  //    différents depuis une seule IP (ce que le verrou par compte ne couvre pas).
   // Failed login audit entries are recorded by the controller after this check;
   // lockout rejections are logged as login_local_locked (not counted here) so
   // that probing a locked account cannot extend the lockout indefinitely.
-  private async checkBruteForce(email: string): Promise<void> {
+  private async checkBruteForce(email: string, ip: string): Promise<void> {
     const windowStart = new Date(Date.now() - 30 * 60 * 1000); // 30-min window
-    const recentFailures = await this.prisma.auditLog.count({
-      where: {
-        userEmail: email,
-        action: 'login_local_failed',
-        createdAt: { gte: windowStart },
-      },
-    });
-    if (recentFailures >= 10) {
-      this.logger.warn(`Compte ${email} bloqué (${recentFailures} échecs en 30 min)`);
-      throw new AccountLockedException(`Compte temporairement verrouillé suite à plusieurs tentatives échouées. Réessayez dans 30 minutes.`);
+    const [accountFailures, ipFailures] = await Promise.all([
+      this.prisma.auditLog.count({
+        where: { userEmail: email, ipAddress: ip, action: 'login_local_failed', createdAt: { gte: windowStart } },
+      }),
+      this.prisma.auditLog.count({
+        where: { ipAddress: ip, action: 'login_local_failed', createdAt: { gte: windowStart } },
+      }),
+    ]);
+    if (accountFailures >= 10) {
+      this.logger.warn(`Compte ${email} bloqué depuis l'IP ${ip} (${accountFailures} échecs en 30 min)`);
+      throw new AccountLockedException('Compte temporairement verrouillé suite à plusieurs tentatives échouées. Réessayez dans 30 minutes.');
+    }
+    if (ipFailures >= 30) {
+      this.logger.warn(`IP ${ip} bloquée (${ipFailures} échecs toutes cibles confondues en 30 min)`);
+      throw new AccountLockedException('Trop de tentatives depuis votre adresse. Réessayez dans 30 minutes.');
     }
   }
 
@@ -402,6 +505,27 @@ export class AuthService implements OnModuleDestroy {
       where: { id: userId },
       data: { passwordHash: hash, mustChangePassword: false, passwordChangedAt: new Date() },
     });
+
+    // Le mot de passe temporaire écrit sur disque au provisioning n'a plus de
+    // raison d'exister une fois que admin@local a changé son mot de passe.
+    if (user.email === ADMIN_LOCAL_EMAIL) {
+      this.deleteInitialAdminPasswordFile();
+    }
+  }
+
+  /** Supprime data/initial-admin-password.txt après le premier changement de
+   *  mot de passe réussi de admin@local — le fichier ne doit pas traîner
+   *  indéfiniment sur le disque une fois le mot de passe temporaire consommé. */
+  private deleteInitialAdminPasswordFile(): void {
+    const filePath = join(process.cwd(), 'data', 'initial-admin-password.txt');
+    try {
+      if (existsSync(filePath)) {
+        unlinkSync(filePath);
+        this.logger.log(`${filePath} supprimé après changement du mot de passe admin@local`);
+      }
+    } catch (err) {
+      this.logger.error(`Impossible de supprimer ${filePath}: ${(err as Error).message}`);
+    }
   }
 
   private generateDefaultAdminPassword(): string {
@@ -431,7 +555,7 @@ export class AuthService implements OnModuleDestroy {
       await this.configService.set('general', 'local_auth_enabled', 'true');
     }
 
-    const existing = await this.prisma.user.findUnique({ where: { email: 'admin@local' } });
+    const existing = await this.prisma.user.findUnique({ where: { email: ADMIN_LOCAL_EMAIL } });
 
     if (existing) {
       // Admin exists — do NOT reset the password (avoid reverting a custom password on restart)
@@ -459,7 +583,7 @@ export class AuthService implements OnModuleDestroy {
         data: {
           samAccountName: 'admin_local',
           displayName: 'Administrateur local',
-          email: 'admin@local',
+          email: ADMIN_LOCAL_EMAIL,
           role: 'admin',
           isItStaff: true,
           isLocalAccount: true,
@@ -473,8 +597,21 @@ export class AuthService implements OnModuleDestroy {
       } else {
         this.persistInitialAdminPassword(tempPassword);
       }
-    } catch {
-      this.logger.warn('Could not create default local admin (already exists)');
+    } catch (err: unknown) {
+      // Ne jamais avaler autre chose qu'une violation de contrainte unique
+      // (l'admin a été créé entre-temps, p. ex. démarrages concurrents) —
+      // toute autre erreur (DB indisponible, schéma invalide...) doit être
+      // visible et relancée, pas masquée derrière un warn générique.
+      const isAlreadyExists = err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
+      if (isAlreadyExists) {
+        this.logger.warn('Could not create default local admin (already exists)');
+        return;
+      }
+      this.logger.error(
+        `ensureDefaultAdmin: création de l'admin par défaut a échoué: ${(err as Error).message}`,
+        (err as Error).stack,
+      );
+      throw err;
     }
   }
 }

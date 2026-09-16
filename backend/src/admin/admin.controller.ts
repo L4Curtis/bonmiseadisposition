@@ -1,5 +1,5 @@
 ﻿import {
-  Controller, Get, Put, Post, Delete, Body, Param, UseGuards, BadRequestException, ForbiddenException,
+  Controller, Get, Put, Post, Delete, Body, Param, UseGuards, BadRequestException, ForbiddenException, Logger,
 } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { LdapService } from '../ldap/ldap.service';
@@ -19,7 +19,10 @@ const ALLOWED_CONFIG_KEYS: Record<string, string[]> = {
   ldap: ['url', 'search_base', 'bind_dn', 'bind_password', 'user_filter', 'enabled', 'sync_interval_hours', 'use_ssl'],
   smtp: ['host', 'port', 'secure', 'user', 'password', 'from'],
   smb: ['enabled', 'path', 'username', 'password', 'domain'],
-  rappels: ['enabled', 'delay_1', 'delay_2', 'delay_3'],
+  // restitution_before_days (défaut 7, à appliquer côté module notification) :
+  // nombre de jours avant la date de restitution prévue à partir duquel un
+  // rappel de restitution est envoyé.
+  rappels: ['enabled', 'delay_1', 'delay_2', 'delay_3', 'restitution_before_days'],
   tokens: ['expiry_days'],
   // Horodatage RFC 3161 optionnel des sceaux de signature
   timestamp: ['enabled', 'tsa_url'],
@@ -30,10 +33,29 @@ const ALLOWED_CONFIG_KEYS: Record<string, string[]> = {
 
 const ALLOWED_CATEGORIES = Object.keys(ALLOWED_CONFIG_KEYS);
 
+/** Bornes/format attendus pour les clés de configuration numériques ou
+ *  formatées — validées à l'écriture (LOT C bug #10) plutôt que de laisser
+ *  une valeur invalide échouer silencieusement à l'usage (parfois bien plus
+ *  tard, ex. à la prochaine sync LDAP ou au prochain envoi de rappel). */
+const INTEGER_CONFIG_RULES: Record<string, { min: number; max?: number }> = {
+  'retention.anonymize_months': { min: 60 },
+  'retention.attachment_months': { min: 1 },
+  'retention.expired_tokens_days': { min: 1 },
+  'retention.audit_logs_years': { min: 1 },
+  'rappels.delay_1': { min: 1 },
+  'rappels.delay_2': { min: 1 },
+  'rappels.delay_3': { min: 1 },
+  'rappels.restitution_before_days': { min: 0 },
+  'tokens.expiry_days': { min: 1, max: 30 },
+  'smtp.port': { min: 1, max: 65535 },
+};
+
 @Controller('admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('admin', 'technician')
 export class AdminController {
+  private readonly logger = new Logger(AdminController.name);
+
   constructor(
     private readonly adminService: AdminService,
     private readonly ldapService: LdapService,
@@ -81,6 +103,9 @@ export class AdminController {
 
   @Get('config/:category')
   async getConfig(@Param('category') category: string, @CurrentUser() user: AuthUser) {
+    if (!ALLOWED_CATEGORIES.includes(category)) {
+      throw new BadRequestException(`Catégorie de configuration inconnue : ${category}`);
+    }
     if (AdminController.ADMIN_ONLY_CATEGORIES.includes(category) && user?.role !== 'admin') {
       throw new ForbiddenException('Accès réservé aux administrateurs');
     }
@@ -126,9 +151,75 @@ export class AdminController {
       }
     }
 
+    // Décision produit (LOT C bug #11) : sans admin actif non local (SSO),
+    // désactiver l'auth locale couperait tout accès administrateur.
+    if (category === 'general' && body['local_auth_enabled'] === 'false') {
+      await this.adminService.ensureNonLocalAdminExists();
+    }
+
+    // Validation par clé (bornes numériques, formats) + normalisation
+    // (ex : trailing slash retiré de general.app_url) — LOT C bug #10.
+    const validatedBody: Record<string, string> = {};
+    for (const [key, value] of Object.entries(body)) {
+      validatedBody[key] = this.validateAndNormalizeConfigValue(category, key, value);
+    }
+
     const encryptedKeys = getEncryptedKeys(category);
-    await this.adminService.bulkSetConfig(category, body, encryptedKeys, user.id);
+    await this.adminService.bulkSetConfig(category, validatedBody, encryptedKeys, user.id);
     return { ok: true };
+  }
+
+  /** Valide (et au besoin normalise) une valeur de configuration selon la clé
+   *  ciblée. Ne fait rien pour les clés sans règle explicite (comportement
+   *  inchangé pour les autres champs, non numériques/non formatés). */
+  private validateAndNormalizeConfigValue(category: string, key: string, value: string): string {
+    const fullKey = `${category}.${key}`;
+
+    const integerRule = INTEGER_CONFIG_RULES[fullKey];
+    if (integerRule) {
+      return this.assertIntegerString(fullKey, value, integerRule);
+    }
+
+    if (fullKey === 'smtp.from') {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!value || !emailRegex.test(value)) {
+        throw new BadRequestException(`Valeur invalide pour "${fullKey}" : adresse email valide requise`);
+      }
+      return value;
+    }
+
+    if (fullKey === 'general.app_url') {
+      let url: URL;
+      try {
+        url = new URL(value);
+      } catch {
+        throw new BadRequestException(`Valeur invalide pour "${fullKey}" : URL http(s) valide attendue`);
+      }
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+        throw new BadRequestException(`Valeur invalide pour "${fullKey}" : URL http(s) valide attendue`);
+      }
+      return value.replace(/\/+$/, '');
+    }
+
+    if (fullKey === 'ldap.user_filter') {
+      try {
+        this.ldapService.validateLdapFilter(value);
+      } catch (err) {
+        throw new BadRequestException(`Valeur invalide pour "${fullKey}" : ${err instanceof Error ? err.message : 'filtre LDAP invalide'}`);
+      }
+      return value;
+    }
+
+    return value;
+  }
+
+  private assertIntegerString(fullKey: string, value: string, rule: { min: number; max?: number }): string {
+    const n = Number(value);
+    if (!Number.isInteger(n) || n < rule.min || (rule.max !== undefined && n > rule.max)) {
+      const range = rule.max !== undefined ? `entre ${rule.min} et ${rule.max}` : `≥ ${rule.min}`;
+      throw new BadRequestException(`Valeur invalide pour "${fullKey}" : un entier ${range} est attendu`);
+    }
+    return String(n);
   }
 
   // ── Test endpoints ────────────────────────────────────────────────────────
@@ -166,15 +257,24 @@ export class AdminController {
   @Roles('admin')
   async triggerLdapSync() {
     // Run in background, return immediately
-    this.ldapService.syncUsers().catch(() => {});
+    this.ldapService.syncUsers().catch((err: unknown) => {
+      this.logger.error(`Synchronisation LDAP (déclenchée manuellement) en échec: ${(err as Error).message}`, (err as Error).stack);
+    });
     return { ok: true, message: 'Synchronisation LDAP démarrée' };
   }
 
   @Delete('ldap/users')
   @Roles('admin')
-  async purgeLdapUsers() {
-    const result = await this.adminService.purgeLdapUsers();
-    return { ok: true, message: `${result.deleted} utilisateur(s) LDAP purgé(s)` };
+  async purgeLdapUsers(@CurrentUser() user: AuthUser) {
+    const result = await this.adminService.purgeLdapUsers(user.id);
+    return { ok: true, message: `${result.deactivated} utilisateur(s) LDAP désactivé(s)` };
+  }
+
+  // ── Déverrouillage brute-force ───────────────────────────────────────────
+  @Post('users/:id/unlock')
+  @Roles('admin')
+  async unlockUser(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.adminService.unlockUser(id, user.id);
   }
 }
 

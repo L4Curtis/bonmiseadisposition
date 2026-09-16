@@ -1,10 +1,12 @@
 import { Controller, Get, Query, Req, Res, Post, Body, UseGuards, UnauthorizedException, ForbiddenException, Logger } from '@nestjs/common';
-import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import { Throttle, SkipThrottle } from '@nestjs/throttler';
 import { Request, Response } from 'express';
 import { PrismaService } from '../prisma/prisma.service';
 import * as crypto from 'crypto';
-import { AuthService, AccountLockedException } from './auth.service';
+import { AuthService, AccountLockedException, AccountConflictException } from './auth.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { UserThrottlerGuard } from './guards/user-throttler.guard';
+import { normalizeEmail } from './utils/normalize-email.util';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { AuthUser } from './auth-user.interface';
 import { AppConfigService } from '../config/config.service';
@@ -20,6 +22,28 @@ function extractClientIp(req: Request): string {
     ?? 'unknown';
 }
 
+/**
+ * Valide qu'un returnTo est un chemin relatif sûr vers CE frontend, pas une
+ * redirection ouverte. L'ancienne regex (/^\/[^/]/) ne rejetait que le
+ * double-slash ("//evil.com") : elle laissait passer des vecteurs comme
+ * "/\evil.com" ou "/%09/evil.com", "/%0a/evil.com" — un backslash ou un
+ * caractère de contrôle qu'un navigateur peut normaliser différemment de
+ * `new URL()` côté serveur. Trois vérifications indépendantes :
+ *  a) chemin relatif (commence par "/")
+ *  b) aucun backslash ni caractère de contrôle dans la chaîne brute
+ *  c) une fois résolu contre frontendUrl, l'origine reste bien celle du front
+ */
+export function isSafeReturnTo(returnTo: string | undefined, frontendUrl: string): boolean {
+  if (!returnTo || !returnTo.startsWith('/')) return false;
+  // eslint-disable-next-line no-control-regex
+  if (/[\\\x00-\x1f]/.test(returnTo)) return false;
+  try {
+    return new URL(returnTo, frontendUrl).origin === new URL(frontendUrl).origin;
+  } catch {
+    return false;
+  }
+}
+
 @Controller('auth')
 export class AuthController {
   private readonly logger = new Logger(AuthController.name);
@@ -31,20 +55,24 @@ export class AuthController {
   ) {}
 
   @Get('login')
-  async login(@Query('returnTo') returnTo: string | undefined, @Res() res: Response) {
+  async login(
+    @Query('returnTo') returnTo: string | undefined,
+    @Query('prompt') prompt: string | undefined,
+    @Res() res: Response,
+  ) {
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     try {
       const state = crypto.randomBytes(16).toString('hex');
-      const { url: loginUrl, codeVerifier } = await this.authService.getLoginUrl(state);
+      const { url: loginUrl, codeVerifier } = await this.authService.getLoginUrl(state, prompt);
       const isProduction = process.env.NODE_ENV === 'production';
       res.cookie('oauth_state', state, { httpOnly: true, secure: isProduction, sameSite: 'lax', maxAge: 10 * 60 * 1000 });
       res.cookie('oauth_code_verifier', codeVerifier, { httpOnly: true, secure: isProduction, sameSite: 'lax', maxAge: 10 * 60 * 1000 });
-      // Store returnTo (safe relative paths only — reject double-slash to prevent //evil.com redirect)
-      if (returnTo && /^\/[^/]/.test(returnTo)) {
+      // Store returnTo (safe relative paths only — see isSafeReturnTo)
+      if (isSafeReturnTo(returnTo, frontendUrl)) {
         res.cookie('auth_return_to', returnTo, { httpOnly: true, secure: isProduction, sameSite: 'lax', maxAge: 10 * 60 * 1000 });
       }
       return res.redirect(loginUrl);
     } catch (err) {
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
       return res.redirect(`${frontendUrl}/login?error=entra_config_missing`);
     }
   }
@@ -96,8 +124,7 @@ export class AuthController {
           userAgent: req.headers['user-agent'] ?? 'unknown',
         },
       }).catch(() => { /* non-blocking */ });
-      const destination =
-        returnTo && /^\/[^/]/.test(returnTo) ? `${frontendUrl}${returnTo}` : `${frontendUrl}/`;
+      const destination = isSafeReturnTo(returnTo, frontendUrl) ? `${frontendUrl}${returnTo}` : `${frontendUrl}/`;
       return res.redirect(destination);
     } catch (err) {
       this.logger.error(
@@ -106,13 +133,24 @@ export class AuthController {
         `la validité du client_secret, et l'horloge du serveur (PKCE/JWT).`,
         (err as Error).stack,
       );
-      return res.redirect(`${frontendUrl}/login?error=auth_failed`);
+      // account_conflict : création SSO en conflit résiduel (LOT C bug #4) —
+      // distinct de auth_failed pour que le front puisse afficher un message
+      // adapté ("réessayez" plutôt qu'une erreur de configuration).
+      const errorCode = err instanceof AccountConflictException ? 'account_conflict' : 'auth_failed';
+      return res.redirect(`${frontendUrl}/login?error=${errorCode}`);
     }
   }
 
+  // Throttling par utilisateur (sub du refresh token), pas par IP : le trafic
+  // passe par le NAT du site, donc un throttle par IP (le ThrottlerGuard
+  // global posé en APP_GUARD) déconnecte tous les collègues d'un coup dès que
+  // quelques tokens expirent la même minute (LOT C bug #1). @SkipThrottle()
+  // neutralise le guard global sur CETTE route pour éviter le double comptage
+  // (les deux guards partagent le même storage) ; UserThrottlerGuard applique
+  // sa propre limite (20/min/utilisateur) — voir user-throttler.guard.ts.
   @Post('refresh')
-  @UseGuards(ThrottlerGuard)
-  @Throttle({ default: { limit: 20, ttl: 60000 } })
+  @UseGuards(UserThrottlerGuard)
+  @SkipThrottle()
   async refresh(@Req() req: Request, @Res() res: Response) {
     const refreshToken = req.cookies['refresh_token'];
     if (!refreshToken) throw new UnauthorizedException();
@@ -123,7 +161,7 @@ export class AuthController {
   }
 
   @Post('logout')
-  @UseGuards(JwtAuthGuard, ThrottlerGuard)
+  @UseGuards(JwtAuthGuard)
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   async logout(@CurrentUser() user: AuthUser, @Req() req: Request, @Res() res: Response) {
     const ip = extractClientIp(req);
@@ -163,7 +201,6 @@ export class AuthController {
   }
 
   @Post('local-login')
-  @UseGuards(ThrottlerGuard)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   async localLogin(
     @Body() dto: LocalLoginDto,
@@ -176,11 +213,15 @@ export class AuthController {
     }
     const ip = extractClientIp(req);
     const ua = req.headers['user-agent'] ?? 'unknown';
+    // Normalisé pour que les entrées d'audit correspondent exactement à ce que
+    // checkBruteForce() recherche (LOT C bug #2/#6) — sinon un email soumis
+    // avec une casse différente d'une tentative à l'autre échapperait au compteur.
+    const normalizedEmail = normalizeEmail(dto.email);
     try {
-      const { accessToken, refreshToken, mustChangePassword } = await this.authService.localLogin(dto.email, dto.password);
+      const { accessToken, refreshToken, mustChangePassword } = await this.authService.localLogin(dto.email, dto.password, ip);
       this.authService.setAuthCookies(res, accessToken, refreshToken);
       await this.prisma.auditLog.create({
-        data: { userEmail: dto.email, action: 'login_local_success', ipAddress: ip, userAgent: ua },
+        data: { userEmail: normalizedEmail, action: 'login_local_success', ipAddress: ip, userAgent: ua },
       }).catch(() => { /* non-blocking */ });
       return res.json({ ok: true, mustChangePassword });
     } catch (err) {
@@ -188,14 +229,14 @@ export class AuthController {
       // NOT feed checkBruteForce() and extend the lockout window indefinitely.
       const action = err instanceof AccountLockedException ? 'login_local_locked' : 'login_local_failed';
       await this.prisma.auditLog.create({
-        data: { userEmail: dto.email, action, ipAddress: ip, userAgent: ua },
+        data: { userEmail: normalizedEmail, action, ipAddress: ip, userAgent: ua },
       }).catch(() => { /* non-blocking */ });
       throw err;
     }
   }
 
   @Post('change-password')
-  @UseGuards(JwtAuthGuard, ThrottlerGuard)
+  @UseGuards(JwtAuthGuard)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   async changePassword(
     @Body() dto: ChangePasswordDto,

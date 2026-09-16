@@ -444,6 +444,10 @@ model AuditLog {
 
   @@index([bonId, createdAt])
   @@index([userEmail, action, createdAt])
+  // Verrou brute-force par IP (LOT C bug #2) : checkBruteForce() compte les
+  // login_local_failed par ipAddress seul sur une fenêtre de 30 min — sans cet
+  // index la requête dégénère en scan séquentiel de toute la table d'audit.
+  @@index([ipAddress, action, createdAt])
   @@map("audit_logs")
 }
 

@@ -1,8 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import * as ldap from 'ldapjs';
+import { Prisma } from '@prisma/client';
 import { AppConfigService } from '../config/config.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { normalizeEmail } from '../auth/utils/normalize-email.util';
 
 interface LdapUser {
   sAMAccountName: string;
@@ -18,6 +20,12 @@ export interface SyncStatus {
   lastSyncSuccess: boolean | null;
   lastSyncCount: number | null;
   lastSyncError: string | null;
+  /** Utilisateurs ignorés lors du dernier sync (collision d'email/identifiant — LOT C bug #6c). */
+  lastSyncSkipped: number | null;
+  /** true si la phase de désactivation a été annulée par le garde-fou (LOT C bug #7). */
+  lastSyncAborted: boolean;
+  /** Message à afficher côté UI quand lastSyncAborted est vrai (sinon null). */
+  lastSyncWarning: string | null;
 }
 
 @Injectable()
@@ -28,7 +36,17 @@ export class LdapService {
     lastSyncSuccess: null,
     lastSyncCount: null,
     lastSyncError: null,
+    lastSyncSkipped: null,
+    lastSyncAborted: false,
+    lastSyncWarning: null,
   };
+
+  // Garde-fou anti désactivation massive (LOT C bug #7) : au-delà de ce ratio
+  // ET de ce nombre absolu de comptes concernés, la sync interrompt la phase
+  // de désactivation plutôt que de vider l'annuaire suite à un search_base ou
+  // un user_filter mal saisi.
+  private static readonly MASS_DEACTIVATION_RATIO_THRESHOLD = 0.2;
+  private static readonly MASS_DEACTIVATION_MIN_COUNT = 5;
 
   constructor(
     private readonly configService: AppConfigService,
@@ -142,34 +160,32 @@ export class LdapService {
 
       const syncStart = new Date();
       const users = await this.searchUsers(client, searchBase, filter);
-      await this.upsertUsers(users);
+      const { skipped } = await this.upsertUsers(users);
 
       // Deactivate LDAP-sourced accounts that disappeared from the directory.
-      // Scoped to previously-synced users (lastLdapSync < syncStart excludes the
-      // NULLs of SSO-created accounts) and skipped on an empty search result —
-      // an LDAP misconfiguration must not deactivate the whole company.
-      if (users.length > 0) {
-        const deactivated = await this.prisma.user.updateMany({
-          where: {
-            isLocalAccount: false,
-            active: true,
-            lastLdapSync: { lt: syncStart },
-          },
-          data: { active: false },
-        });
-        if (deactivated.count > 0) {
-          this.logger.warn(`LDAP sync: ${deactivated.count} compte(s) absent(s) de l'annuaire désactivé(s)`);
-        }
-      }
+      // Skipped entirely on an empty search result — an LDAP misconfiguration
+      // must not deactivate the whole company. See deactivateAbsentUsers() for
+      // the mass-deactivation guardrail (LOT C bug #7).
+      const { aborted, abortMessage } = users.length > 0
+        ? await this.deactivateAbsentUsers(syncStart)
+        : { aborted: false, abortMessage: null };
 
       this.syncStatus = {
         lastSync: new Date(),
         lastSyncSuccess: true,
         lastSyncCount: users.length,
-        lastSyncError: null,
+        // Le front affiche déjà lastSyncError tel quel — le message du
+        // garde-fou (LOT C bug #7) y est donc dupliqué pour être visible sans
+        // changement côté UI (lastSyncAborted/lastSyncWarning restent
+        // disponibles pour un affichage dédié si le front veut les distinguer
+        // d'une vraie erreur de sync).
+        lastSyncError: abortMessage,
+        lastSyncSkipped: skipped,
+        lastSyncAborted: aborted,
+        lastSyncWarning: abortMessage,
       };
 
-      this.logger.log(`LDAP sync complete: ${users.length} users processed`);
+      this.logger.log(`LDAP sync complete: ${users.length} users processed (${skipped} ignoré(s))`);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
       this.syncStatus = {
@@ -177,12 +193,66 @@ export class LdapService {
         lastSyncSuccess: false,
         lastSyncCount: null,
         lastSyncError: errMsg,
+        lastSyncSkipped: null,
+        lastSyncAborted: false,
+        lastSyncWarning: null,
       };
       this.logger.error(`LDAP sync failed: ${errMsg}`);
     } finally {
       client?.destroy();
       this.syncInProgress = false;
     }
+  }
+
+  /**
+   * Désactive les comptes LDAP absents du dernier import (lastLdapSync <
+   * syncStart), sauf si cela représenterait une part disproportionnée du parc
+   * (LOT C bug #7) : au-delà de 20 % ET d'au moins 5 comptes, un
+   * search_base/user_filter mal saisi ne doit pas vider l'annuaire — on
+   * n'abandonne QUE cette phase, pas les créations/mises à jour déjà
+   * appliquées par upsertUsers().
+   */
+  private async deactivateAbsentUsers(syncStart: Date): Promise<{ aborted: boolean; abortMessage: string | null }> {
+    const deactivationWhere = {
+      isLocalAccount: false,
+      active: true,
+      lastLdapSync: { lt: syncStart },
+    };
+    const toDeactivate = await this.prisma.user.count({ where: deactivationWhere });
+    const activeLdapAccounts = await this.prisma.user.count({
+      where: { isLocalAccount: false, active: true, lastLdapSync: { not: null } },
+    });
+    const ratio = activeLdapAccounts > 0 ? toDeactivate / activeLdapAccounts : 0;
+
+    const shouldAbort =
+      toDeactivate >= LdapService.MASS_DEACTIVATION_MIN_COUNT &&
+      ratio > LdapService.MASS_DEACTIVATION_RATIO_THRESHOLD;
+
+    if (shouldAbort) {
+      const abortMessage = `Sync interrompue : ${toDeactivate} comptes seraient désactivés (>20 %). Vérifiez search_base / user_filter.`;
+      this.logger.error(
+        `LDAP sync: désactivation annulée — ${toDeactivate}/${activeLdapAccounts} comptes ` +
+        `(${Math.round(ratio * 100)}%) seraient désactivés`,
+      );
+      await this.prisma.auditLog.create({
+        data: {
+          action: 'ldap_sync_aborted',
+          details: { toDeactivate, total: activeLdapAccounts, ratio },
+        },
+      }).catch((auditErr: unknown) => {
+        this.logger.error(`Audit ldap_sync_aborted non journalisé: ${(auditErr as Error).message}`);
+      });
+      return { aborted: true, abortMessage };
+    }
+
+    const deactivated = await this.prisma.user.updateMany({
+      where: deactivationWhere,
+      data: { active: false },
+    });
+    if (deactivated.count > 0) {
+      this.logger.warn(`LDAP sync: ${deactivated.count} compte(s) absent(s) de l'annuaire désactivé(s)`);
+    }
+    return { aborted: false, abortMessage: null };
   }
 
   private async createClient(): Promise<ldap.Client> {
@@ -230,10 +300,21 @@ export class LdapService {
         filter,
         scope: 'sub',
         attributes: ['sAMAccountName', 'displayName', 'mail', 'userPrincipalName', 'department', 'company', 'title'],
+        // Pagination côté serveur (AD limite les résultats non paginés à 1000
+        // entrées — sizeLimitExceeded faisait échouer toute la sync sur les
+        // grands annuaires). ldapjs pilote automatiquement les pages
+        // successives ; on compte juste les pages ici pour le log (LOT C bug #8).
+        paged: { pageSize: 500 },
       };
+
+      let pageCount = 0;
 
       client.search(base, options, (err, res) => {
         if (err) return reject(err);
+
+        res.on('page', () => {
+          pageCount++;
+        });
 
         let totalEntries = 0;
         let skippedNoObj = 0;
@@ -307,7 +388,8 @@ export class LdapService {
         res.on('end', () => {
           this.logger.log(
             `LDAP search done — total: ${totalEntries}, importés: ${users.length}, ` +
-            `sans objet: ${skippedNoObj}, sans sAMAccountName: ${skippedNoSam}, sans mail: ${skippedNoMail}`
+            `sans objet: ${skippedNoObj}, sans sAMAccountName: ${skippedNoSam}, sans mail: ${skippedNoMail}, ` +
+            `pages: ${Math.max(pageCount, 1)}`
           );
           resolve(users);
         });
@@ -315,46 +397,69 @@ export class LdapService {
     });
   }
 
-  private async upsertUsers(ldapUsers: LdapUser[]): Promise<void> {
+  /**
+   * Upsert un par un (plus de transaction par lot de 50) : une collision
+   * d'email/identifiant sur UN utilisateur n'annule plus tout le lot (LOT C
+   * bug #6c). Recherche d'abord par email normalisé insensible à la casse —
+   * SSO et LDAP peuvent avoir créé la même personne avec un sAMAccountName
+   * différent (renommage AD, ancien compte SSO...) ; upserter directement par
+   * sAMAccountName créerait alors un doublon et échouerait en P2002 sur
+   * l'email.
+   */
+  private async upsertUsers(ldapUsers: LdapUser[]): Promise<{ skipped: number }> {
     // Load all filiales for company matching
     const filiales = await this.prisma.filiale.findMany({ where: { active: true } });
+    let skipped = 0;
 
-    // Batch upsert in chunks of 50 to avoid N+1 individual queries
-    const BATCH_SIZE = 50;
-    for (let i = 0; i < ldapUsers.length; i += BATCH_SIZE) {
-      const batch = ldapUsers.slice(i, i + BATCH_SIZE);
-      await this.prisma.$transaction(
-        batch.map((lu) => {
-          const filiale = filiales.find(
-            (f) => f.name.toLowerCase() === (lu.company || '').toLowerCase(),
-          );
-          return this.prisma.user.upsert({
-            where: { samAccountName: lu.sAMAccountName },
-            update: {
-              displayName: lu.displayName,
-              email: lu.mail,
-              department: lu.department,
-              company: lu.company,
-              title: lu.title,
-              filialeId: filiale?.id ?? null,
-              lastLdapSync: new Date(),
-              active: true,
-            },
-            create: {
-              samAccountName: lu.sAMAccountName,
-              displayName: lu.displayName,
-              email: lu.mail,
-              department: lu.department,
-              company: lu.company,
-              title: lu.title,
-              filialeId: filiale?.id ?? null,
-              lastLdapSync: new Date(),
-              active: true,
-              role: 'collaborator',
-            },
-          });
-        }),
+    for (const lu of ldapUsers) {
+      const email = normalizeEmail(lu.mail);
+      const filiale = filiales.find(
+        (f) => f.name.toLowerCase() === (lu.company || '').toLowerCase(),
       );
+      const data = {
+        displayName: lu.displayName,
+        email,
+        department: lu.department,
+        company: lu.company,
+        title: lu.title,
+        filialeId: filiale?.id ?? null,
+        lastLdapSync: new Date(),
+        active: true,
+      };
+
+      try {
+        const existingByEmail = await this.prisma.user.findFirst({
+          where: { email: { equals: email, mode: 'insensitive' } },
+        });
+
+        if (existingByEmail && existingByEmail.samAccountName !== lu.sAMAccountName) {
+          // Même personne (même email), identifiant AD différent : on met à
+          // jour l'enregistrement existant plutôt que d'upserter par
+          // sAMAccountName, ce qui créerait un doublon + P2002 sur l'email.
+          await this.prisma.user.update({ where: { id: existingByEmail.id }, data });
+        } else {
+          await this.prisma.user.upsert({
+            where: { samAccountName: lu.sAMAccountName },
+            update: data,
+            create: { ...data, samAccountName: lu.sAMAccountName, role: 'collaborator' },
+          });
+        }
+      } catch (err: unknown) {
+        skipped++;
+        const isUniqueConstraintViolation =
+          err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
+        if (isUniqueConstraintViolation) {
+          this.logger.warn(
+            `LDAP sync: collision d'email/identifiant pour ${lu.sAMAccountName} (${email}) — utilisateur ignoré, synchronisation poursuivie`,
+          );
+        } else {
+          this.logger.error(
+            `LDAP sync: échec de la mise à jour pour ${lu.sAMAccountName} (${email}): ${(err as Error).message}`,
+          );
+        }
+      }
     }
+
+    return { skipped };
   }
 }

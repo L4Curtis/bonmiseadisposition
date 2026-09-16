@@ -4,6 +4,7 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 import { Request } from 'express';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuthService } from '../auth.service';
+import { computeMustChangePassword } from '../password-policy';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -63,14 +64,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException();
     }
 
-    // Password expiration: force change after 90 days for local accounts
-    if (user.isLocalAccount && user.passwordChangedAt && !user.mustChangePassword) {
-      const daysSinceChange = (Date.now() - user.passwordChangedAt.getTime()) / (1000 * 60 * 60 * 24);
-      if (daysSinceChange > 90) {
-        return { ...user, mustChangePassword: true };
-      }
-    }
-
-    return user;
+    // Password expiration: force change after 90 days for local accounts.
+    // computeMustChangePassword() est partagée avec AuthService.localLogin()
+    // pour que /auth/me et la réponse de connexion reflètent toujours la même
+    // valeur effective (LOT C bug #4).
+    return { ...user, mustChangePassword: computeMustChangePassword(user) };
   }
 }

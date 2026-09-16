@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
 import { AppConfigService } from '../config/config.service';
 import { EncryptionService } from '../config/encryption.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -6,6 +6,8 @@ import * as nodemailer from 'nodemailer';
 
 @Injectable()
 export class AdminService {
+  private readonly logger = new Logger(AdminService.name);
+
   constructor(
     private readonly configService: AppConfigService,
     private readonly encryption: EncryptionService,
@@ -31,9 +33,17 @@ export class AdminService {
     encryptedKeys: string[] = [],
     updatedById?: string,
   ) {
-    const entries = Object.entries(values).filter(
-      ([, v]) => v !== undefined && v !== null,
-    );
+    // Une clé chiffrée reçue vide est ignorée plutôt qu'écrite : le front
+    // envoie souvent '' pour un champ secret que l'utilisateur a seulement
+    // focalisé sans le modifier (le champ affiché est masqué, jamais la
+    // vraie valeur) — l'écrire écraserait silencieusement un secret existant
+    // (LOT C bug #9). Une suppression volontaire n'est pas possible via ce
+    // endpoint bulk ; elle nécessiterait un appel explicite dédié.
+    const entries = Object.entries(values).filter(([key, v]) => {
+      if (v === undefined || v === null) return false;
+      if (encryptedKeys.includes(key) && v === '') return false;
+      return true;
+    });
 
     await this.prisma.$transaction(async (tx) => {
       for (const [key, value] of entries) {
@@ -65,10 +75,16 @@ export class AdminService {
       const user = await this.configService.get('smtp', 'user');
       const pass = await this.configService.get('smtp', 'password');
       const secure = await this.configService.get('smtp', 'secure');
-      const from = await this.configService.get('smtp', 'from') || 'noreply@groupelivio.fr';
+      const from = await this.configService.get('smtp', 'from');
 
       if (!host || !port) {
         return { success: false, message: 'Configuration SMTP incomplète (host/port manquant)' };
+      }
+      // Aucune valeur fictive par défaut : envoyer un email de test depuis une
+      // adresse inventée serait trompeur (et souvent rejeté par le serveur SMTP
+      // ou classé comme spam). L'expéditeur doit être configuré explicitement.
+      if (testEmail && !from) {
+        return { success: false, message: 'Expéditeur SMTP (smtp.from) non configuré' };
       }
 
       const transporter = nodemailer.createTransport({
@@ -84,7 +100,8 @@ export class AdminService {
       // If a test email is provided, send a real test message
       if (testEmail) {
         await transporter.sendMail({
-          from,
+          // Non-null garanti par la vérification `testEmail && !from` ci-dessus
+          from: from as string,
           to: testEmail,
           subject: '[Test] Bons de mise à disposition — Test SMTP',
           html: `
@@ -105,20 +122,84 @@ export class AdminService {
     }
   }
 
-  async purgeLdapUsers(): Promise<{ deleted: number }> {
-    // Tente la suppression physique ; si FK violation, replie sur désactivation
-    try {
-      const result = await this.prisma.user.deleteMany({
-        where: { isLocalAccount: false },
-      });
-      return { deleted: result.count };
-    } catch {
-      // Des users sont référencés par des bons → on les désactive seulement
-      const result = await this.prisma.user.updateMany({
-        where: { isLocalAccount: false },
-        data: { active: false },
-      });
-      return { deleted: result.count };
+  /**
+   * « Purge » des utilisateurs LDAP : ne supprime JAMAIS physiquement (un user
+   * référencé par un bon fait échouer le delete de toute façon, et il n'y a
+   * aucune raison de perdre l'historique). Désactive uniquement les comptes
+   * synchronisés depuis LDAP (lastLdapSync renseigné), de rôle collaborator —
+   * jamais admin/technician, qui peuvent être des comptes SSO nécessaires à
+   * l'accès continu — et jamais l'appelant lui-même (LOT C bug #5).
+   */
+  async purgeLdapUsers(currentUserId: string): Promise<{ deactivated: number }> {
+    const result = await this.prisma.user.updateMany({
+      where: {
+        lastLdapSync: { not: null },
+        role: 'collaborator',
+        active: true,
+        id: { not: currentUserId },
+      },
+      data: { active: false },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        userId: currentUserId,
+        action: 'ldap_users_deactivated',
+        details: { count: result.count, by: currentUserId },
+      },
+    }).catch((err: unknown) => {
+      this.logger.error(`Audit ldap_users_deactivated non journalisé: ${(err as Error).message}`);
+    });
+
+    return { deactivated: result.count };
+  }
+
+  /**
+   * Supprime les échecs de connexion locale récents (30 min) pour l'email de
+   * l'utilisateur ciblé — lève le verrou de brute-force (LOT C bug #2c) sans
+   * attendre l'expiration de la fenêtre.
+   */
+  async unlockUser(targetUserId: string, byUserId: string): Promise<{ unlocked: boolean; removed: number }> {
+    const target = await this.prisma.user.findUnique({ where: { id: targetUserId } });
+    if (!target) {
+      throw new NotFoundException('Utilisateur introuvable');
+    }
+
+    const windowStart = new Date(Date.now() - 30 * 60 * 1000);
+    const result = await this.prisma.auditLog.deleteMany({
+      where: {
+        userEmail: target.email,
+        action: 'login_local_failed',
+        createdAt: { gte: windowStart },
+      },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        userId: byUserId,
+        action: 'user_unlocked',
+        details: { targetEmail: target.email },
+      },
+    }).catch((err: unknown) => {
+      this.logger.error(`Audit user_unlocked non journalisé: ${(err as Error).message}`);
+    });
+
+    return { unlocked: true, removed: result.count };
+  }
+
+  /**
+   * Garde-fou avant désactivation de l'authentification locale (LOT C bug
+   * #11) : sans au moins un admin actif non local (SSO), désactiver l'auth
+   * locale couperait tout accès administrateur à l'application.
+   */
+  async ensureNonLocalAdminExists(): Promise<void> {
+    const count = await this.prisma.user.count({
+      where: { role: 'admin', active: true, isLocalAccount: false },
+    });
+    if (count === 0) {
+      throw new BadRequestException(
+        "Impossible de désactiver l'authentification locale : aucun compte administrateur actif non local (SSO) n'existe. Configurez d'abord un admin SSO pour ne pas perdre tout accès.",
+      );
     }
   }
 

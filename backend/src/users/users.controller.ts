@@ -12,11 +12,33 @@ export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Get()
-  findAll(@Query('filialeId') filialeId?: string, @Query('role') role?: string) {
+  findAll(
+    @Query('filialeId') filialeId?: string,
+    @Query('role') role?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('search') search?: string,
+  ) {
     if (role && !Object.values(UserRole).includes(role as UserRole)) {
       throw new BadRequestException(`Rôle inconnu : ${role}`);
     }
-    return this.usersService.findAll({ filialeId, role });
+
+    // Pagination optionnelle : sans ?page, comportement inchangé (tableau
+    // complet) pour ne pas casser les appelants existants du front.
+    if (page === undefined) {
+      return this.usersService.findAll({ filialeId, role });
+    }
+
+    const pageNum = Number(page);
+    if (!Number.isInteger(pageNum) || pageNum < 1) {
+      throw new BadRequestException('Le paramètre "page" doit être un entier ≥ 1');
+    }
+    const limitNum = limit !== undefined ? Number(limit) : 20;
+    if (!Number.isInteger(limitNum) || limitNum < 1 || limitNum > 100) {
+      throw new BadRequestException('Le paramètre "limit" doit être un entier entre 1 et 100');
+    }
+
+    return this.usersService.findAllPaginated({ filialeId, role, search, page: pageNum, limit: limitNum });
   }
 
   @Get('search')
