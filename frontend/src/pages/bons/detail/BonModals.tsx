@@ -1,4 +1,4 @@
-import type { BonDetailData, PendingItAction } from './types';
+import type { BonDetailData, FailedItAction, PendingItAction, SendSerialConflict } from './types';
 import { ConfirmModal } from './ConfirmModal';
 import { InPersonModal } from './InPersonModal';
 import { ItSignModal } from './ItSignModal';
@@ -6,6 +6,7 @@ import { RestitutionModal } from './RestitutionModal';
 import { DeclareNotReturnedModal } from './DeclareNotReturnedModal';
 import { MarkFoundModal } from './MarkFoundModal';
 import { CloseUnilateralModal } from './CloseUnilateralModal';
+import { SendSerialConflictsModal } from './SendSerialConflictsModal';
 
 export interface BonModalsProps {
   readonly bon: BonDetailData;
@@ -24,6 +25,19 @@ export interface BonModalsProps {
   readonly pendingItAction: PendingItAction | null;
   readonly onItSignClose: () => void;
   readonly onItSigned: () => Promise<void>;
+
+  // Cachet enregistré mais action suivante (envoi, restitution…) échouée :
+  // proposer de la relancer SANS re-signer.
+  readonly failedItAction: FailedItAction | null;
+  readonly onRetryFailedItAction: () => void;
+  readonly onDismissFailedItAction: () => void;
+  readonly retryingFailedItAction: boolean;
+
+  // Conflits de numéro de série à l'envoi (409 serial_conflicts)
+  readonly sendSerialConflicts: readonly SendSerialConflict[] | null;
+  readonly onSendConflictsConfirm: () => void;
+  readonly onSendConflictsDismiss: () => void;
+  readonly sendLoading: boolean;
 
   // Restitution modal
   readonly showRestitutionModal: boolean;
@@ -67,6 +81,14 @@ export function BonModals({
   pendingItAction,
   onItSignClose,
   onItSigned,
+  failedItAction,
+  onRetryFailedItAction,
+  onDismissFailedItAction,
+  retryingFailedItAction,
+  sendSerialConflicts,
+  onSendConflictsConfirm,
+  onSendConflictsDismiss,
+  sendLoading,
   showRestitutionModal,
   onRestitutionConfirm,
   onRestitutionCancel,
@@ -120,6 +142,29 @@ export function BonModals({
           description={pendingItAction.description}
           onClose={onItSignClose}
           onSigned={onItSigned}
+        />
+      )}
+
+      {/* Cachet IT déjà enregistré, mais l'action qui devait suivre a échoué
+          (ex. SMTP en panne) : proposer de la relancer sans re-signer. */}
+      {failedItAction && (
+        <ConfirmModal
+          title="Cachet enregistré — action interrompue"
+          message="Le cachet IT a bien été enregistré, mais l'action qui devait suivre (envoi d'email, restitution…) n'a pas abouti. Inutile de signer à nouveau : réessayez simplement l'action."
+          confirmLabel="Réessayer l'action"
+          onConfirm={onRetryFailedItAction}
+          onCancel={onDismissFailedItAction}
+          loading={retryingFailedItAction}
+        />
+      )}
+
+      {/* Conflits de numéro de série à l'envoi (409 serial_conflicts) */}
+      {sendSerialConflicts && sendSerialConflicts.length > 0 && (
+        <SendSerialConflictsModal
+          conflicts={sendSerialConflicts}
+          onConfirm={onSendConflictsConfirm}
+          onCancel={onSendConflictsDismiss}
+          loading={sendLoading}
         />
       )}
 

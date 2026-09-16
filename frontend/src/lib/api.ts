@@ -20,6 +20,7 @@ const CSRF_HEADER = { 'X-Requested-With': 'XMLHttpRequest' };
  *  JSON ({ statusCode, message, error }) — surface `message` (joined when it is
  *  a class-validator array) instead of the raw JSON string. */
 function buildError(status: number, text: string): ApiError {
+  if (status === 429) return new ApiError(429, 'Trop de requêtes, réessayez dans une minute.');
   try {
     const body: unknown = JSON.parse(text);
     const rawMessage = (body as { message?: unknown })?.message;
@@ -30,7 +31,9 @@ function buildError(status: number, text: string): ApiError {
         : text;
     return new ApiError(status, message || `Erreur HTTP ${status}`, body);
   } catch {
-    return new ApiError(status, text || `Erreur HTTP ${status}`);
+    // Corps non JSON (page HTML 502 du proxy, texte brut) : ne jamais l'afficher tel quel
+    const short = text && !/^\s*</.test(text) && text.length < 200 ? text : '';
+    return new ApiError(status, short || `Erreur HTTP ${status}`);
   }
 }
 
@@ -52,7 +55,10 @@ function refreshSession(): Promise<void> {
       headers: CSRF_HEADER,
     }).then((refreshed) => {
       if (!refreshed.ok) {
-        window.location.href = '/login';
+        // Conserve la page courante pour y revenir après ré-authentification
+        // (Login.tsx lit ce paramètre — adapté séparément).
+        const returnTo = encodeURIComponent(window.location.pathname + window.location.search);
+        window.location.href = `/login?returnTo=${returnTo}`;
         throw new ApiError(401, 'Session expirée');
       }
     }).finally(() => {
@@ -86,8 +92,8 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 /** Envoi multipart (upload de fichier). On NE fixe PAS Content-Type : le
  *  navigateur ajoute la frontière multipart lui-même. */
-async function requestForm<T>(path: string, form: FormData): Promise<T> {
-  const init: RequestInit = { method: 'POST', body: form, headers: CSRF_HEADER, credentials: 'include' };
+async function requestForm<T>(path: string, form: FormData, method: 'POST' | 'PATCH' | 'PUT' = 'POST'): Promise<T> {
+  const init: RequestInit = { method, body: form, headers: CSRF_HEADER, credentials: 'include' };
   const res = await fetch(`${BASE_URL}${path}`, init);
   if (res.status === 401) {
     await refreshSession();
@@ -115,7 +121,8 @@ async function requestBlob(path: string): Promise<Blob> {
 export const api = {
   get: <T>(path: string) => request<T>(path),
   getBlob: (path: string) => requestBlob(path),
-  postForm: <T>(path: string, form: FormData) => requestForm<T>(path, form),
+  postForm: <T>(path: string, form: FormData) => requestForm<T>(path, form, 'POST'),
+  patchForm: <T>(path: string, form: FormData) => requestForm<T>(path, form, 'PATCH'),
   post: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: 'POST', body: JSON.stringify(body) }),
   put: <T>(path: string, body?: unknown) =>

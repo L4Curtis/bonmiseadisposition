@@ -10,6 +10,7 @@ import {
   AlertTriangle,
   PackageCheck,
   FileX,
+  Stamp,
 } from 'lucide-react';
 import type { BonDetailData } from './types';
 
@@ -26,6 +27,10 @@ export interface BonActionButtonsProps {
   /** Une signature présentielle est en attente : proposer de réafficher le lien/QR. */
   readonly hasPendingInPerson: boolean;
   readonly onShowInPerson: () => void;
+  /** Rattrapage : la restitution a été actée mais le cachet IT correspondant
+   *  n'a jamais été posé (modale fermée sans signer). */
+  readonly needsRestitutionItCachet: boolean;
+  readonly onApplyRestitutionItCachet: () => void;
   readonly actionLoading: string | null;
   readonly pdfLoading: string | null;
   readonly onDownloadPdf: () => void;
@@ -53,6 +58,8 @@ export function BonActionButtons({
   canCloseUnilateral,
   hasPendingInPerson,
   onShowInPerson,
+  needsRestitutionItCachet,
+  onApplyRestitutionItCachet,
   actionLoading,
   pdfLoading,
   onDownloadPdf,
@@ -123,6 +130,19 @@ export function BonActionButtons({
             </Button>
           )}
         </>
+      )}
+
+      {isItStaff && needsRestitutionItCachet && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 border-slate-300 dark:border-slate-700"
+          onClick={onApplyRestitutionItCachet}
+          disabled={!!actionLoading}
+          title="La restitution a été enregistrée sans que le cachet IT correspondant ait été posé — l'apposer maintenant"
+        >
+          <Stamp className="h-3.5 w-3.5" /> Apposer le cachet IT (restitution)
+        </Button>
       )}
 
       {isItStaff && hasNotReturnedEquipment && (

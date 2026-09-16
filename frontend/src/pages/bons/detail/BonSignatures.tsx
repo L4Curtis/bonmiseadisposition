@@ -21,12 +21,16 @@ export function BonSignatures({ signatures }: BonSignaturesProps) {
 
   if (visibleSignatures.length === 0) return null;
 
-  // Build step labels for it_cachet signatures (infer from chronological order)
+  // Build step labels for it_cachet signatures : préférer `pdfType` (exposé
+  // par le backend) quand il est présent, sinon replier sur la déduction par
+  // ordre chronologique (mise à dispo = premier cachet, restitution = suivant).
   const itCachetSteps = new Map<string, string>();
   let itCachetIndex = 0;
   for (const sig of visibleSignatures) {
     if (sig.type === 'it_cachet') {
-      const stepLabel = itCachetIndex === 0 ? 'Mise à disposition' : 'Restitution';
+      const stepLabel = sig.pdfType
+        ? (sig.pdfType === 'restitution' ? 'Restitution' : 'Mise à disposition')
+        : (itCachetIndex === 0 ? 'Mise à disposition' : 'Restitution');
       itCachetSteps.set(sig.id, stepLabel);
       itCachetIndex++;
     }

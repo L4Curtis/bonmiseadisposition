@@ -59,7 +59,23 @@ export const bonCreateSchema = z.object({
     .refine(
       (items) => items.some((e) => e.catalogItemId || e.customLabel?.trim()),
       'Ajoutez au moins un équipement',
-    ),
+    )
+    // Numéros de série uniques DANS le bon (trim, insensible à la casse) —
+    // les doublons entre bons différents restent gérés par l'alerte
+    // /equipment/serial-conflicts (non bloquante).
+    .superRefine((items, ctx) => {
+      const seen = new Set<string>();
+      for (const e of items) {
+        const raw = e.serialNumber?.trim();
+        if (!raw) continue;
+        const key = raw.toLowerCase();
+        if (seen.has(key)) {
+          ctx.addIssue(`Numéro de série en double : ${raw}`);
+          return;
+        }
+        seen.add(key);
+      }
+    }),
 }).refine(
   // Comparaison lexicographique valide sur le format YYYY-MM-DD
   (d) => !d.dateRestitution || d.dateRestitution >= d.dateMiseDisposition,

@@ -30,9 +30,17 @@ export function InPersonModal({ type, token, onClose }: InPersonModalProps) {
       .catch(() => setQrDataUrl(null));
   }, [signerUrl]);
 
-  const handleCopyLink = () => {
-    navigator.clipboard.writeText(signerUrl);
-    toast({ title: 'Lien copié', description: 'Le lien de signature a été copié dans le presse-papier.' });
+  const handleCopyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(signerUrl);
+      toast({ title: 'Lien copié', description: 'Le lien de signature a été copié dans le presse-papier.' });
+    } catch {
+      toast({
+        title: 'Copie impossible',
+        description: 'Sélectionnez le lien manuellement pour le copier.',
+        variant: 'destructive',
+      });
+    }
   };
 
   return (

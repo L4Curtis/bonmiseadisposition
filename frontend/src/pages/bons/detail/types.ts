@@ -12,6 +12,12 @@ export interface SignatureInfo {
   mentionLuApprouve: boolean;
   tokenExpiresAt: string | Date;
   createdAt?: string | Date;
+  /** Étape du cachet IT (exposée par le backend — voir `common/types.ts`
+   *  BON_SELECT / sanitizeBonForResponse). Optionnel car absent sur les
+   *  cachets posés avant l'introduction du champ : dans ce cas, BonSignatures
+   *  déduit l'étape (mise à dispo / restitution) de l'ordre chronologique des
+   *  signatures `it_cachet`. */
+  pdfType?: 'mise_disposition' | 'restitution';
 }
 
 export interface BonDetailData {
@@ -55,7 +61,27 @@ export interface PdfSnapshotInfo {
 export interface PendingItAction {
   pdfType: 'mise_disposition' | 'restitution';
   description: string;
-  onSigned: () => Promise<void>;
+  /** Renvoie `false` (au lieu de rejeter) en cas d'échec : les actions
+   *  gèrent déjà leur propre toast d'erreur en interne. Le booléen permet à
+   *  l'appelant de savoir s'il doit proposer un « Réessayer l'action » sans
+   *  redemander le cachet (déjà enregistré à ce stade). */
+  onSigned: () => Promise<boolean>;
+}
+
+/** Cachet IT déjà apposé (donc en base) mais dont l'action qui devait suivre
+ *  (envoi d'email, restitution…) a échoué — permet de la relancer SANS
+ *  re-signer, pour éviter un second cachet en cas de nouvelle tentative. */
+export interface FailedItAction {
+  pdfType: 'mise_disposition' | 'restitution';
+  retry: () => Promise<boolean>;
+}
+
+/** Conflit de numéro de série renvoyé par POST /bons/:id/send (409,
+ *  { code: 'serial_conflicts', conflicts } — voir
+ *  backend/src/bons/bons.service.ts `send()`/`findSerialConflicts()`). */
+export interface SendSerialConflict {
+  serialNumber: string;
+  bonReference: string;
 }
 
 export interface NotificationLog {

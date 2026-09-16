@@ -16,9 +16,11 @@ interface ConfirmModalProps {
   danger?: boolean;
   /** Désactive les boutons pendant l'action (anti double-clic). */
   loading?: boolean;
+  /** Libellé du bouton de confirmation (par défaut « Confirmer »). */
+  confirmLabel?: string;
 }
 
-export function ConfirmModal({ title, message, onConfirm, onCancel, danger, loading }: ConfirmModalProps) {
+export function ConfirmModal({ title, message, onConfirm, onCancel, danger, loading, confirmLabel }: ConfirmModalProps) {
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !loading) onCancel(); }}>
       <DialogContent className="sm:max-w-sm">
@@ -36,7 +38,7 @@ export function ConfirmModal({ title, message, onConfirm, onCancel, danger, load
             onClick={onConfirm}
             disabled={loading}
           >
-            {loading ? 'En cours…' : 'Confirmer'}
+            {loading ? 'En cours…' : (confirmLabel ?? 'Confirmer')}
           </Button>
         </DialogFooter>
       </DialogContent>

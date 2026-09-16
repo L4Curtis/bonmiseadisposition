@@ -1,12 +1,6 @@
 import { CheckCircle, XCircle, Mail } from 'lucide-react';
 import type { NotificationLog } from './types';
-
-const TYPE_LABELS: Record<string, string> = {
-  mise_disposition: 'Mise à disposition',
-  restitution: 'Restitution',
-  pv_cloture: 'PV clôture',
-  reminder: 'Rappel',
-};
+import { notifTypeLabel } from '@/lib/labels';
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleString('fr-FR', {
@@ -52,7 +46,7 @@ export function BonNotificationLogs({ logs }: Props) {
             <div className="flex-1 min-w-0">
               <div className="flex flex-wrap gap-x-2 gap-y-0.5 items-center">
                 <span className="font-medium">
-                  {TYPE_LABELS[log.type] ?? log.type}
+                  {notifTypeLabel(log.type)}
                   {log.reminderNumber ? ` (rappel ${log.reminderNumber})` : ''}
                 </span>
                 <span className="text-muted-foreground truncate">{log.recipientEmail}</span>

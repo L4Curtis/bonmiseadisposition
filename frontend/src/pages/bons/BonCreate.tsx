@@ -56,7 +56,9 @@ const newLine = (partial?: Partial<EquipmentLine>): EquipmentLine => ({
 });
 
 // ── Autocomplete utilisateur ──────────────────────────────────
-function UserAutocomplete({
+// Exporté (avec CatalogSearch) uniquement pour permettre leur test unitaire
+// isolé — la page reste par ailleurs le seul export utilisé par le routeur.
+export function UserAutocomplete({
   value,
   onChange,
 }: {
@@ -78,10 +80,13 @@ function UserAutocomplete({
 
   useEffect(() => {
     if (query.length < 2) { setResults([]); return; }
+    let ignore = false;
     const t = setTimeout(() => {
-      api.get<UserResult[]>(`/users/search?q=${encodeURIComponent(query)}`).then(setResults);
+      api.get<UserResult[]>(`/users/search?q=${encodeURIComponent(query)}`)
+        .then((res) => { if (!ignore) setResults(res); })
+        .catch(() => { if (!ignore) setResults([]); });
     }, 250);
-    return () => clearTimeout(t);
+    return () => { ignore = true; clearTimeout(t); };
   }, [query]);
 
   if (value) {
@@ -91,7 +96,12 @@ function UserAutocomplete({
           <p className="text-sm font-medium">{value.displayName}</p>
           <p className="text-xs text-muted-foreground">{value.email}{value.department ? ` — ${value.department}` : ''}</p>
         </div>
-        <button onClick={() => onChange(null)} className="text-muted-foreground/70 hover:text-muted-foreground" aria-label="Retirer le collaborateur sélectionné">
+        <button
+          type="button"
+          onClick={(e) => { e.preventDefault(); onChange(null); }}
+          className="text-muted-foreground/70 hover:text-muted-foreground"
+          aria-label="Retirer le collaborateur sélectionné"
+        >
           <X className="h-4 w-4" />
         </button>
       </div>
@@ -119,8 +129,9 @@ function UserAutocomplete({
           {results.map((u) => (
             <button
               key={u.id}
+              type="button"
               className="flex w-full flex-col px-3 py-2 text-left text-sm hover:bg-muted/40"
-              onClick={() => { onChange(u); setQuery(''); setOpen(false); }}
+              onClick={(e) => { e.preventDefault(); onChange(u); setQuery(''); setOpen(false); }}
             >
               <span className="font-medium">{u.displayName}</span>
               <span className="text-xs text-muted-foreground/70">{u.email}{u.department ? ` — ${u.department}` : ''}</span>
@@ -138,7 +149,7 @@ function UserAutocomplete({
 }
 
 // ── Ajout d'équipement depuis le catalogue ────────────────────
-function CatalogSearch({
+export function CatalogSearch({
   allItems,
   onAdd,
 }: {
@@ -180,15 +191,24 @@ function CatalogSearch({
           onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
         />
-        {query && <button onClick={() => setQuery('')} aria-label="Effacer la recherche catalogue"><X className="h-3.5 w-3.5 text-muted-foreground/70" /></button>}
+        {query && (
+          <button
+            type="button"
+            onClick={(e) => { e.preventDefault(); setQuery(''); }}
+            aria-label="Effacer la recherche catalogue"
+          >
+            <X className="h-3.5 w-3.5 text-muted-foreground/70" />
+          </button>
+        )}
       </div>
       {open && (query.length > 0 || results.length > 0) && (
         <div className="absolute z-10 mt-1 w-full rounded-md border bg-card shadow-lg max-h-48 overflow-auto">
           {results.length > 0 ? results.map((r) => (
             <button
               key={r.id}
+              type="button"
               className="flex w-full items-center justify-between px-3 py-2 text-sm hover:bg-muted/40"
-              onClick={() => { onAdd(r); setQuery(''); setOpen(false); }}
+              onClick={(e) => { e.preventDefault(); onAdd(r); setQuery(''); setOpen(false); }}
             >
               <span className="font-medium">{r.brand} {r.model}</span>
               <Plus className="h-3.5 w-3.5 text-muted-foreground/70" />
@@ -280,6 +300,15 @@ export function BonCreatePage() {
   const confirmLeave = () =>
     !dirty || window.confirm('Des modifications non enregistrées seront perdues. Quitter quand même ?');
 
+  // Le panneau de conflits de numéro de série ne reflète que l'état du
+  // formulaire au moment de la vérification : toute modification ultérieure
+  // doit le fermer (sinon on pourrait soumettre en croyant l'avertissement
+  // encore valable pour les valeurs actuelles).
+  useEffect(() => {
+    setSerialConflicts(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapshot]);
+
   useEffect(() => {
     setInitError(false);
     Promise.all([
@@ -369,18 +398,56 @@ export function BonCreatePage() {
     setEquipments((prev) => prev.map((e) => (e._id === id ? { ...e, [field]: value } : e)));
   };
 
-  /** Envoi effectif (création ou mise à jour du brouillon) — `submitting` est
-   *  géré par l'appelant. */
-  const performSubmit = async () => {
+  /** Valide le formulaire courant contre bonCreateSchema. Centralisé pour que
+   *  TOUT chemin d'envoi (soumission normale ou « créer/enregistrer quand
+   *  même » après conflit de numéro de série) repasse par la même validation —
+   *  sans ça, contourner le panneau de conflits contournait aussi la validation. */
+  const runValidation = () => {
     const validEquipments = equipments.filter((e) => e.catalogItemId || e.customLabel?.trim());
+    const result = validate(bonCreateSchema, {
+      collaborateurId: collaborateur?.id ?? '',
+      filialeId,
+      dateMiseDisposition,
+      dateRestitution: dateRestitution || undefined,
+      civilite,
+      equipments: validEquipments.map((e) => ({
+        catalogItemId: e.catalogItemId || undefined,
+        customLabel: e.customLabel || undefined,
+        serialNumber: e.serialNumber || undefined,
+        inventoryNumber: e.inventoryNumber || undefined,
+        notes: e.notes || undefined,
+      })),
+    });
+    if (!result.success) {
+      return { success: false as const, error: Object.values(result.errors)[0] };
+    }
+    return { success: true as const, validEquipments };
+  };
+
+  /** Envoi effectif (création ou mise à jour du brouillon) — `submitting` est
+   *  géré par l'appelant. Revalide systématiquement : cette fonction est aussi
+   *  le point d'entrée du bouton « Créer/Enregistrer quand même ». */
+  const performSubmit = async () => {
+    const validation = runValidation();
+    if (!validation.success) {
+      setError(validation.error);
+      return;
+    }
+    if (!collaborateur) {
+      setError('Sélectionnez un collaborateur');
+      return;
+    }
+    const { validEquipments } = validation;
     try {
       const payload = {
         filialeId,
-        collaborateurId: collaborateur!.id,
+        collaborateurId: collaborateur.id,
         civilite,
         dateMiseDisposition,
-        dateRestitution: dateRestitution || undefined,
-        notes: notes || undefined,
+        // En édition, une valeur vide doit EFFACER le champ côté backend (null) ;
+        // en création, un champ vide ne doit simplement pas être envoyé.
+        dateRestitution: isEditing ? (dateRestitution || null) : (dateRestitution || undefined),
+        notes: isEditing ? notes : (notes || undefined),
         equipments: validEquipments.map((e, idx) => ({
           catalogItemId: e.catalogItemId || undefined,
           customLabel: e.customLabel || undefined,
@@ -424,25 +491,12 @@ export function BonCreatePage() {
     setSerialConflicts(null);
     setError('');
     try {
-      const validEquipments = equipments.filter((e) => e.catalogItemId || e.customLabel?.trim());
-      const result = validate(bonCreateSchema, {
-        collaborateurId: collaborateur?.id ?? '',
-        filialeId,
-        dateMiseDisposition,
-        dateRestitution: dateRestitution || undefined,
-        civilite,
-        equipments: validEquipments.map((e) => ({
-          catalogItemId: e.catalogItemId || undefined,
-          customLabel: e.customLabel || undefined,
-          serialNumber: e.serialNumber || undefined,
-          inventoryNumber: e.inventoryNumber || undefined,
-          notes: e.notes || undefined,
-        })),
-      });
-      if (!result.success) {
-        setError(Object.values(result.errors)[0]);
+      const validation = runValidation();
+      if (!validation.success) {
+        setError(validation.error);
         return;
       }
+      const { validEquipments } = validation;
 
       // Alerte doublon (non bloquante) : numéros de série déjà en circulation
       // sur un autre bon — l'IT confirme en connaissance de cause
@@ -557,7 +611,7 @@ export function BonCreatePage() {
             </div>
             <div className="space-y-1">
               <Label>Filiale *</Label>
-              <Select value={filialeId || undefined} onValueChange={setFilialeId}>
+              <Select value={filialeId ?? ''} onValueChange={setFilialeId}>
                 <SelectTrigger>
                   <SelectValue placeholder="Sélectionner une filiale..." />
                 </SelectTrigger>

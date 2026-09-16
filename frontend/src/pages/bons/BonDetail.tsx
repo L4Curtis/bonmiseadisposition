@@ -21,13 +21,18 @@ export function BonDetailPage() {
   const navigate = useNavigate();
   const { user: currentUser } = useAuth();
   const isItStaff = currentUser?.isItStaff ?? false;
+  const isAdmin = currentUser?.role === 'admin';
 
-  const actions = useBonActions(id);
+  const actions = useBonActions(id, { isItStaff });
   const { bon, loading, loadError, actionLoading, pdfLoading, pdfSnapshots, notifLogs } = actions;
 
   useEffect(() => { actions.load(); }, [id]);
 
   // ── IT sign trigger helpers ────────────────────────────────────────────────
+  // Mise à disposition : cachet PUIS envoi/présentiel (le cachet certifie la
+  // remise avant que l'email ne parte). Restitution : ordre inverse (voir
+  // handleRestitutionConfirm) — le cachet doit être apposé APRÈS que les
+  // équipements sont marqués rendus, sinon son PDF les montre « en attente ».
 
   const handleSend = isItStaff
     ? () => actions.triggerWithItSign(
@@ -45,16 +50,25 @@ export function BonDetailPage() {
       )
     : () => actions.doInPerson('mise_disposition');
 
-  const handleRestitutionConfirm = (selectedIds: string[]) => {
+  /** Restitution : on marque d'abord les équipements rendus (doRestitution),
+   *  puis seulement on demande le cachet IT — pour que le PDF du cachet
+   *  reflète l'état réel des équipements plutôt que « tous en attente ». Si
+   *  la restitution échoue, on ne demande pas de cachet. */
+  const handleRestitutionConfirm = async (selectedIds: string[]) => {
+    actions.setShowRestitutionModal(false);
     if (isItStaff) {
-      actions.setShowRestitutionModal(false);
-      actions.triggerWithItSign(
-        'restitution',
-        'Apposez votre cachet pour confirmer la restitution des équipements. L\'email sera ensuite envoyé au collaborateur.',
-        () => actions.doRestitution(selectedIds),
-      );
+      const ok = await actions.doRestitution(selectedIds);
+      if (ok) {
+        actions.triggerWithItSign(
+          'restitution',
+          'La restitution a été enregistrée. Apposez votre cachet pour la confirmer — l\'email sera ensuite envoyé au collaborateur. Si vous fermez cette fenêtre sans signer, vous pourrez apposer le cachet plus tard depuis la fiche du bon.',
+          // L'action (initiate-restitution) est déjà faite : il ne reste que
+          // le cachet, déjà posé par ItSignModal à ce stade.
+          async () => true,
+        );
+      }
     } else {
-      actions.doRestitution(selectedIds);
+      await actions.doRestitution(selectedIds);
     }
   };
 
@@ -65,6 +79,16 @@ export function BonDetailPage() {
         () => actions.doInPerson('restitution'),
       )
     : () => actions.doInPerson('restitution');
+
+  /** Rattrapage : pose le cachet IT de restitution seul, sans redéclencher
+   *  l'action de restitution (déjà actée) — pour le cas où la modale de
+   *  cachet a été fermée sans signer juste après la restitution. */
+  const handleApplyRestitutionItCachet = () =>
+    actions.triggerWithItSign(
+      'restitution',
+      'La restitution a déjà été enregistrée pour ce bon. Apposez votre cachet pour la confirmer.',
+      async () => true,
+    );
 
   // ── Loading / Error states ─────────────────────────────────────────────────
 
@@ -102,7 +126,12 @@ export function BonDetailPage() {
   const isDraft = bon.status === 'draft';
   const isActive = bon.status === 'active';
   const isPartiallyReturned = bon.status === 'partially_returned';
-  const isCancellable = !['archived', 'cancelled', 'contested'].includes(bon.status);
+  // Décision produit : l'annulation n'est plus permise une fois qu'une
+  // signature a pu intervenir (active, sent_restitution, partially_returned,
+  // archived, contested, cancelled) — seuls les bons pas encore engagés
+  // (brouillon, en attente de la première signature) restent annulables.
+  // Le backend refuse aussi l'annulation hors de ces statuts.
+  const isCancellable = ['draft', 'sent_mise_dispo'].includes(bon.status);
   const isSentWaiting = ['sent_mise_dispo', 'sent_restitution'].includes(bon.status);
   const showEquipmentStatus = ['sent_restitution', 'partially_returned', 'archived'].includes(bon.status);
   const hasPendingPvCloture = bon.signatures?.some(
@@ -124,6 +153,27 @@ export function BonDetailPage() {
   const handleShowInPerson = () =>
     actions.doInPerson(bon.status === 'sent_restitution' ? 'restitution' : 'mise_disposition');
 
+  // Rattrapage : la restitution peut être actée sans que son cachet IT soit
+  // jamais posé (modale de cachet fermée sans signer). On le détecte pour
+  // proposer de l'apposer depuis la fiche plutôt que de laisser le bon sans
+  // recours. Priorité à `pdfType` (exposé par le backend) ; à défaut, repli
+  // sur « aucun it_cachet postérieur à la dernière signature mise à
+  // disposition » pour les données antérieures à ce champ.
+  const lastMiseDispoSig = [...(bon.signatures ?? [])]
+    .filter((s) => s.type === 'mise_disposition' && s.signed)
+    .sort((a, b) => new Date(b.signedAt ?? b.createdAt ?? 0).getTime() - new Date(a.signedAt ?? a.createdAt ?? 0).getTime())[0];
+  const hasRestitutionItCachet = (bon.signatures ?? []).some((s) => {
+    if (s.type !== 'it_cachet' || !s.signed) return false;
+    if (s.pdfType) return s.pdfType === 'restitution';
+    if (!lastMiseDispoSig) return false;
+    const miseDispoTime = new Date(lastMiseDispoSig.signedAt ?? lastMiseDispoSig.createdAt ?? 0).getTime();
+    return new Date(s.createdAt ?? s.signedAt ?? 0).getTime() > miseDispoTime;
+  });
+  const needsRestitutionItCachet =
+    isItStaff &&
+    ['sent_restitution', 'partially_returned'].includes(bon.status) &&
+    !hasRestitutionItCachet;
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
@@ -143,6 +193,8 @@ export function BonDetailPage() {
         canCloseUnilateral={canCloseUnilateral}
         hasPendingInPerson={hasPendingInPerson}
         onShowInPerson={handleShowInPerson}
+        needsRestitutionItCachet={needsRestitutionItCachet}
+        onApplyRestitutionItCachet={handleApplyRestitutionItCachet}
         actionLoading={actionLoading}
         pdfLoading={pdfLoading}
         onDownloadPdf={() => actions.downloadPdf(actions.headerPdfType(), 'header')}
@@ -184,6 +236,10 @@ export function BonDetailPage() {
         snapshots={pdfSnapshots}
         pdfLoading={pdfLoading}
         onDownloadSnapshot={actions.downloadPdfSnapshot}
+        missing={actions.missingSnapshots}
+        isAdmin={isAdmin}
+        onRegenerateMissing={actions.regenerateMissingSnapshots}
+        regenerating={actions.regeneratingSnapshots}
       />
 
       {bon.signatures && bon.signatures.some((s) => s.signed) && <BonIntegrity bonId={bon.id} />}
@@ -203,8 +259,25 @@ export function BonDetailPage() {
         onItSigned={async () => {
           const action = actions.pendingItAction;
           actions.setPendingItAction(null);
-          if (action) await action.onSigned();
+          if (!action) return;
+          // Le cachet est déjà en base à ce stade (ItSignModal l'a posé avant
+          // d'appeler onSigned). Si l'action qui suit échoue, on garde une
+          // trace « à relancer sans re-signer » — sauf si l'échec est en
+          // réalité un conflit de numéro de série, déjà pris en charge par sa
+          // propre modale de confirmation.
+          const ok = await action.onSigned();
+          if (!ok && !actions.sendSerialConflicts) {
+            actions.setFailedItAction({ pdfType: action.pdfType, retry: action.onSigned });
+          }
         }}
+        failedItAction={actions.failedItAction}
+        onRetryFailedItAction={actions.retryFailedItAction}
+        onDismissFailedItAction={() => actions.setFailedItAction(null)}
+        retryingFailedItAction={actions.retryingFailedItAction}
+        sendSerialConflicts={actions.sendSerialConflicts}
+        onSendConflictsConfirm={actions.confirmSendDespiteConflicts}
+        onSendConflictsDismiss={() => actions.setSendSerialConflicts(null)}
+        sendLoading={actionLoading === 'send'}
         showRestitutionModal={actions.showRestitutionModal}
         onRestitutionConfirm={handleRestitutionConfirm}
         onRestitutionCancel={() => actions.setShowRestitutionModal(false)}

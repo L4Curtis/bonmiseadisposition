@@ -3,8 +3,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
 import { toast } from '@/hooks/use-toast';
+import { showActionError } from '@/lib/errors';
 import { Paperclip, Upload, Trash2, FileText, Loader2, Download } from 'lucide-react';
 import { formatDateTime } from '@/lib/utils';
+import { ConfirmModal } from './ConfirmModal';
 
 interface Attachment {
   id: string;
@@ -43,6 +45,9 @@ export function BonAttachments({ bonId, canManage, defaultStage = 'general' }: B
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [stage, setStage] = useState(defaultStage);
+  const [pendingDelete, setPendingDelete] = useState<Attachment | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [brokenThumbnails, setBrokenThumbnails] = useState<ReadonlySet<string>>(new Set());
   const fileInput = useRef<HTMLInputElement>(null);
 
   const load = () => {
@@ -71,23 +76,62 @@ export function BonAttachments({ bonId, canManage, defaultStage = 'general' }: B
       toast({ title: 'Pièce jointe ajoutée', variant: 'success' });
       load();
     } catch (e: unknown) {
-      toast({ title: e instanceof Error ? e.message : 'Échec de l’envoi', variant: 'destructive' });
+      showActionError(e, 'Échec de l’envoi');
     } finally {
       setUploading(false);
       if (fileInput.current) fileInput.current.value = '';
     }
   };
 
-  const remove = async (id: string) => {
+  const confirmRemove = async () => {
+    if (!pendingDelete) return;
+    setDeleting(true);
     try {
-      await api.delete(`/bons/${bonId}/attachments/${id}`);
-      setItems((prev) => prev.filter((a) => a.id !== id));
-    } catch {
-      toast({ title: 'Suppression impossible', variant: 'destructive' });
+      await api.delete(`/bons/${bonId}/attachments/${pendingDelete.id}`);
+      setItems((prev) => prev.filter((a) => a.id !== pendingDelete.id));
+    } catch (e: unknown) {
+      showActionError(e, 'Suppression impossible');
+    } finally {
+      setDeleting(false);
+      setPendingDelete(null);
     }
   };
 
-  const href = (id: string) => `/api/bons/${bonId}/attachments/${id}`;
+  /** Ouvre (ou télécharge, même bouton) une pièce jointe via le client API
+   *  authentifié (comme downloadPdf) plutôt qu'un <a href="/api/..."> direct :
+   *  la route n'est pas forcément accessible en navigation simple (cookies
+   *  SameSite, 401 à raffraîchir…).
+   *
+   *  L'onglet est ouvert de façon SYNCHRONE, dans le handler de clic, AVANT
+   *  le `await` : ouvrir la fenêtre après une attente asynchrone la fait
+   *  bloquer silencieusement par Safari (et d'autres navigateurs), qui ne la
+   *  relient plus au geste utilisateur. On navigue ensuite cet onglet vers le
+   *  blob une fois récupéré. */
+  const openAttachment = async (a: Attachment) => {
+    const win = window.open('', '_blank');
+    if (!win) {
+      toast({ title: 'Autorisez les fenêtres pop-up pour ce site', variant: 'destructive' });
+      return;
+    }
+    // Équivalent de `noopener` sans perdre la référence : nécessaire pour
+    // pouvoir fixer sa location une fois le blob prêt.
+    win.opener = null;
+    try {
+      const blob = await api.getBlob(`/bons/${bonId}/attachments/${a.id}`);
+      const url = URL.createObjectURL(blob);
+      const revoke = () => URL.revokeObjectURL(url);
+      const timeoutId = setTimeout(revoke, 60_000);
+      win.addEventListener('load', () => { clearTimeout(timeoutId); revoke(); });
+      win.location.href = url;
+    } catch (e: unknown) {
+      win.close();
+      showActionError(e, "Impossible d'ouvrir la pièce jointe");
+    }
+  };
+
+  const markThumbnailBroken = (id: string) => {
+    setBrokenThumbnails((prev) => new Set(prev).add(id));
+  };
 
   return (
     <Card>
@@ -129,23 +173,29 @@ export function BonAttachments({ bonId, canManage, defaultStage = 'general' }: B
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
             {items.map((a) => {
-              const isImage = a.mimeType.startsWith('image/');
+              const isImage = a.mimeType.startsWith('image/') && !brokenThumbnails.has(a.id);
               return (
                 <div key={a.id} className="group relative rounded-lg border border-border overflow-hidden bg-muted/30">
-                  <a href={href(a.id)} target="_blank" rel="noopener noreferrer" className="block">
+                  <button
+                    type="button"
+                    onClick={() => openAttachment(a)}
+                    className="block w-full text-left"
+                    aria-label={`Ouvrir ${a.filename}`}
+                  >
                     {isImage ? (
                       <img
-                        src={href(a.id)}
+                        src={`/api/bons/${bonId}/attachments/${a.id}`}
                         alt={a.label || a.filename}
                         loading="lazy"
                         className="h-28 w-full object-cover"
+                        onError={() => markThumbnailBroken(a.id)}
                       />
                     ) : (
                       <div className="flex h-28 w-full items-center justify-center bg-muted/50">
                         <FileText className="h-10 w-10 text-muted-foreground/60" />
                       </div>
                     )}
-                  </a>
+                  </button>
                   <div className="p-2">
                     <p className="truncate text-xs font-medium text-foreground" title={a.filename}>{a.filename}</p>
                     <p className="text-[10px] text-muted-foreground/70">
@@ -155,19 +205,18 @@ export function BonAttachments({ bonId, canManage, defaultStage = 'general' }: B
                     <p className="text-[10px] text-muted-foreground/50">{formatDateTime(a.createdAt)}</p>
                   </div>
                   <div className="absolute right-1 top-1 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                    <a
-                      href={href(a.id)}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <button
+                      type="button"
+                      onClick={() => openAttachment(a)}
                       className="rounded-md bg-background/90 p-1 text-muted-foreground hover:text-foreground shadow"
                       title="Ouvrir / télécharger"
                     >
                       <Download className="h-3.5 w-3.5" />
-                    </a>
+                    </button>
                     {canManage && (
                       <button
                         type="button"
-                        onClick={() => remove(a.id)}
+                        onClick={() => setPendingDelete(a)}
                         className="rounded-md bg-background/90 p-1 text-red-500 hover:text-red-600 shadow"
                         title="Supprimer"
                       >
@@ -181,6 +230,18 @@ export function BonAttachments({ bonId, canManage, defaultStage = 'general' }: B
           </div>
         )}
       </CardContent>
+
+      {pendingDelete && (
+        <ConfirmModal
+          title="Supprimer cette pièce jointe ?"
+          message={`« ${pendingDelete.filename} » sera définitivement supprimée. Cette action est irréversible.`}
+          confirmLabel="Supprimer"
+          danger
+          loading={deleting}
+          onConfirm={confirmRemove}
+          onCancel={() => setPendingDelete(null)}
+        />
+      )}
     </Card>
   );
 }
