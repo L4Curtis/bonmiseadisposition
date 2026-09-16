@@ -42,7 +42,7 @@ export class DeclareNotReturnedDto {
 
   @IsOptional()
   @IsString()
-  @Matches(/^data:image\//, { message: 'La signature doit être une image valide (data:image/...)' })
+  @Matches(/^data:image\/png;base64,/, { message: 'La signature doit être une image PNG valide (data:image/png;base64,...)' })
   @MaxLength(2_000_000, { message: 'La signature est trop volumineuse' })
   signatureDataUrl?: string;
 }
@@ -61,7 +61,7 @@ export class MarkFoundDto {
 
   @IsOptional()
   @IsString()
-  @Matches(/^data:image\//, { message: 'La signature doit être une image valide (data:image/...)' })
+  @Matches(/^data:image\/png;base64,/, { message: 'La signature doit être une image PNG valide (data:image/png;base64,...)' })
   @MaxLength(2_000_000, { message: 'La signature est trop volumineuse' })
   signatureDataUrl?: string;
 }

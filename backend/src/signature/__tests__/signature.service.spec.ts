@@ -9,9 +9,12 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  ConflictException,
 } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { SignatureService } from '../signature.service';
 import { TimestampService } from '../timestamp.service';
+import { BonsService } from '../../bons/bons.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EncryptionService } from '../../config/encryption.service';
 import { AppConfigService } from '../../config/config.service';
@@ -31,7 +34,32 @@ import {
   cancelledBon,
   contestedBon,
   archivedBon,
+  draftBon,
 } from '../../common/__tests__/fixtures/bon.fixtures';
+
+/**
+ * Mock local de BonsService — pas de factory partagée dans
+ * common/__tests__/helpers/mock-services.ts (hors périmètre du lot B) : la
+ * dépendance est nouvelle (hook PV clôture après signature de restitution),
+ * un simple objet jest.fn() suffit ici.
+ */
+function createMockBonsService() {
+  return {
+    emitPvClotureIfDue: jest.fn().mockResolvedValue(true),
+  };
+}
+
+/**
+ * BonsService n'est plus injecté au constructeur (ça formerait un cycle de
+ * modules, cf. signature.module.ts) : SignatureService le résout
+ * paresseusement via ModuleRef.get(BonsService, { strict: false }) au moment
+ * du hook. On mocke donc ModuleRef.get pour renvoyer le mock BonsService.
+ */
+function createMockModuleRef(bonsServiceMock: ReturnType<typeof createMockBonsService>) {
+  return {
+    get: jest.fn().mockReturnValue(bonsServiceMock),
+  };
+}
 
 // ─── Mock fs module ──────────────────────────────────────────────────────────
 
@@ -44,6 +72,7 @@ jest.mock('fs/promises', () => ({
   readFile: jest.fn().mockResolvedValue('encrypted:base64data'),
   writeFile: jest.fn().mockResolvedValue(undefined),
   mkdir: jest.fn().mockResolvedValue(undefined),
+  unlink: jest.fn().mockResolvedValue(undefined),
 }));
 
 // ─── Deep-mock type alias ────────────────────────────────────────────────────
@@ -108,6 +137,8 @@ describe('SignatureService', () => {
   let encryption: ReturnType<typeof createMockEncryptionService>;
   let pdfService: ReturnType<typeof createMockPdfService>;
   let smbService: ReturnType<typeof createMockSmbService>;
+  let bonsService: ReturnType<typeof createMockBonsService>;
+  let moduleRefMock: ReturnType<typeof createMockModuleRef>;
 
   beforeEach(async () => {
     const rawPrisma = createMockPrismaService();
@@ -115,6 +146,12 @@ describe('SignatureService', () => {
     encryption = createMockEncryptionService();
     pdfService = createMockPdfService();
     smbService = createMockSmbService();
+    bonsService = createMockBonsService();
+    moduleRefMock = createMockModuleRef(bonsService);
+    // Défaut : le statut lu au moment du updateMany conditionnel (sign()) n'a
+    // pas changé depuis freshSig → 1 ligne affectée. Les tests de concurrence
+    // (statut modifié entre-temps) surchargent avec { count: 0 }.
+    prisma.bon.updateMany.mockResolvedValue({ count: 1 });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -125,6 +162,7 @@ describe('SignatureService', () => {
         { provide: TimestampService, useValue: createMockTimestampService() },
         { provide: PdfService, useValue: pdfService },
         { provide: SmbService, useValue: smbService },
+        { provide: ModuleRef, useValue: moduleRefMock },
       ],
     }).compile();
 
@@ -190,6 +228,24 @@ describe('SignatureService', () => {
 
       expect(expiresAt.getTime()).toBeGreaterThanOrEqual(before + sevenDaysMs);
       expect(expiresAt.getTime()).toBeLessThanOrEqual(after + sevenDaysMs);
+    });
+
+    it('should set a 2h expiry for in-person tokens regardless of the configured validity', async () => {
+      prisma.signature.updateMany.mockResolvedValue({ count: 0 });
+      prisma.signature.create.mockResolvedValue({ id: 'sig-new' });
+
+      const before = Date.now();
+      await service.generateToken('bon-001', 'mise_disposition', 'user-001', true);
+      const after = Date.now();
+
+      const createArgs = prisma.signature.create.mock.calls[0][0] as { data: Record<string, unknown> };
+      const expiresAt = createArgs.data.tokenExpiresAt as Date;
+      const twoHoursMs = 2 * 60 * 60 * 1000;
+
+      expect(expiresAt.getTime()).toBeGreaterThanOrEqual(before + twoHoursMs);
+      expect(expiresAt.getTime()).toBeLessThanOrEqual(after + twoHoursMs);
+      // Bien en-deçà de la validité standard (7 jours) : pas de confusion possible
+      expect(expiresAt.getTime()).toBeLessThan(before + 24 * 60 * 60 * 1000);
     });
 
     it.each([
@@ -268,6 +324,17 @@ describe('SignatureService', () => {
       expect(result.bon).toBeUndefined();
     });
 
+    it('should include bonId in the already_signed payload (frontend "download document" link)', async () => {
+      const sig = buildSigWithBon({ signed: true, signedAt: new Date() });
+      prisma.signature.findUnique.mockResolvedValue(sig);
+
+      const result = (await service.getBonInfoByToken('test-token-uuid', SIGNER_EMAIL)) as {
+        bonId?: string;
+      };
+
+      expect(result.bonId).toBe(sig.bon.id);
+    });
+
     it('should return expired status (minimal payload) for expired token', async () => {
       const sig = buildSigWithBon({
         tokenExpiresAt: new Date(Date.now() - 1000),
@@ -287,6 +354,48 @@ describe('SignatureService', () => {
         NotFoundException,
       );
     });
+
+    it('should recognize the recipient by id even when the email no longer matches (AD address change)', async () => {
+      const sig = buildSigWithBon();
+      prisma.signature.findUnique.mockResolvedValue(sig);
+
+      const result = await service.getBonInfoByToken(
+        'test-token-uuid',
+        'nouvelle.adresse@groupelivio.fr',
+        sig.bon.collaborateurId,
+      );
+
+      expect(result.status).toBe('pending');
+      expect(result.bon).toBeDefined();
+    });
+
+    it('should stay unauthorized when neither id nor email match', async () => {
+      const sig = buildSigWithBon();
+      prisma.signature.findUnique.mockResolvedValue(sig);
+
+      const result = await service.getBonInfoByToken(
+        'test-token-uuid',
+        'someone.else@groupelivio.fr',
+        'user-someone-else-001',
+      );
+
+      expect(result.status).toBe('unauthorized');
+    });
+
+    it.each(['cancelled', 'contested'] as const)(
+      'should return %s status (before signed/expired checks) for a %s bon',
+      async (status) => {
+        const sig = buildSigWithBon(
+          { tokenExpiresAt: new Date(Date.now() - 1000) }, // also expired: cancelled/contested must win
+          { status },
+        );
+        prisma.signature.findUnique.mockResolvedValue(sig);
+
+        const result = await service.getBonInfoByToken('test-token-uuid', SIGNER_EMAIL);
+
+        expect(result).toEqual({ status, reference: sig.bon.reference });
+      },
+    );
   });
 
   // ─── sign ────────────────────────────────────────────────────────────────
@@ -300,7 +409,7 @@ describe('SignatureService', () => {
       prisma.signature.update.mockResolvedValue({ ...sig, signed: true, signedAt: new Date() });
 
       const updatedBon = { ...sig.bon, status: 'active' };
-      prisma.bon.update.mockResolvedValue(updatedBon);
+      prisma.bon.findUniqueOrThrow.mockResolvedValue(updatedBon);
       prisma.auditLog.create.mockResolvedValue({});
 
       const result = await service.sign(
@@ -323,12 +432,12 @@ describe('SignatureService', () => {
       prisma.signature.findUnique.mockResolvedValueOnce(sig);
       prisma.signature.findUnique.mockResolvedValueOnce(freshSigMock());
       prisma.signature.update.mockResolvedValue({ ...sig, signed: true });
-      prisma.bon.update.mockResolvedValue({ ...sig.bon, status: 'active' });
+      prisma.bon.findUniqueOrThrow.mockResolvedValue({ ...sig.bon, status: 'active' });
       prisma.auditLog.create.mockResolvedValue({});
 
       await service.sign('test-token-uuid', VALID_SIGNATURE_DATA_URL, true, SIGNER_EMAIL, SIGNER_IP, SIGNER_UA);
 
-      const bonUpdateArgs = prisma.bon.update.mock.calls[0][0] as { data: Record<string, unknown> };
+      const bonUpdateArgs = prisma.bon.updateMany.mock.calls[0][0] as { data: Record<string, unknown> };
       expect(bonUpdateArgs.data.status).toBe('active');
     });
 
@@ -346,7 +455,7 @@ describe('SignatureService', () => {
       prisma.signature.findUnique.mockResolvedValueOnce(sig);
       prisma.signature.findUnique.mockResolvedValueOnce(freshSigMock());
       prisma.signature.update.mockResolvedValue({ ...sig, signed: true });
-      prisma.bon.update.mockResolvedValue({ ...sig.bon, status: 'active' });
+      prisma.bon.findUniqueOrThrow.mockResolvedValue({ ...sig.bon, status: 'active' });
       prisma.auditLog.create.mockResolvedValue({});
 
       // Different email should NOT throw for in-person
@@ -427,6 +536,114 @@ describe('SignatureService', () => {
       ).rejects.toThrow(BadRequestException);
       expect(prisma.signature.update).not.toHaveBeenCalled();
     });
+
+    it('should recognize the signer by id when the email no longer matches (AD address change)', async () => {
+      const sig = buildSigWithBon();
+      prisma.signature.findUnique.mockResolvedValueOnce(sig);
+      prisma.signature.findUnique.mockResolvedValueOnce(freshSigMock());
+      prisma.signature.update.mockResolvedValue({ ...sig, signed: true });
+      prisma.bon.findUniqueOrThrow.mockResolvedValue({ ...sig.bon, status: 'active' });
+      prisma.auditLog.create.mockResolvedValue({});
+
+      await expect(
+        service.sign(
+          'test-token-uuid',
+          VALID_SIGNATURE_DATA_URL,
+          true,
+          'nouvelle.adresse@groupelivio.fr',
+          SIGNER_IP,
+          SIGNER_UA,
+          sig.bon.collaborateurId,
+        ),
+      ).resolves.toBeDefined();
+    });
+
+    it('should reject with ConflictException when the bon status changed concurrently (optimistic lock)', async () => {
+      const sig = buildSigWithBon();
+      prisma.signature.findUnique.mockResolvedValueOnce(sig);
+      // La re-lecture en transaction voit toujours sent_mise_dispo (pas cancelled/
+      // contested/archived, donc pas rejeté plus tôt), mais une AUTRE transaction a
+      // déjà fait bouger le statut avant notre updateMany conditionnel : count=0.
+      prisma.signature.findUnique.mockResolvedValueOnce(freshSigMock('sent_mise_dispo'));
+      prisma.signature.update.mockResolvedValue({ ...sig, signed: true });
+      prisma.bon.updateMany.mockResolvedValue({ count: 0 });
+      prisma.auditLog.create.mockResolvedValue({});
+
+      const { unlink: mockUnlink } = jest.requireMock('fs/promises') as { unlink: jest.Mock };
+      mockUnlink.mockClear();
+
+      await expect(
+        service.sign('test-token-uuid', VALID_SIGNATURE_DATA_URL, true, SIGNER_EMAIL, SIGNER_IP, SIGNER_UA),
+      ).rejects.toThrow(ConflictException);
+      // La transaction a échoué APRÈS l'écriture du .enc : pas d'auditLog (jamais
+      // committé), et le fichier signature orphelin doit être nettoyé.
+      expect(prisma.auditLog.create).not.toHaveBeenCalled();
+      expect(mockUnlink).toHaveBeenCalledTimes(1);
+    });
+
+    it('should trigger the PV clôture hook after a restitution signature that keeps the bon in partially_returned', async () => {
+      const sig = buildSigWithBon({ type: 'restitution' }, { status: 'partially_returned' });
+      prisma.signature.findUnique.mockResolvedValueOnce(sig);
+      prisma.signature.findUnique.mockResolvedValueOnce(freshSigMock('partially_returned'));
+      prisma.signature.update.mockResolvedValue({ ...sig, signed: true });
+      prisma.bon.findUniqueOrThrow.mockResolvedValue({ ...sig.bon, status: 'partially_returned' });
+      prisma.auditLog.create.mockResolvedValue({});
+
+      await service.sign('test-token-uuid', VALID_SIGNATURE_DATA_URL, true, SIGNER_EMAIL, SIGNER_IP, SIGNER_UA);
+
+      expect(moduleRefMock.get).toHaveBeenCalledWith(BonsService, { strict: false });
+      expect(bonsService.emitPvClotureIfDue).toHaveBeenCalledWith(sig.bon.id);
+      // Pas encore clôturé (partially_returned) : pas d'archivedAt à cette étape
+      const statusUpdateArgs = prisma.bon.updateMany.mock.calls[0][0] as { data: Record<string, unknown> };
+      expect(statusUpdateArgs.data.archivedAt).toBeUndefined();
+    });
+
+    it('should NOT trigger the PV clôture hook when a restitution signature fully closes the bon (archived)', async () => {
+      const sig = buildSigWithBon({ type: 'restitution' }, { status: 'sent_restitution' });
+      prisma.signature.findUnique.mockResolvedValueOnce(sig);
+      prisma.signature.findUnique.mockResolvedValueOnce(freshSigMock('sent_restitution'));
+      prisma.signature.update.mockResolvedValue({ ...sig, signed: true });
+      prisma.bon.findUniqueOrThrow.mockResolvedValue({ ...sig.bon, status: 'archived' });
+      prisma.auditLog.create.mockResolvedValue({});
+
+      await service.sign('test-token-uuid', VALID_SIGNATURE_DATA_URL, true, SIGNER_EMAIL, SIGNER_IP, SIGNER_UA);
+
+      expect(bonsService.emitPvClotureIfDue).not.toHaveBeenCalled();
+    });
+
+    it('should set archivedAt when the transition lands on archived (restitution complète)', async () => {
+      const sig = buildSigWithBon({ type: 'restitution' }, { status: 'sent_restitution' });
+      prisma.signature.findUnique.mockResolvedValueOnce(sig);
+      prisma.signature.findUnique.mockResolvedValueOnce(freshSigMock('sent_restitution'));
+      prisma.signature.update.mockResolvedValue({ ...sig, signed: true });
+      prisma.bon.findUniqueOrThrow.mockResolvedValue({ ...sig.bon, status: 'archived' });
+      prisma.auditLog.create.mockResolvedValue({});
+
+      const before = Date.now();
+      await service.sign('test-token-uuid', VALID_SIGNATURE_DATA_URL, true, SIGNER_EMAIL, SIGNER_IP, SIGNER_UA);
+      const after = Date.now();
+
+      const statusUpdateArgs = prisma.bon.updateMany.mock.calls[0][0] as { data: Record<string, unknown> };
+      expect(statusUpdateArgs.data.status).toBe('archived');
+      const archivedAt = statusUpdateArgs.data.archivedAt as Date;
+      expect(archivedAt).toBeInstanceOf(Date);
+      expect(archivedAt.getTime()).toBeGreaterThanOrEqual(before);
+      expect(archivedAt.getTime()).toBeLessThanOrEqual(after);
+    });
+
+    it('should set archivedAt when a PV clôture signature archives the bon', async () => {
+      const sig = buildSigWithBon({ type: 'pv_cloture' }, { status: 'partially_returned' });
+      prisma.signature.findUnique.mockResolvedValueOnce(sig);
+      prisma.signature.findUnique.mockResolvedValueOnce(freshSigMock('partially_returned'));
+      prisma.signature.update.mockResolvedValue({ ...sig, signed: true });
+      prisma.bon.findUniqueOrThrow.mockResolvedValue({ ...sig.bon, status: 'archived' });
+      prisma.auditLog.create.mockResolvedValue({});
+
+      await service.sign('test-token-uuid', VALID_SIGNATURE_DATA_URL, true, SIGNER_EMAIL, SIGNER_IP, SIGNER_UA);
+
+      const statusUpdateArgs = prisma.bon.updateMany.mock.calls[0][0] as { data: Record<string, unknown> };
+      expect(statusUpdateArgs.data.archivedAt).toBeInstanceOf(Date);
+    });
   });
 
   // ─── signItCachet ────────────────────────────────────────────────────────
@@ -492,6 +709,19 @@ describe('SignatureService', () => {
       expect(prisma.signature.create).not.toHaveBeenCalled();
     });
 
+    it('should throw for draft bons (le cachet IT requiert un bon envoyé)', async () => {
+      const bon = draftBon();
+      prisma.signature.findFirst.mockResolvedValue(null);
+      prisma.bon.findUniqueOrThrow.mockResolvedValue(bon);
+
+      await expect(
+        service.signItCachet(bon.id, VALID_SIGNATURE_DATA_URL, 'tech@test.fr', SIGNER_IP, SIGNER_UA),
+      ).rejects.toThrow(BadRequestException);
+      await expect(
+        service.signItCachet(bon.id, VALID_SIGNATURE_DATA_URL, 'tech@test.fr', SIGNER_IP, SIGNER_UA),
+      ).rejects.toThrow('Le cachet IT ne peut être apposé que sur un bon envoyé');
+    });
+
     it('should throw for cancelled bons', async () => {
       const bon = cancelledBon();
       prisma.signature.findFirst.mockResolvedValue(null);
@@ -553,7 +783,7 @@ describe('SignatureService', () => {
       prisma.signature.findUnique.mockResolvedValueOnce(sig);
       prisma.signature.findUnique.mockResolvedValueOnce(freshSigMock(bonStatus));
       prisma.signature.update.mockResolvedValue({ ...sig, signed: true });
-      prisma.bon.update.mockResolvedValue({ ...bon, status: 'active' });
+      prisma.bon.findUniqueOrThrow.mockResolvedValue({ ...bon, status: 'active' });
       prisma.auditLog.create.mockResolvedValue({});
 
       await service.sign(
@@ -565,7 +795,7 @@ describe('SignatureService', () => {
         SIGNER_UA,
       );
 
-      const bonUpdateArgs = prisma.bon.update.mock.calls[0][0] as { data: Record<string, unknown> };
+      const bonUpdateArgs = prisma.bon.updateMany.mock.calls[0][0] as { data: Record<string, unknown> };
       return bonUpdateArgs.data.status as string;
     }
 
@@ -664,6 +894,68 @@ describe('SignatureService', () => {
 
       expect(result.it).toBeNull();
       expect(result.collab).toBeNull();
+    });
+  });
+
+  // ─── verifyBonIntegrity ──────────────────────────────────────────────────
+
+  describe('verifyBonIntegrity', () => {
+    it('should mark an anonymized bon as non-verifiable without failing allValid', async () => {
+      prisma.bon.findUnique.mockResolvedValue({ anonymizedAt: new Date('2026-05-01') });
+      prisma.signature.findMany.mockResolvedValue([
+        {
+          id: 'sig-1',
+          bonId: 'bon-anon-001',
+          type: 'mise_disposition',
+          signed: true,
+          signedAt: new Date('2026-01-01'),
+          signerEmail: null, // effacé par l'anonymisation
+          mentionLuApprouve: true,
+          isInPerson: false,
+          signedByProxy: false,
+          seal: 'seal:some-payload',
+          tsToken: null,
+          tsAuthority: null,
+        },
+      ]);
+
+      const result = await service.verifyBonIntegrity('bon-anon-001');
+
+      expect(result.anonymized).toBe(true);
+      expect(result.allValid).toBe(true);
+      expect(result.signatures).toHaveLength(1);
+      expect(result.signatures[0].sealValid).toBeNull();
+      // Le sceau n'est jamais recalculé pour un bon anonymisé (PII effacée)
+      expect(encryption.verifySeal).not.toHaveBeenCalled();
+    });
+
+    it('should compute sealValid normally for a non-anonymized bon', async () => {
+      prisma.bon.findUnique.mockResolvedValue({ anonymizedAt: null });
+      const signedAt = new Date('2026-01-01');
+      prisma.signature.findMany.mockResolvedValue([
+        {
+          id: 'sig-1',
+          bonId: 'bon-001',
+          type: 'mise_disposition',
+          signed: true,
+          signedAt,
+          signerEmail: SIGNER_EMAIL,
+          mentionLuApprouve: true,
+          isInPerson: false,
+          signedByProxy: false,
+          seal: 'seal:valid',
+          tsToken: null,
+          tsAuthority: null,
+        },
+      ]);
+      encryption.verifySeal.mockReturnValue(true);
+
+      const result = await service.verifyBonIntegrity('bon-001');
+
+      expect(result.anonymized).toBe(false);
+      expect(result.allValid).toBe(true);
+      expect(result.signatures[0].sealValid).toBe(true);
+      expect(encryption.verifySeal).toHaveBeenCalled();
     });
   });
 });

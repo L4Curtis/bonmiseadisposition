@@ -32,7 +32,7 @@ export class SignatureController {
   @Get(':token')
   @UseGuards(JwtAuthGuard)
   async getBonInfo(@Param('token') token: string, @CurrentUser() user: AuthUser) {
-    return this.signatureService.getBonInfoByToken(token, user?.email);
+    return this.signatureService.getBonInfoByToken(token, user?.email, user?.id);
   }
 
   /** Aperçu PDF du document exact qui sera signé (avant signature). */
@@ -44,7 +44,7 @@ export class SignatureController {
     @CurrentUser() user: AuthUser,
     @Res() res: Response,
   ) {
-    const { pdf, filename } = await this.signatureService.getPreviewPdfByToken(token, user?.email);
+    const { pdf, filename } = await this.signatureService.getPreviewPdfByToken(token, user?.email, user?.id);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
     res.send(pdf);
@@ -78,6 +78,7 @@ export class SignatureController {
       user.email,
       ip,
       userAgent,
+      user.id,
     );
 
     // Send confirmation email (fire and forget). it_cachet never reaches this
@@ -87,17 +88,15 @@ export class SignatureController {
       .sendSignatureConfirmation(result.bon, type)
       .catch(() => {/* ignore email errors */});
 
+    // Le service construit déjà l'objet signature au format API-safe, bonId et
+    // signedByProxy inclus (cf. SignatureService.sign) — le contrôleur ne fait
+    // que le relayer, il ne reconstruit plus le contrat de réponse ici.
     return {
       ok: true,
+      bonId: result.signature.bonId,
+      signedByProxy: result.signature.signedByProxy,
       bon: result.bon,
-      signature: {
-        id: result.signature.id,
-        type: result.signature.type,
-        signedAt: result.signature.signedAt,
-        signerEmail: result.signature.signerEmail,
-        mentionLuApprouve: result.signature.mentionLuApprouve,
-        isInPerson: result.signature.isInPerson,
-      },
+      signature: result.signature,
     };
   }
 }

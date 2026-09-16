@@ -11,6 +11,12 @@ import { SmbModule } from '../smb/smb.module';
 @Module({
   // AuthModule n'est pas nécessaire ici : JwtStrategy est déjà enregistré globalement
   // via AuthModule dans AppModule (Passport enregistre les stratégies globalement).
+  // Pas d'import de BonsModule ici : SignatureService a besoin de
+  // BonsService.emitPvClotureIfDue (hook PV après signature de restitution,
+  // lot B) mais le résout PARESSEUSEMENT via ModuleRef.get(BonsService,
+  // { strict: false }) au moment du hook — un forwardRef(() => BonsModule) ici
+  // formait un cycle avec BonsModule → SignatureModule qui cassait le
+  // démarrage réel de l'app (cf. src/__tests__/modules-boot.spec.ts).
   imports: [PrismaModule, ConfigModule, NotificationModule, PdfModule, SmbModule],
   controllers: [SignatureController],
   providers: [SignatureService, TimestampService],

@@ -18,6 +18,7 @@ export const SIGNATURE_SAFE_SELECT = {
   isInPerson: true,
   tokenExpiresAt: true,
   createdAt: true,
+  pdfType: true,
 } as const;
 
 /**
@@ -71,6 +72,7 @@ export function toSafeSignature<T extends Record<string, unknown>>(sig: T) {
     isInPerson: sig.isInPerson,
     tokenExpiresAt: sig.tokenExpiresAt,
     createdAt: sig.createdAt,
+    pdfType: sig.pdfType,
   };
 }
 
@@ -109,6 +111,7 @@ export interface NotificationBon {
   civilite: Civilite;
   collaborateurEmail: string;
   dateMiseDisposition?: Date | string;
+  dateRestitution?: Date | string | null;
   collaborateur?: { displayName?: string; email?: string } | null;
   filiale?: { displayName?: string; name?: string } | null;
   equipments?: Array<{

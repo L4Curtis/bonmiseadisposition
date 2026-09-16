@@ -8,6 +8,10 @@ import { ContestationModule } from '../contestation/contestation.module';
 import { SmbModule } from '../smb/smb.module';
 
 @Module({
+  // SignatureModule est importé normalement (pas de forwardRef) : le besoin
+  // inverse (SignatureService → BonsService.emitPvClotureIfDue, lot B) est
+  // résolu via ModuleRef paresseux côté SignatureService, pas par un import de
+  // module — ça évite de former un cycle avec SignatureModule.
   imports: [SignatureModule, NotificationModule, PdfModule, forwardRef(() => ContestationModule), SmbModule],
   controllers: [BonsController],
   providers: [BonsService],
