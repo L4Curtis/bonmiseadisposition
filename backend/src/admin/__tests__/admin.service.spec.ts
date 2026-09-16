@@ -176,12 +176,31 @@ describe('AdminService', () => {
         role: 'admin',
         active: true,
       });
-      prisma.user.count.mockResolvedValue(1);
+      prisma.user.count.mockResolvedValue(0);
 
       await expect(
         service.changeUserRole('target-1', 'technician', { id: 'admin-1' }),
       ).rejects.toThrow(BadRequestException);
       expect(prisma.user.update).not.toHaveBeenCalled();
+      // La cible est exclue du comptage : on compte les AUTRES admins actifs.
+      expect(prisma.user.count).toHaveBeenCalledWith({
+        where: { role: 'admin', active: true, id: { not: 'target-1' } },
+      });
+    });
+
+    it("autorise de rétrograder un admin déjà désactivé sans consulter la garde", async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'target-1',
+        email: 'ancien.admin@exemple.fr',
+        role: 'admin',
+        active: false,
+      });
+      prisma.user.update.mockResolvedValue({ id: 'target-1', role: 'collaborator', isItStaff: false });
+
+      const result = await service.changeUserRole('target-1', 'collaborator', { id: 'admin-1' });
+
+      expect(result).toEqual({ id: 'target-1', role: 'collaborator', isItStaff: false });
+      expect(prisma.user.count).not.toHaveBeenCalled();
     });
 
     it("autorise de retirer un admin quand un autre admin actif reste", async () => {

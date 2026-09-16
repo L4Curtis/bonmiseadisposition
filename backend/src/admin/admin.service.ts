@@ -227,9 +227,14 @@ export class AdminService {
       throw new NotFoundException('Utilisateur introuvable');
     }
 
-    if (target.role === 'admin' && role !== 'admin') {
-      const activeAdminCount = await this.prisma.user.count({ where: { role: 'admin', active: true } });
-      if (activeAdminCount <= 1) {
+    // Garde « dernier administrateur » : seulement si la cible est un admin
+    // ACTIF (un admin déjà désactivé ne compte pas pour l'accès), en comptant
+    // les autres admins actifs (la cible exclue explicitement).
+    if (target.role === 'admin' && target.active && role !== 'admin') {
+      const otherActiveAdmins = await this.prisma.user.count({
+        where: { role: 'admin', active: true, id: { not: targetUserId } },
+      });
+      if (otherActiveAdmins === 0) {
         throw new BadRequestException('Impossible de retirer le dernier administrateur actif');
       }
     }
