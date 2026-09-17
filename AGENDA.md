@@ -432,6 +432,19 @@ Internet → Nginx Proxy Manager (SSL:443)
 
 ---
 
+- **Le cachet IT s'appose sur un brouillon** : le flux « Envoyer » de la fiche pose le cachet
+  IT puis envoie ; refuser le cachet sur un bon `draft` côté backend bloque tout envoi depuis
+  l'interface (régression vécue le 2026-09-17). Seuls `cancelled` / `archived` / `contested`
+  sont refusés.
+- **Audit `*_partial` = marqueur supplémentaire** : `declare_not_returned` et `mark_found` sont
+  toujours journalisés ; `declare_not_returned_partial` / `mark_found_partial` s'ajoutent quand
+  des équipements restent à traiter. Un compteur ne doit retenir que l'action de base.
+- **Thème sombre** : n'utiliser que les couleurs sémantiques (`bg-card`, `text-muted-foreground`,
+  `bg-destructive/10`, `border-input`…) ; une couleur de palette (`bg-red-50`, `bg-white`,
+  `text-gray-700`) sans variante `dark:` produit un fond clair en sombre. Exceptions voulues :
+  le fond blanc du QR code et le bouton de bascule. Vérification : Playwright headless avec le
+  thème forcé (`localStorage.theme = 'dark'`) et inspection des `backgroundColor` calculées.
+
 ## 12. Phase 6 — Securite et Hardening (Complete)
 
 **Status** : Tout implementé (2026-03-21)

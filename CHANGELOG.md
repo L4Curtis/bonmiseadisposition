@@ -4,6 +4,34 @@ Historique des évolutions notables de l'application. Les entrées les plus réc
 
 ---
 
+## 2026-09-17 — Correctifs après recette sur l'instance de test
+
+Recette effectuée en navigateur (thème sombre, parcours complet d'un bon) après le déploiement
+du tableau de bord KPI.
+
+### Corrigé
+
+- **Envoi d'un bon impossible depuis l'interface** : le flux « Envoyer » appose le cachet IT
+  avant l'envoi, et le backend refusait depuis la veille le cachet sur un brouillon. Le cachet
+  est de nouveau accepté sur un brouillon ; seuls les bons clos ou contestés le refusent.
+- Tableau de bord : les tuiles « Non rendus déclarés » et « Retrouvés » comptaient deux fois
+  chaque déclaration (deux entrées d'audit par action) ; comptage corrigé.
+- Thème sombre : le toast de succès, l'alerte de la page de changement de mot de passe, les
+  boutons « Non rendu » et « Annuler » de la fiche et les cases à cocher des modales de
+  restitution utilisaient des couleurs claires codées en dur ; ils passent par les couleurs
+  sémantiques du thème.
+- Onglets Incidents et Délais : tuiles sur trois colonnes (libellés complets) et indication
+  « n en cours » placée dans la tuile.
+- À la première connexion sans préférence enregistrée, un administrateur arrive sur la vue
+  administrateur et un technicien sur la vue technicien, au lieu de la vue collaborateur.
+
+### Documentation
+
+- README : procédure de réinitialisation du mot de passe `admin@local` et de levée du verrou
+  anti-brute-force depuis le serveur.
+
+---
+
 ## 2026-09-17 — Tableau de bord KPI, rôle Direction, seuil de retard configurable
 
 Remplacement du tableau de bord IT et de la page Reporting par une page unique à onglets

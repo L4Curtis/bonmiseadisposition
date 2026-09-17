@@ -58,7 +58,10 @@ là où elles ont changé depuis.
   pour qu'une tentative sur un compte déjà verrouillé ne prolonge pas indéfiniment la fenêtre.
 - **Déverrouillage manuel** : `POST /admin/users/:id/unlock` (bouton « Déverrouiller » sur la
   page Admin → Utilisateurs, visible sur un compte verrouillé). Supprime les `login_local_failed`
-  des 30 dernières minutes pour l'email ciblé et journalise `user_unlocked`. Remplace la
+  des 30 dernières minutes pour l'email ciblé et journalise `user_unlocked`.
+- **Si `admin@local` lui-même est verrouillé ou son mot de passe perdu** : procédure côté
+  serveur (réinitialisation du hash depuis le conteneur backend, levée du verrou en SQL) dans
+  le README, section « Réinitialiser le mot de passe admin@local ». Remplace la
   procédure manuelle par requête SQL décrite plus bas dans ce document (toujours valable si
   besoin, mais l'endpoint est la voie recommandée).
 
