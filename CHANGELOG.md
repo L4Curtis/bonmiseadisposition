@@ -25,10 +25,18 @@ du tableau de bord KPI.
 - À la première connexion sans préférence enregistrée, un administrateur arrive sur la vue
   administrateur et un technicien sur la vue technicien, au lieu de la vue collaborateur.
 
+- **Emails à lien bloqués sur une instance configurée** : la page d'administration pré-remplit
+  `general.app_url` avec `FRONTEND_URL` tant qu'aucune valeur n'est enregistrée, mais le service
+  d'emails ne lisait que la base et refusait d'envoyer. Il applique désormais le même repli
+  (`app_url`, sinon `FRONTEND_URL`) ; l'erreur explicite ne subsiste que si aucune des deux n'existe.
+- Export SMB : quand le chemin d'export n'est pas monté, l'export est tracé en échec dans le
+  monitoring (réessayable) au lieu de disparaître silencieusement.
+
 ### Documentation
 
 - README : procédure de réinitialisation du mot de passe `admin@local` et de levée du verrou
-  anti-brute-force depuis le serveur.
+  anti-brute-force depuis le serveur ; montage CIFS du partage SMB depuis Docker (un chemin UNC
+  n'est pas accessible depuis le conteneur).
 
 ---
 

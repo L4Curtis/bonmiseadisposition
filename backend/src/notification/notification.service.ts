@@ -103,14 +103,20 @@ export class NotificationService {
   /** Slash final retiré (évite les doubles slashes dans les liens de signature).
    *  En production, une config absente est une erreur explicite plutôt qu'un
    *  repli silencieux sur localhost. */
+  /** URL publique : general.app_url (base), sinon FRONTEND_URL (variable
+   *  d'environnement, obligatoire en production dans docker-compose) — même
+   *  ordre de repli que l'authentification et que la page d'administration,
+   *  qui pré-remplit app_url avec FRONTEND_URL. En production, seule
+   *  l'absence des DEUX bloque les emails à lien (erreur explicite). */
   private async getAppUrl(): Promise<string> {
-    const url = await this.configService.get('general', 'app_url');
+    const configured = await this.configService.get('general', 'app_url');
+    const url = configured || process.env.FRONTEND_URL;
     if (url) return url.replace(/\/+$/, '');
     if (process.env.NODE_ENV === 'production') {
-      this.logger.error("URL de l'application (general.app_url) non configurée en production");
+      this.logger.error("URL de l'application (general.app_url ou FRONTEND_URL) non configurée en production");
       return '';
     }
-    return (process.env.FRONTEND_URL ?? 'http://localhost:5173').replace(/\/+$/, '');
+    return 'http://localhost:5173';
   }
 
   async sendEmail(to: string, subject: string, html: string): Promise<SendEmailResult> {

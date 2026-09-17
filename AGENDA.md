@@ -444,6 +444,14 @@ Internet → Nginx Proxy Manager (SSL:443)
   `text-gray-700`) sans variante `dark:` produit un fond clair en sombre. Exceptions voulues :
   le fond blanc du QR code et le bouton de bascule. Vérification : Playwright headless avec le
   thème forcé (`localStorage.theme = 'dark'`) et inspection des `backgroundColor` calculées.
+- **Chemin SMB en UNC depuis un conteneur Linux** : `\serveur\partage` n'est pas accessible
+  dans le conteneur ; le partage doit être monté (volume CIFS) et `smb.path` pointer sur le
+  chemin du conteneur (ex. `/mnt/export`). Un chemin absent est tracé en échec dans le
+  monitoring, jamais créé localement.
+- **URL publique des emails** : `general.app_url` puis repli `FRONTEND_URL` (env), même ordre
+  que l'authentification et que le pré-remplissage de la page d'administration. Une garde qui
+  ne lit que la base bloque tous les emails à lien sur une instance pourtant configurée
+  (régression vécue le 2026-09-17).
 
 ## 12. Phase 6 — Securite et Hardening (Complete)
 

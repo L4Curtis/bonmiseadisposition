@@ -298,9 +298,41 @@ describe('NotificationService', () => {
       });
     });
 
+    it('falls back to FRONTEND_URL when general.app_url is missing (production) — same rule as the admin page pre-fill', async () => {
+      const originalEnv = process.env.NODE_ENV;
+      const originalFrontendUrl = process.env.FRONTEND_URL;
+      process.env.NODE_ENV = 'production';
+      process.env.FRONTEND_URL = 'https://env.test.local/';
+      try {
+        configService.get.mockImplementation((category: string, key: string) => {
+          if (category === 'general' && key === 'app_url') return Promise.resolve(null);
+          if (category === 'smtp' && key === 'host') return Promise.resolve('smtp.test.local');
+          if (category === 'smtp' && key === 'from') return Promise.resolve('noreply@test.local');
+          return Promise.resolve(null);
+        });
+        const bon = dueBon();
+        asMock(prisma.notificationLog.create).mockResolvedValue({});
+
+        const ok = await service.sendRestitutionDueReminder(bon);
+
+        expect(ok).toBe(true);
+        expect(mockSendMail).toHaveBeenCalledTimes(1);
+        // Le template est mocké : on vérifie l'URL transmise au rendu (slash final retiré).
+        expect(templatesService.renderTemplate).toHaveBeenCalledWith(
+          'restitution_due_reminder',
+          expect.objectContaining({ PORTAIL_URL: 'https://env.test.local/mes-bons' }),
+        );
+      } finally {
+        process.env.NODE_ENV = originalEnv;
+        if (originalFrontendUrl !== undefined) process.env.FRONTEND_URL = originalFrontendUrl; else delete process.env.FRONTEND_URL;
+      }
+    });
+
     it('blocks sending and logs a failed NotificationLog when app_url is not configured (production)', async () => {
       const originalEnv = process.env.NODE_ENV;
       process.env.NODE_ENV = 'production';
+      const originalFrontendUrl = process.env.FRONTEND_URL;
+      delete process.env.FRONTEND_URL; // sans repli d'environnement, la garde doit bloquer
       try {
         configService.get.mockImplementation((category: string, key: string) => {
           if (category === 'general' && key === 'app_url') return Promise.resolve(null);
@@ -326,6 +358,7 @@ describe('NotificationService', () => {
         });
       } finally {
         process.env.NODE_ENV = originalEnv;
+        if (originalFrontendUrl !== undefined) process.env.FRONTEND_URL = originalFrontendUrl;
       }
     });
   });
@@ -612,6 +645,8 @@ describe('NotificationService', () => {
     it('blocks the reminder and logs a failed NotificationLog when app_url is not configured (production) instead of sending a dead relative link', async () => {
       const originalEnv = process.env.NODE_ENV;
       process.env.NODE_ENV = 'production';
+      const originalFrontendUrl = process.env.FRONTEND_URL;
+      delete process.env.FRONTEND_URL; // sans repli d'environnement, la garde doit bloquer
       try {
         configService.set('rappels', 'enabled', 'true');
         configService.set('rappels', 'delay_1', '3');
@@ -654,12 +689,15 @@ describe('NotificationService', () => {
         });
       } finally {
         process.env.NODE_ENV = originalEnv;
+        if (originalFrontendUrl !== undefined) process.env.FRONTEND_URL = originalFrontendUrl;
       }
     });
 
     it('does not regenerate an expired token when app_url is not configured (production) — no wasted token', async () => {
       const originalEnv = process.env.NODE_ENV;
       process.env.NODE_ENV = 'production';
+      const originalFrontendUrl = process.env.FRONTEND_URL;
+      delete process.env.FRONTEND_URL; // sans repli d'environnement, la garde doit bloquer
       try {
         configService.set('rappels', 'enabled', 'true');
         configService.set('rappels', 'delay_1', '3');
@@ -705,6 +743,7 @@ describe('NotificationService', () => {
         });
       } finally {
         process.env.NODE_ENV = originalEnv;
+        if (originalFrontendUrl !== undefined) process.env.FRONTEND_URL = originalFrontendUrl;
       }
     });
   });

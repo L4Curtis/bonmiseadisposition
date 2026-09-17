@@ -166,7 +166,10 @@ describe('SmbService', () => {
       // Jamais de création automatique de la racine (mkdir recursive local)
       expect(fsPromises.mkdir).not.toHaveBeenCalled();
       expect(fsPromises.writeFile).not.toHaveBeenCalled();
-      expect(prisma.smbExport.create).not.toHaveBeenCalled();
+      // L'échec est tracé (visible dans le monitoring, réessayable une fois le partage monté)
+      expect(prisma.smbExport.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ bonId: mockBon.id, filename: 'test.pdf', status: 'failed', errorMessage: expect.stringContaining("n'est pas monté") }),
+      });
     });
   });
 

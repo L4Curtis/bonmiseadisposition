@@ -73,14 +73,21 @@ export class SmbService {
     // conteneur, et l'export « réussirait » sans que rien n'atteigne le
     // partage réseau réel). Seuls les sous-dossiers (filiale/année/bon) sont
     // créés à la volée, une fois la racine confirmée présente.
+    const bonId = 'id' in bon ? (bon as { id: string }).id : undefined;
     if (!fs.existsSync(smbPath)) {
       const msg = `Le chemin d'export n'existe pas ou le partage n'est pas monté : ${smbPath}`;
       this.logger.error(`SMB: ${msg}`);
+      // Tracé en échec (pas silencieux) : visible dans le monitoring et
+      // réessayable une fois le partage monté.
+      if (bonId) {
+        await this.prisma.smbExport.create({
+          data: { bonId, filename: safeFilename, status: 'failed', errorMessage: msg.slice(0, 500), lastAttemptAt: new Date() },
+        });
+      }
       return { success: false, error: msg };
     }
 
     // Create tracking record
-    const bonId = 'id' in bon ? (bon as { id: string }).id : undefined;
     const record = bonId
       ? await this.prisma.smbExport.create({
           data: { bonId, filename: safeFilename, status: 'pending' },

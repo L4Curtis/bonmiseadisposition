@@ -217,12 +217,46 @@ production, sans quoi les emails de signature ne partent pas :
 | Clé | Où | Sans elle… |
 |-----|-----|-----------|
 | `smtp.from` (section SMTP) | Admin → Configuration → SMTP | Aucun email n'est envoyé : erreur explicite « Expéditeur SMTP (smtp.from) non configuré », visible dans l'historique des emails du bon concerné |
-| `general.app_url` (section Général) | Admin → Configuration → Général | Les liens de signature dans les emails sont invalides ou absents |
+| `general.app_url` (section Général) | Admin → Configuration → Général | À défaut, la variable d'environnement `FRONTEND_URL` (obligatoire dans `docker-compose.prod.yml`) est utilisée ; la page d'administration la pré-remplit. Si aucune des deux n'est définie, aucun email à lien ne part (erreur explicite dans l'historique des emails) |
 
 Ces deux valeurs ne se configurent **pas** via des variables d'environnement : uniquement
 via l'interface d'administration, après le premier démarrage.
 
 ---
+
+
+### Export SMB depuis Docker : monter le partage, pas un chemin UNC
+
+Le backend tourne dans un conteneur Linux : un chemin UNC Windows (`\serveur\partage\...`)
+n'y est pas accessible. Le test de connexion répond alors « Le chemin d'export n'existe pas ou
+le partage n'est pas monté » et chaque export est tracé en échec dans Admin → Configuration →
+Monitoring SMB (réessayable une fois le partage monté).
+
+Monter le partage CIFS dans le conteneur via un volume Docker (paquet `cifs-utils` requis sur
+l'hôte), puis renseigner `smb.path` avec le chemin **du conteneur** :
+
+```yaml
+# docker-compose.prod.yml (extrait)
+services:
+  backend:
+    volumes:
+      - data:/app/data
+      - smb_export:/mnt/export        # ← montage du partage
+
+volumes:
+  smb_export:
+    driver: local
+    driver_opts:
+      type: cifs
+      device: "//serveur/data/VOS_DOSSIERS/BONS"
+      o: "username=${SMB_USER},password=${SMB_PASSWORD},domain=peduzzi.local,vers=3.0,uid=1001,gid=1001,file_mode=0660,dir_mode=0770"
+```
+
+`uid=1001,gid=1001` correspond à l'utilisateur `nestjs` du conteneur. Ensuite, dans
+Admin → Configuration → Export SMB : `path = /mnt/export`, puis « Tester la connexion » doit
+répondre « Accès en écriture vérifié ». Les identifiants `smb.username` / `smb.password` de
+l'application ne servent pas au montage (c'est le système hôte qui monte le partage).
+
 
 ## Mise à jour
 
