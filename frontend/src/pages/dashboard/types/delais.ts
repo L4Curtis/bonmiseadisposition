@@ -59,7 +59,7 @@ export interface WaitingStep {
   step: string;
   label: string;
   count: number;
-  avgAgeDays: number;
+  avgAgeDays: number | null;
   overdue: number;
 }
 
