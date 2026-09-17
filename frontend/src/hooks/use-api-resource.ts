@@ -47,6 +47,11 @@ export function useApiResource<T>(path: string | null, fallbackMessage: string):
         if (requestIdRef.current !== requestId) return;
         setLoading(false);
       });
+    // Nettoyage : au démontage (ou avant la requête suivante), toute réponse
+    // encore en vol devient obsolète et n'est plus appliquée.
+    return () => {
+      requestIdRef.current += 1;
+    };
     // fallbackMessage est stable par appelant ; seuls path/reloadKey doivent redéclencher la requête.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, reloadKey]);

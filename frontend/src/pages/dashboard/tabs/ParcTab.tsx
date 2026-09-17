@@ -9,6 +9,7 @@ import { DonutChart } from '@/components/dashboard/charts/DonutChart';
 import { HorizontalBars } from '@/components/dashboard/charts/HorizontalBars';
 import { useApiResource } from '@/hooks/use-api-resource';
 import { useAuth } from '@/contexts/AuthContext';
+import { isItRole } from '@/lib/roles';
 import { api } from '@/lib/api';
 import { showActionError } from '@/lib/errors';
 import { toast } from '@/hooks/use-toast';
@@ -25,7 +26,7 @@ export function ParcTab() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { from, to, filialeId } = usePeriodParams();
-  const isIt = user?.role === 'admin' || user?.role === 'technician';
+  const isIt = isItRole(user?.role);
 
   const query = useMemo(() => {
     const params = new URLSearchParams({ from, to });

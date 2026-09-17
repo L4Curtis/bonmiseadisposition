@@ -10,6 +10,7 @@ import { formatDate } from '@/lib/utils';
 import { todayInParis } from '@/lib/kpi-period';
 import { StatusBadge } from '@/components/StatusBadge';
 import { useAuth } from '@/contexts/AuthContext';
+import { isItRole } from '@/lib/roles';
 import type { BonStatus, Filiale } from '@/types';
 import {
   Boxes,
@@ -116,7 +117,7 @@ function TableSkeleton() {
 export function InventairePage() {
   const { user } = useAuth();
   // Direction : lecture seule, aucun accès aux bons individuels (/bons/:id → 403).
-  const canLinkToBon = user?.role === 'admin' || user?.role === 'technician';
+  const canLinkToBon = isItRole(user?.role);
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [items, setItems] = useState<InventoryItem[]>([]);

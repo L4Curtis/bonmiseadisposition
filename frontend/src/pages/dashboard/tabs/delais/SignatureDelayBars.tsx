@@ -28,11 +28,11 @@ export function SignatureDelayBars({ sendToSignature }: SignatureDelayBarsProps)
       <table className="w-full text-xs">
         <thead>
           <tr className="border-b border-border text-left text-muted-foreground/70">
-            <th className="py-1.5 pr-2 font-medium">Type</th>
-            <th className="py-1.5 pr-2 font-medium">Nombre</th>
-            <th className="py-1.5 pr-2 font-medium">p90</th>
-            <th className="py-1.5 pr-2 font-medium">&lt; 48 h</th>
-            <th className="py-1.5 font-medium">&lt; 7 j</th>
+            <th scope="col" className="py-1.5 pr-2 font-medium">Type</th>
+            <th scope="col" className="py-1.5 pr-2 font-medium">Nombre</th>
+            <th scope="col" className="py-1.5 pr-2 font-medium">p90</th>
+            <th scope="col" className="py-1.5 pr-2 font-medium">&lt; 48 h</th>
+            <th scope="col" className="py-1.5 font-medium">&lt; 7 j</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-border">

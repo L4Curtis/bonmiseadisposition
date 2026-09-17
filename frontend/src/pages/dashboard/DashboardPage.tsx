@@ -4,6 +4,7 @@ import { CalendarDays, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/contexts/AuthContext';
+import { isItRole } from '@/lib/roles';
 import { usePeriodParams } from './use-period-params';
 import { PeriodSelector } from './PeriodSelector';
 import { FilialeFilter } from './FilialeFilter';
@@ -37,7 +38,7 @@ export function DashboardPage() {
   const { user } = useAuth();
   const { tab, from, to, filialeId, preset, setTab, setRange, setPreset, setFilialeId } = usePeriodParams();
 
-  const isIt = user?.role === 'admin' || user?.role === 'technician';
+  const isIt = isItRole(user?.role);
   const visibleTabs = useMemo(() => TABS.filter((t) => !t.itOnly || isIt), [isIt]);
   const defaultTabId = isIt ? 'today' : 'parc';
 

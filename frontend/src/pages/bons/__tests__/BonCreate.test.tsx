@@ -1,4 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// Rendu complet de la page de création (catalogue, autocomplétion) : sous la
+// charge de la suite parallèle, le délai par défaut de 5 s est parfois dépassé.
+vi.setConfig({ testTimeout: 20000 });
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/render';

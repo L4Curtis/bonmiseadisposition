@@ -10,6 +10,7 @@ import { TimeSeriesChart, type TimeSeriesDatum } from '@/components/dashboard/ch
 import { DonutChart, type DonutChartDatum } from '@/components/dashboard/charts/DonutChart';
 import { useApiResource } from '@/hooks/use-api-resource';
 import { useAuth } from '@/contexts/AuthContext';
+import { isItRole } from '@/lib/roles';
 import { usePeriodParams } from '../use-period-params';
 import type { DelaisKpiResponse } from '../types/delais';
 import { SignatureDelayBars } from './delais/SignatureDelayBars';
@@ -27,7 +28,7 @@ export function DelaisTab() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { from, to, filialeId } = usePeriodParams();
-  const isIt = user?.role === 'admin' || user?.role === 'technician';
+  const isIt = isItRole(user?.role);
 
   const query = new URLSearchParams({ from, to });
   if (filialeId) query.set('filialeId', filialeId);

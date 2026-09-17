@@ -13,10 +13,10 @@ export function WaitingStepsTable({ steps }: WaitingStepsTableProps) {
     <table className="w-full text-sm">
       <thead>
         <tr className="border-b border-border text-left text-xs font-medium text-muted-foreground/70">
-          <th className="py-2 pr-2">Étape</th>
-          <th className="py-2 pr-2">Nombre</th>
-          <th className="py-2 pr-2">Ancienneté moyenne</th>
-          <th className="py-2">En retard</th>
+          <th scope="col" className="py-2 pr-2">Étape</th>
+          <th scope="col" className="py-2 pr-2">Nombre</th>
+          <th scope="col" className="py-2 pr-2">Ancienneté moyenne</th>
+          <th scope="col" className="py-2">En retard</th>
         </tr>
       </thead>
       <tbody className="divide-y divide-border">

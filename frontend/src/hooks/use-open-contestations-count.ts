@@ -2,16 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { api } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
-import type { UserRole } from '@/types';
+import { isItRole } from '@/lib/roles';
 
-const IT_ROLES: readonly UserRole[] = ['admin', 'technician'];
 /** Le badge n'a pas besoin d'être temps réel : au plus un appel toutes les 30 s
  *  (rate limit 60 req/min/IP partagé avec le reste de l'application). */
 const MIN_INTERVAL_MS = 30_000;
-
-function isItRole(role: UserRole | undefined): boolean {
-  return !!role && IT_ROLES.includes(role);
-}
 
 interface OpenContestationsResponse {
   openCount?: number;
