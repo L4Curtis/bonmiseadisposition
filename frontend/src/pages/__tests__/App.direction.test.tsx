@@ -1,6 +1,6 @@
 import { cloneElement, isValidElement } from 'react';
 import type { ReactElement, ReactNode } from 'react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import { screen } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import App from '../../App';
@@ -114,6 +114,14 @@ function adminUser(): MockUser {
     samAccountName: 'aadmin',
   };
 }
+
+// App charge le tableau de bord en différé (lazy) : la première transformation
+// du module (onglets KPI + Recharts) peut dépasser 15 s quand toute la suite
+// tourne en parallèle, et le test échouait alors sur un écran encore suspendu.
+// Préchargé une fois ici, le import() de lazy() se résout depuis le cache.
+beforeAll(async () => {
+  await import('@/pages/dashboard/DashboardPage');
+}, 120000);
 
 beforeEach(() => {
   vi.resetAllMocks();

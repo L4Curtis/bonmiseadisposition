@@ -15,5 +15,7 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./src/test/setup.ts'],
     css: false,
+    // Marge pour les interactions Radix/Recharts sous charge (défaut 5 s).
+    testTimeout: 15000,
   },
 });

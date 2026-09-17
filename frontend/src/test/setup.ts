@@ -1,6 +1,11 @@
 import '@testing-library/jest-dom/vitest';
 import { afterEach } from 'vitest';
-import { cleanup } from '@testing-library/react';
+import { cleanup, configure } from '@testing-library/react';
+
+// findBy*/waitFor : 1 s par défaut, trop court quand la suite complète (56 fichiers)
+// tourne sur une machine chargée ou un runner CI partagé. Les tests restent
+// déterministes : seul le délai d'attente maximal augmente.
+configure({ asyncUtilTimeout: 5000 });
 
 // Démonte les composants montés entre chaque test (isolation).
 afterEach(() => cleanup());
