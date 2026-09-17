@@ -172,13 +172,14 @@ describe('ParcTab', () => {
     expect(screen.getByLabelText('Couverture n° de série : 93 %')).toBeInTheDocument();
   });
 
-  it('shows a delta on the loaned-equipment tile when the series has at least two points', async () => {
+  it('shows a delta AND the "n bons" hint on the loaned-equipment tile when the series has at least two points', async () => {
     mockApiGet(fixture);
     renderWithProviders(<ParcTab />, { route: ROUTE });
 
     const tile = await screen.findByLabelText('Équipements prêtés : 212');
     expect(within(tile).getByText(/vs période précédente/)).toBeInTheDocument();
-    expect(within(tile).queryByText('143 bons')).not.toBeInTheDocument();
+    // La tuile affiche désormais le delta ET l'indication (StatCard ne les exclut plus).
+    expect(within(tile).getByText('143 bons')).toBeInTheDocument();
   });
 
   it('falls back to the "n bons" hint on the loaned-equipment tile when the series has fewer than two points', async () => {

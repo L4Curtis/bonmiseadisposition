@@ -122,7 +122,7 @@ export function BonActionButtons({
             <Button
               variant="outline"
               size="sm"
-              className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+              className="border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
               onClick={onDeclareNotReturned}
               disabled={!!actionLoading}
             >
@@ -204,7 +204,7 @@ export function BonActionButtons({
         <Button
           variant="ghost"
           size="sm"
-          className="text-red-500 hover:text-red-700 hover:bg-red-50"
+          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
           onClick={onCancel}
         >
           <XCircle className="h-3.5 w-3.5" /> Annuler

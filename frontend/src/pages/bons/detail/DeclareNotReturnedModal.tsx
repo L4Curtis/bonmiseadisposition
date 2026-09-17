@@ -96,7 +96,7 @@ export function DeclareNotReturnedModal({
                   >
                     <input
                       type="checkbox"
-                      className="h-4 w-4 rounded border-slate-300 text-red-600 focus:ring-red-500"
+                      className="h-4 w-4 rounded border-input text-red-600 focus:ring-red-500"
                       checked={selected.has(eq.id)}
                       onChange={() => toggle(eq.id)}
                     />

@@ -117,7 +117,7 @@ export function DelaisTab() {
           : volumeCards.map(({ key, ...card }) => <StatCard key={key} {...card} />)}
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {loading
           ? Array.from({ length: 5 }).map((_, i) => <StatCardSkeleton key={i} />)
           : delayCards.map(({ key, ...card }) => <StatCard key={key} {...card} />)}

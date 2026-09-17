@@ -117,11 +117,10 @@ export function StatCard({
         </div>
       </div>
 
-      {delta ? (
-        <DeltaLine delta={delta} />
-      ) : hint ? (
-        <p className="mt-3 text-[11px] font-medium text-muted-foreground/70">{hint}</p>
-      ) : null}
+      {delta && <DeltaLine delta={delta} />}
+      {hint && (
+        <p className={cn('text-[11px] font-medium text-muted-foreground/70', delta ? 'mt-1' : 'mt-3')}>{hint}</p>
+      )}
 
       {onClick && (
         <div className="mt-3 flex items-center gap-1 text-[11px] font-medium text-muted-foreground/0 transition-colors duration-200 group-hover:text-muted-foreground/80">

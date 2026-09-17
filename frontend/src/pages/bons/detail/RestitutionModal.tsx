@@ -67,7 +67,7 @@ export function RestitutionModal({ equipments, onConfirm, onCancel, loading }: R
               >
                 <input
                   type="checkbox"
-                  className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  className="h-4 w-4 rounded border-input text-blue-600 focus:ring-blue-500"
                   checked={isReturned || selected.has(eq.id)}
                   disabled={isReturned || isDeclaredNotReturned}
                   onChange={() => isPending && toggle(eq.id)}

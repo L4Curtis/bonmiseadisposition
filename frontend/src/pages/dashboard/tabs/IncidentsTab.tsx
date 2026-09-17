@@ -61,14 +61,9 @@ export function IncidentsTab() {
   return (
     <div className="space-y-6">
       {/* ── Tuiles principales ── */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {topStatCards.map((card) => (
-          <div key={card.key} className="flex flex-col">
-            <StatCard {...card.props} />
-            {!loading && card.footer && (
-              <p className="mt-2 px-1 text-[11px] font-medium text-muted-foreground/70">{card.footer}</p>
-            )}
-          </div>
+          <StatCard key={card.key} {...card.props} hint={card.footer} />
         ))}
       </div>
 

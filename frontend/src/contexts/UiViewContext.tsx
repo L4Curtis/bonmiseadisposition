@@ -55,11 +55,18 @@ interface StoredPrefs {
   view: UiView;
 }
 
-/** Lecture synchrone au démarrage — sans user.id, pour éviter le flash */
-function readStoredView(): UiView {
+/** Vue par défaut d'un rôle : la plus élevée qu'il peut prendre (un admin
+ *  arrive sur la vue administrateur, un technicien sur la vue technicien). */
+export function defaultViewFor(views: readonly UiView[]): UiView {
+  return views[views.length - 1] ?? 'collaborateur';
+}
+
+/** Lecture synchrone au démarrage — sans user.id, pour éviter le flash.
+ *  `null` = aucune préférence enregistrée sur ce navigateur. */
+function readStoredView(): UiView | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return 'collaborateur';
+    if (!raw) return null;
     const parsed: StoredPrefs = JSON.parse(raw);
     if (ALL_UI_VIEWS.includes(parsed.view)) {
       return parsed.view;
@@ -67,7 +74,7 @@ function readStoredView(): UiView {
   } catch {
     // localStorage indisponible ou données corrompues
   }
-  return 'collaborateur';
+  return null;
 }
 
 function savePrefs(userId: string, view: UiView): void {
@@ -81,14 +88,20 @@ export function UiViewProvider({ children }: { children: React.ReactNode }) {
   const availableViews: UiView[] = user ? getAvailableViews(user.role) : ['collaborateur'];
 
   // Initialisation synchrone depuis localStorage — pas de flash au chargement
-  const [activeView, setActiveViewState] = useState<UiView>(readStoredView);
+  const [activeView, setActiveViewState] = useState<UiView | null>(readStoredView);
 
   // Validation une fois l'user connu : même userId ? rôle toujours compatible ?
   useEffect(() => {
     if (!user) return;
-    const defaultView = availableViews[0];
+    const defaultView = defaultViewFor(availableViews);
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) {
+        // Première visite sur ce navigateur : vue la plus élevée du rôle
+        setActiveViewState(defaultView);
+        savePrefs(user.id, defaultView);
+        return;
+      }
       if (raw) {
         const stored: StoredPrefs = JSON.parse(raw);
         if (stored.userId !== user.id) {
@@ -101,7 +114,7 @@ export function UiViewProvider({ children }: { children: React.ReactNode }) {
       }
     } catch {}
     // Même utilisateur — vérifier que la vue est toujours dans ses droits
-    if (!availableViews.includes(activeView)) {
+    if (!activeView || !availableViews.includes(activeView)) {
       setActiveViewState(defaultView);
       savePrefs(user.id, defaultView);
     } else {
@@ -121,8 +134,9 @@ export function UiViewProvider({ children }: { children: React.ReactNode }) {
   // un rôle supérieur : clamp synchrone dès que l'user est connu, pour que le
   // premier rendu ne redirige pas un non-IT vers /unauthorized (le useEffect
   // ci-dessus corrige le storage ensuite).
-  const effectiveView: UiView =
-    user && !availableViews.includes(activeView) ? availableViews[0] : activeView;
+  const effectiveView: UiView = user
+    ? activeView && availableViews.includes(activeView) ? activeView : defaultViewFor(availableViews)
+    : activeView ?? 'collaborateur';
 
   return (
     <UiViewContext.Provider value={{ activeView: effectiveView, setActiveView, availableViews }}>

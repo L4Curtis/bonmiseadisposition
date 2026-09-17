@@ -156,8 +156,8 @@ export function ChangePasswordPage() {
             </div>
 
             {error && (
-              <div role="alert" className="rounded-lg bg-red-50 border border-red-200 p-3">
-                <p className="text-sm text-red-700">{error}</p>
+              <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 p-3">
+                <p className="text-sm text-destructive">{error}</p>
               </div>
             )}
 
