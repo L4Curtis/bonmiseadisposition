@@ -2,6 +2,7 @@ import * as React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { useUiView, UI_VIEW_LABELS } from '@/contexts/UiViewContext';
+import { useOpenContestationsCount } from '@/hooks/use-open-contestations-count';
 import { cn } from '@/lib/utils';
 import {
   LayoutDashboard,
@@ -15,7 +16,6 @@ import {
   MessageSquareWarning,
   Server,
   Mail,
-  BarChart3,
   PanelLeftClose,
   PanelLeftOpen,
 } from 'lucide-react';
@@ -44,7 +44,6 @@ const technicienNavGroups: NavGroup[] = [
     items: [
       { to: '/dashboard', icon: LayoutDashboard, label: 'Vue d\'ensemble' },
       { to: '/bons', icon: FileText, label: 'Bons' },
-      { to: '/admin/reports', icon: BarChart3, label: 'Reporting' },
       { to: '/admin/contestations', icon: MessageSquareWarning, label: 'Contestations' },
     ],
   },
@@ -80,6 +79,28 @@ const collaboratorNavGroups: NavGroup[] = [
     ],
   },
 ];
+
+const directionNavGroups: NavGroup[] = [
+  {
+    title: 'Pilotage',
+    items: [
+      { to: '/dashboard', icon: LayoutDashboard, label: 'Tableau de bord' },
+      { to: '/inventaire', icon: Boxes, label: 'Inventaire' },
+    ],
+  },
+];
+
+/** Injecte le badge de contestations ouvertes sur l'entrée correspondante,
+ *  sans muter les groupes de base (immutabilité). */
+function withContestationsBadge(groups: NavGroup[], openCount: number | null): NavGroup[] {
+  if (openCount === null) return groups;
+  return groups.map((group) => ({
+    ...group,
+    items: group.items.map((item) =>
+      item.to === '/admin/contestations' ? { ...item, badge: openCount } : item,
+    ),
+  }));
+}
 
 const STORAGE_KEY = 'sidebar-collapsed';
 
@@ -150,6 +171,7 @@ function SidebarSection({ group, isFirst, collapsed }: { group: NavGroup; isFirs
 export function Sidebar() {
   const { user } = useAuth();
   const { activeView } = useUiView();
+  const openContestationsCount = useOpenContestationsCount();
   const [collapsed, setCollapsed] = React.useState(() => {
     try {
       return localStorage.getItem(STORAGE_KEY) === 'true';
@@ -168,10 +190,17 @@ export function Sidebar() {
     }
   };
 
-  const navGroups =
+  const baseNavGroups =
     activeView === 'administrateur' ? adminNavGroups
     : activeView === 'technicien' ? technicienNavGroups
+    : activeView === 'direction' ? directionNavGroups
     : collaboratorNavGroups;
+
+  // Badge de contestations ouvertes : uniquement pertinent pour les vues IT
+  // (le hook n'appelle de toute façon l'API que pour un rôle admin/technician).
+  const navGroups = activeView === 'administrateur' || activeView === 'technicien'
+    ? withContestationsBadge(baseNavGroups, openContestationsCount)
+    : baseNavGroups;
 
   const viewLabel = UI_VIEW_LABELS[activeView];
 

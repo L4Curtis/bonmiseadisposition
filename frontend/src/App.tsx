@@ -18,7 +18,6 @@ const FilialesPage = lazy(() => import('@/pages/admin/Filiales').then(m => ({ de
 const CataloguePage = lazy(() => import('@/pages/admin/Catalogue').then(m => ({ default: m.CataloguePage })));
 const UtilisateursPage = lazy(() => import('@/pages/admin/Utilisateurs').then(m => ({ default: m.UtilisateursPage })));
 const AuditLogsPage = lazy(() => import('@/pages/admin/AuditLogs').then(m => ({ default: m.AuditLogsPage })));
-const ReportsPage = lazy(() => import('@/pages/admin/Reports').then(m => ({ default: m.ReportsPage })));
 const ContestationsPage = lazy(() => import('@/pages/admin/Contestations').then(m => ({ default: m.ContestationsPage })));
 const TemplatesPage = lazy(() => import('@/pages/admin/Templates').then(m => ({ default: m.TemplatesPage })));
 const PdfTemplatesPage = lazy(() => import('@/pages/admin/PdfTemplates').then(m => ({ default: m.PdfTemplatesPage })));
@@ -97,7 +96,7 @@ function AppRoutes() {
         } />
 
         <Route path="dashboard" element={
-          <ProtectedRoute requiredRoles={['admin', 'technician']}>
+          <ProtectedRoute requiredRoles={['admin', 'technician', 'direction']}>
             <DashboardPage />
           </ProtectedRoute>
         } />
@@ -111,7 +110,7 @@ function AppRoutes() {
 
         {/* Inventaire */}
         <Route path="inventaire" element={
-          <ProtectedRoute requiredRoles={['admin', 'technician']}>
+          <ProtectedRoute requiredRoles={['admin', 'technician', 'direction']}>
             <InventairePage />
           </ProtectedRoute>
         } />
@@ -151,7 +150,8 @@ function AppRoutes() {
 
           {/* Accessible admin + technicien */}
           <Route path="contestations" element={<ContestationsPage />} />
-          <Route path="reports" element={<ReportsPage />} />
+          {/* Reporting fusionné dans /dashboard (onglet Parc) — ex-page supprimée */}
+          <Route path="reports" element={<Navigate to="/dashboard?tab=parc" replace />} />
           <Route path="filiales" element={<FilialesPage />} />
           <Route path="catalogue" element={<CataloguePage />} />
           <Route path="utilisateurs" element={<UtilisateursPage />} />

@@ -9,6 +9,7 @@ import { toast } from '@/hooks/use-toast';
 import { formatDate } from '@/lib/utils';
 import { todayInParis } from '@/lib/kpi-period';
 import { StatusBadge } from '@/components/StatusBadge';
+import { useAuth } from '@/contexts/AuthContext';
 import type { BonStatus, Filiale } from '@/types';
 import {
   Boxes,
@@ -113,6 +114,9 @@ function TableSkeleton() {
 // ─── Page principale ──────────────────────────────────────────────────────────
 
 export function InventairePage() {
+  const { user } = useAuth();
+  // Direction : lecture seule, aucun accès aux bons individuels (/bons/:id → 403).
+  const canLinkToBon = user?.role === 'admin' || user?.role === 'technician';
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [items, setItems] = useState<InventoryItem[]>([]);
@@ -419,12 +423,18 @@ export function InventairePage() {
                         {it.filiale.displayName}
                       </td>
                       <td className="px-4 py-3.5">
-                        <Link
-                          to={`/bons/${it.bonId}`}
-                          className="inline-block bg-muted text-foreground/80 font-mono text-xs font-medium px-2 py-0.5 rounded hover:underline"
-                        >
-                          {it.bonReference}
-                        </Link>
+                        {canLinkToBon ? (
+                          <Link
+                            to={`/bons/${it.bonId}`}
+                            className="inline-block bg-muted text-foreground/80 font-mono text-xs font-medium px-2 py-0.5 rounded hover:underline"
+                          >
+                            {it.bonReference}
+                          </Link>
+                        ) : (
+                          <span className="inline-block bg-muted text-foreground/80 font-mono text-xs font-medium px-2 py-0.5 rounded">
+                            {it.bonReference}
+                          </span>
+                        )}
                         <div className="mt-1">
                           <StatusBadge status={it.bonStatus} />
                         </div>

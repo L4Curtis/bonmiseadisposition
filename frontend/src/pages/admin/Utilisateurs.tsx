@@ -7,15 +7,13 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from '@/hooks/use-toast';
+import { ROLE_LABELS } from '@/lib/labels';
 import { Search, ChevronLeft, ChevronRight, LockOpen, XCircle } from 'lucide-react';
-import type { User } from '@/types';
+import type { User, UserRole } from '@/types';
 
-const ROLE_LABELS: Record<string, string> = {
-  admin: 'Admin',
-  technician: 'Technicien',
-  collaborator: 'Collaborateur',
-};
+const ASSIGNABLE_ROLES = Object.keys(ROLE_LABELS) as UserRole[];
 
 const LIMIT = 25;
 
@@ -35,6 +33,7 @@ export function UtilisateursPage() {
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [unlockingId, setUnlockingId] = useState<string | null>(null);
+  const [updatingRoleId, setUpdatingRoleId] = useState<string | null>(null);
 
   // Identifie la requête la plus récente : une réponse arrivée après qu'une
   // requête plus récente a été lancée (frappe rapide ou changement de page) est ignorée.
@@ -96,6 +95,34 @@ export function UtilisateursPage() {
       showActionError(e, 'Erreur lors du déverrouillage');
     } finally {
       setUnlockingId(null);
+    }
+  };
+
+  const handleRoleChange = async (target: User, role: UserRole) => {
+    if (role === target.role) return;
+    const previousRole = target.role;
+    const previousIsItStaff = target.isItStaff;
+
+    setUpdatingRoleId(target.id);
+    // Mise à jour optimiste (immutable) — revert en cas d'échec serveur.
+    setUsers((prev) => prev.map((u) => (u.id === target.id ? { ...u, role } : u)));
+
+    try {
+      const result = await api.patch<{ id: string; role: UserRole; isItStaff: boolean }>(
+        `/admin/users/${target.id}/role`,
+        { role },
+      );
+      setUsers((prev) =>
+        prev.map((u) => (u.id === target.id ? { ...u, role: result.role, isItStaff: result.isItStaff } : u)),
+      );
+      toast({ title: 'Rôle mis à jour', variant: 'success' });
+    } catch (e: unknown) {
+      setUsers((prev) =>
+        prev.map((u) => (u.id === target.id ? { ...u, role: previousRole, isItStaff: previousIsItStaff } : u)),
+      );
+      showActionError(e, 'Erreur lors de la mise à jour du rôle');
+    } finally {
+      setUpdatingRoleId(null);
     }
   };
 
@@ -163,9 +190,33 @@ export function UtilisateursPage() {
                   <td className="px-4 py-2 text-muted-foreground">{u.department || '—'}</td>
                   <td className="px-4 py-2">{u.filiale?.displayName || u.company || '—'}</td>
                   <td className="px-4 py-2">
-                    <Badge variant={u.isItStaff ? 'default' : 'outline'}>
-                      {ROLE_LABELS[u.role]}
-                    </Badge>
+                    {isAdmin ? (
+                      <div className="space-y-1">
+                        <Select
+                          value={u.role}
+                          onValueChange={(value) => handleRoleChange(u, value as UserRole)}
+                          disabled={u.id === currentUser?.id || updatingRoleId === u.id}
+                        >
+                          <SelectTrigger className="h-8 w-40" aria-label={`Rôle de ${u.displayName}`}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {ASSIGNABLE_ROLES.map((role) => (
+                              <SelectItem key={role} value={role}>{ROLE_LABELS[role]}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {!u.isLocalAccount && (
+                          <p className="text-[11px] text-muted-foreground/70">
+                            Compte SSO : rôle recalculé depuis les groupes Entra à la prochaine connexion
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <Badge variant={u.isItStaff ? 'default' : 'outline'}>
+                        {ROLE_LABELS[u.role]}
+                      </Badge>
+                    )}
                   </td>
                   <td className="px-4 py-2">
                     <Badge variant={u.active ? 'success' : 'error'}>

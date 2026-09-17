@@ -279,13 +279,16 @@ export function Header() {
   const { activeView, setActiveView, availableViews } = useUiView();
   const [showChangePwd, setShowChangePwd] = useState(false);
   const isLocal = !!(user as User & { isLocalAccount?: boolean })?.isLocalAccount;
-  const isItView = activeView !== 'collaborateur';
+  // Recherche globale réservée aux vues IT (bons, collaborateurs...) — jamais
+  // affichée pour Direction (lecture seule, pas d'accès aux bons individuels)
+  // ni pour Collaborateur.
+  const showGlobalSearch = activeView === 'technicien' || activeView === 'administrateur';
 
   return (
     <>
       <header className="glass-header sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between px-6">
         <div className="flex items-center">
-          {isItView && <GlobalSearch />}
+          {showGlobalSearch && <GlobalSearch />}
         </div>
         <div className="flex items-center gap-1">
           <button

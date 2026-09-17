@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { Monitor, Shield, User } from 'lucide-react';
+import { BarChart3, Monitor, Shield, User } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import type { UserRole } from '@/types';
 
@@ -9,24 +9,29 @@ import type { UserRole } from '@/types';
  * Les permissions réelles sont toujours vérifiées via user.role (AuthContext + backend).
  */
 
-export type UiView = 'collaborateur' | 'technicien' | 'administrateur';
+export type UiView = 'collaborateur' | 'technicien' | 'administrateur' | 'direction';
+
+const ALL_UI_VIEWS: UiView[] = ['collaborateur', 'technicien', 'administrateur', 'direction'];
 
 export const UI_VIEW_LABELS: Record<UiView, string> = {
   collaborateur: 'Collaborateur',
   technicien: 'Technicien IT',
   administrateur: 'Administrateur',
+  direction: 'Direction',
 };
 
 export const UI_VIEW_ICON_MAP: Record<UiView, React.ElementType> = {
   collaborateur: User,
   technicien: Monitor,
   administrateur: Shield,
+  direction: BarChart3,
 };
 
 export function getAvailableViews(role: UserRole): UiView[] {
   switch (role) {
     case 'admin': return ['collaborateur', 'technicien', 'administrateur'];
     case 'technician': return ['collaborateur', 'technicien'];
+    case 'direction': return ['direction'];
     default: return ['collaborateur'];
   }
 }
@@ -56,7 +61,7 @@ function readStoredView(): UiView {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return 'collaborateur';
     const parsed: StoredPrefs = JSON.parse(raw);
-    if (['collaborateur', 'technicien', 'administrateur'].includes(parsed.view)) {
+    if (ALL_UI_VIEWS.includes(parsed.view)) {
       return parsed.view;
     }
   } catch {
@@ -81,23 +86,24 @@ export function UiViewProvider({ children }: { children: React.ReactNode }) {
   // Validation une fois l'user connu : même userId ? rôle toujours compatible ?
   useEffect(() => {
     if (!user) return;
+    const defaultView = availableViews[0];
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         const stored: StoredPrefs = JSON.parse(raw);
         if (stored.userId !== user.id) {
-          // Autre compte — reset à collaborateur (comportement intentionnel pour un nouvel utilisateur)
-          setActiveViewState('collaborateur');
-          savePrefs(user.id, 'collaborateur');
+          // Autre compte — reset à la vue par défaut du rôle (comportement
+          // intentionnel pour un nouvel utilisateur)
+          setActiveViewState(defaultView);
+          savePrefs(user.id, defaultView);
           return;
         }
       }
     } catch {}
     // Même utilisateur — vérifier que la vue est toujours dans ses droits
-    const available = getAvailableViews(user.role);
-    if (!available.includes(activeView)) {
-      setActiveViewState('collaborateur');
-      savePrefs(user.id, 'collaborateur');
+    if (!availableViews.includes(activeView)) {
+      setActiveViewState(defaultView);
+      savePrefs(user.id, defaultView);
     } else {
       // Ancrer userId dans les prefs (cas premier login sans userId stocké)
       savePrefs(user.id, activeView);
@@ -116,7 +122,7 @@ export function UiViewProvider({ children }: { children: React.ReactNode }) {
   // premier rendu ne redirige pas un non-IT vers /unauthorized (le useEffect
   // ci-dessus corrige le storage ensuite).
   const effectiveView: UiView =
-    user && !availableViews.includes(activeView) ? 'collaborateur' : activeView;
+    user && !availableViews.includes(activeView) ? availableViews[0] : activeView;
 
   return (
     <UiViewContext.Provider value={{ activeView: effectiveView, setActiveView, availableViews }}>

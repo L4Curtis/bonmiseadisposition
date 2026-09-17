@@ -15,6 +15,12 @@ export function ConfigEntraPage() {
         { key: 'redirect_uri', label: 'Redirect URI', placeholder: 'https://bons.entreprise.local/api/auth/callback' },
         { key: 'admin_group_id', label: 'Groupe Admin (Object ID)', placeholder: 'xxxxxxxx-...' },
         { key: 'technician_group_id', label: 'Groupe Technicien (Object ID)', placeholder: 'xxxxxxxx-...' },
+        {
+          key: 'direction_group_id',
+          label: 'Groupe Direction (object ID)',
+          placeholder: 'xxxxxxxx-...',
+          help: 'Membres = rôle Direction : tableau de bord et inventaire en lecture seule. Les groupes Entra déterminent le rôle à chaque connexion.',
+        },
       ]}
     />
   );

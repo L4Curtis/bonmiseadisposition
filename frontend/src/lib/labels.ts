@@ -1,3 +1,17 @@
+import type { UserRole } from '@/types';
+
+/** Libellés des rôles (enum backend UserRole). */
+export const ROLE_LABELS: Record<UserRole, string> = {
+  admin: 'Administrateur',
+  technician: 'Technicien',
+  direction: 'Direction',
+  collaborator: 'Collaborateur',
+};
+
+export function roleLabel(role: UserRole): string {
+  return ROLE_LABELS[role] ?? role;
+}
+
 /** Libellés des types de notification (enum backend NotificationType). */
 export const NOTIF_TYPE_LABELS: Record<string, string> = {
   mise_dispo_request: 'Demande de signature (mise à dispo)',
