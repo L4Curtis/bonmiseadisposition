@@ -8,6 +8,8 @@ services:
       - "127.0.0.1:5432:5432"
     environment:
       POSTGRES_DB: bons_disposition
+      # Fuseau explicite : les indicateurs KPI comparent des timestamps UTC ; ne pas modifier.
+      TZ: UTC
       POSTGRES_USER: app
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-devpassword}
     volumes:

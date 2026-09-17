@@ -73,6 +73,8 @@ describe('kpi-sql', () => {
       const col = Prisma.raw('b.created_at');
       const frag = inRange(col, { from: '2026-01-01', to: '2026-01-31' });
       expect(frag.sql).toContain("AT TIME ZONE 'Europe/Paris'");
+      // Bornes ramenées en naïf UTC : indépendantes du fuseau de session Postgres.
+      expect(frag.sql.match(/AT TIME ZONE 'UTC'/g)).toHaveLength(2);
       expect(frag.sql).toContain('>=');
       expect(frag.sql).toContain('<');
     });
@@ -83,7 +85,8 @@ describe('kpi-sql', () => {
       const col = Prisma.raw('b.created_at');
       const frag = bucketExpr(col, 'week');
       expect(frag.sql).toContain('date_trunc');
-      expect(frag.sql).toContain("AT TIME ZONE 'Europe/Paris'");
+      // La colonne (naïve UTC) est convertie depuis UTC AVANT d'être exprimée en heure de Paris.
+      expect(frag.sql).toContain("AT TIME ZONE 'UTC') AT TIME ZONE 'Europe/Paris'");
     });
   });
 

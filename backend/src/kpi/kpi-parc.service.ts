@@ -272,7 +272,9 @@ export class KpiParcService {
    *  `date_mise_disposition`) — voir kpi-design.md. */
   private loanedSeriesQuery(period: KpiPeriod, filialeId?: string): Prisma.Sql {
     const step = stepInterval(period.granularity);
-    const bucketEnd = Prisma.sql`(LEAST(bk.d + ${step}, ${period.to}::date + 1)::timestamp AT TIME ZONE 'Europe/Paris')`;
+    // Fin de bucket = minuit Paris du bucket suivant, ramené en timestamp naïf UTC
+    // (même convention que parisStart) pour se comparer aux colonnes Prisma.
+    const bucketEnd = Prisma.sql`((LEAST(bk.d + ${step}, ${period.to}::date + 1)::timestamp AT TIME ZONE 'Europe/Paris') AT TIME ZONE 'UTC')`;
 
     return Prisma.sql`
       WITH bk AS (

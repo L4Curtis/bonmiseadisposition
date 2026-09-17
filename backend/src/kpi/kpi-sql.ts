@@ -9,14 +9,27 @@ import { Compared, Granularity } from './kpi-types';
  * fragments via `Prisma.sql` — jamais de concaténation de chaîne côté SQL.
  */
 
-/** Borne basse (incluse) d'une date civile Europe/Paris, en timestamp. */
+/**
+ * Convention de fuseau (Prisma) : les colonnes DateTime sont des `timestamp(3)`
+ * SANS fuseau qui contiennent des instants UTC. Pour rester indépendants du
+ * paramètre `TimeZone` de la session Postgres, toutes les bornes produites
+ * ici sont ramenées en timestamp naïf UTC (`… AT TIME ZONE 'UTC'`), donc
+ * directement comparables aux colonnes sans cast implicite.
+ *
+ * Rappel de la sémantique Postgres :
+ *   - `timestamp AT TIME ZONE 'Europe/Paris'` : lit des chiffres naïfs comme
+ *     une heure de Paris et renvoie un timestamptz ;
+ *   - `timestamptz AT TIME ZONE 'UTC'` : renvoie les chiffres naïfs en UTC.
+ */
+
+/** Borne basse (incluse) d'une date civile Europe/Paris, en timestamp naïf UTC. */
 export function parisStart(dateIso: string): Prisma.Sql {
-  return Prisma.sql`(${dateIso}::date::timestamp AT TIME ZONE 'Europe/Paris')`;
+  return Prisma.sql`((${dateIso}::date::timestamp AT TIME ZONE 'Europe/Paris') AT TIME ZONE 'UTC')`;
 }
 
-/** Borne haute (exclue) d'une date civile Europe/Paris : le lendemain minuit. */
+/** Borne haute (exclue) d'une date civile Europe/Paris : le lendemain minuit, en timestamp naïf UTC. */
 export function parisEndExclusive(dateIso: string): Prisma.Sql {
-  return Prisma.sql`((${dateIso}::date + 1)::timestamp AT TIME ZONE 'Europe/Paris')`;
+  return Prisma.sql`(((${dateIso}::date + 1)::timestamp AT TIME ZONE 'Europe/Paris') AT TIME ZONE 'UTC')`;
 }
 
 /** Condition `col >= début AND col < fin` sur une période civile Europe/Paris. */
@@ -38,9 +51,12 @@ const BUCKET_UNIT: Record<Granularity, string> = {
 };
 
 /** Expression SQL du bucket (début de jour/semaine/mois, en fuseau Paris)
- *  auquel appartient une colonne timestamp. */
+ *  auquel appartient une colonne timestamp naïve UTC : on la convertit
+ *  d'abord explicitement depuis UTC (`AT TIME ZONE 'UTC'` → timestamptz),
+ *  puis vers l'heure de Paris — sans ce premier cast, les chiffres UTC
+ *  seraient lus comme une heure de Paris (décalage d'une à deux heures). */
 export function bucketExpr(col: Prisma.Sql, granularity: Granularity): Prisma.Sql {
-  return Prisma.sql`date_trunc(${BUCKET_UNIT[granularity]}, ${col} AT TIME ZONE 'Europe/Paris')::date`;
+  return Prisma.sql`date_trunc(${BUCKET_UNIT[granularity]}::text, (${col} AT TIME ZONE 'UTC') AT TIME ZONE 'Europe/Paris')::date`;
 }
 
 const STEP_INTERVAL: Record<Granularity, string> = {

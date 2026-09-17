@@ -4,6 +4,8 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_DB: bons_disposition
+      # Fuseau explicite : les indicateurs KPI comparent des timestamps UTC ; ne pas modifier.
+      TZ: UTC
       POSTGRES_USER: app
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:

@@ -287,6 +287,8 @@ export async function queryWaitingSteps(
   thresholdDays: number,
   filialeId?: string,
 ): Promise<WaitingRow[]> {
+  // Le premier prédicat sur b.status (sans référence à ps) permet à Postgres
+  // de restreindre les bons AVANT d'évaluer la sous-requête LATERAL.
   return prisma.$queryRaw<WaitingRow[]>(Prisma.sql`
     SELECT
       CASE b.status::text
@@ -307,10 +309,11 @@ export async function queryWaitingSteps(
       ORDER BY s.created_at DESC
       LIMIT 1
     ) ps ON true
-    WHERE (
-      b.status::text IN (${Prisma.join(WAITING_SIGNATURE_STATUSES)})
-      OR (b.status::text = 'partially_returned' AND ps.type IS NOT NULL)
-    )
+    WHERE b.status::text IN (${Prisma.join([...WAITING_SIGNATURE_STATUSES, 'partially_returned'])})
+      AND (
+        b.status::text IN (${Prisma.join(WAITING_SIGNATURE_STATUSES)})
+        OR (b.status::text = 'partially_returned' AND ps.type IS NOT NULL)
+      )
     ${filialeFilter('b', filialeId)}
     GROUP BY step
   `);
