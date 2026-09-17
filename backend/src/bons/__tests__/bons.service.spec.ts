@@ -608,6 +608,16 @@ describe('BonsService', () => {
       expect(prisma.bon.updateMany).not.toHaveBeenCalled();
     });
 
+    it('should refuse to send when the collaborator email is not deliverable (ex. admin@local)', async () => {
+      const bon = { ...draftBon(), collaborateurEmail: 'admin@local' };
+      prisma.bon.findUnique.mockResolvedValue(bon);
+      prisma.user.findUnique.mockResolvedValue(collaboratorUser());
+
+      await expect(service.send(bon.id, initiatedById)).rejects.toThrow(/signature présentielle/);
+      expect(prisma.bon.updateMany).not.toHaveBeenCalled();
+      expect(signatureService.generateToken).not.toHaveBeenCalled();
+    });
+
     it('should throw BadRequestException when the filiale is inactive (assertSendable, LOT A2)', async () => {
       const bon = { ...draftBon(), filiale: { ...draftBon().filiale, active: false } };
       prisma.bon.findUnique.mockResolvedValue(bon);

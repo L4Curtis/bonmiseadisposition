@@ -1,9 +1,10 @@
 import { useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { XCircle } from 'lucide-react';
+import { XCircle, AlertTriangle } from 'lucide-react';
 import { useBonActions } from './detail/useBonActions';
 import { BonDetailHeader } from './detail/BonDetailHeader';
+import { isDeliverableEmail } from '@/lib/email';
 import { BonInfoCards } from './detail/BonInfoCards';
 import { BonSignatures } from './detail/BonSignatures';
 import { BonEquipmentTable } from './detail/BonEquipmentTable';
@@ -209,6 +210,23 @@ export function BonDetailPage() {
         onCloseUnilateral={() => actions.setShowCloseUnilateralModal(true)}
         onCancel={() => actions.setConfirmCancel(true)}
       />
+      {!isDeliverableEmail(bon.collaborateurEmail) && !['archived', 'cancelled'].includes(bon.status) && (
+        <div
+          role="alert"
+          className="flex items-start gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-100"
+        >
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <div>
+            <p className="font-medium">
+              Adresse email du collaborateur non valide ({bon.collaborateurEmail || 'vide'})
+            </p>
+            <p className="text-xs opacity-90">
+              Aucun lien de signature ne peut lui être envoyé par email : utilisez la signature présentielle, ou
+              corrigez l'adresse du compte.
+            </p>
+          </div>
+        </div>
+      )}
 
       <BonInfoCards bon={bon} civiliteLabel={civiliteLabel} />
 

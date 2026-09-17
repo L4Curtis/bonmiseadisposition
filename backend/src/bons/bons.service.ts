@@ -11,6 +11,7 @@ import { STATUS_LABELS } from '../common/status-labels';
 import { BonStatus, Civilite, BON_SELECT_SHAPE, SIGNATURE_SAFE_SELECT } from '../common/types';
 import { generateBonReference, BON_REFERENCE_TX_OPTIONS } from '../common/bon-reference';
 import { assertPngDataUrl } from '../common/signature-data-url';
+import { isDeliverableEmail, undeliverableEmailMessage } from '../common/email';
 import { generateSignatureToken } from '../common/tokens';
 import {
   escapeCsvCell,
@@ -643,6 +644,10 @@ export class BonsService {
     if (bon.status !== 'draft')
       throw new BadRequestException('Seuls les brouillons peuvent être envoyés');
     await this.assertSendable(bon);
+    // L'envoi par email exige une adresse délivrable (le présentiel, non).
+    if (!isDeliverableEmail(bon.collaborateurEmail)) {
+      throw new BadRequestException(undeliverableEmailMessage(bon.collaborateurEmail));
+    }
 
     const serials = bon.equipments.map((e) => e.serialNumber).filter((s): s is string => !!s);
     const serialConflicts = await this.findSerialConflicts(serials, id);
@@ -1386,6 +1391,9 @@ export class BonsService {
       throw new BadRequestException(
         'Le renvoi est possible uniquement pour les bons en attente de signature',
       );
+    if (!isDeliverableEmail(bon.collaborateurEmail)) {
+      throw new BadRequestException(undeliverableEmailMessage(bon.collaborateurEmail));
+    }
 
     // Guard: if a valid token was sent less than 1 hour ago, require explicit confirmation
     if (!force) {

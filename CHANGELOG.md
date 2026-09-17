@@ -25,6 +25,10 @@ du tableau de bord KPI.
 - À la première connexion sans préférence enregistrée, un administrateur arrive sur la vue
   administrateur et un technicien sur la vue technicien, au lieu de la vue collaborateur.
 
+- **Compte sans adresse email valide** (ex. `admin@local` ou un compte AD sans mail) : l'envoi
+  et le renvoi d'un lien de signature sont refusés avec un message explicite proposant la
+  signature présentielle, au lieu d'un échec silencieux côté SMTP. Un avertissement s'affiche
+  dès la sélection du collaborateur à la création du bon et en bandeau sur la fiche du bon.
 - **Emails à lien bloqués sur une instance configurée** : la page d'administration pré-remplit
   `general.app_url` avec `FRONTEND_URL` tant qu'aucune valeur n'est enregistrée, mais le service
   d'emails ne lisait que la base et refusait d'envoyer. Il applique désormais le même repli

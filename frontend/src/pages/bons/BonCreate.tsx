@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useUnsavedChangesWarning } from '@/hooks/use-unsaved-changes';
 import { api } from '@/lib/api';
+import { isDeliverableEmail } from '@/lib/email';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -13,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Search, X, Plus, Trash2, ChevronLeft, CalendarCheck } from 'lucide-react';
+import { Search, X, Plus, Trash2, ChevronLeft, CalendarCheck, AlertTriangle } from 'lucide-react';
 import { bonCreateSchema, validate } from '@/lib/validation';
 import { todayLocalISO } from '@/lib/utils';
 import type { Filiale } from '@/types';
@@ -625,6 +626,18 @@ export function BonCreatePage() {
             <div className="space-y-1 sm:col-span-2">
               <Label>Collaborateur *</Label>
               <UserAutocomplete value={collaborateur} onChange={setCollaborateur} />
+              {collaborateur && !isDeliverableEmail(collaborateur.email) && (
+                <p
+                  role="alert"
+                  className="mt-1 flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200"
+                >
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  <span>
+                    Ce compte n'a pas d'adresse email valide ({collaborateur.email || 'vide'}) : le lien de signature ne
+                    pourra pas lui être envoyé. Seule la signature présentielle sera possible.
+                  </span>
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>
