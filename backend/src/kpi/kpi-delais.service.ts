@@ -1,23 +1,38 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppConfigService } from '../config/config.service';
 import { KpiPeriod } from './kpi-period';
-import { KpiDelaisResponse, SendToSignatureStep } from './kpi-types';
-
-const EMPTY_SEND_TO_SIGNATURE_STEP: SendToSignatureStep = {
-  count: 0,
-  medianHours: null,
-  p90Hours: null,
-  within48h: null,
-  within7d: null,
-  previous: { medianHours: null, p90Hours: null, within48h: null, within7d: null },
-};
+import { KpiDelaisResponse } from './kpi-types';
+import {
+  DelaisRange,
+  queryCreationToSend,
+  queryLoanDuration,
+  querySendToSignature,
+  querySentSeries,
+  querySeriesFromBons,
+  queryStatusBreakdown,
+  queryVolumeAggregate,
+  queryWaitingSteps,
+} from './delais/delais-queries';
+import {
+  buildCreationToSend,
+  buildLoanDuration,
+  buildSendToSignature,
+  buildStatusBreakdown,
+  buildVolumes,
+  buildWaiting,
+} from './delais/delais-mappers';
 
 /**
- * `GET /kpi/delais` — volumes, délais de traitement, étapes en attente.
+ * `GET /kpi/delais` — volumes, répartition par statut, délais de traitement
+ * (création → envoi, envoi → signature, durée de prêt) et étapes en attente.
  *
- * Squelette (lot 2-core) : renvoie l'enveloppe avec des blocs vides
- * correctement typés. Le corps SQL est implémenté par le lot 2b.
+ * Ce service ne fait que l'orchestration (résolution du seuil de retard,
+ * lancement des requêtes en parallèle, assemblage de l'enveloppe) : le SQL
+ * brut vit dans `delais/delais-queries.ts`, la mise en forme pure dans
+ * `delais/delais-mappers.ts` — séparation nécessaire pour rester sous les
+ * 400 lignes par fichier imposées au lot.
  */
 @Injectable()
 export class KpiDelaisService {
@@ -26,51 +41,57 @@ export class KpiDelaisService {
     private readonly configService: AppConfigService,
   ) {}
 
-  // TODO lot 2b : implémentation
   async getDelais(period: KpiPeriod, filialeId?: string): Promise<KpiDelaisResponse> {
-    return Promise.resolve({
-      period: {
-        from: period.from,
-        to: period.to,
-        granularity: period.granularity,
-        days: period.days,
-      },
+    const thresholdDays = await this.configService.getSignatureOverdueDays();
+    const current: DelaisRange = { from: period.from, to: period.to };
+    const previous: DelaisRange = { from: period.previous.from, to: period.previous.to };
+
+    const [
+      volumeCurrent,
+      volumePrevious,
+      createdSeriesRows,
+      sentSeriesRows,
+      archivedSeriesRows,
+      statusRows,
+      creationToSendCurrent,
+      creationToSendPrevious,
+      sendToSignatureCurrentRows,
+      sendToSignaturePreviousRows,
+      loanDurationCurrent,
+      loanDurationPrevious,
+      waitingRows,
+    ] = await Promise.all([
+      queryVolumeAggregate(this.prisma, current, filialeId),
+      queryVolumeAggregate(this.prisma, previous, filialeId),
+      querySeriesFromBons(this.prisma, Prisma.sql`b.created_at`, current, period.granularity, filialeId),
+      querySentSeries(this.prisma, current, period.granularity, filialeId),
+      querySeriesFromBons(this.prisma, Prisma.sql`b.archived_at`, current, period.granularity, filialeId),
+      queryStatusBreakdown(this.prisma, filialeId),
+      queryCreationToSend(this.prisma, current, filialeId),
+      queryCreationToSend(this.prisma, previous, filialeId),
+      querySendToSignature(this.prisma, current, filialeId),
+      querySendToSignature(this.prisma, previous, filialeId),
+      queryLoanDuration(this.prisma, current, filialeId),
+      queryLoanDuration(this.prisma, previous, filialeId),
+      queryWaitingSteps(this.prisma, thresholdDays, filialeId),
+    ]);
+
+    const { sendToSignature, signatureMode } = buildSendToSignature(
+      sendToSignatureCurrentRows,
+      sendToSignaturePreviousRows,
+    );
+
+    return {
+      period: { from: period.from, to: period.to, granularity: period.granularity, days: period.days },
       previous: { from: period.previous.from, to: period.previous.to },
       filialeId: filialeId ?? null,
-      volumes: {
-        created: { current: 0, previous: null },
-        sent: { current: 0, previous: null },
-        archived: { current: 0, previous: null },
-        cancelled: { current: 0, previous: null },
-        series: [],
-      },
-      statusBreakdown: [],
-      creationToSend: {
-        count: 0,
-        medianHours: null,
-        p90Hours: null,
-        previous: { medianHours: null, p90Hours: null },
-      },
-      sendToSignature: {
-        mise_disposition: EMPTY_SEND_TO_SIGNATURE_STEP,
-        restitution: EMPTY_SEND_TO_SIGNATURE_STEP,
-        pv_cloture: EMPTY_SEND_TO_SIGNATURE_STEP,
-      },
-      signatureMode: {
-        inPerson: { current: 0, previous: null },
-        remote: { current: 0, previous: null },
-        proxy: { current: 0, previous: null },
-      },
-      loanDuration: {
-        count: 0,
-        avgDays: { current: null, previous: null },
-        medianDays: { current: null, previous: null },
-      },
-      waiting: {
-        thresholdDays: 0,
-        overdueTotal: 0,
-        steps: [],
-      },
-    });
+      volumes: buildVolumes(period, volumeCurrent, volumePrevious, createdSeriesRows, sentSeriesRows, archivedSeriesRows),
+      statusBreakdown: buildStatusBreakdown(statusRows),
+      creationToSend: buildCreationToSend(creationToSendCurrent, creationToSendPrevious),
+      sendToSignature,
+      signatureMode,
+      loanDuration: buildLoanDuration(loanDurationCurrent, loanDurationPrevious),
+      waiting: buildWaiting(thresholdDays, waitingRows),
+    };
   }
 }
