@@ -91,7 +91,13 @@ BonDeMiseADisposition/
 │       ├── auth/
 │       │   ├── auth.module.ts          # Module auth (JWT + Passport)
 │       │   ├── auth.controller.ts      # Login SSO, callback, refresh, logout, local-login
-│       │   ├── auth.service.ts         # MSAL, JWT, bcrypt, gestion cookies
+│       │   ├── auth.service.ts         # Façade : délègue aux modules ci-dessous (méthodes publiques inchangées)
+│       │   ├── role-mapping.ts         # resolveRoleFromGroups : groupes Entra → rôle (écrasé à chaque connexion SSO)
+│       │   ├── entra-sso.ts            # URL de connexion et callback MSAL
+│       │   ├── local-login.ts          # Connexion locale bcryptjs + anti brute force
+│       │   ├── session-tokens.ts       # JWT d'accès et de rafraîchissement
+│       │   ├── token-revocation.ts     # Révocation des jetons (mémoire + base)
+│       │   ├── change-password.ts, password-strength.ts, admin-provisioning.ts, exceptions.ts
 │       │   ├── jwt.strategy.ts         # Strategie Passport-JWT (extraction cookie)
 │       │   ├── jwt-auth.guard.ts       # Guard JWT global
 │       │   ├── roles.guard.ts          # Guard RBAC (admin/technician/collaborator)
@@ -132,18 +138,33 @@ BonDeMiseADisposition/
 │       ├── bons/
 │       │   ├── bons.module.ts          # Module bons (coeur metier)
 │       │   ├── bons.controller.ts      # CRUD bons, send, restitution, PV, mark-found, sign-it
-│       │   ├── bons.service.ts         # Workflow complet : draft→sent→active→archived
+│       │   ├── bons.service.ts         # Façade (jeton BONS_SERVICE) : délègue aux modules ci-dessous
+│       │   ├── bons.tokens.ts          # BONS_SERVICE : casse le cycle d'import avec signature/ (ModuleRef)
+│       │   ├── bon-mappers.ts          # Réponses du portail collaborateur (tokens exposés filtrés)
+│       │   ├── queries/                # bon-where (filtres de liste), bon-stats (tuiles Aujourd'hui)
+│       │   ├── export/                 # bon-csv : export CSV (limite, colonnes, échappement commun)
+│       │   ├── validation/             # bon-validators : filiale, catalogue, numéros de série, envoyable
+│       │   └── workflow/               # bon-context (dépendances explicites), bon-crud, bon-send (email + présentiel),
+│       │                               # bon-restitution (restitution, non rendu), bon-mark-found, bon-cloture (PV, clôture unilatérale), bon-resend
 │       │   └── bons.dto.ts             # DTOs creation/update bon + equipements
 │       │
 │       ├── signature/
 │       │   ├── signature.module.ts     # Module signatures electroniques
 │       │   ├── signature.controller.ts # GET /signature/:token, POST sign (public)
-│       │   ├── signature.service.ts    # Tokens 7j, chiffrement PNG, verification email
+│       │   ├── signature.service.ts    # Façade : BonsService résolu par ModuleRef (import type uniquement)
+│       │   ├── token.ts, token-lifecycle.ts # Lien remplacé (sentinelle epoch) vs expiré, génération/invalidation
+│       │   ├── signing.ts              # Signature collaborateur (transaction, scellement, audit)
+│       │   ├── it-cachet.ts            # Cachet IT et signature IT du PV
+│       │   ├── seal.ts, status-transition.ts, recipient.ts # Helpers purs testés
+│       │   ├── signature-file-store.ts # Images PNG chiffrées
+│       │   ├── bon-info.ts, preview-pdf.ts, pdf-snapshot.ts, select-shape.ts
 │       │   └── signature.dto.ts        # DTOs signature (dataUrl, mention lu et approuve)
 │       │
 │       ├── pdf/
 │       │   ├── pdf.module.ts           # Module generation PDF
-│       │   ├── pdf.service.ts          # PDFKit : mise_dispo, restitution, PV cloture, avenant
+│       │   ├── pdf.service.ts          # Façade PDFKit : données, template, hash, stockage (mise_dispo, restitution, PV, avenant)
+│       │   ├── render/                 # layout, header, parties, equipment-table, signatures, certificate, footer
+│       │   ├── snapshot-regeneration.ts # Régénération des snapshots manquants
 │       │   ├── pdf-template-config.ts  # Interfaces config + defaults + PREVIEW_BON + deepMerge + substituteVars
 │       │   ├── pdf-templates.service.ts # CRUD config PDF : getAll, getConfig, update, reset, export/import
 │       │   ├── pdf-admin.controller.ts # POST /admin/pdf/regenerate-missing (admin)
@@ -153,11 +174,20 @@ BonDeMiseADisposition/
 │       │
 │       ├── templates/
 │       │   ├── templates.module.ts     # Module global (@Global) — TemplatesService disponible partout
-│       │   └── templates.service.ts    # 9 templates email avec variables {{PLACEHOLDER}}, rendu, DB custom
+│       │   ├── templates.service.ts    # Façade : 9 templates email avec variables {{PLACEHOLDER}}, rendu, DB custom
+│       │   ├── template-catalog.ts     # Définitions, variables, templates exigeant un lien de signature
+│       │   ├── defaults/               # Corps HTML par défaut par famille d'emails
+│       │   ├── render.ts, import-validation.ts, template-repository.ts
+│       │   └── email-layout.ts         # Gabarit HTML commun
 │       │
 │       ├── notification/
 │       │   ├── notification.module.ts  # Module notifications email
-│       │   └── notification.service.ts # SMTP, rendu via TemplatesService, rappels cron (lun-ven 9h)
+│       │   ├── notification.service.ts # Façade : construire → rendre → envoyer → journaliser
+│       │   ├── app-url.ts              # resolveAppUrl : general.app_url → FRONTEND_URL → erreur en production
+│       │   ├── notification-log.ts     # Journal des envois (sent/failed, troncature des erreurs)
+│       │   ├── transport/              # smtp-transport : configuration et cache du transporteur
+│       │   ├── messages/               # Variables et contenus par type d'email (échappement HTML)
+│       │   └── reminders/              # daily-reminders (rappels de signature), restitution-due-reminders
 │       │
 │       ├── smb/
 │       │   ├── __tests__/
@@ -252,7 +282,8 @@ BonDeMiseADisposition/
         ├── components/
         │   ├── layout/
         │   │   ├── Layout.tsx          # Shell : sidebar + header + <Outlet/>
-        │   │   ├── Header.tsx          # Barre sup : user info, logout, changement mdp (recherche globale masquée pour direction)
+        │   │   ├── Header.tsx          # Barre sup (façade) : recherche globale masquée pour direction
+        │   │   ├── header/             # GlobalSearch, ChangePasswordDialog, UserMenu
         │   │   └── Sidebar.tsx         # Nav gauche par vue UX : technicien/administrateur (Opérations/Référentiel/Système), direction (Pilotage : Tableau de bord, Inventaire), collaborateur (Mes bons)
         │   │
         │   ├── dashboard/               # Composants partagés par le tableau de bord KPI
@@ -287,7 +318,9 @@ BonDeMiseADisposition/
             ├── ChangePassword.tsx       # Changement mdp (12 car, majuscule, chiffre, special)
             ├── Unauthorized.tsx         # Page 403
             ├── Inventaire.tsx           # Parc prete : filtres, tableau pagine, tuiles resume, export CSV (references de bon non cliquables pour direction)
+            ├── inventaire/              # useInventory, InventoryFilters, InventoryTable, InventorySummaryCards
             ├── PortailCollaborateur.tsx  # Vue collab : a signer, actifs, contestes, historique
+            ├── portail/                 # useMesBons, sections (à signer, actifs, contestés, historique), lib/bonsFilters
             │
             ├── dashboard/               # Page « Tableau de bord » à onglets — remplace DashboardIT.tsx et admin/Reports.tsx (supprimés)
             │   ├── DashboardPage.tsx     # Onglets Aujourd'hui/Parc/Délais/Incidents ; ?tab&from&to&filialeId dans l'URL ; onglet actif seul monté
@@ -303,21 +336,31 @@ BonDeMiseADisposition/
             │
             ├── bons/
             │   ├── BonsList.tsx         # Liste paginee + filtres (statut, filiale, recherche) + CSV
-            │   ├── BonCreate.tsx        # Creation bon : autocomplete collab, catalogue, packs
-            │   └── BonDetail.tsx        # Detail complet : signatures, restitution, PV, avenant
+            │   ├── list/                # useBonsListParams (URL), BonsFilters, BonsTable, BonsPagination
+            │   ├── BonCreate.tsx        # Creation bon : autocomplete collab, catalogue, packs, avertissement email non délivrable
+            │   ├── create/              # useBonCreateForm, sections Collaborateur/Dates/Équipements, lib (validation, payload)
+            │   ├── BonDetail.tsx        # Detail complet : signatures, restitution, PV, avenant, bandeau email non délivrable
+            │   ├── detail/              # Composants et modales de la fiche ; useBonActions + actions/ (envoi, restitution, clôture, cachet, PDF)
+            │   ├── BonDetailCollaborateur.tsx # Fiche côté collaborateur
+            │   └── collaborateur/       # useBonDetailCollaborateur + composants
             │
             ├── signature/
-            │   └── SignaturePage.tsx     # Page publique /signer/:token (canvas + lu et approuve)
+            │   ├── SignaturePage.tsx     # Page publique /signer/:token (façade)
+            │   ├── hooks/               # useSignatureToken (statuts dont « lien remplacé »), useDocumentActions
+            │   ├── components/          # Écrans d'état, récapitulatif, zone de signature, consentement, succès
+            │   └── lib/                 # Helpers purs testés (redirection sûre, libellés, dates, blob)
             │
             └── admin/
                 ├── AdminLayout.tsx      # Sous-nav admin avec routing
                 ├── Configuration.tsx    # Config : General, LDAP, SMTP, Entra (dont Groupe Direction), Rappels (dont seuil de retard de signature), Tokens
                 ├── LdapSync.tsx         # Sync LDAP : statut, declenchement manuel, purge
-                ├── Filiales.tsx         # CRUD filiales + upload logo/cachet
+                ├── Filiales.tsx         # CRUD filiales + upload logo/cachet (+ filiales/)
                 ├── Utilisateurs.tsx     # Annuaire utilisateurs (recherche) + sélecteur de rôle (admin, incl. Direction), désactivé sur sa propre ligne et note SSO pour un compte non local
-                ├── Contestations.tsx    # Gestion contestations (open/review/resolve)
-                ├── Templates.tsx        # Gestion templates email (edit/apercu/reset/export/import)
-                ├── PdfTemplates.tsx     # Gestion templates PDF (4 types, couleurs/polices/marges/textes, preview PDF)
+                ├── Contestations.tsx    # Gestion contestations (open/review/resolve) (+ contestations/)
+                ├── AuditLogs.tsx        # Journal d'audit filtrable (+ audit-logs/)
+                ├── Catalogue.tsx        # Catalogue et packs (+ catalogue/ : hook, tableau, formulaires, lib testée)
+                ├── Templates.tsx        # Gestion templates email (edit/apercu/reset/export/import) (+ email-templates/)
+                ├── PdfTemplates.tsx     # Gestion templates PDF (4 types, couleurs/polices/marges/textes, preview PDF) (+ pdf-templates/)
                 └── detail/
                     ├── Configuration.tsx # (alias)
                     ├── LdapSync.tsx     # (alias)

@@ -4,6 +4,39 @@ Historique des évolutions notables de l'application. Les entrées les plus réc
 
 ---
 
+## 2026-09-17 — Réduction de la dette technique : découpage des gros fichiers
+
+Refactor sans changement de comportement : chaque fichier d'origine garde son chemin et ses exports
+publics et devient une façade qui délègue à des modules de moins de 400 lignes. Deux relectures
+indépendantes ont comparé l'ancien et le nouveau code fonction par fonction sans relever de dérive.
+
+### Backend
+- `bons.service.ts` (1 691 → 188 lignes) : requêtes, export CSV, validations, étapes du cycle de vie.
+- `pdf.service.ts` (1 116 → 397) : modules de rendu PDFKit ; PDF produit identique à l'octet près.
+- `notification.service.ts` (1 010 → 352) et `templates.service.ts` (609 → 161) : transport SMTP,
+  journal des envois, messages par type, rappels, modèles par défaut.
+- `signature.service.ts` (909 → 244) et `auth.service.ts` (629 → 204) : tokens, signature, cachet IT,
+  correspondance groupes Entra → rôle, SSO, connexion locale, jetons de session.
+
+### Frontend
+- Page de signature (924 → 210), création de bon (829 → 168), liste des bons (538 → 112),
+  actions de la fiche (353 → 112), portail et fiche collaborateur, Inventaire, en-tête,
+  pages d'administration (modèles PDF et emails, catalogue, contestations, audit, filiales).
+
+### Tests
+- Specs et tests ajoutés pour les modules extraits (881 tests backend, 274 frontend).
+- Délais maximaux relevés (Jest 20 s, Vitest 15 s, `findBy`/`waitFor` 5 s) et préchargement du
+  tableau de bord dans le test du rôle Direction, pour supprimer les échecs aléatoires sous charge.
+
+### Points relevés, non corrigés (hors refactor)
+- `email-xss.spec.ts` recopie les fonctions d'échappement au lieu d'importer `notification/messages/`.
+- `revokeToken()` lance la purge des jetons révoqués sans `.catch`.
+- Libellé « Aucune filiale configuree » sans accents ; variable inutilisée dans le portail collaborateur.
+- Documentation `docs/phase-legal-compliance.md` : marquée « Implémentation complète » alors que les
+  phases A, B et C (hors rétention) ne sont pas implémentées.
+
+---
+
 ## 2026-09-17 — Correctifs après recette sur l'instance de test
 
 Recette effectuée en navigateur (thème sombre, parcours complet d'un bon) après le déploiement
