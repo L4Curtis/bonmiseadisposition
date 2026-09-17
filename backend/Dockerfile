@@ -15,6 +15,7 @@ RUN npm ci --only=production
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY prisma ./prisma
+COPY scripts ./scripts
 RUN mkdir -p /app/data && chown -R nestjs:nodejs /app
 USER nestjs
 EXPOSE 4000

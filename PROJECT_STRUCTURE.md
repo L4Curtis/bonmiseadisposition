@@ -55,7 +55,8 @@ BonDeMiseADisposition/
 │   ├── tsconfig.build.json             # Config build (exclut tests/specs)
 │   ├── nest-cli.json                   # Config CLI NestJS
 │   │
-│   ├── prisma/
+│   ├── scripts/reset-admin-password.js   # réinitialisation du mot de passe admin@local (embarqué dans l'image)
+├── prisma/
 │   │   ├── schema.prisma               # 13 modeles, 6 enums (voir detail ci-dessous)
 │   │   └── migrations/
 │   │       ├── 20260318120219_init/                            # Schema initial complet

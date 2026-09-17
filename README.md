@@ -167,33 +167,37 @@ Au premier démarrage, si aucun compte `admin@local` n'existe :
 
 Il n'existe pas d'écran pour cela (le compte local est le seul moyen d'accès sans SSO). Le
 mot de passe vit en base sous forme de hash bcrypt ; on le remplace depuis le conteneur
-backend, qui dispose déjà de bcrypt, de Prisma et de la bonne `DATABASE_URL` :
+backend, qui possède la bonne `DATABASE_URL` et embarque le script
+`scripts/reset-admin-password.js` :
 
 ```bash
 # 1) Repérer le conteneur backend
 docker ps --filter name=backend --format '{{.Names}}'
 
 # 2) Réinitialiser (remplacer le nom du conteneur et le mot de passe temporaire)
-docker exec -i <conteneur-backend> node -e '
-const bcrypt = require("bcrypt");
-const { PrismaClient } = require("@prisma/client");
-const prisma = new PrismaClient();
-const pwd = process.argv[1];
-if (!pwd || pwd.length < 12) { console.error("Mot de passe trop court (12 caractères minimum)"); process.exit(1); }
-bcrypt.hash(pwd, 12)
-  .then((hash) => prisma.user.update({
-    where: { email: "admin@local" },
-    data: { passwordHash: hash, mustChangePassword: true, passwordChangedAt: new Date(), active: true, isLocalAccount: true },
-  }))
-  .then((u) => { console.log("OK :", u.email, "— changement obligatoire à la prochaine connexion"); return prisma.$disconnect(); })
-  .catch((e) => { console.error("Échec :", e.message); process.exit(1); });
-' 'MotDePasseTemporaire!2026'
+docker exec -i <conteneur-backend> node scripts/reset-admin-password.js 'MotDePasseTemporaire!2026'
 ```
 
 Effets : le hash est remplacé, le changement de mot de passe est imposé à la prochaine
-connexion (politique : 12 caractères minimum, majuscule, minuscule, caractère spécial), et
-`passwordChangedAt` étant mis à jour, toutes les sessions ouvertes de ce compte sont
-invalidées. Rien n'est écrit dans les logs ni dans `data/initial-admin-password.txt`.
+connexion (politique : 12 caractères minimum, majuscule, minuscule, caractère spécial), le
+compte est réactivé et, `passwordChangedAt` étant mis à jour, toutes les sessions ouvertes de
+ce compte sont invalidées. Rien n'est écrit dans les logs ni dans
+`data/initial-admin-password.txt`.
+
+Sur une image antérieure au 2026-09-17 (script absent), l'équivalent en une commande — le
+module s'appelle `bcryptjs`, pas `bcrypt` :
+
+```bash
+docker exec -i <conteneur-backend> node -e '
+const bcrypt = require("bcryptjs"); const { PrismaClient } = require("@prisma/client");
+const prisma = new PrismaClient(); const pwd = process.argv[1];
+bcrypt.hash(pwd, 12)
+  .then((hash) => prisma.user.update({ where: { email: "admin@local" },
+    data: { passwordHash: hash, mustChangePassword: true, passwordChangedAt: new Date(), active: true, isLocalAccount: true } }))
+  .then((u) => { console.log("OK :", u.email); return prisma.$disconnect(); })
+  .catch((e) => { console.error("Échec :", e.message); process.exit(1); });
+' 'MotDePasseTemporaire!2026'
+```
 
 Si le compte est verrouillé après des tentatives ratées (« compte temporairement verrouillé »),
 le verrou tombe de lui-même au bout de 30 minutes. Pour le lever immédiatement, l'administrateur
