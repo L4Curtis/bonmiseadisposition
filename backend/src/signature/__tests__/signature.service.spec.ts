@@ -347,6 +347,18 @@ describe('SignatureService', () => {
       expect(result.bon).toBeUndefined();
     });
 
+    it('should return replaced for a token invalidated to epoch (relance / nouvelle demande)', async () => {
+      const sig = buildSigWithBon({
+        tokenExpiresAt: new Date(0),
+      });
+      prisma.signature.findUnique.mockResolvedValue(sig);
+
+      const result = await service.getBonInfoByToken('test-token-uuid', SIGNER_EMAIL);
+
+      expect(result.status).toBe('replaced');
+      expect(result.bon).toBeUndefined();
+    });
+
     it('should throw NotFoundException for invalid token', async () => {
       prisma.signature.findUnique.mockResolvedValue(null);
 

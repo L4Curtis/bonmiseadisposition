@@ -34,7 +34,7 @@ interface BonInfo {
 }
 
 interface SignatureResponse {
-  status: 'pending' | 'already_signed' | 'expired' | 'unauthorized' | 'cancelled' | 'contested';
+  status: 'pending' | 'already_signed' | 'expired' | 'replaced' | 'unauthorized' | 'cancelled' | 'contested';
   /** Référence seule pour les statuts non-pending (payload minimal côté backend) */
   reference?: string;
   /** Ajouté par le lot backend (lot B) au payload minimal 'already_signed'
@@ -366,6 +366,16 @@ export function SignaturePage() {
         icon={<AlertOctagon className="h-12 w-12 text-red-400" />}
         title="Bon contesté"
         message={`Ce bon${data.reference ? ` (réf. ${data.reference})` : ''} fait l'objet d'une contestation en cours de traitement par le service informatique. Aucune signature n'est attendue.`}
+      />
+    );
+  }
+
+  if (data.status === 'replaced') {
+    return (
+      <StatusScreen
+        icon={<Clock className="h-12 w-12 text-orange-400" />}
+        title="Lien remplacé"
+        message={`Un nouveau lien de signature vous a été envoyé${data.reference ? ` pour le bon ${data.reference}` : ''} (relance ou nouvelle demande) : ce lien-ci n'est plus valable. Ouvrez le dernier email reçu.`}
       />
     );
   }

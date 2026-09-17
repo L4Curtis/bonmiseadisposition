@@ -778,10 +778,18 @@ export class PdfService {
 
   private static readonly ROLE_LABELS: Record<string, string> = {
     it_cachet: 'Service informatique — cachet',
-    mise_disposition: 'Collaborateur',
-    restitution: 'Collaborateur',
-    pv_cloture: 'Collaborateur — procès-verbal',
+    mise_disposition: 'Collaborateur — mise à disposition',
+    restitution: 'Collaborateur — restitution',
+    pv_cloture: 'Collaborateur — procès-verbal de clôture',
   };
+
+  /** Libellé d'une signature dans le certificat : rôle + phase (le cachet IT
+   *  précise la phase via pdfType quand elle est connue). */
+  private static certificateLabel(sig: { type: string; pdfType?: string | null }): string {
+    const base = PdfService.ROLE_LABELS[sig.type] ?? sig.type;
+    if (sig.type !== 'it_cachet' || !sig.pdfType) return base;
+    return `${base} — ${sig.pdfType === 'restitution' ? 'restitution' : 'mise à disposition'}`;
+  }
 
   /**
    * Annexe un certificat de signature électronique : pour chaque signature
@@ -824,7 +832,7 @@ export class PdfService {
       doc.roundedRect(leftX, cardY, pageWidth, cardH, 8).lineWidth(0.5).fillAndStroke(colors.rowAlt, colors.border);
 
       // Pastille de rôle + « signé électroniquement »
-      const role = PdfService.ROLE_LABELS[sig.type] || 'Signataire';
+      const role = PdfService.certificateLabel(sig) || 'Signataire';
       doc.circle(leftX + 14, cardY + 14, 2.6).fillColor('#16a34a').fill();
       doc.font(this.FONT_BOLD).fontSize(8).fillColor(colors.dark).text(role, leftX + 22, cardY + 10, { width: pageWidth - 220 });
       doc.font(this.FONT_REGULAR).fontSize(6.5).fillColor('#16a34a').text('SIGNÉ ÉLECTRONIQUEMENT', leftX + 22, cardY + 22, { width: pageWidth - 220, characterSpacing: 0.4 });

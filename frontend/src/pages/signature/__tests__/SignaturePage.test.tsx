@@ -127,6 +127,15 @@ describe('SignaturePage', () => {
     expect(await screen.findByText('Lien expiré')).toBeInTheDocument();
   });
 
+  it('shows "Lien remplacé" for a token superseded by a newer link', async () => {
+    mockAuthMe(currentUser);
+    vi.mocked(api.get).mockResolvedValue({ status: 'replaced', reference: 'BDM-1' });
+
+    renderSignaturePage();
+
+    expect(await screen.findByText('Lien remplacé')).toBeInTheDocument();
+  });
+
   it('shows a success screen with a "Mes bons" link when the document is already signed', async () => {
     mockAuthMe(currentUser);
     vi.mocked(api.get).mockResolvedValue({ status: 'already_signed', reference: 'BDM-1' });

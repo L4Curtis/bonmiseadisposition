@@ -32,6 +32,14 @@ du tableau de bord KPI.
 - Export SMB : quand le chemin d'export n'est pas monté, l'export est tracé en échec dans le
   monitoring (réessayable) au lieu de disparaître silencieusement.
 
+- Lien de signature remplacé par une relance ou une nouvelle demande : la page affiche
+  « Lien remplacé » et invite à ouvrir le dernier email reçu, au lieu de « Lien expiré ».
+- PDF : le certificat de signature électronique précise la phase de chaque signature
+  (« Collaborateur — mise à disposition », « Collaborateur — restitution », cachet IT avec sa
+  phase) ; les modèles de restitution, de clôture et d'avenant ont des textes par défaut
+  adaptés (« Équipements restitués », « avoir restitué ») au lieu de ceux de la mise à
+  disposition.
+
 ### Documentation
 
 - README : procédure de réinitialisation du mot de passe `admin@local` et de levée du verrou

@@ -23,6 +23,7 @@ import type { BonsService } from '../bons/bons.service';
 import { BONS_SERVICE } from '../bons/bons.tokens';
 import { BonStatus, SignatureEntry, BON_SELECT_SHAPE, sanitizeBonForResponse, toSafeSignature } from '../common/types';
 import { generateSignatureToken } from '../common/tokens';
+import { INVALIDATED_TOKEN_SENTINEL } from '../common/bon-predicates';
 import { assertPngDataUrl } from '../common/signature-data-url';
 
 // Internal query shape: no legacy Bytes columns (they used to be serialized
@@ -192,6 +193,11 @@ export class SignatureService {
       return { status: 'already_signed', reference: sig.bon.reference, bonId: sig.bon.id };
     }
 
+    // Token invalidé volontairement (relance, nouvelle demande) : un lien plus
+    // récent existe — message distinct d'une expiration naturelle.
+    if (this.isReplacedToken(sig.tokenExpiresAt)) {
+      return { status: 'replaced', reference: sig.bon.reference };
+    }
     if (new Date() > sig.tokenExpiresAt) {
       return { status: 'expired', reference: sig.bon.reference };
     }
@@ -209,6 +215,18 @@ export class SignatureService {
    * restriction aux comptes IT), OU le titulaire du bon identifié par id (fiable
    * même après un changement d'adresse AD) OU par email (compat / trace).
    */
+  /** Un token ramené à l'epoch a été invalidé volontairement (relance, nouvelle
+   *  demande, clôture) : un lien plus récent existe. */
+  private isReplacedToken(tokenExpiresAt: Date): boolean {
+    return tokenExpiresAt.getTime() <= INVALIDATED_TOKEN_SENTINEL.getTime();
+  }
+
+  private expiredMessage(tokenExpiresAt: Date): string {
+    return this.isReplacedToken(tokenExpiresAt)
+      ? 'Ce lien a été remplacé par un nouveau lien de signature : ouvrez le dernier email reçu'
+      : 'Ce lien de signature a expiré';
+  }
+
   private isRecipient(
     bon: { id: string; collaborateurId: string; collaborateurEmail: string },
     isInPerson: boolean,
@@ -237,7 +255,7 @@ export class SignatureService {
     });
     if (!sig) throw new NotFoundException('Lien de signature invalide');
     if (sig.signed) throw new BadRequestException('Ce document a déjà été signé');
-    if (new Date() > sig.tokenExpiresAt) throw new BadRequestException('Ce lien de signature a expiré');
+    if (new Date() > sig.tokenExpiresAt) throw new BadRequestException(this.expiredMessage(sig.tokenExpiresAt));
     if (!this.isRecipient(sig.bon, sig.isInPerson, requesterEmail, requesterId)) {
       throw new ForbiddenException('Ce document est destiné à un autre collaborateur');
     }
@@ -270,7 +288,7 @@ export class SignatureService {
 
     if (!sig) throw new NotFoundException('Lien de signature invalide');
     if (sig.signed) throw new BadRequestException('Ce document a déjà été signé');
-    if (new Date() > sig.tokenExpiresAt) throw new BadRequestException('Ce lien de signature a expiré');
+    if (new Date() > sig.tokenExpiresAt) throw new BadRequestException(this.expiredMessage(sig.tokenExpiresAt));
 
     // Identité du signataire : par id (fiable après un changement d'adresse AD)
     // OU par email (compat / trace) — bon.collaborateurEmail reste inchangé et
@@ -318,7 +336,7 @@ export class SignatureService {
         throw new BadRequestException('Ce document a déjà été signé (concurrent)');
       }
       if (new Date() > freshSig.tokenExpiresAt) {
-        throw new BadRequestException('Ce lien de signature a expiré');
+        throw new BadRequestException(this.expiredMessage(freshSig.tokenExpiresAt));
       }
       if (['cancelled', 'contested', 'archived'].includes(freshSig.bon.status)) {
         throw new BadRequestException('Ce bon est clôturé, annulé ou contesté et ne peut plus être signé');

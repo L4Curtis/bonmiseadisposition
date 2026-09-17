@@ -228,16 +228,16 @@ export const DEFAULT_CONFIGS: Record<string, PdfTemplateConfig> = {
       entiteTitle: 'ENTITÉ / FILIALE',
     },
     table: {
-      sectionTitle: 'ÉQUIPEMENTS MIS À DISPOSITION',
+      sectionTitle: 'ÉQUIPEMENTS RESTITUÉS',
       showRowNumbers: true,
       emptyMessage: 'Aucun équipement enregistré',
     },
     signatures: {
       showSignatures: true,
       itTitle: 'SERVICE INFORMATIQUE',
-      itMention: 'Je certifie avoir remis les équipements ci-dessus en bon état de fonctionnement',
+      itMention: 'Je certifie avoir repris les équipements ci-dessus dans l’état indiqué',
       collabTitle: 'COLLABORATEUR',
-      collabMention: 'Lu et approuvé — Je reconnais avoir reçu les équipements listés ci-dessus en bon état',
+      collabMention: 'Lu et approuvé — Je reconnais avoir restitué les équipements listés ci-dessus',
     },
     footer: {
       showFooter: true,
@@ -265,16 +265,16 @@ export const DEFAULT_CONFIGS: Record<string, PdfTemplateConfig> = {
       entiteTitle: 'ENTITÉ / FILIALE',
     },
     table: {
-      sectionTitle: 'ÉQUIPEMENTS MIS À DISPOSITION',
+      sectionTitle: 'ÉQUIPEMENTS — ÉTAT AU PROCÈS-VERBAL',
       showRowNumbers: true,
       emptyMessage: 'Aucun équipement enregistré',
     },
     signatures: {
       showSignatures: true,
       itTitle: 'SERVICE INFORMATIQUE',
-      itMention: 'Je certifie avoir remis les équipements ci-dessus en bon état de fonctionnement',
+      itMention: 'Je certifie l’état des équipements ci-dessus (rendus / non rendus) à la date du présent procès-verbal',
       collabTitle: 'COLLABORATEUR',
-      collabMention: 'Lu et approuvé — Je reconnais avoir reçu les équipements listés ci-dessus en bon état',
+      collabMention: 'Lu et approuvé — Je reconnais l’état des équipements listés ci-dessus, dont ceux déclarés non rendus',
     },
     footer: {
       showFooter: true,
@@ -311,7 +311,7 @@ export const DEFAULT_CONFIGS: Record<string, PdfTemplateConfig> = {
       itTitle: 'SERVICE INFORMATIQUE — ATTESTATION',
       itMention: 'Je certifie que le(s) équipement(s) listé(s) ci-dessus ont été retrouvés et récupérés à la date indiquée.',
       collabTitle: 'COLLABORATEUR',
-      collabMention: 'Lu et approuvé — Je reconnais avoir reçu les équipements listés ci-dessus en bon état',
+      collabMention: 'Lu et approuvé — Je reconnais que le(s) équipement(s) listé(s) ci-dessus ont été restitués',
     },
     footer: {
       showFooter: true,
