@@ -597,9 +597,9 @@ export class SignatureService {
     // Liste blanche implicite : le cachet IT ne peut être apposé que sur un bon
     // qui a été envoyé au moins une fois (pas encore un brouillon) et qui n'est
     // pas déjà clôturé, annulé ou contesté.
-    if (bon.status === 'draft') {
-      throw new BadRequestException('Le cachet IT ne peut être apposé que sur un bon envoyé');
-    }
+    // Un brouillon est accepté : le flux « Envoyer » de l'interface appose le
+    // cachet IT AVANT l'envoi (le PDF envoyé au collaborateur porte ainsi le
+    // cachet). Seuls les bons clos ou contestés sont refusés.
     if (['cancelled', 'archived', 'contested'].includes(bon.status)) {
       throw new BadRequestException('Ce bon est clôturé ou contesté et ne peut plus être modifié');
     }

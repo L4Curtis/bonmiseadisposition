@@ -709,17 +709,19 @@ describe('SignatureService', () => {
       expect(prisma.signature.create).not.toHaveBeenCalled();
     });
 
-    it('should throw for draft bons (le cachet IT requiert un bon envoyé)', async () => {
+    it('should accept draft bons (le flux « Envoyer » appose le cachet avant l’envoi)', async () => {
       const bon = draftBon();
       prisma.signature.findFirst.mockResolvedValue(null);
-      prisma.bon.findUniqueOrThrow.mockResolvedValue(bon);
+      prisma.bon.findUniqueOrThrow.mockResolvedValueOnce(bon);
+      prisma.signature.updateMany.mockResolvedValue({ count: 0 });
+      prisma.signature.create.mockResolvedValue({ id: 'sig-it-draft', bonId: bon.id, type: 'it_cachet', signed: true });
+      prisma.auditLog.create.mockResolvedValue({});
+      prisma.bon.findUniqueOrThrow.mockResolvedValueOnce(bon);
 
-      await expect(
-        service.signItCachet(bon.id, VALID_SIGNATURE_DATA_URL, 'tech@test.fr', SIGNER_IP, SIGNER_UA),
-      ).rejects.toThrow(BadRequestException);
-      await expect(
-        service.signItCachet(bon.id, VALID_SIGNATURE_DATA_URL, 'tech@test.fr', SIGNER_IP, SIGNER_UA),
-      ).rejects.toThrow('Le cachet IT ne peut être apposé que sur un bon envoyé');
+      const result = await service.signItCachet(bon.id, VALID_SIGNATURE_DATA_URL, 'tech@test.fr', SIGNER_IP, SIGNER_UA);
+
+      expect(result.ok).toBe(true);
+      expect(prisma.signature.create).toHaveBeenCalledTimes(1);
     });
 
     it('should throw for cancelled bons', async () => {

@@ -147,8 +147,11 @@ export class KpiIncidentsService {
   private async auditCounts(range: Range, filialeId?: string): Promise<AuditCounts> {
     const rows = await this.prisma.$queryRaw<AuditCountsRow[]>(Prisma.sql`
       SELECT
-        COUNT(*) FILTER (WHERE a.action = 'declare_not_returned' OR a.action = 'declare_not_returned_partial')::bigint AS declared,
-        COUNT(*) FILTER (WHERE a.action = 'mark_found' OR a.action = 'mark_found_partial')::bigint AS found,
+        -- declare_not_returned / mark_found sont toujours journalisés ; les
+        -- variantes _partial sont des marqueurs SUPPLÉMENTAIRES (équipements
+        -- restants) et ne doivent pas être comptées une seconde fois.
+        COUNT(*) FILTER (WHERE a.action = 'declare_not_returned')::bigint AS declared,
+        COUNT(*) FILTER (WHERE a.action = 'mark_found')::bigint AS found,
         COUNT(*) FILTER (WHERE a.action = 'pv_cloture_emitted')::bigint AS "pvEmitted",
         COUNT(*) FILTER (WHERE a.action = 'bon_closed_unilateral')::bigint AS unilateral,
         COUNT(*) FILTER (WHERE a.action = 'bon_cancelled')::bigint AS cancelled

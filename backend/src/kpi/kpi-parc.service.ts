@@ -359,8 +359,10 @@ export class KpiParcService {
   private notReturnedFlowsQuery(range: { from: string; to: string }, filialeId?: string): Prisma.Sql {
     return Prisma.sql`
       SELECT
-        COUNT(*) FILTER (WHERE a.action IN ('declare_not_returned', 'declare_not_returned_partial'))::bigint AS declared,
-        COUNT(*) FILTER (WHERE a.action IN ('mark_found', 'mark_found_partial'))::bigint AS found
+        -- declare_not_returned / mark_found sont toujours journalisés ; les variantes
+        -- _partial sont des marqueurs supplémentaires, non comptées une seconde fois.
+        COUNT(*) FILTER (WHERE a.action = 'declare_not_returned')::bigint AS declared,
+        COUNT(*) FILTER (WHERE a.action = 'mark_found')::bigint AS found
       FROM audit_logs a
       JOIN bons b ON b.id = a.bon_id
       WHERE ${inRange(Prisma.sql`a.created_at`, range)}
