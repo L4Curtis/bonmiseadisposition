@@ -19,6 +19,7 @@ Technicien cree le bon → appose son cachet IT → envoie au collaborateur
 
 **Utilisateurs :**
 - Equipe IT (admin, technician) : cree les bons, gere tout
+- Direction (lecture seule, depuis le 2026-09-17) : tableau de bord KPI (sauf onglet Aujourd'hui) et inventaire du parc pret ; aucun acces aux bons individuels, aux utilisateurs ni a l'administration. Attribution par groupe Entra dedie (`entra.direction_group_id`) : comme pour admin/technician, le groupe Entra fait foi et ecrase le role a **chaque** connexion SSO, sans exception. Attribution manuelle possible depuis Utilisateurs (`PATCH /admin/users/:id/role`, reserve admin) — durable uniquement pour un compte local ; pour un compte SSO, elle est ecrasee des la prochaine connexion si le compte n'est pas dans le groupe configure.
 - Collaborateurs : signent, consultent leur portail, contestent
 
 ---
@@ -47,27 +48,35 @@ Technicien cree le bon → appose son cachet IT → envoie au collaborateur
 
 ---
 
-## 3. Architecture backend — 15 modules NestJS
+## 3. Architecture backend — 18 modules NestJS (enregistres dans `AppModule`)
 
 | Module | Fichiers | Role |
 |--------|----------|------|
 | `PrismaModule` | module + service | Connexion DB |
 | `ConfigModule` | module + service + encryption | Config chiffree en DB, cache TTL 5min |
+| `TemplatesModule` | module (`@Global`) + service | 9 templates email personnalisables, rendu par variables `{{...}}` |
 | `AuthModule` | module + service + controller + guards + decorators + strategy | SSO Entra + login local + JWT |
-| `AdminModule` | module + service + controller | CRUD config, tests connexion |
+| `AdminModule` | module + service + controller | CRUD config, tests connexion, monitoring SMB, changement de role utilisateur |
 | `LdapModule` | module + service | Sync AD, cron 6h, `entry.attributes` |
 | `FilialesModule` | module + service + controller + dto | CRUD filiales + upload logo/cachet |
 | `EquipmentModule` | module + service + controller + dto | Catalogue + packs |
 | `UsersModule` | module + service + controller | Liste + autocomplete |
-| `BonsModule` | module + service + controller + dto | CRUD bons, stats, export CSV, resend |
-| `SignatureModule` | module + service + controller + dto | Sign collab + cachet IT + chiffrement PNG |
-| `PdfModule` | module + service + templates service + config + dto | PDFKit, templates config, preview, snapshot en DB |
 | `NotificationModule` | module + service | SMTP + cron rappels + logs |
+| `SignatureModule` | module + service + controller + dto | Sign collab + cachet IT + chiffrement PNG |
+| `BonsModule` | module + service + controller + dto | CRUD bons, stats, export CSV, resend |
 | `AuditModule` | module + service + controller | Logs d'audit pagines |
 | `ContestationModule` | module + service + controller | Workflow contestation collab |
-| `HealthController` | controller standalone | `GET /health` |
+| `AttachmentsModule` | module + service + controller | Pieces jointes (upload/telechargement/suppression), purge par anciennete |
+| `RetentionModule` | module + service | Anonymisation RGPD (plancher 60 mois, dry-run obligatoire), purge tokens/audit/pieces jointes |
+| `ReportingModule` | module + controller + service | **Reduit a l'inventaire** (`reporting.service.ts`/`reporting.controller.ts` supprimes, lot 5) : parc pret filtrable, export CSV |
+| `KpiModule` | module + controller + 3 services + cache + dto | **Nouveau** — Tableau de bord KPI : `GET /kpi/parc\|delais\|incidents` (admin, technician, direction), cache 60 s |
 
-**51 fichiers TypeScript backend, 32 fichiers frontend, ~5000 lignes total.**
+Modules imbriques (importes par un module ci-dessus, pas directement par `AppModule`) : `PdfModule`
+(PDFKit, templates PDF, snapshots — importe par Bons/Signature/Admin), `SmbModule` (export reseau —
+importe par Admin). `HealthController` : controller standalone, `GET /health`.
+
+**51 fichiers TypeScript backend, 32 fichiers frontend, ~5000 lignes total** (avant l'ajout du
+module KPI et du tableau de bord — voir [CHANGELOG.md](CHANGELOG.md) pour le detail).
 
 ---
 
@@ -105,21 +114,25 @@ Contestation, NotificationLog, AuditLog, RevokedToken
 
 ## 5. Pages frontend — 16 pages React
 
+> **2026-09-17** : `DashboardIT.tsx` et la page admin `Reports.tsx` sont supprimees, remplacees
+> par `pages/dashboard/DashboardPage.tsx` (voir ci-dessous). `/admin/reports` redirige vers
+> `/dashboard?tab=parc`.
+
 | Page | Route | Role |
 |------|-------|------|
 | Login | `/login` | SSO Entra + login local |
-| DashboardIT | `/dashboard` | Stats, cartes cliquables, activite recente |
+| DashboardPage | `/dashboard` | A onglets : Aujourd'hui (IT seulement, contenu ex-DashboardIT), Parc, Delais, Incidents. Periode (`from`/`to`) et filiale (`filialeId`) dans l'URL ; admin/technician/direction, direction arrive sur Parc |
 | BonsList | `/bons` | Liste filtrable + export CSV + `useSearchParams` |
 | BonCreate | `/bons/new` | Formulaire creation (packs, catalogue, libre) |
 | BonDetail | `/bons/:id` | Actions IT, cachet integre (`PendingItAction`), PDF, renvoyer lien |
 | SignaturePage | `/signer/:token` | Canvas signature collab (publique, SSO obligatoire) |
 | PortailCollaborateur | `/mes-bons` | Bons perso, signer, contester, PDF |
 | BonDetailCollaborateur | `/mes-bons/:id` | Detail bon pour collaborateur |
-| Configuration | `/admin/configuration` | LDAP, Entra, SMTP (avec tests) |
+| Configuration | `/admin/configuration` | LDAP, Entra (dont Groupe Direction), SMTP (avec tests), Rappels (dont seuil de retard) |
 | LdapSync | `/admin/ldap` | Statut sync + resync manuelle |
 | Filiales | `/admin/filiales` | CRUD + upload (adresse, SIRET) |
 | Catalogue | `/admin/catalogue` | Items + packs |
-| Utilisateurs | `/admin/utilisateurs` | Liste users |
+| Utilisateurs | `/admin/utilisateurs` | Liste users + selecteur de role (admin, incl. Direction), desactive sur sa propre ligne |
 | AuditLogs | `/admin/audit` | Tableau pagine + filtres |
 | Contestations | `/admin/contestations` | Workflow contestation |
 | Templates | `/admin/email-templates` | Templates email (edit/preview/reset/export/import) |
@@ -236,7 +249,7 @@ FRONTEND_URL=https://bons.exemple.local
 | `GET` | `/api/bons/mes-bons` | collaborator+ |
 | `POST` | `/api/bons/:id/contestation` | collaborator+ |
 | `POST` | `/api/bons/:id/resend` | admin/technician |
-| `GET` | `/api/bons/stats` | admin/technician |
+| `GET` | `/api/bons/stats` | admin/technician (+ `overdueThresholdDays`, seuil configurable via `rappels.signature_overdue_days`) |
 | `GET` | `/api/bons/recent` | admin/technician |
 | `GET` | `/api/bons/export` | admin/technician |
 | `GET` | `/api/bons?overdue=1` | admin/technician (`overdue=1` : en retard > 7 j) |
@@ -259,11 +272,26 @@ FRONTEND_URL=https://bons.exemple.local
 `tous*` = admin, technician, collaborateur (acces restreint a ses propres bons).
 
 ### Reporting / Inventaire
+> Module reduit a l'inventaire (lot 5, 2026-09-17) : `reporting.service.ts`/`reporting.controller.ts`
+> et la route `/api/reports/*` sont supprimes. `/admin/reports` (frontend) redirige vers
+> `/dashboard?tab=parc`.
+
 | Methode | Route | Auth |
 |---------|-------|------|
-| `GET` | `/api/reporting/inventory` | admin/technician |
-| `GET` | `/api/reporting/inventory/summary` | admin/technician |
-| `GET` | `/api/reporting/inventory/export` | admin/technician |
+| `GET` | `/api/reporting/inventory` | admin/technician/direction |
+| `GET` | `/api/reporting/inventory/summary` | admin/technician/direction |
+| `GET` | `/api/reporting/inventory/export` | admin/technician/direction |
+
+### KPI — Tableau de bord (2026-09-17)
+> Cache 60 s, cle `kpi:<endpoint>:<from>:<to>:<filialeId|''>`, independante du role appelant.
+
+| Methode | Route | Auth |
+|---------|-------|------|
+| `GET` | `/api/kpi/parc?from=&to=&filialeId=` | admin/technician/direction |
+| `GET` | `/api/kpi/delais?from=&to=&filialeId=` | admin/technician/direction |
+| `GET` | `/api/kpi/incidents?from=&to=&filialeId=` | admin/technician/direction |
+
+`from`/`to` : `AAAA-MM-JJ` (Europe/Paris), defaut 30 derniers jours. `filialeId` : UUID optionnel.
 
 ### Signature
 | Methode | Route | Auth |
@@ -283,6 +311,8 @@ FRONTEND_URL=https://bons.exemple.local
 | `POST` | `/api/admin/ldap/sync` | admin |
 | `DELETE` | `/api/admin/ldap/users` | admin |
 | `POST` | `/api/admin/users/:id/unlock` | admin |
+| `PATCH` | `/api/admin/users/:id/role` | admin (refuse sur soi-meme et sur le dernier admin actif ; audit `user_role_changed`) |
+| `GET` | `/api/admin/notifications/failed?days=30` | admin (emails non delivres, migre depuis l'ancien module Reporting) |
 | `POST` | `/api/admin/pdf/regenerate-missing` | admin |
 
 ### Audit
@@ -391,6 +421,14 @@ Internet → Nginx Proxy Manager (SSL:443)
 | Polices standard PDFKit (Helvetica, AFM) | Rendu incomplet des caracteres hors jeu de base. Polices DejaVu Sans (regular + bold) embarquees dans `backend/src/pdf/fonts/` pour un rendu Unicode complet |
 | `mkdir({ recursive: true })` sur la racine d'un export SMB | Creerait silencieusement un dossier local dans le conteneur si le partage reseau n'est pas monte, et l'export « reussirait » sans rien ecrire sur le partage reel. La racine doit deja exister (`fs.existsSync`) ; seuls les sous-dossiers (filiale/annee/bon) sont crees a la volee |
 | Deduire un etat metier (ex. « PV en attente ») de la simple existence d'une ligne `Signature` non signee | Cette ligne peut etre purgee par la retention (`purgeExpiredTokens`, tokens expires) independamment du statut du bon. Deriver l'etat des champs metier reels (`BonEquipment.returnedAt`/`notReturned`), comme le fait `emitPvClotureIfDue` |
+| Comparer une colonne enum (`b.status`, `s.type`, `nl.type`, `nl.status`, `c.status`, `ec.category`) a un parametre texte dans un `$queryRaw` | Postgres refuse (`operator does not exist: "BonStatus" = text`, bug reel deja rencontre, commit `a19ea00`). Caster systematiquement en `::text` cote colonne |
+| `AVG`, `EXTRACT(EPOCH ...)`, `percentile_cont` dans un `$queryRaw` sans cast | Prisma renvoie un `Decimal` (non serialisable proprement en JSON). Caster en `::float8` |
+| `COUNT(*)` dans un `$queryRaw` | Renvoie un `bigint` (`5n`), non serialisable en JSON tel quel. Convertir avec `Number()` avant de renvoyer la reponse |
+| Ecrire `colonne AT TIME ZONE 'Europe/Paris'` directement sur une colonne Prisma (`timestamp` SANS fuseau, valeurs stockees en UTC) | Postgres relit les chiffres UTC comme s'ils etaient deja une heure de Paris (decalage d'1-2h, bug reel corrige au commit `f1e3e35`). Toujours passer par les fragments de `backend/src/kpi/kpi-sql.ts` (bornes ramenees en UTC naif, buckets convertis explicitement depuis UTC) |
+| Recalculer une definition de « retard de signature » ou d'« equipement pret » dans un nouveau service | Trois definitions divergentes existaient avant l'unification (dashboard IT, Reporting, Inventaire). Utiliser exclusivement `backend/src/common/bon-predicates.ts` (`buildOverdueSignatureWhere`/`overdueSignatureSql`, `buildLoanedEquipmentWhere`/`loanedEquipmentSql`) |
+| `ALTER TYPE ... ADD VALUE` dans la meme migration qu'une instruction qui utilise la nouvelle valeur | Postgres l'interdit dans la meme transaction (« unsafe use of new value of enum type »). La migration `20260916110000_user_role_direction` ne contient QUE cette instruction ; toute utilisation de `'direction'` vit dans une migration posterieure |
+| Interroger `/api/kpi/*` en boucle rapprochee en attendant un changement de configuration (ex. seuil de retard) | Reponse mise en cache serveur 60 s par cle `kpi:<endpoint>:<from>:<to>:<filialeId|''>` : le changement n'est visible qu'apres expiration du cache |
+| Tester un composant Recharts (`TimeSeriesChart`, `DonutChart`, `HorizontalBars`) sous Vitest/jsdom sans mock | `ResponsiveContainer` mesure un conteneur DOM reel (largeur/hauteur 0 en jsdom) et ne rend rien. Mocker `ResponsiveContainer` dans le test |
 
 ---
 
@@ -560,6 +598,26 @@ volontairement en cas de doublons — voir [README.md](README.md)).
 
 Detail complet des ~40 corrections par domaine : [CHANGELOG.md](CHANGELOG.md). Regles de
 securite a jour : [docs/security.md](docs/security.md).
+
+---
+
+## 17. Tableau de bord KPI et role Direction (2026-09-17)
+
+Remplacement du tableau de bord IT et fusion de la page Reporting dans une page unique a
+onglets (`/dashboard` : Aujourd'hui, Parc, Delais, Incidents), et ouverture en lecture seule
+au nouveau role Direction. Voir §1 (role), §3 (module `kpi`), §5 (page), §8 (endpoints) et §11
+(pieges) ci-dessus pour le detail.
+
+- **Nouvelles cles de configuration** : `rappels.signature_overdue_days` (seuil de retard de
+  signature, defaut 7, minimum 1 — remplace la constante fixe historique) et
+  `entra.direction_group_id` (groupe Entra attribue au role Direction).
+- **2 nouvelles migrations Prisma**, toutes deux idempotentes (`ADD VALUE IF NOT EXISTS`,
+  `CREATE INDEX IF NOT EXISTS`) : `20260916110000_user_role_direction` (valeur d'enum) et
+  `20260916110100_kpi_indexes` (9 index pour les agregats du tableau de bord).
+- **Retrait** : `reporting.service.ts`/`reporting.controller.ts` supprimes ; `/admin/reports`
+  redirige vers `/dashboard?tab=parc`.
+
+Detail complet : [CHANGELOG.md](CHANGELOG.md) (entree du 2026-09-17).
 
 ---
 

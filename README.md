@@ -194,6 +194,12 @@ Au démarrage, le backend exécute automatiquement `prisma migrate deploy`. Au p
 redémarrage après cette mise à jour, **6 nouvelles migrations** s'appliquent (index de
 performance, normalisation de champs, contraintes d'unicité, colonnes additives).
 
+Deux migrations supplémentaires accompagnent le tableau de bord KPI et le rôle Direction : une
+nouvelle valeur d'énumération pour les rôles utilisateur (`direction`) et neuf index sur les
+tables sollicitées par les agrégats du tableau de bord. Contrairement aux deux migrations
+décrites ci-dessous, ces deux-là sont **entièrement idempotentes** (`ADD VALUE IF NOT EXISTS`,
+`CREATE INDEX IF NOT EXISTS`) : aucune vérification préalable n'est nécessaire.
+
 **Deux d'entre elles échouent volontairement** si des doublons existent déjà en base — pour
 que le déploiement s'arrête proprement plutôt que de corrompre des données. Avant de
 redéployer, vérifiez l'absence de doublons avec ces requêtes SQL (à exécuter sur la base de

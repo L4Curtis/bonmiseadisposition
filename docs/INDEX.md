@@ -71,6 +71,14 @@
 - Validation stricte (class-validator nested DTOs)
 - Page admin : `/admin/pdf-templates`
 
+### Tableau de bord KPI, rôle Direction, seuil de retard configurable (2026-09-17)
+**[../CHANGELOG.md](../CHANGELOG.md)** — voir l'entrée du 2026-09-17
+- Tableau de bord à onglets (Aujourd'hui, Parc, Délais, Incidents) remplaçant l'ancien tableau
+  de bord IT et la page Reporting (fusionnée, module réduit à l'inventaire)
+- Nouveau rôle Direction (lecture seule : tableau de bord, inventaire)
+- Définitions unifiées (retard de signature) et seuil configurable
+- Détail technique : [PROJECT_STRUCTURE.md](../PROJECT_STRUCTURE.md), [security.md](security.md)
+
 ### Mise à jour pré-production (2026-09-16)
 **[../CHANGELOG.md](../CHANGELOG.md)**
 - Corrections sécurité, workflow des bons, signature/portail, emails, PDF et données
@@ -179,7 +187,8 @@
 | Phase 8 | 2026-03-25 | Templates PDF personnalisables |
 | Corrections | 2026-06 | Fixes catalogue, email, notifications |
 | Mise à jour pré-production | 2026-09-16 | Sécurité, workflow des bons, signature/portail, emails, PDF, données, inventaire, rappel de restitution — voir [CHANGELOG.md](../CHANGELOG.md) |
+| Tableau de bord KPI | 2026-09-17 | Onglets Parc/Délais/Incidents, rôle Direction, retrait de Reporting, seuil de retard configurable — voir [CHANGELOG.md](../CHANGELOG.md) |
 
 ---
 
-**Dernière mise à jour** : 2026-09-16
+**Dernière mise à jour** : 2026-09-17

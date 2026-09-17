@@ -1,9 +1,12 @@
 # Structure du Projet — Bon de Mise a Disposition
 
-> **Mis a jour le 2026-09-16** — Mise à jour pré-production : sécurité (verrouillage composite,
+> **Mis a jour le 2026-09-17** — Tableau de bord KPI à onglets (module `kpi`), rôle Direction
+> (lecture seule), seuil de retard de signature configurable, fusion du module Reporting dans
+> l'inventaire. Voir [CHANGELOG.md](CHANGELOG.md) pour le détail complet.
+>
+> **Mise a jour le 2026-09-16** — Mise à jour pré-production : sécurité (verrouillage composite,
 > garde-fou LDAP, plancher RGPD), machine à états des bons corrigée, inventaire du parc prêté,
-> rappel avant restitution, historique des emails par bon, régénération des PDF manquants. Voir
-> [CHANGELOG.md](CHANGELOG.md) pour le détail complet.
+> rappel avant restitution, historique des emails par bon, régénération des PDF manquants.
 
 ## Vue d'ensemble
 
@@ -62,7 +65,10 @@ BonDeMiseADisposition/
 │   │       ├── 20260319100000_add_must_change_password/        # Changement mdp obligatoire
 │   │       ├── 20260319110020_pdf_snapshots_partial_restitution/ # Restitution partielle
 │   │       ├── 20260319150017_pv_cloture_signature/            # Signature PV cloture
-│   │       └── 20260319153614_avenant_equipement_retrouve/     # Avenant equipement retrouve
+│   │       ├── 20260319153614_avenant_equipement_retrouve/     # Avenant equipement retrouve
+│   │       ├── ... (voir CHANGELOG.md pour les migrations de la mise a jour 2026-09-16)
+│   │       ├── 20260916110000_user_role_direction/              # ALTER TYPE UserRole ADD VALUE 'direction' (seule dans sa migration)
+│   │       └── 20260916110100_kpi_indexes/                      # 9 index CREATE INDEX IF NOT EXISTS pour les agregats KPI
 │   │
 │   └── src/
 │       ├── main.ts                     # Bootstrap NestJS : CORS, Helmet, ValidationPipe, port 4000
@@ -177,11 +183,24 @@ BonDeMiseADisposition/
 │       │   ├── retention.module.ts     # Module retention RGPD
 │       │   └── retention.service.ts    # Anonymisation (plancher 60 mois, dry-run), purge tokens/audit/PJ
 │       │
-│       └── reporting/
-│           ├── reporting.module.ts     # Module rapports (inclut l'inventaire)
-│           ├── reporting.controller.ts # Endpoints de reporting existants
-│           ├── reporting.service.ts    # Agregations (stats, exports)
-│           ├── inventory.controller.ts # GET /reporting/inventory, /summary, /export (admin, technician)
+│       ├── kpi/                        # Module Tableau de bord KPI (admin, technician, direction)
+│       │   ├── kpi.module.ts           # Enregistre le controller + les 3 services + le cache
+│       │   ├── kpi.controller.ts       # GET /kpi/parc | /kpi/delais | /kpi/incidents
+│       │   ├── kpi-period.ts           # resolvePeriod, periode precedente, granularite, buckets/fillSeries
+│       │   ├── kpi-sql.ts              # Fragments Prisma.sql : bornes Paris en UTC naif, filtre filiale, bucketExpr
+│       │   ├── kpi-cache.service.ts    # Cache mémoire TTL 60 s, dedoublonnage des promesses en vol, max 200 cles
+│       │   ├── kpi-types.ts            # Types de reponse (sections par onglet)
+│       │   ├── kpi-parc.service.ts     # Parc prete, retards de restitution, non rendus
+│       │   ├── kpi-delais.service.ts   # Volumes, delais creation->envoi->signature, attente
+│       │   │   └── delais/             # kpi-delais.service : requetes SQL (delais-queries.ts) + mappers (delais-mappers.ts)
+│       │   ├── kpi-incidents.service.ts # Non rendus, PV, clotures, contestations, rappels, emails en echec
+│       │   ├── dto/
+│       │   │   └── kpi-query.dto.ts    # from?, to? (AAAA-MM-JJ), filialeId? (UUID)
+│       │   └── __tests__/              # kpi-period, kpi-sql, kpi-cache.service, kpi.controller, 1 spec par service KPI
+│       │
+│       └── reporting/                  # Reduit a l'inventaire (reporting.service/controller supprimes, lot 5)
+│           ├── reporting.module.ts     # Module inventaire — ne declare plus que InventoryController/InventoryService
+│           ├── inventory.controller.ts # GET /reporting/inventory, /summary, /export (admin, technician, direction)
 │           ├── inventory.service.ts    # Parc prete : equipements non retournes des bons actifs/en cours
 │           └── dto/
 │               └── inventory-query.dto.ts # Filtres (filiale, categorie, collaborateur, recherche, pagination, tri)
@@ -207,19 +226,43 @@ BonDeMiseADisposition/
         ├── types/
         │   └── index.ts               # Types : User, Filiale, BonStatus, labels/couleurs
         │
+        ├── hooks/
+        │   ├── use-api-resource.ts             # loading/error/reload + anti-course ; path=null désactive l'appel
+        │   ├── use-open-contestations-count.ts # Badge Sidebar : IT seulement, au plus 1 appel/30 s, silencieux en erreur
+        │   ├── use-signature-canvas.ts          # Canvas HTML5 natif de signature
+        │   ├── use-toast.ts                     # Notifications toast (file d'attente, 3 s)
+        │   └── use-unsaved-changes.ts           # Confirmation avant de quitter un formulaire modifie
+        │
         ├── lib/
         │   ├── api.ts                  # Client HTTP : fetch + auto-refresh JWT 401
-        │   └── utils.ts                # cn() : clsx + tailwind-merge
+        │   ├── utils.ts                # cn() : clsx + tailwind-merge
+        │   ├── labels.ts               # Libellés FR partagés (dont ROLE_LABELS avec « Direction »)
+        │   ├── kpi-format.ts           # Formats FR partagés par les tuiles/graphiques KPI (formatNumber, formatPercent…)
+        │   ├── kpi-period.ts           # Presets de période (7j/30j/90j/12 mois), todayInParis, calculs en Date.UTC
+        │   ├── bon-helpers.ts          # Aides communes bons (labels de statut, etc.)
+        │   ├── errors.ts               # errorMessage() : message d'erreur FR à partir d'une exception API
+        │   └── validation.ts           # Validation de formulaires côté client
         │
         ├── contexts/
         │   ├── AuthContext.tsx          # AuthProvider + useAuth() (GET /api/auth/me)
-        │   └── ThemeContext.tsx         # ThemeProvider + useTheme() (light/dark/system)
+        │   ├── ThemeContext.tsx         # ThemeProvider + useTheme() (light/dark/system)
+        │   └── UiViewContext.tsx        # Vue UX active (collaborateur/technicien/administrateur/direction) — affichage uniquement, jamais un guard de sécurité
         │
         ├── components/
         │   ├── layout/
         │   │   ├── Layout.tsx          # Shell : sidebar + header + <Outlet/>
-        │   │   ├── Header.tsx          # Barre sup : user info, logout, changement mdp
-        │   │   └── Sidebar.tsx         # Nav gauche : 3 sections (Opérations, Référentiel, Système)
+        │   │   ├── Header.tsx          # Barre sup : user info, logout, changement mdp (recherche globale masquée pour direction)
+        │   │   └── Sidebar.tsx         # Nav gauche par vue UX : technicien/administrateur (Opérations/Référentiel/Système), direction (Pilotage : Tableau de bord, Inventaire), collaborateur (Mes bons)
+        │   │
+        │   ├── dashboard/               # Composants partagés par le tableau de bord KPI
+        │   │   ├── StatCard.tsx          # Tuile unique (remplace les anciennes copies) : delta vs période précédente, format, tone, onClick
+        │   │   ├── BreakdownBars.tsx     # Barres de répartition (catégorie, filiale, statut, motifs…)
+        │   │   ├── ChartCard.tsx         # Cadre graphique : titre, skeleton, vide, erreur + Réessayer
+        │   │   └── charts/
+        │   │       ├── chart-theme.ts    # useChartTheme() : couleurs --chart-1..5 lues via getComputedStyle
+        │   │       ├── TimeSeriesChart.tsx # Courbes temporelles (Recharts)
+        │   │       ├── DonutChart.tsx    # Répartition en donut
+        │   │       └── HorizontalBars.tsx # Barres horizontales
         │   │
         │   └── ui/                     # Composants shadcn/ui (Radix + Tailwind)
         │       ├── button.tsx          # Bouton CVA (6 variants, 4 tailles)
@@ -242,9 +285,20 @@ BonDeMiseADisposition/
             ├── Login.tsx               # SSO Entra ID + fallback auth locale
             ├── ChangePassword.tsx       # Changement mdp (12 car, majuscule, chiffre, special)
             ├── Unauthorized.tsx         # Page 403
-            ├── DashboardIT.tsx          # KPIs (5 cartes), bons recents, repartition filiales
-            ├── Inventaire.tsx           # Parc prete : filtres, tableau pagine, tuiles resume, export CSV
+            ├── Inventaire.tsx           # Parc prete : filtres, tableau pagine, tuiles resume, export CSV (references de bon non cliquables pour direction)
             ├── PortailCollaborateur.tsx  # Vue collab : a signer, actifs, contestes, historique
+            │
+            ├── dashboard/               # Page « Tableau de bord » à onglets — remplace DashboardIT.tsx et admin/Reports.tsx (supprimés)
+            │   ├── DashboardPage.tsx     # Onglets Aujourd'hui/Parc/Délais/Incidents ; ?tab&from&to&filialeId dans l'URL ; onglet actif seul monté
+            │   ├── PeriodSelector.tsx    # Presets 7j/30j/90j/12 mois + période personnalisée
+            │   ├── FilialeFilter.tsx     # Filtre filiale global
+            │   ├── use-period-params.ts  # Lecture/écriture de la période et de la filiale dans l'URL
+            │   ├── types/                # Types de réponse par onglet (common, parc, delais, incidents)
+            │   └── tabs/
+            │       ├── TodayTab.tsx      # Contenu historique du tableau de bord IT (IT uniquement)
+            │       ├── ParcTab.tsx       # + parc/ParcStatCards.tsx, parc/ReturnOverdueTable.tsx
+            │       ├── DelaisTab.tsx     # + delais/SignatureDelayBars.tsx, delais/SignatureModeTiles.tsx, delais/WaitingStepsTable.tsx
+            │       └── IncidentsTab.tsx  # + incidents/ContestationsSummary.tsx, incidents/RemindersSection.tsx, incidents/incident-stat-cards.ts
             │
             ├── bons/
             │   ├── BonsList.tsx         # Liste paginee + filtres (statut, filiale, recherche) + CSV
@@ -256,10 +310,10 @@ BonDeMiseADisposition/
             │
             └── admin/
                 ├── AdminLayout.tsx      # Sous-nav admin avec routing
-                ├── Configuration.tsx    # Config : General, LDAP, SMTP, Entra, Rappels, Tokens
+                ├── Configuration.tsx    # Config : General, LDAP, SMTP, Entra (dont Groupe Direction), Rappels (dont seuil de retard de signature), Tokens
                 ├── LdapSync.tsx         # Sync LDAP : statut, declenchement manuel, purge
                 ├── Filiales.tsx         # CRUD filiales + upload logo/cachet
-                ├── Utilisateurs.tsx     # Annuaire utilisateurs (recherche)
+                ├── Utilisateurs.tsx     # Annuaire utilisateurs (recherche) + sélecteur de rôle (admin, incl. Direction), désactivé sur sa propre ligne et note SSO pour un compte non local
                 ├── Contestations.tsx    # Gestion contestations (open/review/resolve)
                 ├── Templates.tsx        # Gestion templates email (edit/apercu/reset/export/import)
                 ├── PdfTemplates.tsx     # Gestion templates PDF (4 types, couleurs/polices/marges/textes, preview PDF)
@@ -299,7 +353,7 @@ BonDeMiseADisposition/
 
 | Enum | Valeurs |
 |------|---------|
-| **UserRole** | admin, technician, collaborator |
+| **UserRole** | admin, technician, direction, collaborator — `direction` : lecture seule (tableau de bord KPI, inventaire), jamais `isItStaff` (migration `20260916110000_user_role_direction`, `ALTER TYPE ... ADD VALUE`) |
 | **Civilite** | mme, mr |
 | **BonStatus** | draft, sent_mise_dispo, active, sent_restitution, partially_returned, archived, cancelled, contested |
 | **EquipmentCategory** | pc_portable, pc_fixe, ecran, souris, clavier, casque, telephone, housse, dock, cable, autre |
@@ -345,6 +399,8 @@ BonDeMiseADisposition/
 | POST | `/ldap/sync` | admin | Lancer sync LDAP manuelle (interrompue si > 20 % des comptes actifs, et au moins 5, seraient desactives) |
 | DELETE | `/ldap/users` | admin | Purger utilisateurs LDAP (desactivation uniquement, jamais de suppression physique) |
 | POST | `/users/:id/unlock` | admin | Deverrouiller un compte local (purge les echecs recents, journalise `user_unlocked`) |
+| PATCH | `/users/:id/role` | admin | Change le role d'un utilisateur (`admin`, `technician`, `direction`, `collaborator`) ; refuse sur soi-meme et sur le dernier admin actif ; audit `user_role_changed` |
+| GET | `/notifications/failed?days=30` | admin | Emails non delivres (fenetre en jours, defaut/max configurables) — migre depuis l'ancien module Reporting ; declare avant `config/:category` |
 | POST | `/pdf/regenerate-missing` | admin | Regenere les PdfSnapshot manquants pour les signatures deja signees (route `admin/pdf`, controleur dedie) |
 
 ### Templates Email (`/api/admin/email-templates`)
@@ -415,7 +471,7 @@ BonDeMiseADisposition/
 
 | Methode | Route | Roles | Description |
 |---------|-------|-------|-------------|
-| GET | `/stats` | admin, tech | KPIs dashboard (compteurs, par filiale) |
+| GET | `/stats` | admin, tech | Compteurs (dont `overdue` via le prédicat commun, `archivedThisMonth` sur `archivedAt`, `overdueThresholdDays`), par filiale |
 | GET | `/recent?limit=` | admin, tech | Bons recents |
 | GET | `/export?...` | admin, tech | Export CSV (filtres statut/filiale/recherche) |
 | GET | `/mes-bons` | tous | Bons du collaborateur connecte |
@@ -466,37 +522,65 @@ BonDeMiseADisposition/
 
 ### Inventaire (`/api/reporting/inventory`)
 
+> Module Reporting reduit a l'inventaire (lot 5) : `reporting.service.ts`/`reporting.controller.ts`
+> et leur route `/api/reports/*` sont supprimes ; `/admin/reports` redirige cote frontend vers
+> `/dashboard?tab=parc`.
+
 | Methode | Route | Roles | Description |
 |---------|-------|-------|-------------|
-| GET | `/` | admin, tech | Equipements actuellement chez un collaborateur (bons `active`, `sent_restitution`, `partially_returned`, equipement non retourne). Filtres `filialeId`, `category`, `collaborateurId`, `search`, pagination `page`/`limit`, tri `sort` |
-| GET | `/summary` | admin, tech | Comptes agreges par categorie et par filiale |
-| GET | `/export` | admin, tech | Export CSV (mêmes filtres), en-tete `X-Truncated` si le resultat depasse la limite |
+| GET | `/` | admin, tech, direction | Equipements actuellement chez un collaborateur (bons `active`, `sent_restitution`, `partially_returned`, equipement non retourne). Filtres `filialeId`, `category`, `collaborateurId`, `search`, pagination `page`/`limit`, tri `sort` |
+| GET | `/summary` | admin, tech, direction | Comptes agreges par categorie et par filiale |
+| GET | `/export` | admin, tech, direction | Export CSV (mêmes filtres), en-tete `X-Truncated` si le resultat depasse la limite |
+
+### KPI — Tableau de bord (`/api/kpi`)
+
+> Accessible a l'IT (admin, technician) et au role Direction (lecture seule). Reponses mises en
+> cache 60 s, cle `kpi:<endpoint>:<from>:<to>:<filialeId|''>`, independante du role appelant.
+> Query commune : `from`/`to` (AAAA-MM-JJ, defaut 30 derniers jours), `filialeId` (UUID).
+
+| Methode | Route | Roles | Description |
+|---------|-------|-------|-------------|
+| GET | `/parc` | admin, tech, direction | Parc prete (total, par categorie/filiale, top modeles, hors catalogue, couverture serie, serie historique), retards de restitution, non rendus |
+| GET | `/delais` | admin, tech, direction | Volumes crees/envoyes/archives/annules, delais creation→envoi et envoi→signature par type, mode de signature, duree de pret, etapes en attente |
+| GET | `/incidents` | admin, tech, direction | Non rendus, PV de cloture, clotures unilaterales, annulations, contestations, rappels par rang, emails en echec |
 
 ---
 
-## Navigation Sidebar (Reorganisee 2026-03-21)
+## Navigation Sidebar (Reorganisee 2026-03-21, role Direction ajoute le 2026-09-17)
 
-### Structure IT Staff (isItStaff = true)
+La sidebar (`Sidebar.tsx`) affiche les groupes de navigation en fonction de la **vue UX active**
+(`UiViewContext` — technicien/administrateur/direction/collaborateur), elle-meme derivee du role
+reel de l'utilisateur (`getAvailableViews`). Chaque item peut avoir un badge optionnel.
 
-La sidebar est organisee en **3 sections principales**, chaque item peut avoir un badge optionnel :
+### Structure Technicien / Administrateur (isItStaff = true)
+
+La sidebar est organisee en **3 sections principales** :
 
 #### Opérations
-- **Vue d'ensemble** → `/dashboard` (KPIs, activite recente, filiales)
+- **Vue d'ensemble** → `/dashboard` (Tableau de bord a onglets : Aujourd'hui, Parc, Delais, Incidents)
 - **Bons** → `/bons` (Liste, detail, signatures)
-- **Inventaire** → `/inventaire` (Parc prete : filtres, export CSV)
-- **Contestations** → `/admin/contestations` (Litige collaborateur)
+- **Contestations** → `/admin/contestations` (Litige collaborateur, badge = contestations ouvertes)
 
 #### Référentiel
-- **Collaborateurs** → `/admin/utilisateurs` (Annuaire recherche)
+- **Collaborateurs** → `/admin/utilisateurs` (Annuaire recherche + gestion des roles pour admin)
 - **Filiales** → `/admin/filiales` (CRUD + logo/cachet)
 - **Équipements** → `/admin/catalogue` (Catalogue 11 categories + packs)
+- **Inventaire** → `/inventaire` (Parc prete : filtres, export CSV)
 
-#### Système
-- **Modèles d'emails** → `/admin/email-templates` (CRUD templates + apercu + export/import)
-- **Modèles PDF** → `/admin/pdf-templates` (Config couleurs/polices/marges/textes + preview PDF)
-- **Active Directory** → `/admin/ldap` (Sync AD, statut, declenchement manuel)
+#### Système (administrateur uniquement)
+- **Modèles d'emails** → `/admin/templates/email` (CRUD templates + apercu + export/import)
+- **Modèles PDF** → `/admin/templates/pdf` (Config couleurs/polices/marges/textes + preview PDF)
+- **Active Directory** → `/admin/ldap-sync` (Sync AD, statut, declenchement manuel)
 - **Journal d'audit** → `/admin/audit` (Filtres email/action/dates)
-- **Configuration** → `/admin/configuration` (LDAP, SMTP, Entra ID, rappels, tokens)
+- **Configuration** → `/admin/configuration` (LDAP, SMTP, Entra ID dont Groupe Direction, rappels dont seuil de retard, tokens)
+
+### Structure Direction (lecture seule)
+
+Une seule section **Pilotage** :
+- **Tableau de bord** → `/dashboard` (arrivee sur l'onglet Parc, pas d'onglet Aujourd'hui, pas de bouton « Nouveau bon »)
+- **Inventaire** → `/inventaire` (references de bon non cliquables)
+
+Pas de recherche globale (Header), pas d'acces aux bons individuels ni a l'admin.
 
 ### Structure Collaborateur (isItStaff = false)
 
@@ -535,9 +619,9 @@ type NavGroup = {
 | `/change-password` | ChangePasswordPage | auth | Changement mdp obligatoire |
 | `/unauthorized` | UnauthorizedPage | auth | Page 403 |
 | `/signer/:token` | SignaturePage | **public** | Signature electronique (canvas) |
-| `/` | redirect | auth | → /dashboard (IT) ou /mes-bons (collab) |
-| `/dashboard` | DashboardIT | admin, tech | KPIs, activite recente, filiales |
-| `/inventaire` | InventairePage | admin, tech | Parc prete : filtres, tableau pagine, export CSV |
+| `/` | redirect | auth | → /dashboard (vue non-collaborateur) ou /mes-bons (vue collaborateur) |
+| `/dashboard` | DashboardPage | admin, tech, direction | Tableau de bord a onglets (Aujourd'hui*, Parc, Delais, Incidents) ; periode et filiale dans l'URL ; *Aujourd'hui masque pour direction, qui arrive sur Parc |
+| `/inventaire` | InventairePage | admin, tech, direction | Parc prete : filtres, tableau pagine, export CSV (references non cliquables pour direction) |
 | `/mes-bons` | PortailCollaborateur | tous | Bons du collaborateur |
 | `/bons` | BonsListPage | admin, tech | Liste + filtres + export CSV |
 | `/bons/new` | BonCreatePage | admin, tech | Creation bon |
@@ -549,6 +633,7 @@ type NavGroup = {
 | `/admin/utilisateurs` | UtilisateursPage | admin, tech | Annuaire utilisateurs |
 | `/admin/audit` | AuditLogsPage | admin, tech | Journal d'audit |
 | `/admin/contestations` | ContestationsPage | admin, tech | Contestations |
+| `/admin/reports` | redirect | admin, tech | → `/dashboard?tab=parc` — ancienne page Reporting, fusionnee dans le tableau de bord (lot 5) |
 | `/admin/email-templates` | TemplatesPage | admin | Gestion templates email (edit/apercu/reset/export/import) |
 | `/admin/pdf-templates` | PdfTemplatesPage | admin | Gestion templates PDF (couleurs/polices/marges/textes/preview) |
 
@@ -697,6 +782,20 @@ type NavGroup = {
 - **Validation** : DTOs nested avec class-validator (couleurs hex, tailles min/max, textes max 500 car)
 - **Securite** : config JSON typee (pas d'eval/HTML), rate limit preview 10/min, audit log chaque modification
 - **Layout dynamique** : hauteur des info boxes calculee via `heightOfString()`, multi-pages automatique pour les equipements
+
+---
+
+## Nouveautes (2026-09-17) — Tableau de bord KPI et role Direction
+
+| Fonctionnalite | Description |
+|-----------------|-------------|
+| Tableau de bord a onglets | `/dashboard` (Aujourd'hui, Parc, Delais, Incidents) — periode (7j/30j/90j/12 mois/personnalisee) et filiale dans l'URL, comparaison a la periode precedente, graphiques Recharts |
+| Module `kpi` | `GET /api/kpi/parc\|delais\|incidents` — cache 60 s, une seule definition partagee du retard de signature et du parc prete (`common/bon-predicates.ts`) |
+| Role Direction | Lecture seule : tableau de bord (sauf Aujourd'hui) et inventaire ; attribution par groupe Entra (`entra.direction_group_id`) ou manuelle (comptes locaux uniquement, ecrasee par les groupes a la prochaine connexion SSO) |
+| Seuil de retard configurable | `rappels.signature_overdue_days` (defaut 7, min 1) remplace la constante fixe, partagee par `/bons`, `/bons/stats` et `/kpi/delais` |
+| Retrait du module Reporting | `reporting.service.ts`/`reporting.controller.ts` supprimes ; `/admin/reports` redirige vers `/dashboard?tab=parc` ; le module ne garde que l'inventaire |
+
+Voir [CHANGELOG.md](CHANGELOG.md) (entree du 2026-09-17) pour le detail complet.
 
 ---
 

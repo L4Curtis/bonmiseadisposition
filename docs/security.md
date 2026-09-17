@@ -1,10 +1,36 @@
 # Sécurité — Référence complète
 
 > Document consolidé issu des phases 6 et 7 (2026-03-21), mis à jour le 2026-09-16 (revue
-> pré-production). Contient toutes les corrections implémentées, les règles non-négociables
-> pour le développement futur, et les checklists de validation.
+> pré-production) et le 2026-09-17 (rôle Direction, tableau de bord KPI). Contient toutes les
+> corrections implémentées, les règles non-négociables pour le développement futur, et les
+> checklists de validation.
 
 ---
+
+## Mise à jour 2026-09-17 — rôle Direction (lecture seule)
+
+- **Périmètre** : le rôle `direction` n'a accès qu'au tableau de bord KPI (`GET /api/kpi/*`,
+  hors onglet Aujourd'hui côté frontend) et à l'inventaire (`GET /api/reporting/inventory*`,
+  y compris l'export CSV). Aucun accès aux bons individuels, aux utilisateurs, aux
+  contestations ni à l'administration — ces routes restent réservées à `admin`/`technician`.
+- **`isItStaff` toujours faux** : contrairement à `admin` et `technician`, le rôle `direction`
+  ne donne jamais `isItStaff = true`, y compris lorsqu'il est attribué manuellement.
+- **Contrôles d'accès** : les vérifications historiquement écrites « tout ce qui n'est pas
+  `collaborator` est IT » (`user.role !== 'collaborator'`) ont été remplacées par
+  `isItRole(user.role)` (`common/roles.ts`, `IT_ROLES = ['admin', 'technician']`) avant
+  d'introduire le rôle `direction`, pour qu'un nouveau rôle non-IT n'élargisse pas
+  silencieusement l'accès à une route réservée à l'IT.
+- **Attribution** : par groupe Entra ID dédié (clé `entra.direction_group_id`) — comme pour
+  `admin`/`technician`, le groupe Entra fait foi et le rôle est recalculé et écrasé à **chaque**
+  connexion SSO, sans exception. L'attribution manuelle (`PATCH /admin/users/:id/role`, réservée
+  à `admin`) reste utile pour les comptes locaux ; pour un compte SSO, elle est écrasée à la
+  prochaine connexion si le compte n'est pas dans le groupe Entra configuré.
+- **Garde-fous sur le changement de rôle** : refusé sur son propre compte, et refusé si la cible
+  est le dernier administrateur actif (les administrateurs désactivés ne comptent pas). Chaque
+  changement est journalisé (`user_role_changed`, avec l'ancien et le nouveau rôle).
+- **Seuil de retard de signature** : configurable (`rappels.signature_overdue_days`, défaut 7,
+  minimum 1 — 0 est rejeté), une définition unique partagée par `/bons`, `/bons/stats` et
+  `/kpi/delais`.
 
 ## Mise à jour 2026-09-16 — règles modifiées ou précisées
 
@@ -245,6 +271,10 @@ if (!this.isSafeExportPath(smbPath)) return;
 - [ ] `retention.anonymize_months` réglé à une valeur < 60 → rejeté
 - [ ] Anonymisation réelle sans dry-run < 24h → rejetée
 - [ ] Sync LDAP simulée avec > 20 % de comptes actifs absents → interrompue, `ldap_sync_aborted` journalisé
+- [ ] Un compte `direction` → `403` sur `GET /api/bons/stats`, `GET /api/bons/:id`, `GET /api/contestations`, `GET /api/users` et toute route `/api/admin/*`
+- [ ] Un compte `direction` → `200` sur `GET /api/kpi/parc` (et `/kpi/delais`, `/kpi/incidents`, `/api/reporting/inventory*`)
+- [ ] `PATCH /api/admin/users/:id/role` refusé sur son propre compte (`400`) et sur le dernier administrateur actif (`400`)
+- [ ] `PUT /api/admin/config/rappels` avec `signature_overdue_days=0` → rejeté (minimum 1)
 
 ### Infrastructure
 - [ ] Header `Content-Security-Policy` présent sur toutes les réponses

@@ -596,6 +596,75 @@ npm run test:cov
 
 ## 5. Tests existants
 
+### Tableau de bord KPI et rôle Direction (2026-09-17)
+
+Suite ajoutée avec le tableau de bord KPI et le rôle Direction. Backend :
+
+| Fichier | Ce qui est vérifié |
+|---------|---------------------|
+| `backend/src/common/__tests__/bon-predicates.spec.ts` | Prédicats métier partagés (retard de signature, équipement prêté), `CATEGORY_LABELS`, `escapeCsvCell` |
+| `backend/src/common/__tests__/roles.spec.ts` | `isItRole()` sur chaque rôle |
+| `backend/src/auth/guards/__tests__/roles.guard.spec.ts` | Garde RBAC, y compris le rôle `direction` |
+| `backend/src/admin/__tests__/admin.controller.spec.ts` | Clés de config `entra.direction_group_id`/`rappels.signature_overdue_days`, `PATCH users/:id/role`, `GET notifications/failed` |
+| `backend/src/kpi/__tests__/kpi-period.spec.ts` | Période par défaut, période précédente, granularité aux bornes 31/32 et 182/183 jours, buckets, `fillSeries`, rejets (`from > to`, date invalide, écart > 731 j) |
+| `backend/src/kpi/__tests__/kpi-sql.spec.ts` | Fragments SQL communs (bornes de période en UTC naïf, filtre filiale) |
+| `backend/src/kpi/__tests__/kpi-cache.service.spec.ts` | TTL 60 s, dédoublonnage des promesses en vol, éviction |
+| `backend/src/kpi/__tests__/kpi.controller.spec.ts` | Rôles autorisés (`@Roles`), construction de la clé de cache |
+| `backend/src/kpi/__tests__/kpi-parc.service.spec.ts`, `kpi-delais.service.spec.ts`, `kpi-incidents.service.spec.ts` | Un spec par service d'onglet (voir pattern ci-dessous) |
+
+Frontend :
+
+| Fichier | Ce qui est vérifié |
+|---------|---------------------|
+| `frontend/src/components/dashboard/__tests__/StatCard.test.tsx` | Delta (positif/négatif/inversé), valeur nulle, format pourcentage |
+| `frontend/src/components/dashboard/charts/__tests__/charts.test.tsx` | `TimeSeriesChart`, `DonutChart`, `HorizontalBars` (avec `ResponsiveContainer` mocké) |
+| `frontend/src/hooks/__tests__/use-api-resource.test.ts` | Anti-course (seule la dernière requête émise met à jour l'état) |
+| `frontend/src/pages/dashboard/__tests__/DashboardPage.test.tsx` | Onglets affichés selon le rôle, sélection via `?tab=` |
+| `frontend/src/pages/dashboard/__tests__/PeriodSelector.test.tsx` | Écriture des presets de période dans l'URL |
+| `frontend/src/pages/dashboard/tabs/__tests__/{TodayTab,ParcTab,DelaisTab,IncidentsTab}.test.tsx` | Appel API avec `from`/`to`/`filialeId`, rendu des tuiles/graphiques, état d'erreur avec Réessayer |
+| `frontend/src/components/layout/__tests__/Sidebar.test.tsx` | Navigation réduite pour la vue direction (Tableau de bord, Inventaire), badge contestations pour la vue technicien |
+| `frontend/src/pages/__tests__/App.direction.test.tsx` | Redirection `/` → tableau de bord (onglet Parc) pour direction, accès refusé sur `/bons`, redirection `/admin/reports` |
+| `frontend/src/pages/admin/__tests__/Utilisateurs.test.tsx` | Sélecteur de rôle réservé à l'admin, désactivé sur sa propre ligne, note SSO, `PATCH /admin/users/:id/role` |
+
+#### Pattern : `$queryRaw` mocké par routage sur le texte SQL
+
+Les services KPI enchaînent plusieurs requêtes `Prisma.sql` distinctes sur le même
+`$queryRaw`. Plutôt que de mocker par ordre d'appel (fragile dès qu'une requête est
+ajoutée/réordonnée), chaque test route la réponse simulée sur un fragment de texte unique
+présent dans le SQL généré, et distingue période courante/précédente par la présence de la date
+`from` de la période précédente parmi les valeurs liées :
+
+```typescript
+function buildRouter(period: KpiPeriod) {
+  return (query: Prisma.Sql): Promise<unknown[]> => {
+    const sql = query.sql;
+    const isPreviousRange = (query.values as unknown[]).includes(period.previous.from);
+
+    if (sql.includes('AS total, COUNT(DISTINCT b.id)')) {
+      return Promise.resolve([{ total: 120n, bons: 80n }]);
+    }
+    if (sql.includes('a.created_at')) {
+      return Promise.resolve(isPreviousRange ? [{ declared: 6n }] : [{ declared: 4n }]);
+    }
+    // ...
+    return Promise.resolve([]);
+  };
+}
+```
+
+Chaque spec vérifie ensuite, sur le texte SQL collecté (`prisma.$queryRaw.mock.calls`), la
+présence des casts non négociables plutôt que de recalculer le SQL attendu :
+
+```typescript
+expect(calls.some((sql) => sql.includes('b.status::text IN ('))).toBe(true);
+expect(calls.some((sql) => sql.includes('ec.category::text'))).toBe(true);
+expect(sql).not.toMatch(/b\.status\s+(NOT\s+)?IN\s*\(/); // jamais de comparaison enum sans cast
+```
+
+Cette assertion sur le texte SQL (plutôt que sur le résultat renvoyé) est ce qui aurait
+détecté le bug réel `operator does not exist: "BonStatus" = text` avant qu'il n'atteigne la
+production (commit `a19ea00`).
+
 ### `backend/src/auth/__tests__/auth-security.spec.ts`
 
 **19 tests** couvrant la securite de l'authentification :
