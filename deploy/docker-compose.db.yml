@@ -1,0 +1,173 @@
+# ─── Stack BASE DE DONNÉES — machine PostgreSQL dédiée (Portainer) ─────────────
+#
+# Portainer → environnement de la machine base → Stacks → Add stack → Web editor :
+# coller ce fichier, renseigner les variables ci-dessous, « Deploy the stack ».
+# Aucun fichier à créer sur l'hôte : certificat TLS, pg_hba.conf et script
+# d'initialisation sont générés dans des volumes par le service db-setup.
+#
+# Variables (section « Environment variables » de la stack) :
+#   POSTGRES_SUPERUSER_PASSWORD  hexadécimal 24 octets  compte « postgres », jamais ouvert au réseau
+#   APP_DB_PASSWORD              hexadécimal 24 octets  compte « app », même valeur dans la stack application
+#   APP_HOST_IP                  IP de la machine application : seule autorisée à se connecter
+#   DB_BIND_IP                   IP LAN de CETTE machine (le port n'écoute que là ; 0.0.0.0 = toutes)
+#   DB_PORT                      optionnel, défaut 5432
+#   DB_TLS_CN                    optionnel, nom mis dans le certificat auto-signé, défaut bons-db
+#   BACKUP_RETENTION_DAYS        optionnel, défaut 14
+#   BACKUP_INTERVAL_SECONDS      optionnel, défaut 86400 (une sauvegarde par jour + une à chaque démarrage)
+#
+# Premier déploiement : la machine doit pouvoir télécharger le paquet openssl
+# (dépôt Alpine) pour générer le certificat. Les déploiements suivants le réutilisent.
+
+services:
+
+  # ── Préparation : certificat TLS, accès réseau, rôle applicatif ──────────────
+  db-setup:
+    image: postgres:16-alpine
+    container_name: bons-db-setup
+    restart: "no"
+    user: root
+    environment:
+      APP_HOST_IP: ${APP_HOST_IP:?APP_HOST_IP manquant (IP de la machine application)}
+      DB_TLS_CN: ${DB_TLS_CN:-bons-db}
+    volumes:
+      - pgconf:/setup/conf
+      - pgtls:/setup/tls
+      - pginit:/setup/initdb
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        case "$$APP_HOST_IP" in
+          ''|*[!0-9.]*) echo "APP_HOST_IP invalide : '$$APP_HOST_IP' (attendu : une adresse IPv4)" >&2; exit 1 ;;
+        esac
+
+        if [ ! -s /setup/tls/server.key ] || [ ! -s /setup/tls/server.crt ]; then
+          apk add --no-cache openssl >/dev/null || { echo "Installation d'openssl impossible : accès au dépôt Alpine requis au premier déploiement" >&2; exit 1; }
+          openssl req -new -x509 -days 3650 -nodes -newkey rsa:4096 \
+            -subj "/CN=$$DB_TLS_CN" -keyout /setup/tls/server.key -out /setup/tls/server.crt 2>/dev/null
+          echo "Certificat TLS auto-signé généré (10 ans)"
+        fi
+        chown 70:70 /setup/tls/server.key /setup/tls/server.crt
+        chmod 600 /setup/tls/server.key
+
+        cat > /setup/conf/pg_hba.conf <<EOF
+        # Généré par db-setup à chaque déploiement : modifier APP_HOST_IP dans la stack, pas ce fichier.
+        # TYPE   DATABASE          USER  ADDRESS              METHOD
+        local    all               all                        trust
+        hostssl  bons_disposition  app   $$APP_HOST_IP/32     scram-sha-256
+        EOF
+        chown 70:70 /setup/conf/pg_hba.conf
+        chmod 600 /setup/conf/pg_hba.conf
+
+        cat > /setup/initdb/01-app.sh <<'EOF'
+        #!/bin/sh
+        # Exécuté par l'image postgres au tout premier démarrage (volume de données vide).
+        set -eu
+        psql -v ON_ERROR_STOP=1 --username "$$POSTGRES_USER" --dbname postgres <<SQL
+        CREATE ROLE app LOGIN PASSWORD '$${APP_DB_PASSWORD}';
+        CREATE DATABASE bons_disposition OWNER app;
+        REVOKE ALL ON DATABASE bons_disposition FROM PUBLIC;
+        SQL
+        EOF
+        chmod 755 /setup/initdb/01-app.sh
+
+        echo "Préparation terminée : accès réseau autorisé pour app depuis $$APP_HOST_IP (TLS obligatoire)"
+
+  # ── PostgreSQL ────────────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: bons-db
+    restart: unless-stopped
+    depends_on:
+      db-setup:
+        condition: service_completed_successfully
+    command:
+      - postgres
+      - -c
+      - hba_file=/etc/postgresql/conf/pg_hba.conf
+      - -c
+      - ssl=on
+      - -c
+      - ssl_cert_file=/etc/postgresql/tls/server.crt
+      - -c
+      - ssl_key_file=/etc/postgresql/tls/server.key
+      # Les indicateurs KPI comparent des timestamps UTC : ne pas modifier.
+      - -c
+      - timezone=UTC
+    environment:
+      TZ: UTC
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:?POSTGRES_SUPERUSER_PASSWORD manquant}
+      # Lu par 01-app.sh au premier démarrage uniquement.
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?APP_DB_PASSWORD manquant}
+      # Présent pour que le conteneur soit recréé (et pg_hba.conf relu) quand l'IP autorisée change.
+      APP_HOST_IP: ${APP_HOST_IP}
+    ports:
+      - "${DB_BIND_IP:?DB_BIND_IP manquant (IP LAN de la machine base)}:${DB_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - pgconf:/etc/postgresql/conf:ro
+      - pgtls:/etc/postgresql/tls:ro
+      - pginit:/docker-entrypoint-initdb.d:ro
+      - pgsocket:/var/run/postgresql
+    # Le /dev/shm par défaut de Docker (64 Mo) peut faire échouer les requêtes parallèles.
+    shm_size: 256mb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d bons_disposition"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
+  # ── Sauvegarde quotidienne de la base (socket local, sans mot de passe réseau) ─
+  db-backup:
+    image: postgres:16-alpine
+    container_name: bons-db-backup
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      TZ: UTC
+    volumes:
+      - pgsocket:/var/run/postgresql
+      - db_backups:/backups
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        while true; do
+          f="/backups/bons-$$(date +%Y%m%d-%H%M).dump"
+          if pg_dump -h /var/run/postgresql -U app -F c -f "$$f.tmp" bons_disposition; then
+            mv "$$f.tmp" "$$f"
+            echo "Sauvegarde OK : $$f ($$(du -h "$$f" | cut -f1))"
+          else
+            rm -f "$$f.tmp"
+            echo "ÉCHEC de la sauvegarde de la base" >&2
+          fi
+          find /backups -name 'bons-*.dump' -mtime +${BACKUP_RETENTION_DAYS:-14} -delete
+          sleep ${BACKUP_INTERVAL_SECONDS:-86400}
+        done
+
+volumes:
+  pgdata:
+    name: bons_pgdata
+  pgconf:
+    name: bons_pgconf
+  pgtls:
+    name: bons_pgtls
+  pginit:
+    name: bons_pginit
+  pgsocket:
+    name: bons_pgsocket
+  # Sauvegardes : par défaut un volume local. Pour les envoyer sur un partage du serveur
+  # de fichiers, remplacer par un volume CIFS, par exemple :
+  #   db_backups:
+  #     driver: local
+  #     driver_opts:
+  #       type: cifs
+  #       device: "//serveur/sauvegardes/bons/db"
+  #       o: "username=${SMB_USER},password=${SMB_PASSWORD},domain=peduzzi.local,vers=3.0"
+  db_backups:
+    name: bons_db_backups

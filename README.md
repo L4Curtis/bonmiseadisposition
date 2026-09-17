@@ -21,6 +21,9 @@ ghcr.io/l4curtis/bonmiseadisposition-frontend:latest
 
 > Pas de build sur le serveur, pas de fichier `.env` — tout se fait dans l'interface Portainer.
 
+> Base PostgreSQL sur une **machine séparée** : utiliser les deux stacks de [`deploy/`](deploy/README.md)
+> (application et base, TLS, accès réseau restreint, migration depuis la stack tout-en-un, sauvegardes).
+
 ### Prérequis
 - Portainer installé et accessible
 - Nginx Proxy Manager en place (gère le SSL)
@@ -39,8 +42,9 @@ openssl rand -hex 32
 # Secret JWT (doit être différent de ENCRYPTION_KEY)
 openssl rand -hex 32
 
-# Mot de passe PostgreSQL
-openssl rand -base64 24
+# Mot de passe PostgreSQL (hexadécimal : un base64 peut contenir « / » ou « + »
+# qui cassent l'URL de connexion DATABASE_URL)
+openssl rand -hex 24
 ```
 
 Copier les trois valeurs, elles seront collées dans Portainer.
@@ -72,7 +76,7 @@ Section **"Environment variables"** → **Add environment variable** :
 |-----|--------|-------------|
 | `ENCRYPTION_KEY` | *(résultat openssl rand -hex 32)* | ✅ |
 | `JWT_SECRET` | *(résultat openssl rand -hex 32, différent de ENCRYPTION_KEY)* | ✅ |
-| `POSTGRES_PASSWORD` | *(résultat openssl rand -base64 24)* | ✅ |
+| `POSTGRES_PASSWORD` | *(résultat openssl rand -hex 24)* | ✅ |
 | `FRONTEND_URL` | `https://bons.exemple.local` | ✅ |
 | `FRONTEND_PORT` | `5147` | optionnel (défaut: 5147) |
 

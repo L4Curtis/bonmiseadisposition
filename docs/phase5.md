@@ -183,7 +183,7 @@ docker compose -f docker-compose.prod.yml logs backend
 | Variable | Description | Génération |
 |---|---|---|
 | `ENCRYPTION_KEY` | Clé AES-256 chiffrement signatures (64 chars hex) | `openssl rand -hex 32` |
-| `POSTGRES_PASSWORD` | Mot de passe base de données | `openssl rand -base64 24` |
+| `POSTGRES_PASSWORD` | Mot de passe base de données | `openssl rand -hex 24` |
 | `FRONTEND_URL` | URL publique (dans les emails) | Ex: `https://bons.exemple.local` |
 
 ---

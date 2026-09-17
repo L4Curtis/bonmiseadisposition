@@ -31,6 +31,8 @@ BonDeMiseADisposition/
 ├── docker-compose.yml                  # Stack complete dev (build local)
 ├── docker-compose.dev.yml              # PostgreSQL seul (dev local sans Docker)
 ├── docker-compose.prod.yml             # Stack prod (images GHCR pre-buildees)
+├── deploy/                            # Déploiement sur deux machines : docker-compose.app.yml (front + back),
+│                                      # docker-compose.db.yml (PostgreSQL dédié, TLS, pg_hba), README pas à pas
 │
 ├── nginx/
 │   └── nginx.conf                      # Reverse proxy TLS, rate limiting, headers securite

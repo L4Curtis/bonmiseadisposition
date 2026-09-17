@@ -4,6 +4,25 @@ Historique des évolutions notables de l'application. Les entrées les plus réc
 
 ---
 
+## 2026-09-17 — Déploiement avec base PostgreSQL sur une machine dédiée
+
+### Ajouté
+- `deploy/docker-compose.db.yml` (Portainer, aucun fichier sur l'hôte) : PostgreSQL 16 dédié ; un service
+  `db-setup` génère le certificat TLS, `pg_hba.conf` (rôle `app` seul, depuis `APP_HOST_IP` seule, TLS
+  obligatoire) et le script qui crée `app` non superutilisateur ; port lié à l'IP LAN, fuseau UTC ;
+  service `db-backup` (dump quotidien par socket local, rétention 14 jours).
+- `deploy/docker-compose.app.yml` : backend + frontend vers la base externe en `sslmode=require`,
+  variables obligatoires vérifiées au déploiement, nom du volume `data` paramétrable pour une reprise,
+  service `data-backup` (archive quotidienne du volume `data`).
+- `deploy/README.md` : génération des secrets (PowerShell et bash), déploiement pas à pas dans Portainer,
+  restauration, reprise d'une installation existante, dépannage.
+
+### Corrigé
+- Documentation : le mot de passe PostgreSQL se génère en hexadécimal (`openssl rand -hex 24`).
+  Un mot de passe base64 peut contenir « / » ou « + », qui cassent l'URL `DATABASE_URL`.
+
+---
+
 ## 2026-09-17 — Réduction de la dette technique : découpage des gros fichiers
 
 Refactor sans changement de comportement : chaque fichier d'origine garde son chemin et ses exports
