@@ -1,5 +1,6 @@
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { useChartTheme } from './chart-theme';
+import { ChartTooltip } from './ChartTooltip';
 import { formatNumber } from '@/lib/kpi-format';
 
 export interface HorizontalBarsDatum {
@@ -39,8 +40,8 @@ export function HorizontalBars({ data, height = 280, valueFormatter = formatNumb
           tickLine={false}
         />
         <Tooltip
-          formatter={(value) => [valueFormatter(typeof value === 'number' ? value : Number(value)), '']}
-          contentStyle={{ borderRadius: 8, border: `1px solid ${theme.border}`, fontSize: 12 }}
+          cursor={{ fill: theme.muted }}
+          content={<ChartTooltip hideSeriesName valueFormatter={(value) => valueFormatter(value)} />}
         />
         <Bar dataKey="value" fill={theme.chart1} radius={[0, 4, 4, 0]} />
       </BarChart>

@@ -2,6 +2,7 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxi
 import { BellRing, Repeat } from 'lucide-react';
 import { StatCard } from '@/components/dashboard/StatCard';
 import { useChartTheme } from '@/components/dashboard/charts/chart-theme';
+import { ChartTooltip } from '@/components/dashboard/charts/ChartTooltip';
 import { formatNumber } from '@/lib/kpi-format';
 import type { Reminders } from '../../types/incidents';
 
@@ -48,10 +49,7 @@ export function RemindersSection({ reminders, loading }: RemindersSectionProps) 
             axisLine={false}
             tickLine={false}
           />
-          <Tooltip
-            formatter={(value) => [formatNumber(typeof value === 'number' ? value : Number(value)), '']}
-            contentStyle={{ borderRadius: 8, border: `1px solid ${theme.border}`, fontSize: 12 }}
-          />
+          <Tooltip cursor={{ fill: theme.muted }} content={<ChartTooltip />} />
           <Bar dataKey="sent" name="Envoyés" fill={theme.chart1} radius={[0, 4, 4, 0]} />
           <Bar dataKey="signedAfter" name="Signés après" fill={theme.chart2} radius={[0, 4, 4, 0]} />
         </BarChart>

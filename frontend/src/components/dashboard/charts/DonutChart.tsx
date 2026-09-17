@@ -1,5 +1,6 @@
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import { useChartTheme } from './chart-theme';
+import { ChartTooltip } from './ChartTooltip';
 import { formatNumber, formatPercent } from '@/lib/kpi-format';
 
 export interface DonutChartDatum {
@@ -30,7 +31,7 @@ export function DonutChart({ data, height = 220 }: DonutChartProps) {
                 <Cell key={d.key} fill={d.color ?? palette[i % palette.length]} />
               ))}
             </Pie>
-            <Tooltip formatter={(value, name) => [formatNumber(typeof value === 'number' ? value : Number(value)), String(name)]} />
+            <Tooltip content={<ChartTooltip />} />
           </PieChart>
         </ResponsiveContainer>
       </div>

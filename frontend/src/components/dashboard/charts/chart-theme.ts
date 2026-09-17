@@ -12,6 +12,8 @@ export interface ChartTheme {
   primary: string;
   mutedForeground: string;
   border: string;
+  /** Fond neutre (survol des barres, curseur). */
+  muted: string;
 }
 
 /** Lit une variable CSS HSL (« H S% L% ») du thème actif et la met en forme
@@ -44,6 +46,7 @@ export function useChartTheme(): ChartTheme {
       primary: readColorVar('--primary'),
       mutedForeground: readColorVar('--muted-foreground'),
       border: readColorVar('--border'),
+      muted: readColorVar('--muted'),
     };
     // `theme` déclenche le recalcul : les variables CSS elles-mêmes ne sont pas
     // des dépendances React valides, seul le thème qui les fait changer l'est.

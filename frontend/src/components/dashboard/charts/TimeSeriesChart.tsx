@@ -1,6 +1,6 @@
 import { Area, AreaChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { useChartTheme } from './chart-theme';
-import { formatNumber } from '@/lib/kpi-format';
+import { ChartTooltip } from './ChartTooltip';
 
 export type Granularity = 'day' | 'week' | 'month';
 
@@ -74,9 +74,8 @@ export function TimeSeriesChart({ data, series, granularity, height = 280 }: Tim
           allowDecimals={false}
         />
         <Tooltip
-          labelFormatter={(label) => formatBucketLabel(String(label), granularity)}
-          formatter={(value, name) => [formatNumber(typeof value === 'number' ? value : Number(value)), String(name)]}
-          contentStyle={{ borderRadius: 8, border: `1px solid ${theme.border}`, fontSize: 12 }}
+          cursor={{ stroke: theme.border, strokeWidth: 1 }}
+          content={<ChartTooltip labelFormatter={(label) => formatBucketLabel(String(label), granularity)} />}
         />
         <Legend wrapperStyle={{ fontSize: 12 }} />
         {series.map((s, i) => {
