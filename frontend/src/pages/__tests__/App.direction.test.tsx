@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react';
+import { cloneElement, isValidElement } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
@@ -19,6 +20,25 @@ if (typeof window.matchMedia !== 'function') {
     dispatchEvent: () => false,
   })) as unknown as typeof window.matchMedia;
 }
+
+// Recharts en jsdom : ResponsiveContainer mesure 0×0 et le rendu réel des
+// graphiques des onglets KPI est lent ; on le remplace par un conteneur fixe,
+// comme dans charts.test.tsx (ce test rend <App/> entier, onglets inclus).
+// Ce fichier rend <App/> entier (routing, contextes, onglets KPI) : sous la
+// charge de la suite parallèle, le rendu peut dépasser les 5 s par défaut.
+vi.setConfig({ testTimeout: 30000 });
+
+vi.mock('recharts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('recharts')>();
+  return {
+    ...actual,
+    ResponsiveContainer: ({ children }: { children: ReactElement }) => (
+      <div style={{ width: 800, height: 300 }}>
+        {isValidElement(children) ? cloneElement(children, { width: 800, height: 300 } as object) : children}
+      </div>
+    ),
+  };
+});
 
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>();
@@ -118,7 +138,7 @@ describe('App — rôle direction', () => {
 
     // Timeout élargi : rendu de l'app complète (lazy imports + plusieurs
     // providers), plus lent qu'une page isolée sous charge parallèle.
-    expect(await screen.findByRole('tab', { name: 'Parc' }, { timeout: 3000 })).toHaveAttribute('data-state', 'active');
+    expect(await screen.findByRole('tab', { name: 'Parc' }, { timeout: 15000 })).toHaveAttribute('data-state', 'active');
     expect(screen.queryByRole('tab', { name: "Aujourd'hui" })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Nouveau bon/i })).not.toBeInTheDocument();
   });
@@ -146,6 +166,6 @@ describe('App — redirection /admin/reports', () => {
 
     // L'onglet Parc actif prouve que la redirection vers le nouveau tableau
     // de bord (fusion de l'ex-page Reporting) a bien eu lieu.
-    expect(await screen.findByRole('tab', { name: 'Parc' }, { timeout: 3000 })).toHaveAttribute('data-state', 'active');
+    expect(await screen.findByRole('tab', { name: 'Parc' }, { timeout: 15000 })).toHaveAttribute('data-state', 'active');
   });
 });
