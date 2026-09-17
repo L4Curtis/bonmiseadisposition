@@ -14,8 +14,8 @@ export interface BreakdownBarsProps {
 }
 
 /** Barres de répartition (parc par filiale, statuts, motifs…) — remplace les
- *  implémentations dupliquées de BreakdownList (Reports) et des barres par
- *  filiale (ex-DashboardIT). */
+ *  implémentations dupliquées de la page Reporting et du tableau de bord IT
+ *  d'origine. */
 export function BreakdownBars({ rows, emptyMessage = 'Aucune donnée disponible', className }: BreakdownBarsProps) {
   if (rows.length === 0) {
     return <p className={cn('py-8 text-center text-xs text-muted-foreground/70', className)}>{emptyMessage}</p>;

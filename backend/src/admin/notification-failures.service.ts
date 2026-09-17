@@ -6,8 +6,8 @@ export const DEFAULT_NOTIFICATION_FAILURES_WINDOW_DAYS = 30;
 const NOTIFICATION_FAILURES_ROW_LIMIT = 100;
 
 /**
- * GET /admin/notifications/failed — migré depuis reporting.service.ts
- * (`getFailedNotifications`, condamné avec le reste du module Reporting) :
+ * GET /admin/notifications/failed — migré depuis l'ancien module Reporting
+ * (méthode `getFailedNotifications`, supprimée avec le reste du module) :
  * même forme de réponse, désormais avec une fenêtre en jours paramétrable.
  * Un lien de signature en échec ne doit pas rester silencieux.
  */

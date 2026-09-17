@@ -79,7 +79,7 @@ export class AdminController {
   private static readonly ADMIN_ONLY_CATEGORIES = ['entra', 'ldap', 'smtp', 'smb', 'timestamp', 'retention'];
 
   /** GET /admin/notifications/failed — emails en échec, migré depuis
-   *  reporting.service.ts (Reporting condamné). Déclaré avant `config/:category`
+   *  l'ancien module Reporting (supprimé). Déclaré avant `config/:category`
    *  par convention (routes statiques avant routes paramétrées). */
   @Get('notifications/failed')
   @Roles('admin')

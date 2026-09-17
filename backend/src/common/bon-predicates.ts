@@ -3,9 +3,9 @@ import { Prisma } from '@prisma/client';
 /**
  * Définitions métier unifiées, partagées par `/bons`, `/reporting/inventory`
  * et `/kpi/*` — auparavant dupliquées (avec de légères divergences) dans
- * bons.service.ts, inventory.service.ts et reporting.service.ts (ce dernier
- * condamné, non touché ici). Une seule définition par notion : « prêté »,
- * « en retard de signature », « clôturé ».
+ * bons.service.ts, inventory.service.ts et l'ancien module Reporting
+ * (supprimé). Une seule définition par notion : « prêté », « en retard de
+ * signature », « clôturé ».
  */
 
 /** Statuts pour lesquels un équipement non rendu est considéré « prêté »
@@ -108,7 +108,8 @@ export function loanedEquipmentSql(): Prisma.Sql {
 }
 
 /** Libellés FR des catégories d'équipement — copie unique (anciennement
- *  dupliquée dans inventory.service.ts et reporting.service.ts). */
+ *  dupliquée dans inventory.service.ts et l'ancien service de reporting,
+ *  supprimé). */
 export const CATEGORY_LABELS: Record<string, string> = {
   pc_portable: 'PC portable',
   pc_fixe: 'PC fixe',
@@ -126,7 +127,7 @@ export const CATEGORY_LABELS: Record<string, string> = {
 /** Échappement CSV : neutralise l'injection de formule (Excel/LibreOffice
  *  exécutent une cellule commençant par = + - @) et double les guillemets
  *  internes — copie unique (anciennement dupliquée dans inventory.service.ts,
- *  bons.service.ts et reporting.service.ts). */
+ *  bons.service.ts et l'ancien service de reporting, supprimé). */
 export function escapeCsvCell(value: string): string {
   let s = String(value ?? '').replace(/"/g, '""');
   if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;

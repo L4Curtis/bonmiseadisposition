@@ -75,9 +75,9 @@ function FilialeSkeleton() {
   );
 }
 
-/** Onglet « Aujourd'hui » — contenu de l'ex-DashboardIT.tsx, déplacé tel quel
- *  mais avec deux `useApiResource` indépendants : les tuiles et la liste des
- *  bons récents ont chacune leur propre chargement/erreur. */
+/** Onglet « Aujourd'hui » — contenu du tableau de bord IT d'origine, déplacé
+ *  tel quel mais avec deux `useApiResource` indépendants : les tuiles et la
+ *  liste des bons récents ont chacune leur propre chargement/erreur. */
 export function TodayTab() {
   const navigate = useNavigate();
 
