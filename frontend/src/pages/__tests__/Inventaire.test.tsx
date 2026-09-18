@@ -46,6 +46,11 @@ const summary = {
   total: 10,
   byCategory: [{ category: 'pc_portable', label: 'PC portable', count: 6 }],
   byFiliale: [{ filialeId: 'f1', name: 'Paris', count: 10 }],
+  bySituation: [
+    { situation: 'en_attente_signature', label: 'En attente de signature', count: 3 },
+    { situation: 'en_circulation', label: 'En circulation', count: 7 },
+    { situation: 'en_litige', label: 'En litige', count: 0 },
+  ],
   overdue: 2,
 };
 
@@ -60,6 +65,8 @@ const listResponse = {
       bonId: 'b1',
       bonReference: 'BMD-2026-0001',
       bonStatus: 'active',
+      situation: 'en_circulation',
+      situationLabel: 'En circulation',
       dateMiseDisposition: '2026-08-01T00:00:00.000Z',
       dateRestitution: null,
       collaborateur: { id: 'u1', displayName: 'Jean Dupont', email: 'jean@example.com', department: null },

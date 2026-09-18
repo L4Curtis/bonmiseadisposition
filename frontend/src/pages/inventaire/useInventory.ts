@@ -4,7 +4,13 @@ import { api } from '@/lib/api';
 import { errorMessage, showActionError } from '@/lib/errors';
 import { toast } from '@/hooks/use-toast';
 import type { Filiale } from '@/types';
-import type { InventoryItem, InventoryListResponse, InventorySummary } from './types';
+import type { EquipmentSituation, InventoryItem, InventoryListResponse, InventorySummary } from './types';
+
+const SITUATIONS: EquipmentSituation[] = ['en_attente_signature', 'en_circulation', 'en_litige'];
+
+function readSituation(value: string | null): '' | EquipmentSituation {
+  return SITUATIONS.includes(value as EquipmentSituation) ? (value as EquipmentSituation) : '';
+}
 
 const LIMIT = 50;
 const SEARCH_DEBOUNCE_MS = 300;
@@ -41,16 +47,21 @@ export function useInventory() {
 
   const [filialeFilter, setFilialeFilterState] = useState(searchParams.get('filialeId') ?? '');
   const [categoryFilter, setCategoryFilterState] = useState(searchParams.get('category') ?? '');
+  const [situationFilter, setSituationFilterState] = useState<'' | EquipmentSituation>(() =>
+    readSituation(searchParams.get('situation')),
+  );
   const [searchInput, setSearchInput] = useState(searchParams.get('search') ?? '');
   const [search, setSearch] = useState(searchParams.get('search') ?? '');
   const [exportLoading, setExportLoading] = useState(false);
 
   const setFilialeFilter = (value: string) => { setFilialeFilterState(value); setPage(1); };
   const setCategoryFilter = (value: string) => { setCategoryFilterState(value); setPage(1); };
+  const setSituationFilter = (value: string) => { setSituationFilterState(readSituation(value)); setPage(1); };
 
   const resetFilters = () => {
     setFilialeFilterState('');
     setCategoryFilterState('');
+    setSituationFilterState('');
     setSearchInput('');
     setSearch('');
     setPage(1);
@@ -79,6 +90,7 @@ export function useInventory() {
     const urlParams: Record<string, string> = {};
     if (filialeFilter) urlParams['filialeId'] = filialeFilter;
     if (categoryFilter) urlParams['category'] = categoryFilter;
+    if (situationFilter) urlParams['situation'] = situationFilter;
     if (search) urlParams['search'] = search;
     if (page > 1) urlParams['page'] = String(page);
     setSearchParams(urlParams, { replace: true });
@@ -91,6 +103,7 @@ export function useInventory() {
     const params = new URLSearchParams();
     if (filialeFilter) params.set('filialeId', filialeFilter);
     if (categoryFilter) params.set('category', categoryFilter);
+    if (situationFilter) params.set('situation', situationFilter);
     if (search) params.set('search', search);
     params.set('page', String(page));
     params.set('limit', String(LIMIT));
@@ -116,7 +129,7 @@ export function useInventory() {
       ignore = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filialeFilter, categoryFilter, search, page, reloadKey]);
+  }, [filialeFilter, categoryFilter, situationFilter, search, page, reloadKey]);
 
   const handleExport = async () => {
     setExportLoading(true);
@@ -124,6 +137,7 @@ export function useInventory() {
       const params = new URLSearchParams();
       if (filialeFilter) params.set('filialeId', filialeFilter);
       if (categoryFilter) params.set('category', categoryFilter);
+      if (situationFilter) params.set('situation', situationFilter);
       if (search) params.set('search', search);
       const blob = await api.getBlob(`/reporting/inventory/export?${params}`);
       const url = URL.createObjectURL(blob);
@@ -141,7 +155,7 @@ export function useInventory() {
   };
 
   const totalPages = Math.ceil(total / LIMIT);
-  const hasActiveFilters = !!(filialeFilter || categoryFilter || search);
+  const hasActiveFilters = !!(filialeFilter || categoryFilter || situationFilter || search);
   const rangeStart = total === 0 ? 0 : (page - 1) * LIMIT + 1;
   const rangeEnd = Math.min(page * LIMIT, total);
 
@@ -161,6 +175,8 @@ export function useInventory() {
     setFilialeFilter,
     categoryFilter,
     setCategoryFilter,
+    situationFilter,
+    setSituationFilter,
     searchInput,
     setSearchInput,
     resetFilters,

@@ -28,6 +28,8 @@ export function InventairePage() {
     setFilialeFilter,
     categoryFilter,
     setCategoryFilter,
+    situationFilter,
+    setSituationFilter,
     searchInput,
     setSearchInput,
     resetFilters,
@@ -74,6 +76,9 @@ export function InventairePage() {
         onFilialeFilterChange={setFilialeFilter}
         categoryFilter={categoryFilter}
         onCategoryFilterChange={setCategoryFilter}
+        situationFilter={situationFilter}
+        onSituationFilterChange={setSituationFilter}
+        situations={summary?.bySituation ?? []}
         filiales={filiales}
         categories={summary?.byCategory ?? []}
         hasActiveFilters={hasActiveFilters}

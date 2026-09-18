@@ -1,6 +1,6 @@
 import { Search, X } from 'lucide-react';
 import type { Filiale } from '@/types';
-import type { InventoryCategorySummary } from './types';
+import type { InventoryCategorySummary, InventorySituationSummary } from './types';
 
 interface InventoryFiltersProps {
   searchInput: string;
@@ -9,6 +9,9 @@ interface InventoryFiltersProps {
   onFilialeFilterChange: (value: string) => void;
   categoryFilter: string;
   onCategoryFilterChange: (value: string) => void;
+  situationFilter: string;
+  onSituationFilterChange: (value: string) => void;
+  situations: InventorySituationSummary[];
   filiales: Filiale[];
   categories: InventoryCategorySummary[];
   hasActiveFilters: boolean;
@@ -23,6 +26,9 @@ export function InventoryFilters({
   onFilialeFilterChange,
   categoryFilter,
   onCategoryFilterChange,
+  situationFilter,
+  onSituationFilterChange,
+  situations,
   filiales,
   categories,
   hasActiveFilters,
@@ -71,6 +77,20 @@ export function InventoryFilters({
         <option value="">Toutes catégories</option>
         {categories.map((c) => (
           <option key={c.category} value={c.category}>{c.label}</option>
+        ))}
+      </select>
+
+      <select
+        className="field-modern h-9 px-3 cursor-pointer"
+        value={situationFilter}
+        onChange={(e) => onSituationFilterChange(e.target.value)}
+        aria-label="Filtrer par situation"
+      >
+        <option value="">Toutes situations</option>
+        {situations.map((s) => (
+          <option key={s.situation} value={s.situation}>
+            {s.label} ({s.count})
+          </option>
         ))}
       </select>
 

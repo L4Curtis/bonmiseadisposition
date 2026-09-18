@@ -13,6 +13,17 @@ export interface InventoryFiliale {
   displayName: string;
 }
 
+/** Situation d'un équipement du parc, dérivée du statut de son bon
+ *  (backend : common/bon-predicates.ts). Un matériel remis dont le bon attend
+ *  encore la signature fait partie du parc, distingué des autres. */
+export type EquipmentSituation = 'en_attente_signature' | 'en_circulation' | 'en_litige';
+
+export interface InventorySituationSummary {
+  situation: EquipmentSituation;
+  label: string;
+  count: number;
+}
+
 export interface InventoryItem {
   equipmentId: string;
   label: string;
@@ -23,6 +34,8 @@ export interface InventoryItem {
   bonId: string;
   bonReference: string;
   bonStatus: BonStatus;
+  situation: EquipmentSituation;
+  situationLabel: string;
   dateMiseDisposition: string;
   dateRestitution: string | null;
   collaborateur: InventoryCollaborateur;
@@ -52,5 +65,6 @@ export interface InventorySummary {
   total: number;
   byCategory: InventoryCategorySummary[];
   byFiliale: InventoryFilialeSummary[];
+  bySituation: InventorySituationSummary[];
   overdue: number;
 }

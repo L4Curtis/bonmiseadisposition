@@ -5,7 +5,14 @@ import { StatusBadge } from '@/components/StatusBadge';
 import { formatDate } from '@/lib/utils';
 import { Boxes, X } from 'lucide-react';
 import { isOverdue } from './isOverdue';
-import type { InventoryItem } from './types';
+import type { EquipmentSituation, InventoryItem } from './types';
+
+/** Couleurs de situation, en classes sémantiques compatibles thème sombre. */
+const SITUATION_CLASSES: Record<EquipmentSituation, string> = {
+  en_attente_signature: 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/30',
+  en_circulation: 'bg-muted text-foreground/80 border border-border',
+  en_litige: 'bg-destructive/10 text-destructive border border-destructive/30',
+};
 
 function TableSkeleton() {
   return (
@@ -89,6 +96,7 @@ export function InventoryTable({
                 <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden lg:table-cell">N° inventaire</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Collaborateur</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden md:table-cell">Filiale</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Situation</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Bon</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden lg:table-cell">Mise à dispo</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden xl:table-cell">Restitution prévue</th>
@@ -119,6 +127,13 @@ export function InventoryTable({
                     </td>
                     <td className="px-4 py-3.5 text-muted-foreground hidden md:table-cell">
                       {it.filiale.displayName}
+                    </td>
+                    <td className="px-4 py-3.5">
+                      <span
+                        className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${SITUATION_CLASSES[it.situation]}`}
+                      >
+                        {it.situationLabel}
+                      </span>
                     </td>
                     <td className="px-4 py-3.5">
                       {canLinkToBon ? (

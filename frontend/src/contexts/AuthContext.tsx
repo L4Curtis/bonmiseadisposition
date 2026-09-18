@@ -39,10 +39,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
       setUser(res.ok ? await res.json() : null);
+      setLoading(false);
     } catch (err) {
+      // Requête annulée (double montage de React en mode strict, ou démontage) :
+      // surtout NE PAS sortir du chargement, sinon l'application se croit
+      // déconnectée une fraction de seconde et ProtectedRoute redirige vers
+      // /login, d'où un retour au tableau de bord qui fait perdre l'URL
+      // demandée (ouverture d'un lien direct, F5 sur une page).
       if (err instanceof DOMException && err.name === 'AbortError') return;
       setUser(null);
-    } finally {
       setLoading(false);
     }
   };

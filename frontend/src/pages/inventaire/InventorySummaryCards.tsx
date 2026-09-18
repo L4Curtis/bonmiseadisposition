@@ -1,7 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatCard } from '@/components/dashboard/StatCard';
-import { Package, AlertTriangle, Layers, Building2 } from 'lucide-react';
+import { Package, AlertTriangle, Clock, Building2 } from 'lucide-react';
 import type { InventorySummary } from './types';
 
 interface InventorySummaryCardsProps {
@@ -31,7 +31,12 @@ export function InventorySummaryCards({ summary, summaryError, onRetry }: Invent
             value={summary.overdue}
             tone={summary.overdue > 0 ? 'danger' : 'default'}
           />
-          <StatCard icon={Layers} label="Catégories" value={summary.byCategory.length} />
+          <StatCard
+            icon={Clock}
+            label="En attente de signature"
+            value={summary.bySituation.find((s) => s.situation === 'en_attente_signature')?.count ?? 0}
+            hint="Matériel remis, bon non encore signé"
+          />
           <StatCard icon={Building2} label="Filiales" value={summary.byFiliale.length} />
         </>
       ) : (
