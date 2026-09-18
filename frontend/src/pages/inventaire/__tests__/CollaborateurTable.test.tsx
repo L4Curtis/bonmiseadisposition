@@ -41,6 +41,7 @@ const baseProps = {
   sort: 'count' as const,
   onSortChange: vi.fn(),
   filters: EMPTY_FILTERS,
+  truncated: false,
 };
 
 beforeEach(() => {
@@ -135,5 +136,29 @@ describe('CollaborateurTable', () => {
     await user.click(screen.getByRole('button', { name: /Jean Dupont/ }));
     const ref = await screen.findByText('BMD-2026-0001');
     expect(ref.closest('a')).toBeNull();
+  });
+});
+
+describe('CollaborateurTable — regroupement tronqué', () => {
+  // Un classement incomplet affiché comme complet induit en erreur : on vérifie
+  // que l'avertissement apparaît, et seulement quand il doit apparaître.
+  it('avertit quand le serveur a plafonné le regroupement', () => {
+    renderWithProviders(
+      <CollaborateurTable {...baseProps} truncated items={[makeCollaborateur()]} />,
+    );
+
+    expect(screen.getByRole('status')).toHaveTextContent(/ne porte que sur une partie des équipements/i);
+  });
+
+  it("n'affiche aucun avertissement sur un regroupement complet", () => {
+    renderWithProviders(<CollaborateurTable {...baseProps} items={[makeCollaborateur()]} />);
+
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it("n'affiche pas l'avertissement pendant le chargement", () => {
+    renderWithProviders(<CollaborateurTable {...baseProps} truncated loading items={[]} />);
+
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 });

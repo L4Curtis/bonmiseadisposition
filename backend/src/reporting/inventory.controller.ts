@@ -37,19 +37,24 @@ export class InventoryController {
   }
 
   /** Vue « une ligne par personne » de l'inventaire — mêmes filtres/rôles que
-   *  la liste par équipement (Direction en lecture). `X-Truncated` (même
-   *  convention que l'export CSV) signale un regroupement tronqué par
-   *  AGGREGATION_ROW_LIMIT, sans altérer le contrat JSON documenté. */
+   *  la liste par équipement (Direction en lecture).
+   *
+   *  Une troncature par AGGREGATION_ROW_LIMIT est signalée deux fois : par
+   *  l'en-tête `X-Truncated` (même convention que l'export CSV) et par le
+   *  champ `truncated` du corps. Le champ est nécessaire pour que l'interface
+   *  puisse avertir : le client HTTP du front ne renvoie que le JSON parsé et
+   *  n'expose pas les en-têtes — sans lui, un regroupement incomplet serait
+   *  affiché comme s'il était complet. */
   @Get('by-collaborateur')
   async getByCollaborateur(
     @Query() dto: InventoryByCollaborateurQueryDto,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const { items, total, page, limit, truncated } = await this.inventoryService.getInventoryByCollaborateur(dto);
-    if (truncated) {
+    const result = await this.inventoryService.getInventoryByCollaborateur(dto);
+    if (result.truncated) {
       res.setHeader('X-Truncated', 'true');
     }
-    return { items, total, page, limit };
+    return result;
   }
 
   @Get()

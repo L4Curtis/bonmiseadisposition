@@ -419,9 +419,11 @@ deux vues, et la vue choisie est portée par l'URL (`?vue=collaborateurs`) : un 
 même écran.
 
 Côté API : `GET /reporting/inventory/by-collaborateur` accepte les mêmes filtres que la liste, plus
-`sort=count|oldest` et la pagination. Au-delà de 10 000 équipements, la réponse porte un en-tête
-`X-Truncated` : le regroupement est fait en mémoire, volontairement, pour réutiliser la construction
-des filtres de la liste plutôt que de la dupliquer en SQL.
+`sort=count|oldest` et la pagination. Le regroupement est fait en mémoire, volontairement, pour
+réutiliser la construction des filtres de la liste plutôt que de la dupliquer en SQL ; il est donc
+plafonné à 10 000 équipements. Au-delà, la réponse le signale par l'en-tête `X-Truncated` et par le
+champ `truncated` du corps, et la page affiche un avertissement : un classement partiel n'est jamais
+présenté comme complet.
 
 ## Modèles d'emails : test d'envoi
 

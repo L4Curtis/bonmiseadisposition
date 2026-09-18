@@ -100,4 +100,8 @@ export interface CollaborateurInventoryResponse {
   total: number;
   page: number;
   limit: number;
+  /** Le regroupement portait sur plus d'équipements que la limite serveur
+   *  (10 000) : les chiffres affichés sont incomplets. Toujours signalé à
+   *  l'utilisateur plutôt que laissé silencieux. */
+  truncated: boolean;
 }

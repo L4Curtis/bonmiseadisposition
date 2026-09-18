@@ -152,6 +152,7 @@ export function InventairePage() {
           sort={collaborateurs.sort}
           onSortChange={collaborateurs.setSort}
           filters={baseFilters}
+          truncated={collaborateurs.truncated}
         />
       )}
 

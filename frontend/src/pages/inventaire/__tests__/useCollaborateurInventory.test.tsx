@@ -22,6 +22,7 @@ const response = {
   total: 1,
   page: 1,
   limit: 50,
+  truncated: false,
 };
 
 /** Petit harnais gérant lui-même `page`, comme le ferait useInventory (le hook
@@ -105,5 +106,13 @@ describe('useCollaborateurInventory', () => {
 
     await waitFor(() => expect(result.current.error).toBeNull());
     await waitFor(() => expect(result.current.items).toHaveLength(1));
+  });
+
+  it('remonte la troncature du serveur pour que la vue puisse avertir', async () => {
+    vi.mocked(api.get).mockResolvedValue({ ...response, truncated: true });
+    const { result } = renderHook(() => useHarness(true, EMPTY_FILTERS));
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.truncated).toBe(true);
   });
 });

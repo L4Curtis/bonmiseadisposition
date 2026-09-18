@@ -23,6 +23,9 @@ interface CollaborateurTableProps {
   /** Filtres actifs, transmis au détail déplié pour rester cohérent avec la
    *  liste regroupée (cf. useCollaborateurDetail). */
   filters: InventoryBaseFilters;
+  /** Le serveur a plafonné le regroupement : les chiffres sont incomplets, et
+   *  on le dit — un total faux affiché comme vrai est pire qu'un avertissement. */
+  truncated: boolean;
 }
 
 type AriaSort = 'ascending' | 'descending' | 'none';
@@ -64,11 +67,25 @@ export function CollaborateurTable({
   sort,
   onSortChange,
   filters,
+  truncated,
 }: CollaborateurTableProps) {
   const { expandedIds, toggle, detailFor, retryDetail } = useCollaborateurDetail(filters);
 
   return (
     <div className="bg-card rounded-xl border border-border card-elevated overflow-hidden">
+      {truncated && !loading && !loadError && (
+        <div
+          className="flex items-start gap-3 border-b border-border bg-[hsl(var(--warning))]/10 px-4 py-3"
+          role="status"
+        >
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-[hsl(var(--warning))]" />
+          <p className="text-xs text-muted-foreground">
+            Le parc dépasse la limite de regroupement du serveur : ce classement ne porte que sur une
+            partie des équipements. Affinez les filtres (filiale, catégorie) pour obtenir des chiffres
+            complets.
+          </p>
+        </div>
+      )}
       {loading ? (
         <TableSkeleton />
       ) : loadError ? (

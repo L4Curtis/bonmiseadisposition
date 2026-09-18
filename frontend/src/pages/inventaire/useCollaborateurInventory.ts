@@ -23,6 +23,7 @@ interface UseCollaborateurInventoryOptions {
 export function useCollaborateurInventory({ enabled, filters, page, setPage }: UseCollaborateurInventoryOptions) {
   const [items, setItems] = useState<CollaborateurInventoryItem[]>([]);
   const [total, setTotal] = useState(0);
+  const [truncated, setTruncated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sort, setSortState] = useState<CollaborateurSort>('count');
@@ -54,11 +55,13 @@ export function useCollaborateurInventory({ enabled, filters, page, setPage }: U
         if (ignore) return;
         setItems(data.items);
         setTotal(data.total);
+        setTruncated(data.truncated === true);
       })
       .catch((e: unknown) => {
         if (ignore) return;
         setItems([]);
         setTotal(0);
+        setTruncated(false);
         setError(errorMessage(e, 'Erreur lors du chargement des collaborateurs'));
       })
       .finally(() => {
@@ -81,5 +84,5 @@ export function useCollaborateurInventory({ enabled, filters, page, setPage }: U
     reloadKey,
   ]);
 
-  return { items, total, loading, error, retry, sort, setSort, limit: PAGE_LIMIT };
+  return { items, total, truncated, loading, error, retry, sort, setSort, limit: PAGE_LIMIT };
 }
