@@ -25,13 +25,13 @@ export function ContestationsPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
-        <AlertOctagon className="h-5 w-5 text-red-500" />
+        <AlertOctagon className="h-5 w-5 text-destructive" />
         <h1 className="text-xl font-bold text-foreground">Contestations</h1>
         {data && data.total > 0 && (
           <span className="text-sm text-muted-foreground/70">({data.total} au total)</span>
         )}
         {openCount > 0 && (
-          <span className="inline-flex rounded-full bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400 px-2 py-0.5 text-xs font-semibold">
+          <span className="inline-flex rounded-full bg-destructive/10 text-destructive px-2 py-0.5 text-xs font-semibold">
             {openCount} ouvertes
           </span>
         )}
@@ -45,7 +45,7 @@ export function ContestationsPage() {
             onClick={() => setStatusFilter(opt.value)}
             className={`rounded-full px-3 py-1 text-xs font-medium border transition-colors ${
               statusFilter === opt.value
-                ? 'bg-primary text-white border-primary'
+                ? 'bg-primary text-primary-foreground border-primary'
                 : 'bg-card text-muted-foreground border-border hover:bg-muted/40'
             }`}
           >

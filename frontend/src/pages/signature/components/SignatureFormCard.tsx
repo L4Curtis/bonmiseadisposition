@@ -68,7 +68,7 @@ export function SignatureFormCard({
 
       {/* Email mismatch warning */}
       {emailMismatch && (
-        <div role="alert" className="mx-5 mt-4 flex items-start gap-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/30 p-3 text-sm text-red-700 dark:text-red-400">
+        <div role="alert" className="mx-5 mt-4 flex items-start gap-3 rounded-lg bg-destructive/10 border border-destructive/30 p-3 text-sm text-destructive">
           <XCircle className="h-4 w-4 shrink-0 mt-0.5" />
           <div>
             <p className="font-medium">Compte non autorisé</p>
@@ -80,7 +80,7 @@ export function SignatureFormCard({
       )}
 
       {isPvCloture && (
-        <div className="mx-5 mt-4 flex items-start gap-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/30 p-3 text-sm text-red-700 dark:text-red-400">
+        <div className="mx-5 mt-4 flex items-start gap-3 rounded-lg bg-destructive/10 border border-destructive/30 p-3 text-sm text-destructive">
           <div>
             <p className="font-medium">Procès-verbal d'équipements non restitués</p>
             <p className="text-xs mt-0.5">
@@ -90,7 +90,7 @@ export function SignatureFormCard({
         </div>
       )}
       {isInPerson && !isPvCloture && (
-        <div className="mx-5 mt-4 flex items-start gap-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-900/30 p-3 text-sm text-amber-700 dark:text-amber-400">
+        <div className="mx-5 mt-4 flex items-start gap-3 rounded-lg bg-warning/10 border border-warning/30 p-3 text-sm text-warning">
           <div>
             <p className="font-medium">Signature présentielle</p>
             <p className="text-xs mt-0.5">
@@ -111,7 +111,7 @@ export function SignatureFormCard({
           Voir le document qui sera signé (PDF)
         </button>
         {previewError && (
-          <p className="text-xs text-red-600 dark:text-red-400 text-center">{previewError}</p>
+          <p className="text-xs text-destructive text-center">{previewError}</p>
         )}
 
         <SignatureCanvasPanel
@@ -133,7 +133,7 @@ export function SignatureFormCard({
 
         {/* Error */}
         {submitError && (
-          <div role="alert" className="flex items-start gap-2 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/30 p-3 text-sm text-red-700 dark:text-red-400">
+          <div role="alert" className="flex items-start gap-2 rounded-lg bg-destructive/10 border border-destructive/30 p-3 text-sm text-destructive">
             <XCircle className="h-4 w-4 shrink-0 mt-0.5" />
             <span>{submitError}</span>
           </div>
@@ -143,7 +143,7 @@ export function SignatureFormCard({
         <button
           onClick={onSubmit}
           disabled={disabled}
-          className={`w-full flex items-center justify-center gap-2 rounded-xl px-6 py-3 text-sm font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-[0.99] ${isPvCloture ? 'bg-red-700 hover:bg-red-800 shadow-sm' : 'btn-gradient'}`}
+          className={`w-full flex items-center justify-center gap-2 rounded-xl px-6 py-3 text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-[0.99] ${isPvCloture ? 'bg-destructive hover:bg-destructive/90 text-destructive-foreground shadow-sm' : 'btn-gradient text-primary-foreground'}`}
         >
           {submitting ? (
             <><Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" /> Signature en cours…</>

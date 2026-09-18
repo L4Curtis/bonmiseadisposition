@@ -49,16 +49,16 @@ export function BonSignatures({ signatures }: BonSignaturesProps) {
           return (
           <div
             key={sig.id}
-            className={`flex items-start gap-3 rounded-lg p-3 ${sig.signed ? 'bg-green-50 dark:bg-green-900/20 border border-green-100 dark:border-green-900/30' : 'bg-orange-50 dark:bg-orange-900/20 border border-orange-100 dark:border-orange-900/30'}`}
+            className={`flex items-start gap-3 rounded-lg p-3 ${sig.signed ? 'bg-success/10 border border-success/20' : 'bg-warning/10 border border-warning/20'}`}
           >
             {sig.signed
-              ? <CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5 shrink-0" />
-              : <Clock className="h-4 w-4 text-orange-400 mt-0.5 shrink-0" />}
+              ? <CheckCircle2 className="h-4 w-4 text-success mt-0.5 shrink-0" />
+              : <Clock className="h-4 w-4 text-warning mt-0.5 shrink-0" />}
             <div className="flex-1 text-sm">
               <div className="flex items-center gap-2">
                 <span className="font-medium text-foreground">{displayLabel}</span>
                 {sig.isInPerson && (
-                  <span className="text-xs bg-amber-100 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 px-1.5 py-0.5 rounded">Présentiel</span>
+                  <span className="text-xs bg-warning/10 text-warning px-1.5 py-0.5 rounded">Présentiel</span>
                 )}
                 {sig.type === 'it_cachet' && (
                   <span className="text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded flex items-center gap-1">
@@ -66,7 +66,7 @@ export function BonSignatures({ signatures }: BonSignaturesProps) {
                   </span>
                 )}
                 {sig.type === 'pv_cloture' && (
-                  <span className="text-xs bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400 px-1.5 py-0.5 rounded flex items-center gap-1">
+                  <span className="text-xs bg-destructive/10 text-destructive px-1.5 py-0.5 rounded flex items-center gap-1">
                     <AlertTriangle className="h-3 w-3" /> PV
                   </span>
                 )}
@@ -78,10 +78,10 @@ export function BonSignatures({ signatures }: BonSignaturesProps) {
                     <span>{sig.signerEmail}</span>
                   </div>
                   <div>Signé le {formatDateTime(sig.signedAt)}</div>
-                  {sig.mentionLuApprouve && <div className="text-green-600">✓ Lu et approuvé</div>}
+                  {sig.mentionLuApprouve && <div className="text-success">✓ Lu et approuvé</div>}
                 </div>
               ) : (
-                <p className="text-orange-600 text-xs mt-0.5">
+                <p className="text-warning text-xs mt-0.5">
                   En attente · Expire le {formatDateLong(sig.tokenExpiresAt)}
                 </p>
               )}

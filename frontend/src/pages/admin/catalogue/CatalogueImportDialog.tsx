@@ -88,7 +88,7 @@ export function CatalogueImportDialog({ state }: CatalogueImportDialogProps) {
           {result && (
             <div className="rounded-md border border-border bg-muted/40 p-3 space-y-2">
               <p className="text-sm font-medium text-foreground flex items-center gap-1.5">
-                <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
+                <CheckCircle2 className="h-4 w-4 text-success" />
                 Import terminé
               </p>
               <p className="text-sm text-foreground/80">

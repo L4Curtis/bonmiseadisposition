@@ -102,7 +102,7 @@ export function FilialeForm({
         <Button
           size="sm"
           disabled={saving || saved}
-          className={saved ? 'bg-green-600 hover:bg-green-600 text-white' : ''}
+          className={saved ? 'bg-success hover:bg-success text-success-foreground' : ''}
           onClick={handleSave}
         >
           {saved ? <Check className="h-3 w-3" /> : null}

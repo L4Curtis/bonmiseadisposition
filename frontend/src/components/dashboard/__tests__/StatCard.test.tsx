@@ -19,7 +19,7 @@ describe('StatCard', () => {
   it('shows a negative delta for a regression', () => {
     render(<StatCard label="Actifs" value={90} icon={FileText} delta={{ current: 90, previous: 100 }} />);
     const line = screen.getByText(/-10 % vs période précédente/);
-    expect(line).toHaveClass('text-red-600');
+    expect(line).toHaveClass('text-destructive');
   });
 
   it('invert reverses which direction counts as an improvement', () => {
@@ -27,7 +27,7 @@ describe('StatCard', () => {
     // quand `invert` est actif.
     render(<StatCard label="Retards" value={5} icon={FileText} delta={{ current: 5, previous: 10, invert: true }} />);
     const line = screen.getByText(/-50 % vs période précédente/);
-    expect(line).toHaveClass('text-emerald-600');
+    expect(line).toHaveClass('text-success');
   });
 
   it('shows "—" when there is no previous value to compare to', () => {

@@ -39,9 +39,9 @@ export function BonNotificationLogs({ logs }: Props) {
         {logs.map((log) => (
           <li key={log.id} className="py-2 flex items-start gap-3">
             {log.status === 'sent' ? (
-              <CheckCircle className="h-4 w-4 mt-0.5 text-green-500 shrink-0" />
+              <CheckCircle className="h-4 w-4 mt-0.5 text-success shrink-0" />
             ) : (
-              <XCircle className="h-4 w-4 mt-0.5 text-red-500 shrink-0" />
+              <XCircle className="h-4 w-4 mt-0.5 text-destructive shrink-0" />
             )}
             <div className="flex-1 min-w-0">
               <div className="flex flex-wrap gap-x-2 gap-y-0.5 items-center">
@@ -53,7 +53,7 @@ export function BonNotificationLogs({ logs }: Props) {
                 <span className="text-muted-foreground ml-auto whitespace-nowrap">{formatDate(log.sentAt)}</span>
               </div>
               {log.status === 'failed' && log.errorMessage && (
-                <p className="mt-1 text-red-600 text-xs break-all">{log.errorMessage}</p>
+                <p className="mt-1 text-destructive text-xs break-all">{log.errorMessage}</p>
               )}
             </div>
           </li>

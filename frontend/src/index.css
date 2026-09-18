@@ -28,6 +28,18 @@
     --destructive:           6 63% 46%;    /* #C0392B */
     --destructive-foreground: 0 0% 100%;
 
+    /* États porteurs de sens — à utiliser à la place des couleurs de palette
+       (bg-green-600, text-amber-700…), qui ignorent le thème sombre.
+       Règle de couleur de l'application :
+         accent, sélection, information → primary (rouge Livio)
+         danger, suppression, erreur    → destructive
+         réussite, matériel rendu       → success
+         attente, vigilance             → warning */
+    --success:               160 55% 33%;
+    --success-foreground:    0 0% 100%;
+    --warning:               38 88% 40%;
+    --warning-foreground:    0 0% 100%;
+
     --border:                40 13% 87%;   /* #E2DFD9 — filet NET */
     --input:                 39 16% 83%;   /* #DAD5CC */
     --ring:                  4 69% 51%;
@@ -80,6 +92,11 @@
 
     --destructive:           6 86% 59%;
     --destructive-foreground: 0 0% 100%;
+
+    --success:               160 55% 50%;
+    --success-foreground:    40 6% 10%;
+    --warning:               38 92% 58%;
+    --warning-foreground:    40 6% 10%;
 
     --border:                37 9% 18%;    /* #33302B — filet visible sur sombre */
     --input:                 36 9% 21%;    /* #3A3630 */

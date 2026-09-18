@@ -55,8 +55,8 @@ export function BonsTable({
       ) : loadError ? (
         /* Erreur de chargement — distincte de l'état vide */
         <div className="flex flex-col items-center justify-center py-16 px-4 text-center" role="alert">
-          <div className="rounded-full bg-red-50 dark:bg-red-900/20 p-4 mb-4">
-            <X className="h-8 w-8 text-red-500" />
+          <div className="rounded-full bg-destructive/10 p-4 mb-4">
+            <X className="h-8 w-8 text-destructive" />
           </div>
           <p className="text-sm font-medium text-foreground/80 mb-1">Erreur de chargement</p>
           <p className="text-xs text-muted-foreground/70 max-w-xs">{loadError}</p>

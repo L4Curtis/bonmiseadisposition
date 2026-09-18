@@ -79,11 +79,11 @@ export function PackList({
                   ) : (
                     <ChevronRight className="h-4 w-4" />
                   )}
-                  <Package className="h-4 w-4 text-blue-500 dark:text-blue-400" />
+                  <Package className="h-4 w-4 text-primary" />
                   {pack.name}
                   <Badge variant="outline">{pack.items.length} item(s)</Badge>
                   {!pack.active && (
-                    <Badge variant="outline" className="border-red-300 dark:border-red-900/40 text-red-600 dark:text-red-400">
+                    <Badge variant="outline" className="border-destructive/40 text-destructive">
                       Désactivé
                     </Badge>
                   )}
@@ -104,7 +104,7 @@ export function PackList({
                       disabled={packPending}
                       onClick={() => onDeactivateRequest({ type: 'pack', id: pack.id, label: pack.name })}
                       aria-label={`Désactiver le pack ${pack.name}`}
-                      className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:text-red-300 dark:hover:bg-red-900/20"
+                      className="text-destructive hover:text-destructive/80 hover:bg-destructive/10"
                     >
                       <Ban className="h-3.5 w-3.5" /> Désactiver
                     </Button>

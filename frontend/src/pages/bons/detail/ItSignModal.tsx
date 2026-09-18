@@ -50,15 +50,15 @@ export function ItSignModal({ bonId, reference, pdfType, description, onClose, o
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !submitting) onClose(); }}>
       <DialogContent className="sm:max-w-lg p-0 overflow-hidden">
-        {/* Dark header */}
-        <div className="bg-slate-800 dark:bg-slate-900 px-5 py-4 flex items-center gap-3">
-          <Stamp className="h-5 w-5 text-slate-300 dark:text-slate-400" />
+        {/* Primary header */}
+        <div className="bg-primary px-5 py-4 flex items-center gap-3">
+          <Stamp className="h-5 w-5 text-primary-foreground/70" />
           <div>
             <DialogHeader className="p-0 text-left">
-              <DialogTitle className="text-white text-sm">
+              <DialogTitle className="text-primary-foreground text-sm">
                 Cachet du service informatique
               </DialogTitle>
-              <DialogDescription className="text-muted-foreground/70 text-xs">
+              <DialogDescription className="text-primary-foreground/80 text-xs">
                 {typLabel.charAt(0).toUpperCase() + typLabel.slice(1)} &middot;{' '}
                 <span className="font-mono">{reference}</span>
               </DialogDescription>
@@ -104,7 +104,7 @@ export function ItSignModal({ bonId, reference, pdfType, description, onClose, o
           </div>
 
           {error && (
-            <div role="alert" className="flex items-start gap-2 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/30 p-3 text-sm text-red-700 dark:text-red-400">
+            <div role="alert" className="flex items-start gap-2 rounded-lg bg-destructive/10 border border-destructive/30 p-3 text-sm text-destructive">
               <XCircle className="h-4 w-4 shrink-0 mt-0.5" />
               <span>{error}</span>
             </div>
@@ -116,7 +116,7 @@ export function ItSignModal({ bonId, reference, pdfType, description, onClose, o
             </Button>
             <Button
               size="sm"
-              className="flex-1 bg-slate-800 dark:bg-slate-700 hover:bg-slate-900 dark:hover:bg-slate-600 text-white"
+              className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground"
               onClick={handleSubmit}
               disabled={submitting || isEmpty}
             >

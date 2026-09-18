@@ -28,7 +28,7 @@ export function WaitingStepsTable({ steps }: WaitingStepsTableProps) {
             <td
               className={cn(
                 'py-2.5 tabular-nums font-medium',
-                step.overdue > 0 ? 'text-red-600 dark:text-red-400' : 'text-foreground/80',
+                step.overdue > 0 ? 'text-destructive' : 'text-foreground/80',
               )}
             >
               {formatNumber(step.overdue)}

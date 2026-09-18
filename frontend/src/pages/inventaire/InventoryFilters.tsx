@@ -97,7 +97,7 @@ export function InventoryFilters({
       {hasActiveFilters && (
         <button
           onClick={onReset}
-          className="text-sm text-rose-500 hover:text-rose-700 font-medium transition-colors px-1"
+          className="px-1 text-sm font-medium text-primary transition-colors hover:text-primary/80"
         >
           Réinitialiser
         </button>

@@ -143,9 +143,9 @@ export function UtilisateursPage() {
       </div>
 
       {loadError && !loading && (
-        <div className="rounded-lg border border-red-200 bg-red-50 dark:bg-red-900/20 p-4 text-center" role="alert">
-          <XCircle className="h-6 w-6 mx-auto mb-2 text-red-400" />
-          <p className="text-sm text-red-700 dark:text-red-400">{loadError}</p>
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-center" role="alert">
+          <XCircle className="h-6 w-6 mx-auto mb-2 text-destructive" />
+          <p className="text-sm text-destructive">{loadError}</p>
           <Button variant="outline" size="sm" className="mt-3" onClick={load}>
             Réessayer
           </Button>

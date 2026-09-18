@@ -37,13 +37,13 @@ const FORMATTERS: Record<StatCardFormat, (value: number | null) => string> = {
 const TONE_ICON_CLASSES: Record<StatCardTone, string> = {
   default: 'border border-border text-muted-foreground',
   danger: 'border border-destructive/30 text-destructive',
-  warning: 'border border-amber-500/30 text-amber-600 dark:text-amber-400',
+  warning: 'border border-warning/30 text-warning',
 };
 
 const TONE_VALUE_CLASSES: Record<StatCardTone, string> = {
   default: 'text-foreground',
   danger: 'text-destructive',
-  warning: 'text-amber-600 dark:text-amber-400',
+  warning: 'text-warning',
 };
 
 const pctFormatter = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 });
@@ -73,8 +73,8 @@ function DeltaLine({ delta }: { delta: StatCardDelta }) {
   const colorClass = direction === 'flat'
     ? 'text-muted-foreground/70'
     : improved
-      ? 'text-emerald-600 dark:text-emerald-400'
-      : 'text-red-600 dark:text-red-400';
+      ? 'text-success'
+      : 'text-destructive';
   const sign = pct > 0 ? '+' : '';
   const Arrow = direction === 'down' ? ArrowDown : ArrowUp;
 

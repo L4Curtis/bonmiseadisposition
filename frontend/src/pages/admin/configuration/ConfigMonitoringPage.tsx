@@ -111,7 +111,7 @@ export function ConfigMonitoringPage() {
   }
 
   const hasFailures = (status.failed ?? 0) > 0;
-  const statusColor = hasFailures ? 'text-red-600' : 'text-green-600';
+  const statusColor = hasFailures ? 'text-destructive' : 'text-success';
   const statusIcon = hasFailures ? <AlertTriangle className="h-4 w-4" /> : <CheckCircle className="h-4 w-4" />;
 
   return (
@@ -135,8 +135,8 @@ export function ConfigMonitoringPage() {
             </div>
             <div className="flex gap-4 text-sm text-muted-foreground">
               <span>Total : <strong className="text-foreground">{status.total ?? 0}</strong></span>
-              <span>Réussis : <strong className="text-green-600">{status.success ?? 0}</strong></span>
-              <span>Échoués : <strong className={hasFailures ? 'text-red-600' : 'text-foreground'}>{status.failed ?? 0}</strong></span>
+              <span>Réussis : <strong className="text-success">{status.success ?? 0}</strong></span>
+              <span>Échoués : <strong className={hasFailures ? 'text-destructive' : 'text-foreground'}>{status.failed ?? 0}</strong></span>
               <span>En attente : <strong className="text-foreground">{status.pending ?? 0}</strong></span>
             </div>
           </div>
@@ -177,7 +177,7 @@ export function ConfigMonitoringPage() {
                       <tr key={exp.id} className="hover:bg-muted/30">
                         <td className="px-3 py-2 font-mono text-xs">{exp.bonReference}</td>
                         <td className="px-3 py-2 text-xs max-w-[200px] truncate" title={exp.filename}>{exp.filename}</td>
-                        <td className="px-3 py-2 text-xs text-red-600 max-w-[250px] truncate" title={exp.errorMessage ?? ''}>
+                        <td className="px-3 py-2 text-xs text-destructive max-w-[250px] truncate" title={exp.errorMessage ?? ''}>
                           {exp.errorMessage ?? 'Erreur inconnue'}
                         </td>
                         <td className="px-3 py-2 text-center text-xs">{exp.retryCount}/3</td>

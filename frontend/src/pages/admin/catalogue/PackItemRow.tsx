@@ -78,7 +78,7 @@ export function PackItemRow({ pack, item, pending, onUpdateQty, onRemoveRequest 
         >+</Button>
       </div>
       <button
-        className="ml-1 text-muted-foreground/70 hover:text-red-500 dark:hover:text-red-400 disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 rounded"
+        className="ml-1 text-muted-foreground/70 hover:text-destructive disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 rounded"
         disabled={pending}
         onClick={() => onRemoveRequest({
           pack,

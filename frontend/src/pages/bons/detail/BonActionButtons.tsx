@@ -136,7 +136,6 @@ export function BonActionButtons({
         <Button
           variant="outline"
           size="sm"
-          className="text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 border-slate-300 dark:border-slate-700"
           onClick={onApplyRestitutionItCachet}
           disabled={!!actionLoading}
           title="La restitution a été enregistrée sans que le cachet IT correspondant ait été posé — l'apposer maintenant"
@@ -149,7 +148,6 @@ export function BonActionButtons({
         <Button
           variant="outline"
           size="sm"
-          className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 hover:bg-green-50 dark:hover:bg-green-900/20 border-green-200 dark:border-green-800"
           onClick={onMarkFound}
           disabled={!!actionLoading}
         >
@@ -191,7 +189,6 @@ export function BonActionButtons({
         <Button
           variant="outline"
           size="sm"
-          className="text-amber-600 dark:text-amber-400 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-900/20 border-amber-200 dark:border-amber-800"
           onClick={onCloseUnilateral}
           disabled={!!actionLoading}
           title="Clore ce bon sans signature du collaborateur (départ, silence prolongé) — motif obligatoire, tracé dans l'audit"

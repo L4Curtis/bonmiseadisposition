@@ -45,7 +45,7 @@ export function PortailCollaborateur() {
   return (
     <div className="space-y-6 ">
       {pending.length > 0 && (
-        <div role="status" className="flex items-center gap-2 rounded-lg bg-orange-50 dark:bg-orange-950/20 border border-orange-200 dark:border-orange-900/30 px-4 py-3 text-sm text-orange-700 dark:text-orange-400">
+        <div role="status" className="flex items-center gap-2 rounded-lg bg-warning/10 border border-warning/30 px-4 py-3 text-sm text-warning">
           <AlertTriangle className="h-4 w-4 shrink-0" />
           <span>
             Vous avez {pending.length} document{pending.length > 1 ? 's' : ''} à signer.{' '}

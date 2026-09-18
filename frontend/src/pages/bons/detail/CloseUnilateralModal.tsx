@@ -30,7 +30,7 @@ export function CloseUnilateralModal({ outcomeLabel, onConfirm, onCancel, loadin
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <AlertTriangle className="h-5 w-5 text-amber-500" />
+            <AlertTriangle className="h-5 w-5 text-destructive" />
             Clôturer sans signature ?
           </DialogTitle>
           <DialogDescription>
@@ -52,7 +52,7 @@ export function CloseUnilateralModal({ outcomeLabel, onConfirm, onCancel, loadin
             maxLength={1000}
           />
           {!reasonValid && reason.length > 0 && (
-            <p className="text-xs text-amber-600">Le motif doit faire au moins {MIN_REASON_LENGTH} caractères.</p>
+            <p className="text-xs text-warning">Le motif doit faire au moins {MIN_REASON_LENGTH} caractères.</p>
           )}
         </div>
         <DialogFooter>
@@ -61,7 +61,7 @@ export function CloseUnilateralModal({ outcomeLabel, onConfirm, onCancel, loadin
           </Button>
           <Button
             size="sm"
-            className="bg-amber-600 hover:bg-amber-700 text-white"
+            className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
             onClick={() => onConfirm(reason.trim())}
             disabled={loading || !reasonValid}
           >

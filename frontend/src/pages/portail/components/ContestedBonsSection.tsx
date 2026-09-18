@@ -11,7 +11,7 @@ interface ContestedBonsSectionProps {
 export function ContestedBonsSection({ bons, onOpen }: ContestedBonsSectionProps) {
   return (
     <section>
-      <h2 className="text-sm font-semibold text-red-700 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+      <h2 className="text-sm font-semibold text-destructive uppercase tracking-wider mb-3 flex items-center gap-1.5">
         <AlertOctagon className="h-3.5 w-3.5" /> En contestation ({bons.length})
       </h2>
       <div className="space-y-2">

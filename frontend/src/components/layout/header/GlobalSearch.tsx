@@ -131,7 +131,7 @@ export function GlobalSearch() {
           {loading && results.length === 0 ? (
             <p className="px-3 py-3 text-xs text-muted-foreground">Recherche…</p>
           ) : error ? (
-            <p role="alert" className="flex items-center gap-2 px-3 py-3 text-xs text-red-700 dark:text-red-400">
+            <p role="alert" className="flex items-center gap-2 px-3 py-3 text-xs text-destructive">
               <WifiOff className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
               Recherche indisponible (erreur réseau). Réessayez.
             </p>

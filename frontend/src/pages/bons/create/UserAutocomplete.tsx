@@ -39,7 +39,7 @@ export function UserAutocomplete({
 
   if (value) {
     return (
-      <div className="flex items-center justify-between rounded-md border border-blue-100 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 px-3 py-2">
+      <div className="flex items-center justify-between rounded-md border border-primary/20 bg-primary/10 px-3 py-2">
         <div>
           <p className="text-sm font-medium">{value.displayName}</p>
           <p className="text-xs text-muted-foreground">{value.email}{value.department ? ` — ${value.department}` : ''}</p>

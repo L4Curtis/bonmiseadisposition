@@ -60,8 +60,8 @@ export function CataloguePage() {
       </div>
 
       {loadError && !loading && (
-        <div className="rounded-lg border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-900/20 p-4 text-center" role="alert">
-          <p className="text-sm text-red-700 dark:text-red-400">{loadError}</p>
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-center" role="alert">
+          <p className="text-sm text-destructive">{loadError}</p>
           <Button variant="outline" size="sm" className="mt-3" onClick={fetchData}>
             Réessayer
           </Button>

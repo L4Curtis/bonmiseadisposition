@@ -61,7 +61,7 @@ export function SerialHistoryModal({ serialNumber, currentBonId, onClose }: Seri
         </DialogHeader>
 
         {error ? (
-          <div className="py-6 text-center text-sm text-red-700 dark:text-red-400" role="alert">
+          <div className="py-6 text-center text-sm text-destructive" role="alert">
             <XCircle className="h-6 w-6 mx-auto mb-2" />
             <p>{error}</p>
           </div>
@@ -98,10 +98,10 @@ export function SerialHistoryModal({ serialNumber, currentBonId, onClose }: Seri
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       {entry.returnedAt && (
-                        <span className="text-xs text-green-700 dark:text-green-400">rendu</span>
+                        <span className="text-xs text-success">rendu</span>
                       )}
                       {entry.notReturned && (
-                        <span className="text-xs text-red-700 dark:text-red-400">non rendu</span>
+                        <span className="text-xs text-destructive">non rendu</span>
                       )}
                       <StatusBadge status={entry.bon.status} />
                     </div>

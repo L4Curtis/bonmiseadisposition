@@ -20,7 +20,7 @@ export function FreshlySignedScreen({ bon, signature, isProxySigned, downloadErr
   const bonId = bon.id;
   return (
     <StatusScreen
-      icon={<CheckCircle className="h-12 w-12 text-green-500" />}
+      icon={<CheckCircle className="h-12 w-12 text-success" />}
       title="Document signé ✓"
       message={`${docLabel} (réf. ${bon.reference}) a bien été signé électroniquement. Un email de confirmation vous sera envoyé.`}
       success
@@ -28,11 +28,11 @@ export function FreshlySignedScreen({ bon, signature, isProxySigned, downloadErr
         <div className="flex flex-col gap-2 w-full">
           <button
             onClick={() => onDownloadSigned(bonId, stage)}
-            className="btn-gradient w-full rounded-lg px-4 py-2.5 text-sm font-semibold text-white"
+            className="btn-gradient w-full rounded-lg px-4 py-2.5 text-sm font-semibold text-primary-foreground"
           >
             Télécharger le document signé
           </button>
-          {downloadError && <p className="text-xs text-red-600 dark:text-red-400">{downloadError}</p>}
+          {downloadError && <p className="text-xs text-destructive">{downloadError}</p>}
           {isProxySigned ? (
             <a href={`/bons/${bonId}`} className="text-sm text-primary hover:underline">Retour à la fiche du bon</a>
           ) : (
@@ -57,13 +57,13 @@ interface AlreadySignedScreenProps {
 export function AlreadySignedScreen({ reference, bonId, downloadError, onDownloadSigned }: AlreadySignedScreenProps) {
   return (
     <StatusScreen
-      icon={<CheckCircle className="h-12 w-12 text-green-500" />}
+      icon={<CheckCircle className="h-12 w-12 text-success" />}
       title="Document déjà signé ✓"
       message={`Ce document${reference ? ` (réf. ${reference})` : ''} a déjà été signé électroniquement.`}
       success
       actions={
         <div className="flex flex-col gap-2 w-full">
-          <a href="/mes-bons" className="btn-gradient w-full rounded-lg px-4 py-2.5 text-sm font-semibold text-white text-center">
+          <a href="/mes-bons" className="btn-gradient w-full rounded-lg px-4 py-2.5 text-sm font-semibold text-primary-foreground text-center">
             Accéder à mes bons
           </a>
           {bonId ? (
@@ -77,7 +77,7 @@ export function AlreadySignedScreen({ reference, bonId, downloadError, onDownloa
           ) : (
             <a href="/mes-bons" className="text-sm text-primary hover:underline">Télécharger le document</a>
           )}
-          {downloadError && <p className="text-xs text-red-600 dark:text-red-400">{downloadError}</p>}
+          {downloadError && <p className="text-xs text-destructive">{downloadError}</p>}
         </div>
       }
     />

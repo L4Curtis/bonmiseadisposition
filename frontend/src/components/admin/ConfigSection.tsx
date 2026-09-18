@@ -73,7 +73,7 @@ function TestButton({ onTest, label }: { onTest: () => Promise<TestResult>; labe
       </Button>
       {result && (
         <span
-          className={`flex items-center gap-1 text-sm ${result.success ? 'text-green-600' : 'text-red-600'}`}
+          className={`flex items-center gap-1 text-sm ${result.success ? 'text-success' : 'text-destructive'}`}
           role={result.success ? undefined : 'alert'}
         >
           {result.success ? <CheckCircle className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
@@ -121,7 +121,7 @@ export function SmtpTestButton({ onTest }: { onTest: (email: string) => Promise<
       </div>
       {result && (
         <span
-          className={`flex items-center gap-1 text-sm ${result.success ? 'text-green-600' : 'text-red-600'}`}
+          className={`flex items-center gap-1 text-sm ${result.success ? 'text-success' : 'text-destructive'}`}
           role={result.success ? undefined : 'alert'}
         >
           {result.success ? <CheckCircle className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
@@ -237,8 +237,8 @@ export function ConfigSection({
           <CardTitle>{title}</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="rounded-lg border border-red-200 bg-red-50 dark:bg-red-900/20 p-4 text-center" role="alert">
-            <p className="text-sm text-red-700 dark:text-red-400">{loadError}</p>
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-center" role="alert">
+            <p className="text-sm text-destructive">{loadError}</p>
             <Button variant="outline" size="sm" className="mt-3" onClick={load}>
               Réessayer
             </Button>
@@ -305,7 +305,7 @@ export function ConfigSection({
             onClick={save}
             disabled={saving || saved}
             size="sm"
-            className={saved ? 'bg-green-600 hover:bg-green-600 text-white' : ''}
+            className={saved ? 'bg-success hover:bg-success text-success-foreground' : ''}
           >
             {saving ? <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none" /> : saved ? <Check className="h-3 w-3" /> : null}
             {saved ? 'Enregistré' : 'Enregistrer'}

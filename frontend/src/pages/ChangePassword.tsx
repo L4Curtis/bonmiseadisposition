@@ -65,8 +65,8 @@ export function ChangePasswordPage() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="max-w-md w-full text-center p-8" aria-live="polite">
-          <div className="mx-auto w-16 h-16 rounded-full bg-green-50 dark:bg-green-900/20 flex items-center justify-center mb-4">
-            <CheckCircle2 className="h-8 w-8 text-green-500 dark:text-green-400" />
+          <div className="mx-auto w-16 h-16 rounded-full bg-success/10 flex items-center justify-center mb-4">
+            <CheckCircle2 className="h-8 w-8 text-success" />
           </div>
           <h1 className="text-xl font-bold text-foreground">Mot de passe modifié</h1>
           <p className="text-sm text-muted-foreground mt-2">Redirection en cours...</p>
@@ -80,14 +80,14 @@ export function ChangePasswordPage() {
       <div className="w-full max-w-md">
         <div className="rounded-xl border bg-card p-8 shadow-sm">
           <div className="mb-6 text-center">
-            <div className="mx-auto w-14 h-14 rounded-full bg-amber-50 dark:bg-amber-900/20 flex items-center justify-center mb-3">
-              <Lock className="h-7 w-7 text-amber-600 dark:text-amber-400" />
+            <div className="mx-auto w-14 h-14 rounded-full bg-warning/10 flex items-center justify-center mb-3">
+              <Lock className="h-7 w-7 text-warning" />
             </div>
             <h1 className="text-xl font-bold text-foreground">
               {forced ? 'Changement de mot de passe obligatoire' : 'Changer mon mot de passe'}
             </h1>
             {forced && (
-              <p className="text-sm text-amber-600 mt-2">
+              <p className="text-sm text-warning mt-2">
                 Vous devez choisir un nouveau mot de passe avant de continuer.
               </p>
             )}
@@ -132,10 +132,10 @@ export function ChangePasswordPage() {
                 {rulesStatus.map((r, i) => (
                   <div key={i} className="flex items-center gap-2 text-xs">
                     {r.ok
-                      ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                      ? <CheckCircle2 className="h-3.5 w-3.5 text-success shrink-0" />
                       : <XCircle className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />
                     }
-                    <span className={r.ok ? 'text-green-700 dark:text-green-400' : 'text-muted-foreground'}>{r.label}</span>
+                    <span className={r.ok ? 'text-success' : 'text-muted-foreground'}>{r.label}</span>
                   </div>
                 ))}
               </div>
@@ -151,7 +151,7 @@ export function ChangePasswordPage() {
                 className="w-full rounded-lg border border-input bg-card text-foreground px-3 py-2 text-sm shadow-sm transition-all focus:outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/20"
               />
               {confirmPassword.length > 0 && !passwordsMatch && (
-                <p className="text-xs text-red-500 mt-1" role="alert">Les mots de passe ne correspondent pas</p>
+                <p className="text-xs text-destructive mt-1" role="alert">Les mots de passe ne correspondent pas</p>
               )}
             </div>
 
@@ -164,7 +164,7 @@ export function ChangePasswordPage() {
             <button
               type="submit"
               disabled={loading || !allRulesOk || !passwordsMatch}
-              className="btn-gradient w-full rounded-lg px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+              className="btn-gradient w-full rounded-lg px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"
             >
               {loading ? 'Enregistrement...' : 'Enregistrer le nouveau mot de passe'}
             </button>

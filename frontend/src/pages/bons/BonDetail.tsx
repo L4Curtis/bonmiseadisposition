@@ -108,8 +108,8 @@ export function BonDetailPage() {
       <div className="text-center py-16 text-muted-foreground/70" role="alert">
         {loadError ? (
           <>
-            <XCircle className="h-8 w-8 mx-auto mb-2 text-red-400" />
-            <p className="text-red-600">{loadError}</p>
+            <XCircle className="h-8 w-8 mx-auto mb-2 text-destructive/70" />
+            <p className="text-destructive">{loadError}</p>
           </>
         ) : (
           <p>Bon introuvable</p>
@@ -213,7 +213,7 @@ export function BonDetailPage() {
       {!isDeliverableEmail(bon.collaborateurEmail) && !['archived', 'cancelled'].includes(bon.status) && (
         <div
           role="alert"
-          className="flex items-start gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-100"
+          className="flex items-start gap-3 rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning"
         >
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
           <div>

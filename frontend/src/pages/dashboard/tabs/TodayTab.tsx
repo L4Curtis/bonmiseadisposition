@@ -181,8 +181,8 @@ export function TodayTab() {
             <RecentListSkeleton />
           ) : recentError ? (
             <div className="flex flex-col items-center justify-center py-16 text-center">
-              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-50 dark:bg-red-900/20">
-                <AlertTriangle className="h-6 w-6 text-red-500" />
+              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
+                <AlertTriangle className="h-6 w-6 text-destructive" />
               </div>
               <p className="mb-1 text-sm font-medium text-foreground/80">Erreur de chargement</p>
               <p className="max-w-xs text-xs text-muted-foreground/70">{recentError}</p>
@@ -225,7 +225,7 @@ export function TodayTab() {
                     </span>
 
                     {late && (
-                      <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-red-600 dark:text-red-400">
+                      <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-destructive">
                         <AlertTriangle className="h-3 w-3" />
                         En retard
                       </span>

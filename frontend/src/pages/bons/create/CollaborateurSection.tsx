@@ -77,7 +77,7 @@ export function CollaborateurSection({
           {collaborateur && !isDeliverableEmail(collaborateur.email) && (
             <p
               role="alert"
-              className="mt-1 flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200"
+              className="mt-1 flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning"
             >
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
               <span>

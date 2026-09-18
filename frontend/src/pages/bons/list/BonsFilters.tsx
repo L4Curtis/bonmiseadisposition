@@ -121,7 +121,7 @@ export function BonsFilters({
         {hasActiveFilters && (
           <button
             onClick={onResetFilters}
-            className="text-sm text-rose-500 hover:text-rose-700 font-medium transition-colors px-1"
+            className="text-sm text-destructive hover:text-destructive/80 font-medium transition-colors px-1"
           >
             Réinitialiser
           </button>
@@ -144,7 +144,7 @@ export function BonsFilters({
             </span>
           )}
           {overdue && (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400 px-2.5 py-1 text-xs font-medium">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-destructive/10 text-destructive px-2.5 py-1 text-xs font-medium">
               En retard
               <button
                 onClick={onClearOverdue}

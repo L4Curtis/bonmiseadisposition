@@ -100,12 +100,12 @@ export function EquipmentSection({
                 <div key={eq._id} className="grid grid-cols-[1fr_120px_120px_80px_56px] gap-2 items-center">
                   <div>
                     {eq.catalogItemId ? (
-                      <div className="flex items-center gap-1 rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 px-2 py-1.5 text-sm">
-                        <span className="font-medium text-blue-800 dark:text-blue-200">{eq.catalogItemLabel}</span>
+                      <div className="flex items-center gap-1 rounded-md bg-primary/10 border border-primary/20 px-2 py-1.5 text-sm">
+                        <span className="font-medium text-primary">{eq.catalogItemLabel}</span>
                         <button
                           type="button"
                           onClick={() => onUpdateEquipment(eq._id, 'catalogItemId', '')}
-                          className="ml-auto text-blue-400 dark:text-blue-500 hover:text-blue-600 dark:hover:text-blue-300"
+                          className="ml-auto text-primary/50 hover:text-primary"
                           aria-label={`Retirer cet article du catalogue - ligne ${rowLabel}`}
                         >
                           <X className="h-3 w-3" />
@@ -139,7 +139,7 @@ export function EquipmentSection({
                       title={isDuplicateSerial ? 'Ce numéro de série est déjà utilisé sur une autre ligne de ce bon' : undefined}
                       className={`h-8 text-sm ${
                         isDuplicateSerial
-                          ? 'border-red-400 dark:border-red-700 ring-1 ring-red-300 dark:ring-red-800 bg-red-50/60 dark:bg-red-900/10'
+                          ? 'border-destructive/60 ring-1 ring-destructive/30 bg-destructive/10'
                           : ''
                       }`}
                     />
@@ -176,7 +176,7 @@ export function EquipmentSection({
                     <button
                       type="button"
                       onClick={() => onRemoveEquipment(eq._id)}
-                      className="text-muted-foreground/50 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                      className="text-muted-foreground/50 hover:text-destructive transition-colors"
                       aria-label={`Supprimer la ligne ${rowLabel}`}
                     >
                       <Trash2 className="h-3.5 w-3.5" />

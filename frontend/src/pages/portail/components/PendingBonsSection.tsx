@@ -27,7 +27,7 @@ function PendingBonCard({ bon, onDetails }: PendingBonCardProps) {
   const sigType = signatureTypeLabel(sigTypeKey);
   const isInPersonPending = !!pendingSig && (pendingSig.isInPerson || pendingSig.inPersonPending);
   return (
-    <Card className="border-orange-200 dark:border-orange-900/30 bg-orange-50/50 dark:bg-orange-950/10">
+    <Card className="border-warning/30 bg-warning/10">
       <CardContent className="p-4 space-y-3">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
@@ -43,7 +43,7 @@ function PendingBonCard({ bon, onDetails }: PendingBonCardProps) {
             Détails <ChevronRight className="ml-1 h-3.5 w-3.5" />
           </Button>
         </div>
-        <p className="text-sm text-orange-700 dark:text-orange-400">
+        <p className="text-sm text-warning">
           Bon de <strong>{sigType}</strong> en attente de signature.
         </p>
         {isInPersonPending ? (
@@ -51,7 +51,7 @@ function PendingBonCard({ bon, onDetails }: PendingBonCardProps) {
             Signature en présentiel en cours avec le service informatique
           </span>
         ) : pendingSig?.token ? (
-          <Button asChild className="bg-orange-600 hover:bg-orange-700">
+          <Button asChild className="bg-warning hover:bg-warning/90 text-warning-foreground">
             <a href={'/signer/' + pendingSig.token}>
               <ExternalLink className="mr-2 h-3.5 w-3.5" /> Signer maintenant
             </a>
@@ -72,7 +72,7 @@ interface PendingBonsSectionProps {
 export function PendingBonsSection({ bons, onDetails }: PendingBonsSectionProps) {
   return (
     <section id="a-signer">
-      <h2 className="text-sm font-semibold text-orange-600 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+      <h2 className="text-sm font-semibold text-warning uppercase tracking-wider mb-3 flex items-center gap-1.5">
         <Clock className="h-3.5 w-3.5" /> À signer ({bons.length})
       </h2>
       <div className="space-y-3">

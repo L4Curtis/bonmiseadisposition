@@ -52,8 +52,8 @@ export function UnauthorizedScreen({ currentUser, onChangeAccount }: Unauthorize
   return (
     <div className="flex h-screen items-center justify-center bg-background px-4">
       <div className="w-full max-w-md rounded-xl bg-card border border-border shadow-sm p-8 text-center space-y-4">
-        <div className="bg-red-50 dark:bg-red-900/20 rounded-full w-16 h-16 flex items-center justify-center mx-auto">
-          <XCircle className="h-7 w-7 text-red-500" />
+        <div className="bg-destructive/10 rounded-full w-16 h-16 flex items-center justify-center mx-auto">
+          <XCircle className="h-7 w-7 text-destructive" />
         </div>
         <div>
           <h2 className="font-semibold text-foreground">Compte non autorisé</h2>

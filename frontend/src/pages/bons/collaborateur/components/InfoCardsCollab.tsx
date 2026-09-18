@@ -47,11 +47,11 @@ export function InfoCardsCollab({ bon }: InfoCardsCollabProps) {
             <div key={sig.id} className="flex items-center justify-between">
               <span className="text-muted-foreground">{sigTypeLabel(sig.type)}</span>
               {sig.signed ? (
-                <span className="inline-flex items-center gap-1 text-green-700 dark:text-green-400 text-xs font-medium">
+                <span className="inline-flex items-center gap-1 text-success text-xs font-medium">
                   <CheckCircle2 className="h-3 w-3" /> Signé le {formatDateLong(sig.signedAt)}
                 </span>
               ) : (
-                <span className="inline-flex items-center gap-1 text-orange-600 dark:text-orange-400 text-xs font-medium">
+                <span className="inline-flex items-center gap-1 text-warning text-xs font-medium">
                   <Clock className="h-3 w-3" /> En attente
                 </span>
               )}

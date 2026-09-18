@@ -19,9 +19,9 @@ export interface TemplateHtml {
 }
 
 export const CATEGORY_COLORS: Record<string, string> = {
-  signature: 'bg-blue-500',
-  contestation: 'bg-red-500',
-  rappel: 'bg-orange-500',
+  signature: 'bg-primary',
+  contestation: 'bg-destructive',
+  rappel: 'bg-warning',
 };
 
 export const CATEGORY_LABELS: Record<string, string> = {

@@ -53,12 +53,15 @@ export const BON_STATUS_LABELS: Record<BonStatus, string> = {
 // est rendue par StatusBadge avec bg-current ; ici on ne fournit que la couleur
 // de texte (teintes -600 en clair / -400 en sombre).
 export const BON_STATUS_COLORS: Record<BonStatus, string> = {
-  draft:              'text-zinc-500 dark:text-zinc-400',
-  sent_mise_dispo:    'text-amber-600 dark:text-amber-400',
-  active:             'text-emerald-600 dark:text-emerald-400',
-  sent_restitution:   'text-amber-600 dark:text-amber-400',
-  partially_returned: 'text-blue-600 dark:text-blue-400',
-  archived:           'text-violet-600 dark:text-violet-400',
-  cancelled:          'text-zinc-400 dark:text-zinc-500',
-  contested:          'text-red-600 dark:text-red-400',
+  // Jetons du thème : attente et vigilance en `warning`, bon vivant en
+  // `success`, litige en `destructive`, étapes intermédiaires en `primary`,
+  // états clos ou inactifs en neutre.
+  draft:              'text-muted-foreground',
+  sent_mise_dispo:    'text-warning',
+  active:             'text-success',
+  sent_restitution:   'text-warning',
+  partially_returned: 'text-primary',
+  archived:           'text-muted-foreground',
+  cancelled:          'text-muted-foreground/70',
+  contested:          'text-destructive',
 };

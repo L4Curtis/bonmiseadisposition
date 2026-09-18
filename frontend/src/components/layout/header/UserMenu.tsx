@@ -96,7 +96,7 @@ export function UserMenu() {
               Changer le mot de passe
             </DropdownMenuItem>
           )}
-          <DropdownMenuItem onClick={logout} className="text-red-600 focus:text-red-600">
+          <DropdownMenuItem onClick={logout} className="text-destructive focus:text-destructive">
             <LogOut className="mr-2 h-4 w-4" />
             Déconnexion
           </DropdownMenuItem>

@@ -67,7 +67,7 @@ export function ChangePasswordDialog({
         </DialogHeader>
         {success ? (
           <div className="text-center py-4" aria-live="polite">
-            <p className="text-green-600 font-medium">Mot de passe modifié avec succès</p>
+            <p className="text-success font-medium">Mot de passe modifié avec succès</p>
             <Button variant="ghost" size="sm" onClick={() => handleClose(false)} className="mt-3">
               Fermer
             </Button>

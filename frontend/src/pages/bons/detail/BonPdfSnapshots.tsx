@@ -40,7 +40,7 @@ export function BonPdfSnapshots({
       </CardHeader>
       <CardContent className="space-y-2">
         {missing.length > 0 && (
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/10 p-3 text-sm text-amber-700 dark:text-amber-400">
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning">
             <div className="flex items-center gap-2">
               <AlertTriangle className="h-4 w-4 shrink-0" />
               <span>Document(s) manquant(s) : {missing.map((m) => SNAPSHOT_LABELS[m] || m).join(', ')}</span>

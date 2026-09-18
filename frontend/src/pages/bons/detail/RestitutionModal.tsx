@@ -34,13 +34,13 @@ export function RestitutionModal({ equipments, onConfirm, onCancel, loading }: R
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !loading) onCancel(); }}>
       <DialogContent className="sm:max-w-lg p-0 overflow-hidden">
-        {/* Blue header */}
-        <div className="bg-blue-600 px-5 py-4">
+        {/* Primary header */}
+        <div className="bg-primary px-5 py-4">
           <DialogHeader className="p-0 text-left">
-            <DialogTitle className="text-white text-sm flex items-center gap-2">
+            <DialogTitle className="text-primary-foreground text-sm flex items-center gap-2">
               <RotateCcw className="h-4 w-4" /> Initier la restitution
             </DialogTitle>
-            <DialogDescription className="text-blue-100 text-xs mt-1">
+            <DialogDescription className="text-primary-foreground/80 text-xs mt-1">
               Cochez les équipements restitués par le collaborateur
             </DialogDescription>
           </DialogHeader>
@@ -57,17 +57,17 @@ export function RestitutionModal({ equipments, onConfirm, onCancel, loading }: R
                 key={eq.id}
                 className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
                   isReturned
-                    ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800 opacity-60'
+                    ? 'bg-success/10 border-success/30 opacity-60'
                     : isDeclaredNotReturned
-                      ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 opacity-60'
+                      ? 'bg-destructive/10 border-destructive/30 opacity-60'
                       : selected.has(eq.id)
-                        ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-800'
+                        ? 'bg-primary/10 border-primary/40'
                         : 'hover:bg-muted/40 border-border'
                 }`}
               >
                 <input
                   type="checkbox"
-                  className="h-4 w-4 rounded border-input text-blue-600 dark:text-blue-500 focus:ring-blue-500 dark:focus:ring-blue-400"
+                  className="h-4 w-4 rounded border-input accent-primary focus:ring-ring"
                   checked={isReturned || selected.has(eq.id)}
                   disabled={isReturned || isDeclaredNotReturned}
                   onChange={() => isPending && toggle(eq.id)}
@@ -79,12 +79,12 @@ export function RestitutionModal({ equipments, onConfirm, onCancel, loading }: R
                   )}
                 </div>
                 {isReturned && (
-                  <span className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+                  <span className="text-xs text-success flex items-center gap-1">
                     <CheckCircle2 className="h-3 w-3" /> Rendu
                   </span>
                 )}
                 {isDeclaredNotReturned && (
-                  <span className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
+                  <span className="text-xs text-destructive flex items-center gap-1">
                     <XCircle className="h-3 w-3" /> Non rendu
                   </span>
                 )}

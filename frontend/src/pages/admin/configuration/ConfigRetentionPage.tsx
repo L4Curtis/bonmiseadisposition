@@ -49,7 +49,7 @@ function RetentionActions() {
 
   return (
     <div className="mt-4 space-y-3 border-t pt-4">
-      <div className="flex items-start gap-2 rounded-lg bg-amber-50 dark:bg-amber-900/15 p-3 text-xs text-amber-800 dark:text-amber-300">
+      <div className="flex items-start gap-2 rounded-lg bg-warning/10 p-3 text-xs text-warning">
         <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
         <p>
           L’anonymisation purge définitivement les données personnelles (email, signatures, IP) et
@@ -74,7 +74,7 @@ function RetentionActions() {
       {preview && preview.eligible > 0 && (
         confirming ? (
           <div className="flex flex-wrap items-center gap-3">
-            <span className="text-sm text-red-600 font-medium">Confirmer l’anonymisation de {preview.eligible} bon(s) ?</span>
+            <span className="text-sm text-destructive font-medium">Confirmer l’anonymisation de {preview.eligible} bon(s) ?</span>
             <Button type="button" variant="destructive" size="sm" onClick={doRun} disabled={loading !== null}>
               {loading === 'run' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldX className="h-3.5 w-3.5" />}
               Oui, anonymiser définitivement
@@ -164,7 +164,7 @@ function TechnicalPurgeActions() {
       {hasPurgeable && (
         confirming ? (
           <div className="flex flex-wrap items-center gap-3">
-            <span className="text-sm text-red-600 font-medium">Confirmer la purge technique ?</span>
+            <span className="text-sm text-destructive font-medium">Confirmer la purge technique ?</span>
             <Button type="button" variant="destructive" size="sm" onClick={doPurge} disabled={loading !== null}>
               {loading === 'purge' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldX className="h-3.5 w-3.5" />}
               Oui, purger

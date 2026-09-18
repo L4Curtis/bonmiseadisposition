@@ -63,15 +63,15 @@ export function BonEquipmentTable({ equipments, showEquipmentStatus, bonId }: Bo
                   {showEquipmentStatus && (
                     <td className="px-4 py-2.5">
                       {eq.returnedAt ? (
-                        <span className="inline-flex items-center gap-1 text-xs text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/20 px-2 py-0.5 rounded-full">
+                        <span className="inline-flex items-center gap-1 text-xs text-success bg-success/10 px-2 py-0.5 rounded-full">
                           <CheckCircle2 className="h-3 w-3" /> Rendu
                         </span>
                       ) : eq.notReturned ? (
-                        <span className="inline-flex items-center gap-1 text-xs text-red-700 dark:text-red-400 bg-red-100 dark:bg-red-900/20 px-2 py-0.5 rounded-full" title={eq.notReturnedReason || ''}>
+                        <span className="inline-flex items-center gap-1 text-xs text-destructive bg-destructive/10 px-2 py-0.5 rounded-full" title={eq.notReturnedReason || ''}>
                           <XCircle className="h-3 w-3" /> Non rendu
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                        <span className="inline-flex items-center gap-1 text-xs text-warning bg-warning/10 px-2 py-0.5 rounded-full">
                           <Clock className="h-3 w-3" /> En attente
                         </span>
                       )}

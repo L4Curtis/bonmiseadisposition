@@ -37,13 +37,13 @@ export function BonHeaderCard({ bon, isPvCloture, sigType }: BonHeaderCardProps)
       >
         <div aria-hidden="true" className="bg-dots pointer-events-none absolute inset-0 opacity-60" />
         <div className="relative">
-          <p className="text-white/70 text-[11px] font-semibold uppercase tracking-[0.14em] mb-1">
+          <p className="text-primary-foreground/70 text-[11px] font-semibold uppercase tracking-[0.14em] mb-1">
             {bon.filiale.displayName}
           </p>
-          <h1 className="text-white font-bold text-lg tracking-tight">
+          <h1 className="text-primary-foreground font-bold text-lg tracking-tight">
             {isPvCloture ? 'Procès-verbal à signer' : `Bon de ${sigType} à signer`}
           </h1>
-          <p className="text-white/80 text-sm font-mono mt-1">{bon.reference}</p>
+          <p className="text-primary-foreground/80 text-sm font-mono mt-1">{bon.reference}</p>
         </div>
       </div>
       <div className="px-6 py-4 space-y-2 text-sm">
@@ -111,14 +111,14 @@ export function EquipmentTable({ equipments, isPvCloture, isRestitution }: Equip
               ? `${eq.catalogItem.brand} ${eq.catalogItem.model}`
               : eq.customLabel || '—';
             return (
-              <tr key={eq.id} className={`border-t ${isPvCloture ? 'bg-red-50 dark:bg-red-900/10' : ''}`}>
+              <tr key={eq.id} className={`border-t ${isPvCloture ? 'bg-destructive/10' : ''}`}>
                 <td className="px-4 py-2 text-muted-foreground/70">{i + 1}</td>
                 <td className="px-4 py-2 font-medium">{label}</td>
                 <td className="px-4 py-2 font-mono text-xs text-muted-foreground">
                   {eq.serialNumber || <span className="text-muted-foreground/30">—</span>}
                 </td>
                 {isPvCloture && (
-                  <td className="px-4 py-2 text-xs text-red-700 italic">
+                  <td className="px-4 py-2 text-xs text-destructive italic">
                     {eq.notReturnedReason || '—'}
                   </td>
                 )}
@@ -174,7 +174,7 @@ export function RemainingEquipmentTable({ equipments }: RemainingEquipmentTableP
                   {eq.serialNumber || <span className="text-muted-foreground/30">—</span>}
                 </td>
                 <td className="px-4 py-2">
-                  <span className="inline-flex items-center rounded-full bg-blue-50 dark:bg-blue-900/20 px-2 py-0.5 text-xs font-medium text-blue-700 dark:text-blue-400">
+                  <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
                     En service
                   </span>
                 </td>
@@ -224,13 +224,13 @@ export function DeclaredNotReturnedTable({ equipments }: DeclaredNotReturnedTabl
               ? `${eq.catalogItem.brand} ${eq.catalogItem.model}`
               : eq.customLabel || '—';
             return (
-              <tr key={eq.id} className="border-t bg-red-50 dark:bg-red-900/10">
+              <tr key={eq.id} className="border-t bg-destructive/10">
                 <td className="px-4 py-2 text-muted-foreground/70">{i + 1}</td>
                 <td className="px-4 py-2 font-medium">{label}</td>
                 <td className="px-4 py-2 font-mono text-xs text-muted-foreground">
                   {eq.serialNumber || <span className="text-muted-foreground/30">—</span>}
                 </td>
-                <td className="px-4 py-2 text-xs text-red-700 dark:text-red-400 italic">
+                <td className="px-4 py-2 text-xs text-destructive italic">
                   {eq.notReturnedReason || '—'}
                 </td>
               </tr>

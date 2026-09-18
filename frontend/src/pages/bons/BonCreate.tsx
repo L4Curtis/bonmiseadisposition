@@ -85,11 +85,11 @@ export function BonCreatePage() {
           </div>
         )}
         {serialConflicts && serialConflicts.length > 0 && (
-          <div ref={conflictsRef} className="rounded-lg bg-amber-50 dark:bg-amber-900/10 border border-amber-300 dark:border-amber-800 px-4 py-3 text-sm space-y-2" role="alert">
-            <p className="font-medium text-amber-800 dark:text-amber-300">
+          <div ref={conflictsRef} className="rounded-lg bg-warning/10 border border-warning/40 px-4 py-3 text-sm space-y-2" role="alert">
+            <p className="font-medium text-warning">
               ⚠ Numéro(s) de série déjà en circulation sur un autre bon :
             </p>
-            <ul className="list-disc pl-5 text-amber-700 dark:text-amber-400 space-y-0.5">
+            <ul className="list-disc pl-5 text-warning space-y-0.5">
               {serialConflicts.map((c, i) => (
                 <li key={`${c.serialNumber}-${i}`}>
                   <span className="font-mono">{c.serialNumber}</span> — {c.bonReference} ({c.collaborateur})
@@ -100,7 +100,7 @@ export function BonCreatePage() {
               <Button
                 type="button"
                 size="sm"
-                className="bg-amber-600 hover:bg-amber-700 text-white"
+                className="bg-warning hover:bg-warning/90 text-warning-foreground"
                 disabled={submitting}
                 onClick={confirmDespiteConflicts}
               >

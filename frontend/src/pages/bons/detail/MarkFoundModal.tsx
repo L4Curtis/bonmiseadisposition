@@ -61,13 +61,13 @@ export function MarkFoundModal({
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !loading) onCancel(); }}>
       <DialogContent className="sm:max-w-lg p-0 overflow-hidden">
-        {/* Green header */}
-        <div className="bg-green-600 px-5 py-4">
+        {/* Success header */}
+        <div className="bg-success px-5 py-4">
           <DialogHeader className="p-0 text-left">
-            <DialogTitle className="text-white text-sm flex items-center gap-2">
+            <DialogTitle className="text-success-foreground text-sm flex items-center gap-2">
               <PackageCheck className="h-4 w-4" /> Équipement(s) retrouvé(s)
             </DialogTitle>
-            <DialogDescription className="text-green-100 text-xs mt-1">
+            <DialogDescription className="text-success-foreground/80 text-xs mt-1">
               {isArchived
                 ? "Un avenant IT sera généré. Le collaborateur n'aura pas à re-signer."
                 : 'Le PV sera mis à jour et renvoyé au collaborateur pour signature.'}
@@ -91,13 +91,13 @@ export function MarkFoundModal({
                     key={eq.id}
                     className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
                       selected.has(eq.id)
-                        ? 'bg-green-50 dark:bg-green-900/20 border-green-300 dark:border-green-800'
+                        ? 'bg-primary/10 border-primary/40'
                         : 'hover:bg-muted/40 border-border'
                     }`}
                   >
                     <input
                       type="checkbox"
-                      className="h-4 w-4 rounded border-input text-green-600 dark:text-green-500 focus:ring-green-500 dark:focus:ring-green-400"
+                      className="h-4 w-4 rounded border-input accent-primary focus:ring-ring"
                       checked={selected.has(eq.id)}
                       onChange={() => toggle(eq.id)}
                     />
@@ -109,7 +109,7 @@ export function MarkFoundModal({
                     </div>
                     {eq.notReturnedReason && (
                       <span
-                        className="text-xs text-red-600 dark:text-red-400 italic shrink-0 max-w-[120px] truncate"
+                        className="text-xs text-destructive italic shrink-0 max-w-[120px] truncate"
                         title={eq.notReturnedReason}
                       >
                         {eq.notReturnedReason}
@@ -140,7 +140,7 @@ export function MarkFoundModal({
                     <Trash2 className="h-3 w-3" /> Effacer
                   </button>
                 </div>
-                <div className="relative border-2 border-dashed border-border rounded-lg bg-muted/40 hover:border-green-300 dark:hover:border-green-700 transition-colors touch-none">
+                <div className="relative border-2 border-dashed border-border rounded-lg bg-muted/40 hover:border-success/50 transition-colors touch-none">
                   <canvas
                     ref={canvasRef}
                     width={560}
@@ -164,7 +164,7 @@ export function MarkFoundModal({
           )}
 
           {error && (
-            <div role="alert" className="flex items-start gap-2 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/30 p-3 text-sm text-red-700 dark:text-red-400">
+            <div role="alert" className="flex items-start gap-2 rounded-lg bg-destructive/10 border border-destructive/30 p-3 text-sm text-destructive">
               <XCircle className="h-4 w-4 shrink-0 mt-0.5" />
               <span>{error}</span>
             </div>
@@ -177,7 +177,7 @@ export function MarkFoundModal({
           </Button>
           <Button
             size="sm"
-            className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+            className="flex-1 bg-success hover:bg-success/90 text-success-foreground"
             onClick={handleSubmit}
             disabled={loading || notReturnedEquipments.length === 0}
           >

@@ -32,14 +32,14 @@ export function PdfTemplateList({
           className="flex items-center gap-4 px-4 py-3 bg-card hover:bg-muted/30 transition-colors"
         >
           {/* Color dot */}
-          <div className={`h-3 w-3 rounded-full shrink-0 ${DOC_TYPE_COLORS[tpl.documentType] ?? 'bg-gray-400'}`} />
+          <div className={`h-3 w-3 rounded-full shrink-0 ${DOC_TYPE_COLORS[tpl.documentType] ?? 'bg-muted-foreground/40'}`} />
 
           {/* Info */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <p className="text-sm font-medium truncate">{tpl.name}</p>
               {tpl.isCustomized && (
-                <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-amber-400 text-amber-500">
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-warning/40 text-warning">
                   Modifie
                 </Badge>
               )}

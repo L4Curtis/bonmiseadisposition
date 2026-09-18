@@ -217,7 +217,7 @@ export function BonAttachments({ bonId, canManage, defaultStage = 'general' }: B
                       <button
                         type="button"
                         onClick={() => setPendingDelete(a)}
-                        className="rounded-md bg-background/90 p-1 text-red-500 hover:text-red-600 shadow"
+                        className="rounded-md bg-background/90 p-1 text-destructive hover:text-destructive/80 shadow"
                         title="Supprimer"
                       >
                         <Trash2 className="h-3.5 w-3.5" />

@@ -88,13 +88,13 @@ export function ResolveDialog({
             <div className="flex gap-3">
               <button
                 onClick={() => setAction('resolved')}
-                className={`flex-1 flex items-center justify-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors ${action === 'resolved' ? 'border-green-400 dark:border-green-700 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400' : 'border-border text-muted-foreground hover:bg-muted/40'}`}
+                className={`flex-1 flex items-center justify-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors ${action === 'resolved' ? 'border-success/40 bg-success/10 text-success' : 'border-border text-muted-foreground hover:bg-muted/40'}`}
               >
                 <CheckCircle className="h-4 w-4" /> Accepter
               </button>
               <button
                 onClick={() => setAction('rejected')}
-                className={`flex-1 flex items-center justify-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors ${action === 'rejected' ? 'border-red-400 dark:border-red-700 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400' : 'border-border text-muted-foreground hover:bg-muted/40'}`}
+                className={`flex-1 flex items-center justify-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors ${action === 'rejected' ? 'border-destructive/40 bg-destructive/10 text-destructive' : 'border-border text-muted-foreground hover:bg-muted/40'}`}
               >
                 <XCircle className="h-4 w-4" /> Rejeter
               </button>
@@ -102,12 +102,12 @@ export function ResolveDialog({
           </div>
 
           {action === 'resolved' && (
-            <label className="flex items-start gap-3 cursor-pointer rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/10 p-3">
+            <label className="flex items-start gap-3 cursor-pointer rounded-lg border border-warning/30 bg-warning/5 p-3">
               <input
                 type="checkbox"
                 checked={correct}
                 onChange={(e) => setCorrect(e.target.checked)}
-                className="mt-0.5 h-4 w-4 rounded border-input text-amber-600 focus:ring-amber-500"
+                className="mt-0.5 h-4 w-4 rounded border-input accent-warning focus:ring-ring"
               />
               <span className="text-sm text-foreground/80">
                 <strong>Corriger et re-signer</strong> — le bon contesté sera annulé et un
@@ -141,7 +141,7 @@ export function ResolveDialog({
           <Button variant="outline" size="sm" onClick={() => handleClose(false)}>Annuler</Button>
           <Button
             size="sm"
-            className={action === 'resolved' ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-red-600 hover:bg-red-700 text-white'}
+            className={action === 'resolved' ? 'bg-success hover:bg-success/90 text-success-foreground' : 'bg-destructive hover:bg-destructive/90 text-destructive-foreground'}
             onClick={handleSubmit}
             disabled={loading}
           >

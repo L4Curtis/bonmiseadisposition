@@ -12,7 +12,7 @@ export function StatusScreen({ icon, title, message, success, actions }: StatusS
   return (
     <div className="flex h-screen items-center justify-center bg-background px-4">
       <div className="max-w-sm w-full text-center space-y-4">
-        <div className={`mx-auto w-20 h-20 rounded-full flex items-center justify-center ${success ? 'bg-green-50 dark:bg-green-900/20' : 'bg-muted'}`}>
+        <div className={`mx-auto w-20 h-20 rounded-full flex items-center justify-center ${success ? 'bg-success/10' : 'bg-muted'}`}>
           {icon}
         </div>
         <h1 className="text-xl font-bold text-foreground">{title}</h1>

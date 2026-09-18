@@ -126,7 +126,7 @@ export function LoginPage() {
           <CardContent className="p-8">
             {/* Brand */}
             <div className="mb-8 text-center">
-              <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl btn-gradient text-white font-bold text-xl shadow-card-colored ring-1 ring-white/25">
+              <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl btn-gradient text-primary-foreground font-bold text-xl shadow-card-colored ring-1 ring-white/25">
                 GL
               </div>
               <h1 className="text-[22px] font-bold tracking-tight text-white">
@@ -137,8 +137,8 @@ export function LoginPage() {
 
             {/* Error banner */}
             {error && (
-              <div role="alert" className="mb-6 rounded-xl bg-red-500/10 border border-red-500/25 p-4">
-                <p className="text-sm text-red-300">
+              <div role="alert" className="mb-6 rounded-xl bg-destructive/10 border border-destructive/25 p-4">
+                <p className="text-sm text-destructive">
                   {ERROR_MESSAGES[error] || 'Une erreur est survenue.'}
                 </p>
               </div>
@@ -182,8 +182,8 @@ export function LoginPage() {
                 {showLocal && (
                   <form onSubmit={handleLocalLogin} className="mt-4 space-y-4">
                     {localError && (
-                      <div role="alert" className="rounded-lg bg-red-500/10 border border-red-500/25 p-3">
-                        <p className="text-sm text-red-300">{localError}</p>
+                      <div role="alert" className="rounded-lg bg-destructive/10 border border-destructive/25 p-3">
+                        <p className="text-sm text-destructive">{localError}</p>
                       </div>
                     )}
                     <div className="space-y-2">

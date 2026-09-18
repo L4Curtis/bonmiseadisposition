@@ -4,6 +4,32 @@ Historique des évolutions notables de l'application. Les entrées les plus réc
 
 ---
 
+## 2026-09-18 — Couleurs : tout l'écran suit enfin le thème de l'application
+
+Un utilisateur a signalé une modale bleue (« Initier la restitution ») dans une application rouge. Le bleu
+n'était pas isolé : 67 fichiers utilisaient des couleurs de palette codées en dur, qui ignorent la couleur
+de marque et, pour beaucoup, le thème sombre.
+
+### Ajouté
+- **Jetons `success` et `warning`** (clair et sombre) en plus de `primary` et `destructive`. Leur absence
+  expliquait le recours au vert et à l'ambre bruts.
+- **Règle de couleur** inscrite dans la feuille de styles : accent, sélection et information en `primary` ;
+  danger, suppression et erreur en `destructive` ; réussite et matériel rendu en `success` ; attente et
+  vigilance en `warning` ; le reste en neutre.
+
+### Corrigé
+- **Les cinq modales d'action** forment une famille cohérente : restitution et cachet informatique en rouge,
+  non-restitution et clôture unilatérale en destructif, matériel retrouvé en vert. Lignes sélectionnées et
+  cases à cocher au rouge de l'application.
+- **Plus aucune couleur de palette** dans le code de l'interface : statuts de bon, badges, toasts, journal
+  d'audit, contestations, portail collaborateur, page de signature publique, inventaire, catalogue et
+  tableau de bord passent tous par les jetons.
+- Le journal d'audit utilisait dix teintes décoratives ; il utilise désormais quatre tons porteurs de sens.
+- Les variantes `dark:` devenues inutiles ont été retirées : les jetons gèrent les deux thèmes.
+- Bouton destructif : texte en `destructive-foreground` au lieu d'un blanc codé en dur.
+
+---
+
 ## 2026-09-18 — Tableau de bord : apparition des contenus et périodes sans activité
 
 ### Ajouté

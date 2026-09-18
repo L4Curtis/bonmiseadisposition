@@ -147,8 +147,8 @@ export function LdapSyncPage() {
               </div>
             </div>
           ) : loadError && !status ? (
-            <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 p-4 text-center" role="alert">
-              <p className="text-sm text-red-700 dark:text-red-400">{loadError}</p>
+            <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-4 text-center" role="alert">
+              <p className="text-sm text-destructive">{loadError}</p>
               <Button variant="outline" size="sm" className="mt-3" onClick={loadInitial}>
                 Réessayer
               </Button>
@@ -182,13 +182,13 @@ export function LdapSyncPage() {
                 )}
               </div>
               {status.lastSyncAborted && status.lastSyncWarning && (
-                <div className="rounded-lg bg-orange-50 dark:bg-orange-900/15 border border-orange-200 p-3" role="alert">
-                  <p className="text-sm text-orange-700 dark:text-orange-400 font-mono">{status.lastSyncWarning}</p>
+                <div className="rounded-lg bg-warning/10 border border-warning/30 p-3" role="alert">
+                  <p className="text-sm text-warning font-mono">{status.lastSyncWarning}</p>
                 </div>
               )}
               {status.lastSyncError && (
-                <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 p-3" role="alert">
-                  <p className="text-sm text-red-700 dark:text-red-400 font-mono">{status.lastSyncError}</p>
+                <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-3" role="alert">
+                  <p className="text-sm text-destructive font-mono">{status.lastSyncError}</p>
                 </div>
               )}
               <div className="flex items-center gap-2 pt-2 text-xs text-muted-foreground/70">

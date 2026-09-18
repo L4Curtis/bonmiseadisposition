@@ -64,13 +64,13 @@ export function DeclareNotReturnedModal({
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !loading) onCancel(); }}>
       <DialogContent className="sm:max-w-lg p-0 overflow-hidden">
-        {/* Red header */}
-        <div className="bg-red-600 px-5 py-4">
+        {/* Destructive header */}
+        <div className="bg-destructive px-5 py-4">
           <DialogHeader className="p-0 text-left">
-            <DialogTitle className="text-white text-sm flex items-center gap-2">
+            <DialogTitle className="text-destructive-foreground text-sm flex items-center gap-2">
               <AlertTriangle className="h-4 w-4" /> Déclarer des équipements non rendus
             </DialogTitle>
-            <DialogDescription className="text-red-100 text-xs mt-1">
+            <DialogDescription className="text-destructive-foreground/80 text-xs mt-1">
               Un procès-verbal sera généré et certifié par votre cachet IT.
             </DialogDescription>
           </DialogHeader>
@@ -90,13 +90,13 @@ export function DeclareNotReturnedModal({
                     key={eq.id}
                     className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
                       selected.has(eq.id)
-                        ? 'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-800'
+                        ? 'bg-primary/10 border-primary/40'
                         : 'hover:bg-muted/40 border-border'
                     }`}
                   >
                     <input
                       type="checkbox"
-                      className="h-4 w-4 rounded border-input text-red-600 dark:text-red-500 focus:ring-red-500 dark:focus:ring-red-400"
+                      className="h-4 w-4 rounded border-input accent-primary focus:ring-ring"
                       checked={selected.has(eq.id)}
                       onChange={() => toggle(eq.id)}
                     />
@@ -116,7 +116,7 @@ export function DeclareNotReturnedModal({
                   Motif *
                 </label>
                 <textarea
-                  className="mt-1 w-full rounded-lg border border-border bg-background text-foreground px-3 py-2 text-sm focus:border-red-500 dark:focus:border-red-400 focus:ring-1 focus:ring-red-500 dark:focus:ring-red-400"
+                  className="mt-1 w-full rounded-lg border border-border bg-background text-foreground px-3 py-2 text-sm focus:border-destructive focus:ring-1 focus:ring-destructive"
                   rows={2}
                   placeholder="Perte, vol, casse, non restitué par le collaborateur…"
                   value={reason}
@@ -143,7 +143,7 @@ export function DeclareNotReturnedModal({
                     <Trash2 className="h-3 w-3" /> Effacer
                   </button>
                 </div>
-                <div className="relative border-2 border-dashed border-border rounded-lg bg-muted/40 hover:border-red-300 dark:hover:border-red-700 transition-colors touch-none">
+                <div className="relative border-2 border-dashed border-border rounded-lg bg-muted/40 hover:border-destructive/50 transition-colors touch-none">
                   <canvas
                     ref={canvasRef}
                     width={560}
@@ -167,7 +167,7 @@ export function DeclareNotReturnedModal({
           )}
 
           {error && (
-            <div role="alert" className="flex items-start gap-2 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/30 p-3 text-sm text-red-700 dark:text-red-400">
+            <div role="alert" className="flex items-start gap-2 rounded-lg bg-destructive/10 border border-destructive/30 p-3 text-sm text-destructive">
               <XCircle className="h-4 w-4 shrink-0 mt-0.5" />
               <span>{error}</span>
             </div>
@@ -180,7 +180,7 @@ export function DeclareNotReturnedModal({
           </Button>
           <Button
             size="sm"
-            className="flex-1 bg-red-600 hover:bg-red-700 text-white"
+            className="flex-1 bg-destructive hover:bg-destructive/90 text-destructive-foreground"
             onClick={handleSubmit}
             disabled={loading || unresolvedEquipments.length === 0}
           >

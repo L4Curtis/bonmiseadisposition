@@ -54,7 +54,7 @@ export function EquipmentTableCollab({ bon, showEquipmentStatus }: EquipmentTabl
                     <td className="px-4 py-2.5">
                       <EquipmentStatusBadge eq={eq} />
                       {eq.notReturned && eq.notReturnedReason && (
-                        <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">{eq.notReturnedReason}</p>
+                        <p className="text-xs text-destructive mt-0.5">{eq.notReturnedReason}</p>
                       )}
                     </td>
                   )}

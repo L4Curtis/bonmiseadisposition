@@ -6,9 +6,9 @@ export const STATUS_LABELS: Record<string, string> = {
 };
 
 export const STATUS_COLORS: Record<string, string> = {
-  open: 'bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400',
-  in_review: 'bg-orange-100 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400',
-  resolved: 'bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400',
+  open: 'bg-destructive/10 text-destructive',
+  in_review: 'bg-warning/10 text-warning',
+  resolved: 'bg-success/10 text-success',
   rejected: 'bg-muted text-muted-foreground',
 };
 

@@ -26,7 +26,7 @@ export function SendSerialConflictsModal({ conflicts, onConfirm, onCancel, loadi
     <Dialog open onOpenChange={(open) => { if (!open && !loading) onCancel(); }}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+          <DialogTitle className="flex items-center gap-2 text-warning">
             <AlertTriangle className="h-4 w-4" /> Numéros de série déjà en circulation
           </DialogTitle>
           <DialogDescription>
@@ -46,7 +46,7 @@ export function SendSerialConflictsModal({ conflicts, onConfirm, onCancel, loadi
           </Button>
           <Button
             size="sm"
-            className="bg-amber-600 hover:bg-amber-700 text-white"
+            className="bg-warning hover:bg-warning/90 text-warning-foreground"
             onClick={onConfirm}
             disabled={loading}
           >

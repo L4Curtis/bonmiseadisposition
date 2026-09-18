@@ -64,11 +64,11 @@ export function SignaturePage() {
   }
 
   if (error) {
-    return <StatusScreen icon={<XCircle className="h-12 w-12 text-red-400" />} title="Lien invalide" message={error} />;
+    return <StatusScreen icon={<XCircle className="h-12 w-12 text-destructive" />} title="Lien invalide" message={error} />;
   }
 
   if (!data) {
-    return <StatusScreen icon={<XCircle className="h-12 w-12 text-red-400" />} title="Document introuvable" message="Ce lien de signature n'existe pas." />;
+    return <StatusScreen icon={<XCircle className="h-12 w-12 text-destructive" />} title="Document introuvable" message="Ce lien de signature n'existe pas." />;
   }
 
   // Contrat backend (lot B, en cours) : GET /signature/:token renverra
@@ -89,7 +89,7 @@ export function SignaturePage() {
   if (data.status === 'contested') {
     return (
       <StatusScreen
-        icon={<AlertOctagon className="h-12 w-12 text-red-400" />}
+        icon={<AlertOctagon className="h-12 w-12 text-destructive" />}
         title="Bon contesté"
         message={`Ce bon${data.reference ? ` (réf. ${data.reference})` : ''} fait l'objet d'une contestation en cours de traitement par le service informatique. Aucune signature n'est attendue.`}
       />
@@ -99,7 +99,7 @@ export function SignaturePage() {
   if (data.status === 'replaced') {
     return (
       <StatusScreen
-        icon={<Clock className="h-12 w-12 text-orange-400" />}
+        icon={<Clock className="h-12 w-12 text-warning" />}
         title="Lien remplacé"
         message={`Un nouveau lien de signature vous a été envoyé${data.reference ? ` pour le bon ${data.reference}` : ''} (relance ou nouvelle demande) : ce lien-ci n'est plus valable. Ouvrez le dernier email reçu.`}
       />
@@ -109,7 +109,7 @@ export function SignaturePage() {
   if (data.status === 'expired') {
     return (
       <StatusScreen
-        icon={<Clock className="h-12 w-12 text-orange-400" />}
+        icon={<Clock className="h-12 w-12 text-warning" />}
         title="Lien expiré"
         message={`Ce lien de signature${data.reference ? ` (réf. ${data.reference})` : ''} a expiré. Contactez le service informatique pour en recevoir un nouveau.`}
       />
@@ -153,7 +153,7 @@ export function SignaturePage() {
   }
 
   if (!data.bon || !data.signature) {
-    return <StatusScreen icon={<XCircle className="h-12 w-12 text-red-400" />} title="Document introuvable" message="Ce lien de signature n'existe pas." />;
+    return <StatusScreen icon={<XCircle className="h-12 w-12 text-destructive" />} title="Document introuvable" message="Ce lien de signature n'existe pas." />;
   }
 
   const bon = data.bon;

@@ -14,7 +14,7 @@ interface ActiveBonsSectionProps {
 export function ActiveBonsSection({ bons, onOpen, onContest }: ActiveBonsSectionProps) {
   return (
     <section>
-      <h2 className="text-sm font-semibold text-emerald-700 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+      <h2 className="text-sm font-semibold text-success uppercase tracking-wider mb-3 flex items-center gap-1.5">
         <CheckCircle2 className="h-3.5 w-3.5" /> En cours ({bons.length})
       </h2>
       <div className="space-y-2">

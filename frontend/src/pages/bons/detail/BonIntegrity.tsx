@@ -45,9 +45,9 @@ export function BonIntegrity({ bonId }: { readonly bonId: string }) {
       <CardHeader>
         <CardTitle className="text-sm flex items-center gap-2">
           {result.allValid ? (
-            <ShieldCheck className="h-4 w-4 text-green-600" />
+            <ShieldCheck className="h-4 w-4 text-success" />
           ) : (
-            <ShieldAlert className="h-4 w-4 text-red-600" />
+            <ShieldAlert className="h-4 w-4 text-destructive" />
           )}
           Intégrité probante des signatures
         </CardTitle>
@@ -62,7 +62,7 @@ export function BonIntegrity({ bonId }: { readonly bonId: string }) {
           {result.signatures.map((s) => {
             const Icon = s.sealValid === true ? ShieldCheck : s.sealValid === false ? ShieldAlert : ShieldQuestion;
             const color =
-              s.sealValid === true ? 'text-green-600' : s.sealValid === false ? 'text-red-600' : 'text-muted-foreground/60';
+              s.sealValid === true ? 'text-success' : s.sealValid === false ? 'text-destructive' : 'text-muted-foreground/60';
             return (
               <li key={s.id} className="flex items-center gap-2 text-xs">
                 <Icon className={`h-3.5 w-3.5 shrink-0 ${color}`} />

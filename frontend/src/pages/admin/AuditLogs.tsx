@@ -54,10 +54,10 @@ export function AuditLogsPage() {
 
       {/* Erreur de chargement */}
       {loadError && (
-        <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-900/20 p-6 text-center" role="alert">
-          <XCircle className="h-8 w-8 mx-auto mb-2 text-red-400" />
-          <p className="text-sm text-red-700 dark:text-red-400">{loadError}</p>
-          <Button variant="outline" size="sm" onClick={load} className="mt-3 text-red-600 hover:text-red-800">
+        <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-6 text-center" role="alert">
+          <XCircle className="h-8 w-8 mx-auto mb-2 text-destructive" />
+          <p className="text-sm text-destructive">{loadError}</p>
+          <Button variant="outline" size="sm" onClick={load} className="mt-3 text-destructive hover:text-destructive/80">
             Réessayer
           </Button>
         </div>

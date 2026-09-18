@@ -123,8 +123,8 @@ export const SECTIONS: { key: string; label: string; icon: SectionIcon; fields: 
 ];
 
 export const DOC_TYPE_COLORS: Record<string, string> = {
-  mise_disposition: 'bg-blue-500',
-  restitution: 'bg-violet-500',
-  cloture: 'bg-red-500',
-  avenant: 'bg-emerald-500',
+  mise_disposition: 'bg-primary',
+  restitution: 'bg-muted-foreground',
+  cloture: 'bg-destructive',
+  avenant: 'bg-success',
 };

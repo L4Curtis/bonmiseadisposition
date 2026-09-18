@@ -49,8 +49,8 @@ export function ContestationsTable({
         <TableSkeleton />
       ) : loadError ? (
         <div className="py-12 text-center text-sm" role="alert">
-          <XCircle className="h-8 w-8 mx-auto mb-2 text-red-400" />
-          <p className="text-red-600">{loadError}</p>
+          <XCircle className="h-8 w-8 mx-auto mb-2 text-destructive/70" />
+          <p className="text-destructive">{loadError}</p>
           <Button size="sm" variant="outline" className="mt-3" onClick={onRetry}>
             Réessayer
           </Button>
@@ -108,7 +108,7 @@ export function ContestationsTable({
                       {c.status === 'open' && (
                         <button
                           onClick={() => onReview(c.id)}
-                          className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400 hover:bg-orange-100 transition-colors"
+                          className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium bg-warning/10 text-warning hover:bg-warning/20 transition-colors"
                           title="Prendre en charge"
                         >
                           <Eye className="h-3 w-3" /> Prendre en charge
@@ -117,7 +117,7 @@ export function ContestationsTable({
                       {['open', 'in_review'].includes(c.status) && (
                         <button
                           onClick={() => onResolve(c)}
-                          className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 hover:bg-blue-100 transition-colors"
+                          className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
                         >
                           <CheckCircle className="h-3 w-3" /> Traiter
                         </button>
