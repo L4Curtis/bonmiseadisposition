@@ -97,7 +97,7 @@ export function FilialesPage() {
         ))}
         {!loading && !loadError && filiales.length === 0 && !creating && (
           <div className="text-center py-10 text-sm text-muted-foreground/70">
-            Aucune filiale configuree
+            Aucune filiale configurée
           </div>
         )}
       </div>

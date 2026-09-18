@@ -67,7 +67,11 @@ export class AuthService implements OnModuleDestroy {
   /** Revoke an access token (in-memory only — 15 min max exposure) */
   revokeToken(token: string, ttlMs: number = 15 * 60 * 1000): void {
     revokeTokenImpl(this.revokedTokens, token, ttlMs, () => {
-      void cleanupRevokedTokensImpl({ prisma: this.prisma }, this.revokedTokens);
+      // Purge opportuniste : son échec (base indisponible) ne doit pas remonter
+      // en rejet non capturé et faire tomber le processus.
+      cleanupRevokedTokensImpl({ prisma: this.prisma }, this.revokedTokens).catch((err) =>
+        this.logger.warn(`Purge des jetons révoqués en échec : ${(err as Error).message}`),
+      );
     });
   }
 
