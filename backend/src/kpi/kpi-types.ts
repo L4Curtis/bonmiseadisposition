@@ -6,6 +6,8 @@
  * ne modifie que sa propre section.
  */
 
+import { EquipmentSituation } from '../common/bon-predicates';
+
 // ── commun ───────────────────────────────────────────────────────────────
 
 export type Granularity = 'day' | 'week' | 'month';
@@ -64,6 +66,14 @@ export interface ParcFilialeCount {
   count: number;
 }
 
+/** Répartition du parc en circulation par situation (cf. bon-predicates.ts) —
+ *  la somme des `count` égale toujours `ParcLoaned.total`. */
+export interface ParcSituationCount {
+  situation: EquipmentSituation;
+  label: string;
+  count: number;
+}
+
 export interface ParcTopModel {
   catalogItemId: string;
   label: string;
@@ -76,6 +86,7 @@ export interface ParcLoaned {
   bons: number;
   byCategory: ParcCategoryCount[];
   byFiliale: ParcFilialeCount[];
+  bySituation: ParcSituationCount[];
   topModels: ParcTopModel[];
   offCatalogShare: number | null;
   serialCoverage: number | null;

@@ -12,7 +12,13 @@ import {
   SeriesPoint,
 } from './kpi-types';
 import { filialeFilter, inRange, stepInterval, toNumber, ratio, compared, bucketLabel } from './kpi-sql';
-import { CATEGORY_LABELS, loanedEquipmentSql } from '../common/bon-predicates';
+import {
+  CATEGORY_LABELS,
+  PARC_BON_STATUSES,
+  buildSituationBreakdown,
+  parcEquipmentSql,
+  situationCaseSql,
+} from '../common/bon-predicates';
 
 interface LoanedTotalsRow {
   total: bigint;
@@ -25,6 +31,10 @@ interface CategoryRow {
 interface FilialeRow {
   filialeId: string;
   name: string;
+  count: bigint;
+}
+interface SituationRow {
+  situation: string;
   count: bigint;
 }
 interface TopModelRow {
@@ -70,12 +80,16 @@ interface OpenNowRow {
 }
 
 /**
- * `GET /kpi/parc` — parc prêté, retards de restitution, non-rendus.
+ * `GET /kpi/parc` — parc en circulation (définition élargie, cf.
+ * PARC_BON_STATUSES dans bon-predicates.ts), retards de restitution, non-rendus.
  *
  * Chaque bloc de la réponse est calculé par une requête SQL dédiée
  * (`Prisma.sql`, jamais de concaténation), exécutées en parallèle. Toutes
  * filtrent sur `filialeFilter('b', filialeId)` et castent les colonnes enum
  * (`b.status`, `ec.category`, `s.type`) en texte — voir kpi-design.md.
+ *
+ * `loaned.total` doit toujours égaler `/reporting/inventory/summary.total`
+ * (sans filiale) : les deux services partagent `parcEquipmentSql()`.
  */
 @Injectable()
 export class KpiParcService {
@@ -91,6 +105,7 @@ export class KpiParcService {
       totalsRows,
       categoryRows,
       filialeRows,
+      situationRows,
       topModelRows,
       shareRows,
       seriesRows,
@@ -105,6 +120,7 @@ export class KpiParcService {
       this.prisma.$queryRaw<LoanedTotalsRow[]>(this.loanedTotalsQuery(filialeId)),
       this.prisma.$queryRaw<CategoryRow[]>(this.loanedByCategoryQuery(filialeId)),
       this.prisma.$queryRaw<FilialeRow[]>(this.loanedByFilialeQuery(filialeId)),
+      this.prisma.$queryRaw<SituationRow[]>(this.loanedBySituationQuery(filialeId)),
       this.prisma.$queryRaw<TopModelRow[]>(this.topModelsQuery(filialeId)),
       this.prisma.$queryRaw<ShareCountsRow[]>(this.shareCountsQuery(filialeId)),
       this.prisma.$queryRaw<SeriesRow[]>(this.loanedSeriesQuery(period, filialeId)),
@@ -154,6 +170,9 @@ export class KpiParcService {
             count: toNumber(row.count),
           }),
         ),
+        bySituation: buildSituationBreakdown(
+          situationRows.map((row) => ({ situation: row.situation, count: toNumber(row.count) })),
+        ),
         topModels: topModelRows.map(
           (row): ParcTopModel => ({
             catalogItemId: row.catalogItemId,
@@ -197,42 +216,60 @@ export class KpiParcService {
 
   // ── requêtes ────────────────────────────────────────────────────────────
 
-  /** Total d'équipements prêtés + nombre de bons distincts concernés. */
+  /** Total d'équipements en circulation (définition élargie, cf.
+   *  PARC_BON_STATUSES) + nombre de bons distincts concernés. */
   private loanedTotalsQuery(filialeId?: string): Prisma.Sql {
     return Prisma.sql`
       SELECT COUNT(be.id)::bigint AS total, COUNT(DISTINCT b.id)::bigint AS bons
       FROM bon_equipments be
       JOIN bons b ON b.id = be.bon_id
-      WHERE ${loanedEquipmentSql()}
+      WHERE ${parcEquipmentSql()}
       ${filialeFilter('b', filialeId)}
     `;
   }
 
-  /** Répartition du parc prêté par catégorie (COALESCE 'autre' si sans fiche catalogue). */
+  /** Répartition du parc en circulation par catégorie (COALESCE 'autre' si sans fiche catalogue). */
   private loanedByCategoryQuery(filialeId?: string): Prisma.Sql {
     return Prisma.sql`
       SELECT COALESCE(ec.category::text, 'autre') AS category, COUNT(*)::bigint AS count
       FROM bon_equipments be
       JOIN bons b ON b.id = be.bon_id
       LEFT JOIN equipment_catalog ec ON ec.id = be.catalog_item_id
-      WHERE ${loanedEquipmentSql()}
+      WHERE ${parcEquipmentSql()}
       ${filialeFilter('b', filialeId)}
       GROUP BY COALESCE(ec.category::text, 'autre')
       ORDER BY count DESC
     `;
   }
 
-  /** Répartition du parc prêté par filiale. */
+  /** Répartition du parc en circulation par filiale. */
   private loanedByFilialeQuery(filialeId?: string): Prisma.Sql {
     return Prisma.sql`
       SELECT f.id AS "filialeId", f.display_name AS name, COUNT(*)::bigint AS count
       FROM bon_equipments be
       JOIN bons b ON b.id = be.bon_id
       JOIN filiales f ON f.id = b.filiale_id
-      WHERE ${loanedEquipmentSql()}
+      WHERE ${parcEquipmentSql()}
       ${filialeFilter('b', filialeId)}
       GROUP BY f.id, f.display_name
       ORDER BY count DESC
+    `;
+  }
+
+  /** Répartition du parc en circulation par situation (en_attente_signature /
+   *  en_circulation / en_litige) — la somme égale toujours `loaned.total`. */
+  private loanedBySituationQuery(filialeId?: string): Prisma.Sql {
+    return Prisma.sql`
+      SELECT ${situationCaseSql()} AS situation, COUNT(*)::bigint AS count
+      FROM bon_equipments be
+      JOIN bons b ON b.id = be.bon_id
+      WHERE ${parcEquipmentSql()}
+      ${filialeFilter('b', filialeId)}
+      -- GROUP BY 1 (position) et non l'expression répétée : Prisma lie les valeurs
+      -- de chaque expression CASE comme des paramètres distincts, que Postgres
+      -- ne reconnaît alors pas comme identiques (« column b.status must appear in
+      -- the GROUP BY clause »).
+      GROUP BY 1
     `;
   }
 
@@ -243,7 +280,7 @@ export class KpiParcService {
       FROM bon_equipments be
       JOIN bons b ON b.id = be.bon_id
       JOIN equipment_catalog ec ON ec.id = be.catalog_item_id
-      WHERE ${loanedEquipmentSql()}
+      WHERE ${parcEquipmentSql()}
       ${filialeFilter('b', filialeId)}
       GROUP BY ec.id, ec.brand, ec.model, ec.category
       ORDER BY count DESC
@@ -261,15 +298,27 @@ export class KpiParcService {
         COUNT(*) FILTER (WHERE btrim(COALESCE(be.serial_number, '')) <> '')::bigint AS "withSerial"
       FROM bon_equipments be
       JOIN bons b ON b.id = be.bon_id
-      WHERE ${loanedEquipmentSql()}
+      WHERE ${parcEquipmentSql()}
       ${filialeFilter('b', filialeId)}
     `;
   }
 
-  /** Série historique (estimation) du stock prêté en fin de bucket :
+  /** Série historique (estimation) du stock en circulation en fin de bucket :
    *  `generate_series` aligné sur la granularité + début de prêt en LATERAL
    *  (`MIN(signed_at)` de la signature mise_disposition, repli
-   *  `date_mise_disposition`) — voir kpi-design.md. */
+   *  `date_mise_disposition`) — voir kpi-design.md.
+   *
+   *  Alignée sur la même définition que `loanedTotalsQuery` (PARC_BON_STATUSES,
+   *  audit du 2026-09-18) plutôt que « tout statut sauf cancelled » : sans cet
+   *  alignement, un bon `contested` ou `sent_mise_dispo` apparaissait dans la
+   *  série (statut ≠ cancelled) mais pas dans le total instantané (ancien
+   *  LOANED_BON_STATUSES), faisant diverger le dernier point de la courbe et
+   *  la tuile « total » sans raison métier. Le statut du bon n'étant connu
+   *  qu'à l'instant présent (pas d'historique), un bon aujourd'hui `archived`
+   *  reste compté sur les buckets antérieurs à son archivage effectif
+   *  (`archived_at >= bucketEnd`) — au bucket le plus récent, cette branche est
+   *  fausse pour un bon réellement déjà archivé, ce qui reproduit exactement
+   *  `parcEquipmentSql()`. */
   private loanedSeriesQuery(period: KpiPeriod, filialeId?: string): Prisma.Sql {
     const step = stepInterval(period.granularity);
     // Fin de bucket = minuit Paris du bucket suivant, ramené en timestamp naïf UTC
@@ -296,9 +345,11 @@ export class KpiParcService {
         ) ls ON true
       ) ON COALESCE(ls.loan_start, b.date_mise_disposition::timestamp) < ${bucketEnd}
         AND (be.returned_at IS NULL OR be.returned_at >= ${bucketEnd})
-        AND (b.archived_at IS NULL OR b.archived_at >= ${bucketEnd})
         AND be.not_returned = false
-        AND b.status::text <> 'cancelled'
+        AND (
+          b.status::text IN (${Prisma.join(PARC_BON_STATUSES)})
+          OR (b.status::text = 'archived' AND b.archived_at >= ${bucketEnd})
+        )
         ${filialeFilter('b', filialeId)}
       GROUP BY bk.d
       ORDER BY bk.d
@@ -306,8 +357,11 @@ export class KpiParcService {
   }
 
   /** CTE partagée par `returnOverdueAggregateQuery` et `returnOverdueTopQuery` :
-   *  un bon par ligne, équipements prêtés en retard de restitution regroupés,
-   *  `days_late` = jours de retard (date civile Paris). */
+   *  un bon par ligne, équipements en circulation en retard de restitution
+   *  regroupés (définition élargie, cf. PARC_BON_STATUSES — un bon
+   *  `sent_mise_dispo` ou `contested` dont la date de restitution est dépassée
+   *  compte désormais aussi comme en retard, le matériel étant physiquement
+   *  chez le collaborateur), `days_late` = jours de retard (date civile Paris). */
   private lateBonsCte(filialeId?: string): Prisma.Sql {
     return Prisma.sql`
       SELECT b.id AS bon_id, b.reference, b.date_restitution, b.collaborateur_id, b.filiale_id,
@@ -315,7 +369,7 @@ export class KpiParcService {
              COUNT(be.id)::bigint AS equipments
       FROM bon_equipments be
       JOIN bons b ON b.id = be.bon_id
-      WHERE ${loanedEquipmentSql()}
+      WHERE ${parcEquipmentSql()}
         AND b.date_restitution IS NOT NULL
         AND b.date_restitution < (now() AT TIME ZONE 'Europe/Paris')::date
         ${filialeFilter('b', filialeId)}

@@ -10,6 +10,7 @@ interface RouterOptions {
   withSerial?: number | { toNumber: () => number };
   closedCurrent?: { archived: bigint; withNotReturned: bigint };
   closedPrevious?: { archived: bigint; withNotReturned: bigint };
+  situationRows?: { situation: string; count: bigint }[];
 }
 
 /** Route `$queryRaw` sur le texte SQL généré (pas sur l'ordre d'appel) :
@@ -22,6 +23,10 @@ function buildRouter(period: KpiPeriod, opts: RouterOptions = {}) {
   const withSerial = opts.withSerial ?? { toNumber: () => 112 };
   const closedCurrent = opts.closedCurrent ?? { archived: 10n, withNotReturned: 2n };
   const closedPrevious = opts.closedPrevious ?? { archived: 10n, withNotReturned: 1n };
+  // Par défaut, toute la « masse » du parc est en_circulation : garantit que
+  // bySituation.sum === loaned.total même quand le test ne le vérifie pas
+  // explicitement (ex. cas totalEquipments = 0).
+  const situationRows = opts.situationRows ?? [{ situation: 'en_circulation', count: totalEquipments }];
 
   return (query: Prisma.Sql): Promise<unknown[]> => {
     const sql = query.sql;
@@ -39,6 +44,9 @@ function buildRouter(period: KpiPeriod, opts: RouterOptions = {}) {
     }
     if (sql.includes('GROUP BY f.id, f.display_name')) {
       return Promise.resolve([{ filialeId: 'f1', name: 'Paris', count: 90n }]);
+    }
+    if (sql.includes('AS situation, COUNT(*)')) {
+      return Promise.resolve(situationRows);
     }
     if (sql.includes('"catalogItemId"')) {
       return Promise.resolve([
@@ -100,7 +108,15 @@ describe('KpiParcService', () => {
   });
 
   it('renvoie le contrat complet (filiale fournie), BigInt et Decimal-like convertis en number', async () => {
-    (prisma.$queryRaw as jest.Mock).mockImplementation(buildRouter(period));
+    (prisma.$queryRaw as jest.Mock).mockImplementation(
+      buildRouter(period, {
+        situationRows: [
+          { situation: 'en_attente_signature', count: 20n },
+          { situation: 'en_circulation', count: 90n },
+          { situation: 'en_litige', count: 10n },
+        ],
+      }),
+    );
 
     const result = await service.getParc(period, 'f1');
 
@@ -115,6 +131,13 @@ describe('KpiParcService', () => {
       { category: 'ecran', label: 'Écran', count: 50 },
     ]);
     expect(result.loaned.byFiliale).toEqual([{ filialeId: 'f1', name: 'Paris', count: 90 }]);
+    expect(result.loaned.bySituation).toEqual([
+      { situation: 'en_attente_signature', label: 'En attente de signature', count: 20 },
+      { situation: 'en_circulation', label: 'En circulation', count: 90 },
+      { situation: 'en_litige', label: 'En litige', count: 10 },
+    ]);
+    // Invariant verrouillé par l'audit : la somme des situations égale le total.
+    expect(result.loaned.bySituation.reduce((sum, s) => sum + s.count, 0)).toBe(result.loaned.total);
     expect(result.loaned.topModels).toEqual([
       { catalogItemId: 'c1', label: 'Dell Latitude 5540', category: 'pc_portable', count: 31 },
     ]);
@@ -162,7 +185,7 @@ describe('KpiParcService', () => {
     await service.getParc(period, 'f1');
 
     const calls = sqlCalls(prisma);
-    expect(calls.length).toBeGreaterThanOrEqual(13);
+    expect(calls.length).toBeGreaterThanOrEqual(14);
 
     for (const sql of calls) {
       expect(sql).not.toMatch(/b\.status\s+(NOT\s+)?IN\s*\(/);
@@ -175,6 +198,61 @@ describe('KpiParcService', () => {
     const seriesSql = calls.find((sql) => sql.includes('generate_series'));
     expect(seriesSql).toBeDefined();
     expect(seriesSql).toContain("AT TIME ZONE 'Europe/Paris'");
+  });
+
+  describe('alignement parc en circulation (audit 2026-09-18 : sent_mise_dispo et contested)', () => {
+    it('la série historique utilise la même définition de statuts que le total instantané (PARC_BON_STATUSES), plus la dérogation archived_at pour les bons désormais archivés', async () => {
+      (prisma.$queryRaw as jest.Mock).mockImplementation(buildRouter(period));
+      await service.getParc(period, 'f1');
+
+      const calls = (prisma.$queryRaw as jest.Mock).mock.calls.map((call: unknown[]) => call[0] as Prisma.Sql);
+      const totalsSql = calls.find((q) => q.sql.includes('AS total, COUNT(DISTINCT b.id)'));
+      const seriesSql = calls.find((q) => q.sql.includes('generate_series'));
+      expect(totalsSql).toBeDefined();
+      expect(seriesSql).toBeDefined();
+
+      // Ancienne définition ("tout sauf cancelled") supprimée : elle incluait
+      // à tort les bons contested/sent_mise_dispo dans la série mais pas dans
+      // le total, faisant diverger le dernier point de la courbe et la tuile.
+      expect(seriesSql!.sql).not.toMatch(/b\.status::text\s*<>\s*'cancelled'/);
+      // Statuts PARC_BON_STATUSES liés comme paramètres (pas de concaténation),
+      // identiques à ceux de la requête de total.
+      const parcStatuses = ['sent_mise_dispo', 'active', 'sent_restitution', 'partially_returned', 'contested'];
+      for (const status of parcStatuses) {
+        expect(totalsSql!.values).toContain(status);
+        expect(seriesSql!.values).toContain(status);
+      }
+      // Dérogation explicite pour les bons déjà archivés (comptés sur les
+      // buckets antérieurs à leur archivage effectif).
+      expect(seriesSql!.sql).toContain("b.status::text = 'archived'");
+      expect(seriesSql!.sql).toContain('b.archived_at >=');
+    });
+
+    it('loaned.total, la série et bySituation partagent le même jeu de statuts (PARC_BON_STATUSES) dans toutes les requêtes concernées', async () => {
+      (prisma.$queryRaw as jest.Mock).mockImplementation(buildRouter(period));
+      await service.getParc(period, 'f1');
+
+      const calls = (prisma.$queryRaw as jest.Mock).mock.calls.map((call: unknown[]) => call[0] as Prisma.Sql);
+      const parcStatuses = ['sent_mise_dispo', 'active', 'sent_restitution', 'partially_returned', 'contested'];
+
+      const queriesUsingParcStatuses = [
+        calls.find((q) => q.sql.includes('AS total, COUNT(DISTINCT b.id)')), // loanedTotalsQuery
+        calls.find((q) => q.sql.includes("GROUP BY COALESCE(ec.category::text, 'autre')")), // loanedByCategoryQuery
+        calls.find((q) => q.sql.includes('GROUP BY f.id, f.display_name')), // loanedByFilialeQuery
+        calls.find((q) => q.sql.includes('AS situation, COUNT(*)')), // loanedBySituationQuery
+        calls.find((q) => q.sql.includes('"catalogItemId"')), // topModelsQuery
+        calls.find((q) => q.sql.includes('"offCatalog"')), // shareCountsQuery
+        calls.find((q) => q.sql.includes('"avgDays"')), // returnOverdueAggregateQuery (lateBonsCte)
+        calls.find((q) => q.sql.includes('"bonId"')), // returnOverdueTopQuery (lateBonsCte)
+      ];
+
+      for (const query of queriesUsingParcStatuses) {
+        expect(query).toBeDefined();
+        for (const status of parcStatuses) {
+          expect(query!.values).toContain(status);
+        }
+      }
+    });
   });
 
   it('ajoute le filtre filiale à toutes les requêtes quand filialeId est fourni', async () => {

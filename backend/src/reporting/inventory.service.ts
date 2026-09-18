@@ -2,7 +2,17 @@ import { Injectable } from '@nestjs/common';
 import { Prisma, EquipmentCategory } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { STATUS_LABELS } from '../common/status-labels';
-import { LOANED_BON_STATUSES, CATEGORY_LABELS, escapeCsvCell, buildLoanedEquipmentWhere } from '../common/bon-predicates';
+import {
+  CATEGORY_LABELS,
+  SITUATION_BON_STATUSES,
+  SITUATION_LABELS,
+  buildParcEquipmentWhere,
+  buildSituationBreakdown,
+  escapeCsvCell,
+  parcEquipmentSql,
+  situationCaseSql,
+  situationForBonStatus,
+} from '../common/bon-predicates';
 import { InventoryQueryDto, InventorySortField } from './dto/inventory-query.dto';
 
 const DEFAULT_PAGE_LIMIT = 50;
@@ -31,26 +41,33 @@ const ITEM_SELECT = {
 type InventoryRow = Prisma.BonEquipmentGetPayload<{ select: typeof ITEM_SELECT }>;
 
 /**
- * Vue « Inventaire du parc prêté » : liste, résumé agrégé et export CSV des
- * équipements actuellement entre les mains des collaborateurs.
+ * Vue « Inventaire du parc en circulation » : liste, résumé agrégé et export
+ * CSV des équipements actuellement entre les mains des collaborateurs.
  *
- * Définition « prêté » : BonEquipment dont le bon a un statut ∈
- * LOANED_BON_STATUSES, returnedAt IS NULL et notReturned = false.
+ * Définition « en circulation » (élargie, cf. audit du 2026-09-18) :
+ * BonEquipment dont le bon a un statut ∈ PARC_BON_STATUSES, returnedAt IS NULL
+ * et notReturned = false — décomposée en 3 situations mutuellement
+ * exclusives (`en_attente_signature`, `en_circulation`, `en_litige`), voir
+ * bon-predicates.ts.
  */
 @Injectable()
 export class InventoryService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Where partagé par la liste paginée et l'export CSV. Base « prêté »
-   *  (+ filiale) fournie par le prédicat commun `buildLoanedEquipmentWhere` —
-   *  les autres filtres restent spécifiques à cette vue. */
+  /** Where partagé par la liste paginée et l'export CSV. Base « en
+   *  circulation » (+ filiale) fournie par le prédicat commun
+   *  `buildParcEquipmentWhere` — les autres filtres restent spécifiques à
+   *  cette vue. */
   private buildWhere(filters: InventoryQueryDto): Prisma.BonEquipmentWhereInput {
     const and: Prisma.BonEquipmentWhereInput[] = [
-      ...(buildLoanedEquipmentWhere({ filialeId: filters.filialeId }).AND as Prisma.BonEquipmentWhereInput[]),
+      ...(buildParcEquipmentWhere({ filialeId: filters.filialeId }).AND as Prisma.BonEquipmentWhereInput[]),
     ];
 
     if (filters.collaborateurId) {
       and.push({ bon: { collaborateurId: filters.collaborateurId } });
+    }
+    if (filters.situation) {
+      and.push({ bon: { status: { in: [...SITUATION_BON_STATUSES[filters.situation]] } } });
     }
     if (filters.category) {
       // 'autre' couvre à la fois les équipements sans fiche catalogue
@@ -97,6 +114,13 @@ export class InventoryService {
       ? `${row.catalogItem.brand} ${row.catalogItem.model}`
       : row.customLabel ?? 'Équipement';
 
+    const situation = situationForBonStatus(row.bon.status);
+    if (!situation) {
+      // Ne doit jamais arriver : buildWhere restreint bon.status aux statuts
+      // couverts par PARC_BON_STATUSES (voir buildParcEquipmentWhere).
+      throw new Error(`Statut de bon hors du parc en circulation dans l'inventaire : ${row.bon.status}`);
+    }
+
     return {
       equipmentId: row.id,
       label,
@@ -107,6 +131,8 @@ export class InventoryService {
       bonId: row.bon.id,
       bonReference: row.bon.reference,
       bonStatus: row.bon.status,
+      situation,
+      situationLabel: SITUATION_LABELS[situation],
       dateMiseDisposition: row.bon.dateMiseDisposition,
       dateRestitution: row.bon.dateRestitution,
       collaborateur: row.bon.collaborateur,
@@ -136,32 +162,34 @@ export class InventoryService {
 
   /**
    * GET /reporting/inventory/summary — agrégats calculés en SQL (GROUP BY /
-   * COUNT côté base), jamais en itérant tout le parc en JS.
+   * COUNT côté base), jamais en itérant tout le parc en JS. Résumé toujours
+   * global (non filtré) : `total` doit rester égal à `/kpi/parc.loaned.total`
+   * sans filiale, les deux s'appuyant sur `parcEquipmentSql()`.
    *
-   * `b.status::text` : la colonne est un enum Postgres ("BonStatus") et
-   * $queryRaw lie les valeurs de Prisma.join comme des paramètres text. Sans
-   * le cast, Postgres refuse la comparaison (« operator does not exist:
-   * "BonStatus" = text ») — invisible dans les tests unitaires où $queryRaw
-   * est mocké, mais fatal en production (résumé jamais chargé).
+   * `b.status::text` (dans `parcEquipmentSql`/`situationCaseSql`) : la colonne
+   * est un enum Postgres ("BonStatus") et $queryRaw lie les valeurs de
+   * Prisma.join comme des paramètres text. Sans le cast, Postgres refuse la
+   * comparaison (« operator does not exist: "BonStatus" = text ») — invisible
+   * dans les tests unitaires où $queryRaw est mocké, mais fatal en production
+   * (résumé jamais chargé).
+   *
+   * `bySituation` : somme toujours égale à `total` (3 situations couvrant
+   * exactement PARC_BON_STATUSES, zéro-complétées par `buildSituationBreakdown`).
    */
   async getSummary() {
-    const [totalRows, byCategoryRows, byFilialeRows, overdueRows] = await Promise.all([
+    const [totalRows, byCategoryRows, byFilialeRows, bySituationRows, overdueRows] = await Promise.all([
       this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
         SELECT COUNT(*)::bigint AS count
         FROM bon_equipments be
         JOIN bons b ON b.id = be.bon_id
-        WHERE be.returned_at IS NULL
-          AND be.not_returned = false
-          AND b.status::text IN (${Prisma.join(LOANED_BON_STATUSES)})
+        WHERE ${parcEquipmentSql()}
       `),
       this.prisma.$queryRaw<{ category: string; count: bigint }[]>(Prisma.sql`
         SELECT COALESCE(ec.category::text, 'autre') AS category, COUNT(*)::bigint AS count
         FROM bon_equipments be
         JOIN bons b ON b.id = be.bon_id
         LEFT JOIN equipment_catalog ec ON ec.id = be.catalog_item_id
-        WHERE be.returned_at IS NULL
-          AND be.not_returned = false
-          AND b.status::text IN (${Prisma.join(LOANED_BON_STATUSES)})
+        WHERE ${parcEquipmentSql()}
         GROUP BY COALESCE(ec.category::text, 'autre')
         ORDER BY count DESC
       `),
@@ -170,19 +198,26 @@ export class InventoryService {
         FROM bon_equipments be
         JOIN bons b ON b.id = be.bon_id
         JOIN filiales f ON f.id = b.filiale_id
-        WHERE be.returned_at IS NULL
-          AND be.not_returned = false
-          AND b.status::text IN (${Prisma.join(LOANED_BON_STATUSES)})
+        WHERE ${parcEquipmentSql()}
         GROUP BY f.id, f.display_name
         ORDER BY count DESC
+      `),
+      this.prisma.$queryRaw<{ situation: string; count: bigint }[]>(Prisma.sql`
+        SELECT ${situationCaseSql()} AS situation, COUNT(*)::bigint AS count
+        FROM bon_equipments be
+        JOIN bons b ON b.id = be.bon_id
+        WHERE ${parcEquipmentSql()}
+        -- GROUP BY 1 (position) et non l'expression répétée : Prisma lie les valeurs
+        -- de chaque expression CASE comme des paramètres distincts, que Postgres
+        -- ne reconnaît alors pas comme identiques (« column b.status must appear in
+        -- the GROUP BY clause »).
+        GROUP BY 1
       `),
       this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
         SELECT COUNT(*)::bigint AS count
         FROM bon_equipments be
         JOIN bons b ON b.id = be.bon_id
-        WHERE be.returned_at IS NULL
-          AND be.not_returned = false
-          AND b.status::text IN (${Prisma.join(LOANED_BON_STATUSES)})
+        WHERE ${parcEquipmentSql()}
           AND b.date_restitution IS NOT NULL
           AND b.date_restitution < (now() AT TIME ZONE 'Europe/Paris')::date
       `),
@@ -200,6 +235,9 @@ export class InventoryService {
         name: r.name,
         count: Number(r.count),
       })),
+      bySituation: buildSituationBreakdown(
+        bySituationRows.map((r) => ({ situation: r.situation, count: Number(r.count) })),
+      ),
       overdue: Number(overdueRows[0]?.count ?? 0),
     };
   }
@@ -223,7 +261,7 @@ export class InventoryService {
     const headers = [
       'Équipement', 'Catégorie', 'N° série', 'N° inventaire',
       'Collaborateur', 'Email', 'Service', 'Filiale',
-      'Référence bon', 'Statut bon', 'Date mise à disposition', 'Date restitution prévue',
+      'Référence bon', 'Statut bon', 'Situation', 'Date mise à disposition', 'Date restitution prévue',
     ];
     const dataRows = items.map((it) =>
       [
@@ -237,6 +275,7 @@ export class InventoryService {
         it.filiale.displayName,
         it.bonReference,
         STATUS_LABELS[it.bonStatus] ?? it.bonStatus,
+        it.situationLabel,
         it.dateMiseDisposition ? new Date(it.dateMiseDisposition).toLocaleDateString('fr-FR') : '',
         it.dateRestitution ? new Date(it.dateRestitution).toLocaleDateString('fr-FR') : '',
       ].map(escapeCsvCell),
