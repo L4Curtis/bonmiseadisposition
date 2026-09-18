@@ -15,7 +15,9 @@ services:
     volumes:
       - pgdata_dev:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U app"]
+      # -d explicite : sans lui, pg_isready interroge une base nommée « app » qui
+      # n'existe pas et Postgres journalise un FATAL toutes les 10 s.
+      test: ["CMD-SHELL", "pg_isready -U app -d bons_disposition"]
       interval: 10s
 
 volumes:

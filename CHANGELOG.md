@@ -4,6 +4,55 @@ Historique des évolutions notables de l'application. Les entrées les plus réc
 
 ---
 
+## 2026-09-18 — Catalogue, parc et saisie : audit et améliorations
+
+Audit du catalogue, des packs et de la gestion du matériel (documentation Outline, code, données réelles),
+puis mise en œuvre des correctifs. Vérifié sur une instance locale avec données de production anonymisées.
+
+### Ajouté
+- **Situation d'un équipement du parc** : « En attente de signature », « En circulation », « En litige ».
+  Le matériel remis dont le bon attend encore la signature, et celui d'un bon contesté, faisaient partie du
+  parc réel mais étaient absents de l'inventaire et des indicateurs. Colonne, filtre et tuile dédiés,
+  colonne « Situation » dans l'export CSV, répartition `bySituation` dans le résumé et dans `/kpi/parc`.
+- **Import CSV du catalogue** (`POST /equipment/catalog/import`, 500 lignes maximum) : compte rendu créés,
+  réactivés, ignorés, erreurs ligne par ligne. Bouton d'import et export CSV sur la page Catalogue.
+- **Journal d'audit du catalogue et des packs** : création, modification, désactivation, réactivation,
+  composition d'un pack et import en masse sont désormais tracés comme le reste de l'application.
+- **Page Catalogue** : recherche, filtre par catégorie, tri, pagination, duplication de pack, saisie directe
+  des quantités, navigation clavier et rôles ARIA sur la recherche d'article.
+- **Saisie d'un bon** : quantité à l'ajout depuis le catalogue, duplication de ligne, collage d'une colonne
+  de numéros de série depuis un tableur, signalement immédiat d'un numéro en double, navigation clavier
+  dans la recherche du catalogue.
+- **Recherche globale** : l'équipement et le numéro de série qui ont déclenché le résultat sont affichés,
+  et une erreur réseau ne se confond plus avec une absence de résultat.
+- **Tests SQL contre une vraie base** (`backend/src/__tests__/sql-real-db.spec.ts`, activés par
+  `RUN_DB_TESTS=1`) : les specs habituels simulent `$queryRaw` et ne voient pas les erreurs que seule
+  PostgreSQL détecte. Deux d'entre elles étaient déjà arrivées en production.
+
+### Corrigé
+- **Rechargement d'une page ou ouverture d'un lien direct** : l'application revenait au tableau de bord.
+  La requête d'authentification annulée au double montage de React marquait le chargement comme terminé,
+  l'application se croyait déconnectée et perdait l'URL demandée.
+- **Répartition par situation en erreur 500** : l'expression `CASE` répétée dans le `SELECT` et le
+  `GROUP BY` était liée comme deux paramètres distincts. Regroupement par position de colonne.
+- **Libellés du catalogue non normalisés** : espaces retirés à l'enregistrement, unicité désormais
+  insensible à la casse (index fonctionnel partiel sur les articles actifs), doublons existants désactivés
+  par migration. « Dell » et « dell » ne comptent plus comme deux modèles distincts.
+- **Action « Supprimer » qui désactivait** : renommée « Désactiver » partout, avec badge et bouton
+  « Réactiver » pour les articles et packs désactivés.
+- **Page Catalogue** : plus de rechargement complet du catalogue et des packs après chaque action.
+- **Validation d'API du catalogue** : longueurs bornées, valeurs nettoyées, identifiant d'article de pack
+  validé en UUID (un identifiant malformé renvoyait une erreur 500 au lieu d'un 400).
+- **Clé étrangère** `bon_equipments.catalog_item_id` passée en `ON DELETE RESTRICT` : une suppression
+  physique d'article ne peut plus casser la traçabilité d'un bon signé.
+- **Historique d'un numéro de série et conflits de série** : troncature désormais signalée.
+- Accents manquants et oublis de thème sombre dans le module Catalogue et les modales de restitution,
+  de non-restitution et de matériel retrouvé ; libellés liés aux champs dans les formulaires.
+- Test de santé de la base de développement : `pg_isready` interrogeait une base inexistante, ce qui
+  écrivait une erreur fatale dans les journaux toutes les dix secondes.
+
+---
+
 ## 2026-09-17 — Déploiement avec base PostgreSQL sur une machine dédiée
 
 ### Ajouté

@@ -133,7 +133,10 @@ BonDeMiseADisposition/
 │       │
 │       ├── equipment/
 │       │   ├── equipment.module.ts     # Module equipements
-│       │   ├── equipment.controller.ts # CRUD catalogue + packs
+│       │   ├── equipment.controller.ts # CRUD catalogue + packs + import CSV en masse
+│       │   ├── equipment-catalog-import.ts # Import en masse (créés / réactivés / ignorés / erreurs)
+│       │   ├── equipment-audit.ts      # Traces d'audit des mutations catalogue et packs
+│       │   ├── equipment-validation.ts # Nettoyage des libellés (trim, refus des valeurs vides)
 │       │   ├── equipment.service.ts    # Catalogue (11 categories) + packs pre-configures
 │       │   └── equipment.dto.ts        # DTOs catalogue item + pack
 │       │
