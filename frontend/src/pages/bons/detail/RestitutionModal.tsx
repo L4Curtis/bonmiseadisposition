@@ -67,7 +67,7 @@ export function RestitutionModal({ equipments, onConfirm, onCancel, loading }: R
               >
                 <input
                   type="checkbox"
-                  className="h-4 w-4 rounded border-input text-blue-600 focus:ring-blue-500"
+                  className="h-4 w-4 rounded border-input text-blue-600 dark:text-blue-500 focus:ring-blue-500 dark:focus:ring-blue-400"
                   checked={isReturned || selected.has(eq.id)}
                   disabled={isReturned || isDeclaredNotReturned}
                   onChange={() => isPending && toggle(eq.id)}
@@ -79,12 +79,12 @@ export function RestitutionModal({ equipments, onConfirm, onCancel, loading }: R
                   )}
                 </div>
                 {isReturned && (
-                  <span className="text-xs text-green-600 flex items-center gap-1">
+                  <span className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
                     <CheckCircle2 className="h-3 w-3" /> Rendu
                   </span>
                 )}
                 {isDeclaredNotReturned && (
-                  <span className="text-xs text-red-600 flex items-center gap-1">
+                  <span className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
                     <XCircle className="h-3 w-3" /> Non rendu
                   </span>
                 )}

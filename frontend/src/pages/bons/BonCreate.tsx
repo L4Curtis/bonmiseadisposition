@@ -45,6 +45,9 @@ export function BonCreatePage() {
     addEmptyLine,
     removeEquipment,
     updateEquipment,
+    duplicateEquipment,
+    pasteSerial,
+    duplicateSerialIds,
     confirmDespiteConflicts,
     handleSubmit,
     conflictsRef,
@@ -131,11 +134,14 @@ export function BonCreatePage() {
           equipments={equipments}
           allCatalogItems={allCatalogItems}
           packs={packs}
+          duplicateSerialIds={duplicateSerialIds}
           onAddFromCatalog={addFromCatalog}
           onAddFromPack={addFromPack}
           onAddEmptyLine={addEmptyLine}
           onRemoveEquipment={removeEquipment}
           onUpdateEquipment={updateEquipment}
+          onDuplicateEquipment={duplicateEquipment}
+          onPasteSerial={pasteSerial}
         />
 
         {/* Notes */}

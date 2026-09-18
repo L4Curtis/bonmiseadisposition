@@ -96,7 +96,7 @@ export function DeclareNotReturnedModal({
                   >
                     <input
                       type="checkbox"
-                      className="h-4 w-4 rounded border-input text-red-600 focus:ring-red-500"
+                      className="h-4 w-4 rounded border-input text-red-600 dark:text-red-500 focus:ring-red-500 dark:focus:ring-red-400"
                       checked={selected.has(eq.id)}
                       onChange={() => toggle(eq.id)}
                     />
@@ -116,7 +116,7 @@ export function DeclareNotReturnedModal({
                   Motif *
                 </label>
                 <textarea
-                  className="mt-1 w-full rounded-lg border border-border bg-background text-foreground px-3 py-2 text-sm focus:border-red-500 focus:ring-1 focus:ring-red-500"
+                  className="mt-1 w-full rounded-lg border border-border bg-background text-foreground px-3 py-2 text-sm focus:border-red-500 dark:focus:border-red-400 focus:ring-1 focus:ring-red-500 dark:focus:ring-red-400"
                   rows={2}
                   placeholder="Perte, vol, casse, non restitué par le collaborateur…"
                   value={reason}
@@ -143,13 +143,14 @@ export function DeclareNotReturnedModal({
                     <Trash2 className="h-3 w-3" /> Effacer
                   </button>
                 </div>
-                <div className="relative border-2 border-dashed border-border rounded-lg bg-muted/40 hover:border-red-300 transition-colors touch-none">
+                <div className="relative border-2 border-dashed border-border rounded-lg bg-muted/40 hover:border-red-300 dark:hover:border-red-700 transition-colors touch-none">
                   <canvas
                     ref={canvasRef}
                     width={560}
                     height={120}
                     className="w-full cursor-crosshair block text-foreground"
                     style={{ touchAction: 'none' }}
+                    aria-label="Zone de signature : dessinez avec la souris ou le doigt"
                     onMouseDown={onMouseDown}
                     onMouseMove={onMouseMove}
                     onMouseUp={onMouseUp}

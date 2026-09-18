@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useUnsavedChangesWarning } from '@/hooks/use-unsaved-changes';
 import { api } from '@/lib/api';
 import { useBonCreateReferenceData } from './useBonCreateReferenceData';
+import { useBonFormSnapshot } from './useBonFormSnapshot';
 import { runBonValidation } from './lib/validation';
 import { buildBonPayload } from './lib/payload';
+import { duplicateLine, distributeSerialsFromLine, findDuplicateSerialIds, splitPastedSerials } from './lib/equipmentLines';
 import { newLine } from './types';
 import type { CatalogItem, EditableBon, EquipmentLine, Pack, SerialConflict, UserResult } from './types';
 
@@ -32,29 +33,12 @@ export function useBonCreateForm() {
 
   const { filiales, allCatalogItems, packs, initError, retryInit } = useBonCreateReferenceData();
 
-  // ── Garde « modifications non enregistrées » ────────────────────────────────
-  // On compare un instantané du formulaire à une baseline établie une fois prêt
-  // (création : au montage ; édition : après chargement du brouillon).
-  const [loaded, setLoaded] = useState(!editBonId);
-  const baseline = useRef<string | null>(null);
-  const snapshot = useMemo(
-    () => JSON.stringify({
-      collaborateurId: collaborateur?.id ?? '',
-      filialeId, civilite, dateMiseDisposition, dateRestitution, notes,
-      equipments: equipments.map((e) => ({
-        c: e.catalogItemId ?? '', l: e.customLabel ?? '', s: e.serialNumber ?? '',
-        i: e.inventoryNumber ?? '', n: e.notes ?? '',
-      })),
-    }),
-    [collaborateur, filialeId, civilite, dateMiseDisposition, dateRestitution, notes, equipments],
-  );
-  useEffect(() => {
-    if (loaded && baseline.current === null) baseline.current = snapshot;
-  }, [loaded, snapshot]);
-  const dirty = baseline.current !== null && snapshot !== baseline.current;
-  useUnsavedChangesWarning(dirty && !submitting);
-  const confirmLeave = () =>
-    !dirty || window.confirm('Des modifications non enregistrées seront perdues. Quitter quand même ?');
+  // Garde « modifications non enregistrées » : voir useBonFormSnapshot.ts.
+  const { snapshot, loaded, setLoaded, confirmLeave } = useBonFormSnapshot({
+    collaborateur, filialeId, civilite, dateMiseDisposition, dateRestitution, notes, equipments,
+    initiallyLoaded: !editBonId,
+    submitting,
+  });
 
   // Le panneau de conflits de numéro de série ne reflète que l'état du
   // formulaire au moment de la vérification : toute modification ultérieure
@@ -137,6 +121,27 @@ export function useBonCreateForm() {
   const updateEquipment = (id: string, field: keyof EquipmentLine, value: string) => {
     setEquipments((prev) => prev.map((e) => (e._id === id ? { ...e, [field]: value } : e)));
   };
+
+  /** Copie une ligne (même article, numéro de série/inventaire vides) juste
+   *  après elle — pour saisir vite plusieurs unités identiques. */
+  const duplicateEquipment = (id: string) => {
+    setEquipments((prev) => duplicateLine(prev, id));
+  };
+
+  /** Collage multi-lignes dans un champ de numéro de série (retours à la
+   *  ligne ou tabulations, typiquement depuis Excel) : une valeur par ligne
+   *  d'équipement à partir de la ligne courante, en créant les lignes
+   *  manquantes pour le même article. */
+  const pasteSerial = (id: string, text: string) => {
+    const values = splitPastedSerials(text);
+    if (values.length === 0) return;
+    setEquipments((prev) => distributeSerialsFromLine(prev, id, values));
+  };
+
+  // Doublons de numéro de série DANS le formulaire courant, pour un signal
+  // visuel immédiat pendant la saisie (la validation bloquante à l'envoi
+  // reste par ailleurs inchangée — voir lib/validation.ts).
+  const duplicateSerialIds = useMemo(() => findDuplicateSerialIds(equipments), [equipments]);
 
   const runValidation = () => runBonValidation({
     collaborateurId: collaborateur?.id ?? '',
@@ -276,6 +281,9 @@ export function useBonCreateForm() {
     addEmptyLine,
     removeEquipment,
     updateEquipment,
+    duplicateEquipment,
+    pasteSerial,
+    duplicateSerialIds,
     confirmDespiteConflicts,
     handleSubmit,
     conflictsRef,

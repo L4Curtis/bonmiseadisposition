@@ -97,7 +97,7 @@ export function MarkFoundModal({
                   >
                     <input
                       type="checkbox"
-                      className="h-4 w-4 rounded border-input text-green-600 focus:ring-green-500"
+                      className="h-4 w-4 rounded border-input text-green-600 dark:text-green-500 focus:ring-green-500 dark:focus:ring-green-400"
                       checked={selected.has(eq.id)}
                       onChange={() => toggle(eq.id)}
                     />
@@ -109,7 +109,7 @@ export function MarkFoundModal({
                     </div>
                     {eq.notReturnedReason && (
                       <span
-                        className="text-xs text-red-600 italic shrink-0 max-w-[120px] truncate"
+                        className="text-xs text-red-600 dark:text-red-400 italic shrink-0 max-w-[120px] truncate"
                         title={eq.notReturnedReason}
                       >
                         {eq.notReturnedReason}
@@ -140,13 +140,14 @@ export function MarkFoundModal({
                     <Trash2 className="h-3 w-3" /> Effacer
                   </button>
                 </div>
-                <div className="relative border-2 border-dashed border-border rounded-lg bg-muted/40 hover:border-green-300 transition-colors touch-none">
+                <div className="relative border-2 border-dashed border-border rounded-lg bg-muted/40 hover:border-green-300 dark:hover:border-green-700 transition-colors touch-none">
                   <canvas
                     ref={canvasRef}
                     width={560}
                     height={120}
                     className="w-full cursor-crosshair block text-foreground"
                     style={{ touchAction: 'none' }}
+                    aria-label="Zone de signature : dessinez avec la souris ou le doigt"
                     onMouseDown={onMouseDown}
                     onMouseMove={onMouseMove}
                     onMouseUp={onMouseUp}

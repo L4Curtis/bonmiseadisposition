@@ -61,9 +61,9 @@ export function SerialHistoryModal({ serialNumber, currentBonId, onClose }: Seri
         </DialogHeader>
 
         {error ? (
-          <div className="py-6 text-center text-sm" role="alert">
-            <XCircle className="h-6 w-6 mx-auto mb-2 text-red-400" />
-            <p className="text-red-600">{error}</p>
+          <div className="py-6 text-center text-sm text-red-700 dark:text-red-400" role="alert">
+            <XCircle className="h-6 w-6 mx-auto mb-2" />
+            <p>{error}</p>
           </div>
         ) : entries === null ? (
           <div className="flex justify-center py-6">

@@ -40,8 +40,8 @@ export function CollaborateurSection({
       <CardHeader><CardTitle className="text-base">Collaborateur & Filiale</CardTitle></CardHeader>
       <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="space-y-1">
-          <Label>Civilité</Label>
-          <div className="flex gap-2">
+          <Label id="civilite-label">Civilité</Label>
+          <div role="group" aria-labelledby="civilite-label" className="flex gap-2">
             {(['mr', 'mme'] as const).map((c) => (
               <button
                 key={c}
@@ -59,9 +59,9 @@ export function CollaborateurSection({
           </div>
         </div>
         <div className="space-y-1">
-          <Label>Filiale *</Label>
+          <Label htmlFor="filiale-select">Filiale *</Label>
           <Select value={filialeId ?? ''} onValueChange={onFilialeIdChange}>
-            <SelectTrigger>
+            <SelectTrigger id="filiale-select">
               <SelectValue placeholder="Sélectionner une filiale..." />
             </SelectTrigger>
             <SelectContent>
