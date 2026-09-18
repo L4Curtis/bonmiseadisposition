@@ -9,6 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/StatusBadge';
 import { StatCard, StatCardSkeleton, type StatCardProps } from '@/components/dashboard/StatCard';
 import { BreakdownBars } from '@/components/dashboard/BreakdownBars';
+import { staggerClass } from '@/components/dashboard/stagger';
 import { useApiResource } from '@/hooks/use-api-resource';
 import { formatDate } from '@/lib/utils';
 import { isWaitingStatus, type SignatureSummary } from '@/lib/bon-helpers';
@@ -155,7 +156,7 @@ export function TodayTab() {
         ) : (
           statCards.map((card, index) => {
             const { key, ...cardProps } = card;
-            return <StatCard key={key} {...cardProps} className={`animate-fade-in-up-${index + 1}`} />;
+            return <StatCard key={key} {...cardProps} className={staggerClass(index)} />;
           })
         )}
       </div>
@@ -203,12 +204,12 @@ export function TodayTab() {
             </div>
           ) : (
             <div className="divide-y divide-border">
-              {recent.map((bon) => {
+              {recent.map((bon, index) => {
                 const late = isOverdue(bon, thresholdDays);
                 return (
                   <button
                     key={bon.id}
-                    className="group flex w-full cursor-pointer items-center gap-4 px-5 py-3.5 text-left transition-colors hover:bg-muted/40"
+                    className={`group flex w-full cursor-pointer items-center gap-4 px-5 py-3.5 text-left transition-colors hover:bg-muted/40 ${staggerClass(index)}`}
                     onClick={() => navigate(`/bons/${bon.id}`)}
                   >
                     <span className="shrink-0 rounded bg-muted px-2 py-1 font-mono text-xs font-semibold text-foreground/80 transition-colors group-hover:bg-muted">

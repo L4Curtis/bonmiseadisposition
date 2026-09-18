@@ -4,6 +4,27 @@ Historique des évolutions notables de l'application. Les entrées les plus réc
 
 ---
 
+## 2026-09-18 — Tableau de bord : apparition des contenus et périodes sans activité
+
+### Ajouté
+- **Apparition en cascade** des tuiles et des cartes sur les quatre onglets, et non plus seulement sur
+  « Aujourd'hui » : les blocs arrivent l'un après l'autre au lieu de surgir d'un coup en fin de chargement.
+  Le contenu d'un graphique remplace son squelette en fondu, et le changement d'onglet se fait en fondu.
+- **Respect du réglage « réduire les animations »** du système : toutes les animations du tableau de bord
+  sont désactivées quand il est actif, ce qui n'était pas le cas.
+- **Bandeau « Aucune activité sur la période choisie »** sur Délais et Incidents, avec un bouton
+  « Voir les 12 derniers mois ». Avant, une période sans mouvement affichait une grille de zéros et de
+  tirets, sans dire s'il ne s'était rien passé ou si l'application était en panne.
+- **États vides des graphiques** de l'onglet Délais : volumes, mode de signature et délais par type
+  affichent un message explicite au lieu d'un repère vide.
+
+### Corrigé
+- Les classes d'animation étaient composées à l'exécution : Tailwind ne les voyait pas et ne générait
+  aucun CSS, si bien que la cascade de l'onglet « Aujourd'hui » ne jouait pas. Classes désormais écrites
+  en toutes lettres dans un module dédié.
+
+---
+
 ## 2026-09-18 — Catalogue, parc et saisie : audit et améliorations
 
 Audit du catalogue, des packs et de la gestion du matériel (documentation Outline, code, données réelles),

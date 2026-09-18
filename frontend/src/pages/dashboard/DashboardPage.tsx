@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from 'react';
+import { FADE_IN } from '@/components/dashboard/stagger';
 import { useNavigate } from 'react-router-dom';
 import { CalendarDays, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -92,10 +93,14 @@ export function DashboardPage() {
         {/* Seul l'onglet actif est monté : pas d'appel API en arrière-plan
             pour les onglets non consultés. */}
         <TabsContent value={activeTabId}>
-          {activeTabId === 'today' && <TodayTab />}
-          {activeTabId === 'parc' && <ParcTab />}
-          {activeTabId === 'delais' && <DelaisTab />}
-          {activeTabId === 'incidents' && <IncidentsTab />}
+          {/* La clé force un remontage à chaque onglet : le contenu arrive en
+              fondu au lieu d'apparaître brutalement. */}
+          <div key={activeTabId} className={FADE_IN}>
+            {activeTabId === 'today' && <TodayTab />}
+            {activeTabId === 'parc' && <ParcTab />}
+            {activeTabId === 'delais' && <DelaisTab />}
+            {activeTabId === 'incidents' && <IncidentsTab />}
+          </div>
         </TabsContent>
       </Tabs>
     </div>

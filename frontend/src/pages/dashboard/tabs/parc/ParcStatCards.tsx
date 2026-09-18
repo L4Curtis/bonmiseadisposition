@@ -1,5 +1,6 @@
 import { Package, AlertTriangle, PackageX, PackageCheck, Tag, ScanLine } from 'lucide-react';
 import { StatCard, type StatCardDelta } from '@/components/dashboard/StatCard';
+import { staggerClass } from '@/components/dashboard/stagger';
 import { formatDays, formatNumber } from '@/lib/kpi-format';
 import type { ParcKpiResponse } from '../../types/parc';
 
@@ -27,6 +28,7 @@ export function ParcStatCards({ data, loading }: ParcStatCardsProps) {
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <StatCard
+        className={staggerClass(0)}
         label="Équipements prêtés"
         value={data?.loaned.total ?? null}
         icon={Package}
@@ -35,6 +37,7 @@ export function ParcStatCards({ data, loading }: ParcStatCardsProps) {
         delta={loanedDelta}
       />
       <StatCard
+        className={staggerClass(1)}
         label="Retards de restitution"
         value={equipments}
         icon={AlertTriangle}
@@ -43,6 +46,7 @@ export function ParcStatCards({ data, loading }: ParcStatCardsProps) {
         hint={`moy. ${formatDays(data?.returnOverdue.avgDays ?? null)}`}
       />
       <StatCard
+        className={staggerClass(2)}
         label="Non rendus déclarés"
         value={data?.notReturned.declared.current ?? null}
         icon={PackageX}
@@ -50,6 +54,7 @@ export function ParcStatCards({ data, loading }: ParcStatCardsProps) {
         delta={data ? { ...data.notReturned.declared, invert: true } : undefined}
       />
       <StatCard
+        className={staggerClass(3)}
         label="Retrouvés"
         value={data?.notReturned.found.current ?? null}
         icon={PackageCheck}
@@ -57,6 +62,7 @@ export function ParcStatCards({ data, loading }: ParcStatCardsProps) {
         delta={data ? data.notReturned.found : undefined}
       />
       <StatCard
+        className={staggerClass(4)}
         label="Part hors catalogue"
         value={data?.loaned.offCatalogShare ?? null}
         icon={Tag}
@@ -64,6 +70,7 @@ export function ParcStatCards({ data, loading }: ParcStatCardsProps) {
         loading={loading}
       />
       <StatCard
+        className={staggerClass(5)}
         label="Couverture n° de série"
         value={data?.loaned.serialCoverage ?? null}
         icon={ScanLine}

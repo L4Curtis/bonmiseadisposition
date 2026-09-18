@@ -7,6 +7,7 @@ import { BreakdownBars } from '@/components/dashboard/BreakdownBars';
 import { TimeSeriesChart } from '@/components/dashboard/charts/TimeSeriesChart';
 import { DonutChart } from '@/components/dashboard/charts/DonutChart';
 import { HorizontalBars } from '@/components/dashboard/charts/HorizontalBars';
+import { staggerClass } from '@/components/dashboard/stagger';
 import { useApiResource } from '@/hooks/use-api-resource';
 import { useAuth } from '@/contexts/AuthContext';
 import { isItRole } from '@/lib/roles';
@@ -98,6 +99,7 @@ export function ParcTab() {
       <ChartCard
         title="Évolution du parc prêté"
         subtitle="Estimation en fin de période"
+        delayIndex={1}
         loading={loading}
         empty={!loading && (data?.loaned.series.length ?? 0) === 0}
       >
@@ -109,21 +111,22 @@ export function ParcTab() {
       </ChartCard>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <ChartCard title="Répartition par catégorie" loading={loading} empty={!loading && categoryData.length === 0}>
+        <ChartCard title="Répartition par catégorie" delayIndex={2} loading={loading} empty={!loading && categoryData.length === 0}>
           <DonutChart data={categoryData} />
         </ChartCard>
 
-        <ChartCard title="Par filiale" loading={loading} empty={!loading && filialeRows.length === 0}>
+        <ChartCard title="Par filiale" delayIndex={3} loading={loading} empty={!loading && filialeRows.length === 0}>
           <BreakdownBars rows={filialeRows} />
         </ChartCard>
       </div>
 
-      <ChartCard title="Modèles les plus prêtés" loading={loading} empty={!loading && topModelsData.length === 0}>
+      <ChartCard title="Modèles les plus prêtés" delayIndex={4} loading={loading} empty={!loading && topModelsData.length === 0}>
         <HorizontalBars data={topModelsData} />
       </ChartCard>
 
       <ChartCard
         title="Retards de restitution (top 10)"
+        delayIndex={5}
         loading={loading}
         empty={!loading && overdueTop.length === 0}
         emptyMessage="Aucun retard"

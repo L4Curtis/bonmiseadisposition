@@ -3,6 +3,7 @@ import { AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
+import { FADE_IN, staggerClass } from './stagger';
 
 export interface ChartCardProps {
   title: string;
@@ -13,6 +14,8 @@ export interface ChartCardProps {
   empty?: boolean;
   emptyMessage?: string;
   className?: string;
+  /** Rang de la carte dans la page : décale son apparition (cascade). */
+  delayIndex?: number;
   children?: ReactNode;
 }
 
@@ -27,10 +30,17 @@ export function ChartCard({
   empty,
   emptyMessage = 'Aucune donnée disponible',
   className,
+  delayIndex = 0,
   children,
 }: ChartCardProps) {
   return (
-    <div className={cn('overflow-hidden rounded-xl border border-border bg-card card-elevated', className)}>
+    <div
+      className={cn(
+        'overflow-hidden rounded-xl border border-border bg-card card-elevated',
+        staggerClass(delayIndex),
+        className,
+      )}
+    >
       <div className="border-b border-border px-5 py-4">
         <h3 className="text-sm font-semibold text-foreground">{title}</h3>
         {subtitle && <p className="mt-0.5 text-xs text-muted-foreground/70">{subtitle}</p>}
@@ -56,7 +66,12 @@ export function ChartCard({
             <p className="text-xs text-muted-foreground/70">{emptyMessage}</p>
           </div>
         ) : (
-          children
+          // Clé sur l'état : le contenu réel remonte dans le DOM quand les
+          // données arrivent, ce qui rejoue le fondu au lieu de remplacer le
+          // squelette d'un coup.
+          <div key="contenu" className={FADE_IN}>
+            {children}
+          </div>
         )}
       </div>
     </div>

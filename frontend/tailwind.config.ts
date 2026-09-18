@@ -85,14 +85,6 @@ const config: Config = {
       },
     },
   },
-  safelist: [
-    'animate-fade-in-up-1',
-    'animate-fade-in-up-2',
-    'animate-fade-in-up-3',
-    'animate-fade-in-up-4',
-    'animate-fade-in-up-5',
-    'animate-fade-in-up-6',
-  ],
   plugins: [tailwindAnimate],
 };
 

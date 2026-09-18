@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button';
 import { StatCard } from '@/components/dashboard/StatCard';
 import { ChartCard } from '@/components/dashboard/ChartCard';
 import { BreakdownBars } from '@/components/dashboard/BreakdownBars';
+import { staggerClass } from '@/components/dashboard/stagger';
+import { EmptyPeriodNotice } from '@/components/dashboard/EmptyPeriodNotice';
 import { useApiResource } from '@/hooks/use-api-resource';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePeriodParams } from '../use-period-params';
@@ -21,7 +23,7 @@ import { RemindersSection } from './incidents/RemindersSection';
  *  masque donc l'intégralité du contenu derrière un message unique avec
  *  « Réessayer », plutôt que de dupliquer l'état d'erreur par bloc. */
 export function IncidentsTab() {
-  const { from, to, filialeId } = usePeriodParams();
+  const { from, to, filialeId, preset, setPreset } = usePeriodParams();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
 
@@ -56,20 +58,40 @@ export function IncidentsTab() {
     : false;
   const remindersEmpty = data ? data.reminders.byRank.length === 0 : false;
   const reasonsEmpty = reasonRows.length === 0;
+  // Aucun incident du tout sur la période : on l'annonce, sinon l'onglet n'est
+  // qu'une grille de zéros dont on ne sait pas s'ils sont justes.
+  const periodeVide =
+    !!data &&
+    contestationsEmpty &&
+    remindersEmpty &&
+    reasonsEmpty &&
+    data.notReturned.declared.current === 0 &&
+    data.notReturned.found.current === 0 &&
+    data.pvCloture.emitted.current === 0 &&
+    data.cancellations.count.current === 0;
   const failedEmails = data?.failedEmails.count ?? null;
 
   return (
     <div className="space-y-6">
+      {periodeVide && (
+        <EmptyPeriodNotice
+          quoi="incident, rappel ou contestation"
+          onElargir={() => setPreset('12m')}
+          elargissementPossible={preset !== '12m'}
+        />
+      )}
+
       {/* ── Tuiles principales ── */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {topStatCards.map((card) => (
-          <StatCard key={card.key} {...card.props} hint={card.footer} />
+        {topStatCards.map((card, index) => (
+          <StatCard key={card.key} {...card.props} hint={card.footer} className={staggerClass(index)} />
         ))}
       </div>
 
       {/* ── Contestations ── */}
       <ChartCard
         title="Contestations"
+        delayIndex={1}
         loading={loading}
         empty={contestationsEmpty}
         emptyMessage="Aucune contestation sur la période."
@@ -80,6 +102,7 @@ export function IncidentsTab() {
       {/* ── Rappels par rang ── */}
       <ChartCard
         title="Rappels par rang"
+        delayIndex={2}
         loading={loading}
         empty={remindersEmpty}
         emptyMessage="Aucun rappel envoyé sur la période."
@@ -90,6 +113,7 @@ export function IncidentsTab() {
       {/* ── Motifs de clôture unilatérale ── */}
       <ChartCard
         title="Motifs de clôture unilatérale"
+        delayIndex={3}
         loading={loading}
         empty={reasonsEmpty}
         emptyMessage="Aucune clôture unilatérale sur la période."
@@ -101,6 +125,7 @@ export function IncidentsTab() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div className="flex flex-col gap-2">
           <StatCard
+            className={staggerClass(4)}
             label="Emails en échec"
             value={failedEmails?.current ?? null}
             icon={MailWarning}
