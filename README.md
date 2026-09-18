@@ -409,6 +409,20 @@ jamais renseignée, avec ce que cela empêche et la date de dernière modificati
 même information sous forme de pastille. L'état est calculé à partir de la seule présence des clés
 attendues : aucune valeur secrète n'est déchiffrée ni renvoyée.
 
+## Inventaire : par équipement ou par collaborateur
+
+La page Inventaire propose deux lectures du même parc. « Par équipement » est la liste habituelle.
+« Par collaborateur » donne une ligne par personne — service, filiale, nombre d'équipements détenus,
+nombre en retard, ancienneté du prêt le plus ancien — et un clic déplie le détail de son matériel,
+chargé à ce moment-là. Les filtres (recherche, filiale, catégorie, situation, retards) valent pour les
+deux vues, et la vue choisie est portée par l'URL (`?vue=collaborateurs`) : un lien partagé rouvre le
+même écran.
+
+Côté API : `GET /reporting/inventory/by-collaborateur` accepte les mêmes filtres que la liste, plus
+`sort=count|oldest` et la pagination. Au-delà de 10 000 équipements, la réponse porte un en-tête
+`X-Truncated` : le regroupement est fait en mémoire, volontairement, pour réutiliser la construction
+des filtres de la liste plutôt que de la dupliquer en SQL.
+
 ## Modèles d'emails : test d'envoi
 
 Admin → Modèles permet de rechercher et de filtrer les modèles, de repérer ceux qui ont été personnalisés,
