@@ -1,4 +1,5 @@
 import { Logger, UnauthorizedException } from '@nestjs/common';
+import { diagnosticMessage, readGroupsClaimState, type GroupsClaimState } from './sso-diagnostic';
 import { ConfidentialClientApplication, AuthorizationCodeRequest } from '@azure/msal-node';
 import * as crypto from 'crypto';
 import { Prisma } from '@prisma/client';
@@ -22,6 +23,8 @@ export interface EntraSsoDeps {
    *  y accède directement via un cast privé ; injectée ici pour éviter toute
    *  duplication de logique. */
   syncRoleFromGroups: (userId: string, groups: string[]) => Promise<void>;
+  /** Trace une connexion SSO dont le jeton ne portait pas la liste des groupes. */
+  recordGroupsClaimIssue: (userId: string, state: GroupsClaimState) => Promise<void>;
 }
 
 /** Build MSAL ConfidentialClientApplication from DB config */
@@ -169,23 +172,39 @@ export async function handleCallback(
     throw new UnauthorizedException('Compte désactivé');
   }
 
-  // Check group membership for role elevation. When the groups claim is absent
-  // (claim not configured, or Entra "group overage" replaces it with
-  // _claim_names/_claim_sources), DO NOT downgrade the existing role.
-  interface IdTokenClaimsWithGroups {
-    groups?: string[];
-  }
-  const groups = (response.idTokenClaims as IdTokenClaimsWithGroups)?.groups;
-  if (groups === undefined) {
-    deps.logger.warn(
-      `SSO ${email}: claim "groups" absente du id_token (claim non configurée ou group overage) — rôle existant conservé`,
-    );
-  } else {
+  // Rôle recalculé depuis les groupes du jeton. Quand la revendication est
+  // absente (non configurée sur l'inscription Entra) ou remplacée par un
+  // dépassement, on NE rétrograde PAS le rôle existant — mais on trace le
+  // diagnostic, sans quoi « je suis dans le groupe et je n'ai pas le rôle »
+  // reste invisible depuis l'application.
+  const { state: groupsState, groups } = readGroupsClaimState(
+    response.idTokenClaims as unknown as Record<string, unknown> | undefined,
+  );
+  if (groupsState === 'presente') {
     await deps.syncRoleFromGroups(user.id, groups);
+  } else {
+    deps.logger.warn(
+      `SSO ${email}: revendication « groups » ${groupsState} — rôle existant conservé. `
+        + diagnosticMessage({
+          state: groupsState,
+          groupsCount: 0,
+          configured: { admin: false, technician: false, direction: false },
+          resolvedRole: null,
+          aucuneCorrespondance: false,
+        }),
+    );
+    await deps.recordGroupsClaimIssue(user.id, groupsState);
   }
 
   // Re-fetch with updated role
   user = await deps.prisma.user.findUniqueOrThrow({ where: { id: user.id } });
 
-  return { ...(await deps.createTokens(user)), user: { id: user.id, email: user.email } };
+  // Un compte SSO a toujours une adresse (elle vient du jeton) ; le repli
+  // couvre seulement le typage, l'email étant devenu optionnel pour les
+  // collaborateurs créés à la main, qui eux ne se connectent jamais.
+  const emailCompte = user.email ?? email;
+  return {
+    ...(await deps.createTokens({ ...user, email: emailCompte })),
+    user: { id: user.id, email: emailCompte },
+  };
 }

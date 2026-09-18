@@ -163,6 +163,24 @@ describe('NotificationService', () => {
         }),
       });
     });
+
+    it('should skip sending and log an explicit (non-technical) failure when the collaborator has no email address (manual account)', async () => {
+      const bon = { ...activeBon(), collaborateurEmail: null } as unknown as NotificationBon;
+      asMock(prisma.notificationLog.create).mockResolvedValue({});
+
+      await service.sendMiseDispositionRequest(bon, 'token-abc');
+
+      expect(mockSendMail).not.toHaveBeenCalled();
+      expect(prisma.notificationLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          bonId: bon.id,
+          recipientEmail: '',
+          type: 'mise_dispo_request',
+          status: 'failed',
+          errorMessage: expect.stringContaining('Adresse email'),
+        }),
+      });
+    });
   });
 
   // ─── sendRestitutionRequest ─────────────────────────────────────────────────
@@ -406,7 +424,7 @@ describe('NotificationService', () => {
           recipientEmail: '',
           type: 'contestation_alert',
           status: 'failed',
-          errorMessage: 'Aucun utilisateur IT actif',
+          errorMessage: 'Aucun utilisateur IT actif avec une adresse email',
         },
       });
     });

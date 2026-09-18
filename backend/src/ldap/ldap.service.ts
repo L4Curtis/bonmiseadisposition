@@ -213,14 +213,21 @@ export class LdapService {
    * appliquées par upsertUsers().
    */
   private async deactivateAbsentUsers(syncStart: Date): Promise<{ aborted: boolean; abortMessage: string | null }> {
+    // isManualAccount: false explicite (LOT compagnons de chantier) : un
+    // compte créé à la main (POST /users/manual) n'a jamais lastLdapSync
+    // renseigné, donc `lastLdapSync: { lt: syncStart }` l'exclurait déjà
+    // implicitement — l'exclusion ci-dessous reste posée en dur pour ne
+    // jamais dépendre de cet effet de bord si le champ venait à être
+    // renseigné par erreur ailleurs.
     const deactivationWhere = {
       isLocalAccount: false,
+      isManualAccount: false,
       active: true,
       lastLdapSync: { lt: syncStart },
     };
     const toDeactivate = await this.prisma.user.count({ where: deactivationWhere });
     const activeLdapAccounts = await this.prisma.user.count({
-      where: { isLocalAccount: false, active: true, lastLdapSync: { not: null } },
+      where: { isLocalAccount: false, isManualAccount: false, active: true, lastLdapSync: { not: null } },
     });
     const ratio = activeLdapAccounts > 0 ? toDeactivate / activeLdapAccounts : 0;
 
@@ -432,12 +439,39 @@ export class LdapService {
           where: { email: { equals: email, mode: 'insensitive' } },
         });
 
+        // Un compte manuel (POST /users/manual, compagnon de chantier sans
+        // compte AD) ne doit jamais être désactivé, modifié ni écrasé par la
+        // synchronisation — même s'il partage l'email d'une fiche annuaire
+        // (ex. le compagnon obtient ensuite un vrai compte AD). On l'ignore
+        // plutôt que de le fusionner/écraser : une éventuelle fusion reste
+        // une décision manuelle de l'administrateur.
+        if (existingByEmail?.isManualAccount) {
+          skipped++;
+          this.logger.warn(
+            `LDAP sync: ${lu.sAMAccountName} (${email}) correspond à un compte manuel existant — ignoré (jamais écrasé par la synchronisation)`,
+          );
+          continue;
+        }
+
         if (existingByEmail && existingByEmail.samAccountName !== lu.sAMAccountName) {
           // Même personne (même email), identifiant AD différent : on met à
           // jour l'enregistrement existant plutôt que d'upserter par
           // sAMAccountName, ce qui créerait un doublon + P2002 sur l'email.
           await this.prisma.user.update({ where: { id: existingByEmail.id }, data });
         } else {
+          // Garde-fou symétrique côté sAMAccountName (collision en théorie
+          // impossible — les comptes manuels sont préfixés "manuel." — mais
+          // vérifiée explicitement plutôt que supposée).
+          const existingBySam = await this.prisma.user.findUnique({
+            where: { samAccountName: lu.sAMAccountName },
+          });
+          if (existingBySam?.isManualAccount) {
+            skipped++;
+            this.logger.warn(
+              `LDAP sync: sAMAccountName ${lu.sAMAccountName} correspond à un compte manuel existant — ignoré (jamais écrasé par la synchronisation)`,
+            );
+            continue;
+          }
           await this.prisma.user.upsert({
             where: { samAccountName: lu.sAMAccountName },
             update: data,

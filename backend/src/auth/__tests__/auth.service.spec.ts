@@ -17,7 +17,7 @@ import { AppConfigService } from '../../config/config.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
 import { createMockConfigService } from '../../common/__tests__/helpers/mock-services';
-import { localAdminUser, collaboratorUser } from '../../common/__tests__/fixtures/user.fixtures';
+import { localAdminUser, collaboratorUser, manualAccountUser } from '../../common/__tests__/fixtures/user.fixtures';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type MockPrisma = Record<string, Record<string, jest.Mock<any, any>>>;
@@ -178,6 +178,28 @@ describe('AuthService', () => {
         service.localLogin('anyone@local', 'Whatever1!@#', TEST_IP),
       ).rejects.toThrow(UnauthorizedException);
       expect(prisma.user.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('should never authenticate a manual account (compagnon de chantier) — no password fingerprint, isLocalAccount always false', async () => {
+      const manual = manualAccountUser();
+      // Locks in the two independent guarantees a manual account relies on:
+      // it is never a local account, and it never has a password hash.
+      expect(manual.isLocalAccount).toBe(false);
+      expect(manual.passwordHash).toBeNull();
+
+      prisma.auditLog.count.mockResolvedValue(0);
+      // The production query filters on isLocalAccount: true — a manual
+      // account row would never come back from a real database, simulated
+      // here by resolving null.
+      prisma.user.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.localLogin('jean.dupont@exemple.fr', 'Whatever1!@#', TEST_IP),
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(prisma.user.findFirst).toHaveBeenCalledWith({
+        where: { email: 'jean.dupont@exemple.fr', isLocalAccount: true, active: true },
+      });
     });
   });
 

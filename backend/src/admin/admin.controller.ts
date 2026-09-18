@@ -3,6 +3,7 @@
 } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { NotificationFailuresService, DEFAULT_NOTIFICATION_FAILURES_WINDOW_DAYS } from './notification-failures.service';
+import { SsoDiagnosticService } from './sso-diagnostic.service';
 import { ChangeUserRoleDto } from './dto/change-user-role.dto';
 import { LdapService } from '../ldap/ldap.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -73,6 +74,7 @@ export class AdminController {
     private readonly configService: AppConfigService,
     private readonly smbService: SmbService,
     private readonly notificationFailuresService: NotificationFailuresService,
+    private readonly ssoDiagnosticService: SsoDiagnosticService,
   ) {}
 
   // Catégories réservées aux admins (infos sensibles ou impact réglementaire)
@@ -89,6 +91,16 @@ export class AdminController {
       ? Math.min(MAX_NOTIFICATION_FAILURES_WINDOW_DAYS, Math.max(MIN_NOTIFICATION_FAILURES_WINDOW_DAYS, parsed))
       : DEFAULT_NOTIFICATION_FAILURES_WINDOW_DAYS;
     return this.notificationFailuresService.getFailedNotifications(windowDays);
+  }
+
+  /** GET /admin/sso/diagnostic — dernières connexions SSO et rôle attribué.
+   *  Rend visible le cas « la personne est dans le groupe Entra mais n'obtient
+   *  pas son rôle » (revendication de groupes non configurée, identifiant erroné). */
+  @Get('sso/diagnostic')
+  @Roles('admin')
+  async getSsoDiagnostic(@Query('limit') limit?: string) {
+    const parsed = limit !== undefined ? parseInt(limit, 10) : NaN;
+    return this.ssoDiagnosticService.getRecent(Number.isFinite(parsed) ? parsed : undefined);
   }
 
   /** PATCH /admin/users/:id/role — changement manuel de rôle (admin). */

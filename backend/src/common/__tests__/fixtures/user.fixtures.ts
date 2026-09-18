@@ -18,6 +18,7 @@ export function adminUser() {
     role: 'admin' as const,
     isItStaff: true,
     isLocalAccount: false,
+    isManualAccount: false,
     active: true,
     filialeId: 'filiale-001',
     passwordHash: null as string | null,
@@ -42,6 +43,7 @@ export function technicianUser() {
     role: 'technician' as const,
     isItStaff: true,
     isLocalAccount: false,
+    isManualAccount: false,
     active: true,
     filialeId: 'filiale-001',
     passwordHash: null as string | null,
@@ -66,6 +68,7 @@ export function collaboratorUser() {
     role: 'collaborator' as const,
     isItStaff: false,
     isLocalAccount: false,
+    isManualAccount: false,
     active: true,
     filialeId: 'filiale-001',
     passwordHash: null as string | null,
@@ -90,6 +93,7 @@ export function localAdminUser() {
     role: 'admin' as const,
     isItStaff: true,
     isLocalAccount: true,
+    isManualAccount: false,
     active: true,
     filialeId: null as string | null,
     passwordHash: '$2b$10$mockHashedPasswordForTesting',
@@ -98,5 +102,35 @@ export function localAdminUser() {
     lastLdapSync: null as Date | null,
     createdAt: new Date('2026-01-15T10:00:00Z'),
     updatedAt: new Date('2026-01-15T10:00:00Z'),
+  };
+}
+
+/**
+ * Compte manuel — compagnon de chantier sans compte Active Directory, créé à
+ * la main via POST /users/manual. Jamais synchronisé LDAP (lastLdapSync
+ * null), jamais authentifiable (passwordHash null, isLocalAccount false),
+ * email facultatif (souvent absent).
+ */
+export function manualAccountUser() {
+  return {
+    id: 'user-manual-001',
+    samAccountName: 'manuel.jean.dupont',
+    displayName: 'Jean DUPONT',
+    email: null as string | null,
+    department: null as string | null,
+    company: null as string | null,
+    title: null as string | null,
+    role: 'collaborator' as const,
+    isItStaff: false,
+    isLocalAccount: false,
+    isManualAccount: true,
+    active: true,
+    filialeId: null as string | null,
+    passwordHash: null as string | null,
+    mustChangePassword: false,
+    passwordChangedAt: null as Date | null,
+    lastLdapSync: null as Date | null,
+    createdAt: new Date('2026-09-18T00:00:00Z'),
+    updatedAt: new Date('2026-09-18T00:00:00Z'),
   };
 }

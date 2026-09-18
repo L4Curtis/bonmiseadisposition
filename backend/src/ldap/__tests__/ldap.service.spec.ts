@@ -222,6 +222,33 @@ describe('LdapService', () => {
       expect(result.skipped).toBe(1);
       expect(prisma.user.upsert).toHaveBeenCalledTimes(2);
     });
+
+    // ─── comptes manuels : jamais écrasés par la synchronisation ────────────
+
+    it('never overwrites a manual account matched by email — skips it instead', async () => {
+      prisma.user.findFirst.mockResolvedValue({
+        id: 'manual-1',
+        samAccountName: 'manuel.jean.dupont',
+        isManualAccount: true,
+      });
+
+      const result = await (service as unknown as PrivateLdapService).upsertUsers([ldapUser]);
+
+      expect(result.skipped).toBe(1);
+      expect(prisma.user.update).not.toHaveBeenCalled();
+      expect(prisma.user.upsert).not.toHaveBeenCalled();
+    });
+
+    it('never overwrites a manual account matched by sAMAccountName — skips it instead', async () => {
+      prisma.user.findFirst.mockResolvedValue(null); // no email match
+      prisma.user.findUnique.mockResolvedValue({ id: 'manual-2', isManualAccount: true });
+
+      const result = await (service as unknown as PrivateLdapService).upsertUsers([ldapUser]);
+
+      expect(result.skipped).toBe(1);
+      expect(prisma.user.update).not.toHaveBeenCalled();
+      expect(prisma.user.upsert).not.toHaveBeenCalled();
+    });
   });
 
   // ─── deactivateAbsentUsers (mass-deactivation guardrail — LOT C bug #7) ─────
@@ -264,6 +291,28 @@ describe('LdapService', () => {
 
       expect(result.aborted).toBe(false);
       expect(prisma.user.updateMany).toHaveBeenCalled();
+    });
+
+    // ─── comptes manuels : jamais désactivés, jamais comptés (LOT compagnons) ─
+
+    it('excludes manual accounts explicitly (isManualAccount: false) from the deactivation query and its ratio denominator', async () => {
+      prisma.user.count
+        .mockResolvedValueOnce(2) // toDeactivate
+        .mockResolvedValueOnce(100); // activeLdapAccounts
+      prisma.user.updateMany.mockResolvedValue({ count: 2 });
+
+      await (service as unknown as PrivateLdapService).deactivateAbsentUsers(new Date());
+
+      expect(prisma.user.count).toHaveBeenNthCalledWith(1, {
+        where: expect.objectContaining({ isManualAccount: false }),
+      });
+      expect(prisma.user.count).toHaveBeenNthCalledWith(2, {
+        where: expect.objectContaining({ isManualAccount: false }),
+      });
+      expect(prisma.user.updateMany).toHaveBeenCalledWith({
+        where: expect.objectContaining({ isManualAccount: false }),
+        data: { active: false },
+      });
     });
   });
 });

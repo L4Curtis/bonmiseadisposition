@@ -14,14 +14,16 @@ export interface LocalLoginDeps {
   logger: Logger;
   createTokens: (user: {
     id: string;
-    email: string;
+    email: string | null;
     role: string;
   }) => Promise<{ accessToken: string; refreshToken: string }>;
 }
 
 type LocalUser = PasswordPolicyUser & {
   id: string;
-  email: string;
+  // Optionnel en base depuis l'arrivée des collaborateurs créés à la main ;
+  // un compte local authentifiable en a toujours une (filtre de la requête).
+  email: string | null;
   role: string;
   passwordHash: string | null;
 };

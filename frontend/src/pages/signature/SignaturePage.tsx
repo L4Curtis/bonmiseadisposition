@@ -166,8 +166,10 @@ export function SignaturePage() {
   // Email mismatch warning (not blocking for in-person). trim() pour refléter
   // exactement la normalisation backend (toLowerCase().trim()) et ne pas
   // bloquer à tort un destinataire dont l'email importé a un espace parasite.
+  // `email` peut être vide depuis l'arrivée des collaborateurs créés à la main :
+  // sans adresse des deux côtés, il n'y a pas de discordance à signaler.
   const emailMismatch =
-    currentUser && !isInPerson &&
+    !!currentUser?.email && !isInPerson && !!bon.collaborateurEmail &&
     currentUser.email.toLowerCase().trim() !== bon.collaborateurEmail.toLowerCase().trim();
 
   return (

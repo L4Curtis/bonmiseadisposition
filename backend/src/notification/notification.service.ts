@@ -17,6 +17,7 @@ import {
   logNotificationResult,
   logFailedNotification,
   blockIfAppUrlMissing,
+  blockIfEmailMissing,
 } from './notification-log';
 import {
   buildMiseDispositionRequestMessage,
@@ -115,67 +116,87 @@ export class NotificationService {
   // ─── Email Templates ────────────────────────────────────────────────────────
 
   async sendMiseDispositionRequest(bon: NotificationBon, token: string): Promise<void> {
+    const recipientEmail = bon.collaborateurEmail;
+    if (!recipientEmail) {
+      await blockIfEmailMissing(this.prisma, this.logger, bon.id, recipientEmail, 'mise_dispo_request');
+      return;
+    }
     const appUrl = await this.getAppUrl();
-    if (await blockIfAppUrlMissing(this.prisma, this.logger, appUrl, bon.id, bon.collaborateurEmail, 'mise_dispo_request')) {
+    if (await blockIfAppUrlMissing(this.prisma, this.logger, appUrl, bon.id, recipientEmail, 'mise_dispo_request')) {
       return;
     }
 
     const { vars, subject } = buildMiseDispositionRequestMessage(bon, `${appUrl}/signer/${token}`);
     const html = await this.templatesService.renderTemplate('mise_disposition_request', vars);
-    const result = await this.sendEmail(bon.collaborateurEmail, subject, html);
+    const result = await this.sendEmail(recipientEmail, subject, html);
 
     await logNotificationResult(this.prisma, {
       bonId: bon.id,
-      recipientEmail: bon.collaborateurEmail,
+      recipientEmail,
       type: 'mise_dispo_request',
       result,
     });
   }
 
   async sendRestitutionRequest(bon: NotificationBon, token: string): Promise<void> {
+    const recipientEmail = bon.collaborateurEmail;
+    if (!recipientEmail) {
+      await blockIfEmailMissing(this.prisma, this.logger, bon.id, recipientEmail, 'restitution_request');
+      return;
+    }
     const appUrl = await this.getAppUrl();
-    if (await blockIfAppUrlMissing(this.prisma, this.logger, appUrl, bon.id, bon.collaborateurEmail, 'restitution_request')) {
+    if (await blockIfAppUrlMissing(this.prisma, this.logger, appUrl, bon.id, recipientEmail, 'restitution_request')) {
       return;
     }
 
     const { vars, subject } = buildRestitutionRequestMessage(bon, `${appUrl}/signer/${token}`);
     const html = await this.templatesService.renderTemplate('restitution_request', vars);
-    const result = await this.sendEmail(bon.collaborateurEmail, subject, html);
+    const result = await this.sendEmail(recipientEmail, subject, html);
 
     await logNotificationResult(this.prisma, {
       bonId: bon.id,
-      recipientEmail: bon.collaborateurEmail,
+      recipientEmail,
       type: 'restitution_request',
       result,
     });
   }
 
   async sendSignatureConfirmation(bon: NotificationBon, type: ConfirmationType): Promise<void> {
+    const recipientEmail = bon.collaborateurEmail;
+    if (!recipientEmail) {
+      await blockIfEmailMissing(this.prisma, this.logger, bon.id, recipientEmail, 'confirmation');
+      return;
+    }
     const { templateId, vars, subject } = buildConfirmationMessage(bon, type);
     const html = await this.templatesService.renderTemplate(templateId, vars);
-    const result = await this.sendEmail(bon.collaborateurEmail, subject, html);
+    const result = await this.sendEmail(recipientEmail, subject, html);
 
     await logNotificationResult(this.prisma, {
       bonId: bon.id,
-      recipientEmail: bon.collaborateurEmail,
+      recipientEmail,
       type: 'confirmation',
       result,
     });
   }
 
   async sendPvClotureRequest(bon: NotificationBon, token: string): Promise<void> {
+    const recipientEmail = bon.collaborateurEmail;
+    if (!recipientEmail) {
+      await blockIfEmailMissing(this.prisma, this.logger, bon.id, recipientEmail, 'pv_cloture_request');
+      return;
+    }
     const appUrl = await this.getAppUrl();
-    if (await blockIfAppUrlMissing(this.prisma, this.logger, appUrl, bon.id, bon.collaborateurEmail, 'pv_cloture_request')) {
+    if (await blockIfAppUrlMissing(this.prisma, this.logger, appUrl, bon.id, recipientEmail, 'pv_cloture_request')) {
       return;
     }
 
     const { vars, subject } = buildPvClotureRequestMessage(bon, `${appUrl}/signer/${token}`);
     const html = await this.templatesService.renderTemplate('pv_cloture_request', vars);
-    const result = await this.sendEmail(bon.collaborateurEmail, subject, html);
+    const result = await this.sendEmail(recipientEmail, subject, html);
 
     await logNotificationResult(this.prisma, {
       bonId: bon.id,
-      recipientEmail: bon.collaborateurEmail,
+      recipientEmail,
       type: 'pv_cloture_request',
       result,
     });
@@ -188,9 +209,13 @@ export class NotificationService {
   // vers le portail collaborateur ({{PORTAIL_URL}} = getAppUrl() + '/mes-bons').
 
   async sendRestitutionDueReminder(bon: NotificationBon): Promise<boolean> {
-    const appUrl = await this.getAppUrl();
     const recipientEmail = bon.collaborateur?.email ?? bon.collaborateurEmail;
+    if (!recipientEmail) {
+      await blockIfEmailMissing(this.prisma, this.logger, bon.id, recipientEmail, 'restitution_due_reminder');
+      return false;
+    }
 
+    const appUrl = await this.getAppUrl();
     if (await blockIfAppUrlMissing(this.prisma, this.logger, appUrl, bon.id, recipientEmail, 'restitution_due_reminder')) {
       return false;
     }
@@ -211,13 +236,17 @@ export class NotificationService {
 
   // ─── Contestation ────────────────────────────────────────────────────────────
 
-  async sendContestationAlert(bon: NotificationBon, contestingUser: { displayName?: string; email?: string }, message: string): Promise<void> {
-    const itStaff = await this.prisma.user.findMany({
-      where: { isItStaff: true, active: true },
-      select: { email: true },
-    });
+  async sendContestationAlert(bon: NotificationBon, contestingUser: { displayName?: string; email?: string | null }, message: string): Promise<void> {
+    // Un membre IT sans adresse email (compte manuel, cas théorique) ne peut
+    // pas recevoir l'alerte — il est simplement exclu des destinataires.
+    const itStaff = (
+      await this.prisma.user.findMany({
+        where: { isItStaff: true, active: true },
+        select: { email: true },
+      })
+    ).filter((staff): staff is { email: string } => !!staff.email);
     if (itStaff.length === 0) {
-      const errorMessage = 'Aucun utilisateur IT actif';
+      const errorMessage = 'Aucun utilisateur IT actif avec une adresse email';
       this.logger.warn(`Alerte contestation non envoyée (bon ${bon.reference}) : ${errorMessage}`);
       await logFailedNotification(this.prisma, {
         bonId: bon.id,
@@ -250,17 +279,25 @@ export class NotificationService {
 
   async sendContestationResolution(
     bon: NotificationBon,
-    collaborateur: { email: string },
+    collaborateur: { email?: string | null },
     action: ContestationResolutionAction,
     resolutionMessage?: string,
   ): Promise<void> {
+    // Une contestation reste possible sans adresse email : seul l'accusé de
+    // réception par email est alors ignoré (le collaborateur a signé/contesté
+    // en présentiel, il n'y a pas d'email à confirmer).
+    const recipientEmail = collaborateur.email;
+    if (!recipientEmail) {
+      await blockIfEmailMissing(this.prisma, this.logger, bon.id, recipientEmail, 'contestation_resolution');
+      return;
+    }
     const { templateId, vars, subject } = buildContestationResolutionMessage(bon, action, resolutionMessage);
     const html = await this.templatesService.renderTemplate(templateId, vars);
-    const result = await this.sendEmail(collaborateur.email, subject, html);
+    const result = await this.sendEmail(recipientEmail, subject, html);
 
     await logNotificationResult(this.prisma, {
       bonId: bon.id,
-      recipientEmail: collaborateur.email,
+      recipientEmail,
       type: 'contestation_resolution',
       result,
     });
@@ -269,24 +306,34 @@ export class NotificationService {
   // ─── Cancel / MarkFound ──────────────────────────────────────────────────────
 
   async sendCancellationNotice(bon: NotificationBon): Promise<void> {
+    const recipientEmail = bon.collaborateurEmail;
+    if (!recipientEmail) {
+      await blockIfEmailMissing(this.prisma, this.logger, bon.id, recipientEmail, 'cancellation');
+      return;
+    }
     const { html, subject } = buildCancellationNotice(bon);
-    const result = await this.sendEmail(bon.collaborateurEmail, subject, html);
+    const result = await this.sendEmail(recipientEmail, subject, html);
 
     await logNotificationResult(this.prisma, {
       bonId: bon.id,
-      recipientEmail: bon.collaborateurEmail,
+      recipientEmail,
       type: 'cancellation',
       result,
     });
   }
 
   async sendMarkFoundNotice(bon: NotificationBon, equipmentIds: string[]): Promise<void> {
+    const recipientEmail = bon.collaborateurEmail;
+    if (!recipientEmail) {
+      await blockIfEmailMissing(this.prisma, this.logger, bon.id, recipientEmail, 'mark_found');
+      return;
+    }
     const { html, subject } = buildMarkFoundNotice(bon, equipmentIds);
-    const result = await this.sendEmail(bon.collaborateurEmail, subject, html);
+    const result = await this.sendEmail(recipientEmail, subject, html);
 
     await logNotificationResult(this.prisma, {
       bonId: bon.id,
-      recipientEmail: bon.collaborateurEmail,
+      recipientEmail,
       type: 'mark_found',
       result,
     });
@@ -295,12 +342,17 @@ export class NotificationService {
   // ─── Clôture unilatérale ─────────────────────────────────────────────────────
 
   async sendUnilateralCloseNotice(bon: NotificationBon, reason: string, newStatus: string): Promise<void> {
+    const recipientEmail = bon.collaborateurEmail;
+    if (!recipientEmail) {
+      await blockIfEmailMissing(this.prisma, this.logger, bon.id, recipientEmail, 'unilateral_closure');
+      return;
+    }
     const { html, subject } = buildUnilateralCloseNotice(bon, reason, newStatus);
-    const result = await this.sendEmail(bon.collaborateurEmail, subject, html);
+    const result = await this.sendEmail(recipientEmail, subject, html);
 
     await logNotificationResult(this.prisma, {
       bonId: bon.id,
-      recipientEmail: bon.collaborateurEmail,
+      recipientEmail,
       type: 'unilateral_closure',
       result,
     });

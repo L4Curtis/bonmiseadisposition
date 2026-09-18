@@ -70,13 +70,17 @@ export async function sign(
   // Identité du signataire : par id (fiable après un changement d'adresse AD)
   // OU par email (compat / trace) — bon.collaborateurEmail reste inchangé et
   // sert de trace dans le PDF, elle n'est plus la SEULE source d'autorisation.
-  const expectedEmail = sig.bon.collaborateurEmail.toLowerCase().trim();
+  // Collaborateur sans adresse (compte manuel) : expectedEmail est null, seule
+  // la correspondance par id peut alors valider — mais un tel bon n'atteint de
+  // toute façon jamais ce contrôle par email : il ne se signe qu'en présentiel
+  // (isDeliverableEmail bloque l'envoi/relance du lien à distance).
+  const expectedEmail = sig.bon.collaborateurEmail?.toLowerCase().trim() ?? null;
   const actualEmail = signerEmail.toLowerCase().trim();
-  const isOwner = (!!signerId && signerId === sig.bon.collaborateurId) || expectedEmail === actualEmail;
+  const isOwner = (!!signerId && signerId === sig.bon.collaborateurId) || (expectedEmail !== null && expectedEmail === actualEmail);
   if (!sig.isInPerson) {
     if (!isOwner) {
       throw new ForbiddenException(
-        `Ce document est destiné à ${sig.bon.collaborateurEmail}, pas à ${signerEmail}`,
+        `Ce document est destiné à ${sig.bon.collaborateurEmail ?? 'un collaborateur sans adresse email (signature présentielle uniquement)'}, pas à ${signerEmail}`,
       );
     }
   }

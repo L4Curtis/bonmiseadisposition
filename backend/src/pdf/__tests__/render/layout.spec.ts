@@ -1,4 +1,4 @@
-import { formatDate, formatDateTime, getStatusLabel } from '../../render/layout';
+import { formatDate, formatDateTime, formatOptionalText, getStatusLabel } from '../../render/layout';
 
 // ─── formatDate / formatDateTime ───────────────────────────────────────────────
 
@@ -26,6 +26,25 @@ describe('formatDateTime', () => {
   it('returns an em dash for a missing timestamp', () => {
     expect(formatDateTime(null)).toBe('—');
     expect(formatDateTime(undefined)).toBe('—');
+  });
+});
+
+// ─── formatOptionalText ─────────────────────────────────────────────────────────
+// Libellé de repli utilisé notamment pour l'email du collaborateur (absent
+// pour un compte créé manuellement, cf. User.isManualAccount) : jamais
+// "null"/"undefined" ni une ligne vide dans le PDF.
+
+describe('formatOptionalText', () => {
+  it('returns the trimmed value when present', () => {
+    expect(formatOptionalText('jean.dupont@groupelivio.fr')).toBe('jean.dupont@groupelivio.fr');
+    expect(formatOptionalText('  Marketing  ')).toBe('Marketing');
+  });
+
+  it('returns an em dash for null/undefined/empty/blank values', () => {
+    expect(formatOptionalText(null)).toBe('—');
+    expect(formatOptionalText(undefined)).toBe('—');
+    expect(formatOptionalText('')).toBe('—');
+    expect(formatOptionalText('   ')).toBe('—');
   });
 });
 

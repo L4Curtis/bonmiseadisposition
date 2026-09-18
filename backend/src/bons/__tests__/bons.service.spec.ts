@@ -24,7 +24,7 @@ import {
   cancelledBon,
   contestedBon,
 } from '../../common/__tests__/fixtures/bon.fixtures';
-import { collaboratorUser, technicianUser } from '../../common/__tests__/fixtures/user.fixtures';
+import { collaboratorUser, technicianUser, manualAccountUser } from '../../common/__tests__/fixtures/user.fixtures';
 import { BonStatus } from '../../common/types';
 
 // Vraie image PNG 1x1 valide (magic bytes corrects) — assertPngDataUrl (LOT A1
@@ -163,6 +163,18 @@ describe('BonsService', () => {
       prisma.user.findUnique.mockResolvedValue(null);
 
       await expect(service.create(dto, userId)).rejects.toThrow(NotFoundException);
+    });
+
+    it('should create a bon for a collaborator without an email address (manual account)', async () => {
+      prisma.user.findUnique.mockResolvedValue(manualAccountUser());
+      prisma.bon.create.mockResolvedValue({ ...draftBon(), collaborateurEmail: null });
+
+      await service.create(dto, userId);
+
+      const createCall = prisma.bon.create.mock.calls[0][0] as {
+        data: { collaborateurEmail: string | null };
+      };
+      expect(createCall.data.collaborateurEmail).toBeNull();
     });
 
     it('should throw BadRequestException when the collaborateur is deactivated (LOT A2)', async () => {
@@ -612,6 +624,16 @@ describe('BonsService', () => {
       const bon = { ...draftBon(), collaborateurEmail: 'admin@local' };
       prisma.bon.findUnique.mockResolvedValue(bon);
       prisma.user.findUnique.mockResolvedValue(collaboratorUser());
+
+      await expect(service.send(bon.id, initiatedById)).rejects.toThrow(/signature présentielle/);
+      expect(prisma.bon.updateMany).not.toHaveBeenCalled();
+      expect(signatureService.generateToken).not.toHaveBeenCalled();
+    });
+
+    it('should refuse to send by email when the collaborator has no email address (manual account) and suggest the in-person signature', async () => {
+      const bon = { ...draftBon(), collaborateurEmail: null };
+      prisma.bon.findUnique.mockResolvedValue(bon);
+      prisma.user.findUnique.mockResolvedValue(manualAccountUser());
 
       await expect(service.send(bon.id, initiatedById)).rejects.toThrow(/signature présentielle/);
       expect(prisma.bon.updateMany).not.toHaveBeenCalled();
@@ -1219,6 +1241,30 @@ describe('BonsService', () => {
       );
     });
 
+    it('should allow in-person signature initiation when the collaborator has no email address (manual account)', async () => {
+      const bon = { ...draftBon(), collaborateurEmail: null };
+      prisma.bon.findUnique.mockResolvedValue(bon);
+      prisma.user.findUnique.mockResolvedValue(manualAccountUser());
+      const updatedBon = { ...bon, status: 'sent_mise_dispo' as const };
+      prisma.bon.updateMany.mockResolvedValue({ count: 1 });
+      prisma.bon.findUniqueOrThrow.mockResolvedValue(updatedBon);
+
+      const result = await service.initiateInPersonSignature(
+        bon.id,
+        'mise_disposition',
+        initiatedById,
+      );
+
+      expect(result.bon.status).toBe('sent_mise_dispo');
+      expect(result.token).toBe('mock-token-uuid');
+      expect(signatureService.generateToken).toHaveBeenCalledWith(
+        bon.id,
+        'mise_disposition',
+        initiatedById,
+        true,
+      );
+    });
+
     it('should roll back equipment marking when the transition loses the race (LOT A2)', async () => {
       const bon = activeBon();
       prisma.bon.findUnique.mockResolvedValue(bon);
@@ -1375,6 +1421,17 @@ describe('BonsService', () => {
 
   describe('resendSignatureLink', () => {
     const initiatedById = 'user-tech-001';
+
+    it('should refuse to resend when the collaborator has no email address (manual account)', async () => {
+      const bon = { ...sentMiseDispoBon(), collaborateurEmail: null };
+      prisma.bon.findUnique.mockResolvedValue(bon);
+
+      await expect(service.resendSignatureLink(bon.id, initiatedById)).rejects.toThrow(
+        /signature présentielle/,
+      );
+      expect(signatureService.invalidateUnsignedTokens).not.toHaveBeenCalled();
+      expect(signatureService.generateToken).not.toHaveBeenCalled();
+    });
 
     it('should resend signature link', async () => {
       const bon = sentMiseDispoBon();

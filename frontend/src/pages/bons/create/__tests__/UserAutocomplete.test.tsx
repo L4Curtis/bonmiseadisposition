@@ -1,0 +1,165 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { UserAutocomplete } from '../UserAutocomplete';
+
+vi.mock('@/lib/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api')>();
+  return {
+    ...actual,
+    api: {
+      get: vi.fn(),
+      post: vi.fn(),
+      put: vi.fn(),
+      patch: vi.fn(),
+      delete: vi.fn(),
+      getBlob: vi.fn(),
+      postForm: vi.fn(),
+      patchForm: vi.fn(),
+    },
+  };
+});
+
+import { api } from '@/lib/api';
+
+describe('UserAutocomplete — création d\'un collaborateur manuel', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path.startsWith('/users/search')) return Promise.resolve([]);
+      if (path.startsWith('/filiales/active')) return Promise.resolve([]);
+      return Promise.reject(new Error(`GET non mocké dans ce test : ${path}`));
+    });
+  });
+
+  it('propose de créer un collaborateur quand la recherche ne donne aucun résultat, puis le sélectionne automatiquement', async () => {
+    // pointerEventsCheck: 0 — cf. BonCreate.test.tsx : Radix <Dialog>/<Select>
+    // basculent pointer-events sur <body> pendant l'animation, non garantie
+    // terminée en jsdom.
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const onChange = vi.fn();
+
+    vi.mocked(api.post).mockResolvedValue({
+      id: 'new-1',
+      displayName: 'Marc Ouvrier',
+      email: null,
+      department: null,
+      isManualAccount: true,
+    });
+
+    render(<UserAutocomplete value={null} onChange={onChange} />);
+
+    await user.type(screen.getByPlaceholderText('Rechercher un collaborateur...'), 'Ouvrier');
+    await screen.findByText('Aucun collaborateur trouvé');
+
+    await user.click(screen.getByRole('button', { name: /Créer un collaborateur/i }));
+
+    // Le nom est prérempli avec la recherche déjà saisie.
+    const lastNameInput = await screen.findByLabelText('Nom *') as HTMLInputElement;
+    expect(lastNameInput.value).toBe('Ouvrier');
+
+    await user.type(screen.getByLabelText('Prénom *'), 'Marc');
+    await user.click(screen.getByRole('button', { name: 'Créer' }));
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/users/manual', {
+        firstName: 'Marc',
+        lastName: 'Ouvrier',
+        email: '',
+        department: '',
+      });
+    });
+    expect(onChange).toHaveBeenCalledWith({
+      id: 'new-1',
+      displayName: 'Marc Ouvrier',
+      email: null,
+      department: null,
+    });
+  });
+
+  it('affiche une erreur et ne sélectionne rien si la création échoue', async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const onChange = vi.fn();
+    vi.mocked(api.post).mockRejectedValue(new Error('Erreur serveur'));
+
+    render(<UserAutocomplete value={null} onChange={onChange} />);
+
+    await user.type(screen.getByPlaceholderText('Rechercher un collaborateur...'), 'Inconnu');
+    await screen.findByText('Aucun collaborateur trouvé');
+    await user.click(screen.getByRole('button', { name: /Créer un collaborateur/i }));
+
+    await user.type(await screen.findByLabelText('Prénom *'), 'Jean');
+    await user.clear(screen.getByLabelText('Nom *'));
+    await user.type(screen.getByLabelText('Nom *'), 'Personne');
+    await user.click(screen.getByRole('button', { name: 'Créer' }));
+
+    await screen.findByRole('alert');
+    expect(onChange).not.toHaveBeenCalled();
+  });
+});
+
+describe('UserAutocomplete — affichage d\'un email absent', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it('affiche « — » pour un résultat de recherche sans email', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.get).mockResolvedValue([{ id: 'u2', displayName: 'Alex Sans Email', email: null }]);
+
+    render(<UserAutocomplete value={null} onChange={vi.fn()} />);
+    await user.type(screen.getByPlaceholderText('Rechercher un collaborateur...'), 'Alex');
+
+    await screen.findByText('Alex Sans Email');
+    expect(screen.getByText('—')).toBeInTheDocument();
+  });
+
+  it('affiche « — » pour le collaborateur déjà sélectionné sans email', () => {
+    render(<UserAutocomplete value={{ id: 'u3', displayName: 'Sans Email', email: null }} onChange={vi.fn()} />);
+    expect(screen.getByText('—')).toBeInTheDocument();
+  });
+});
+
+describe('UserAutocomplete — le dialogue ne soumet pas le formulaire parent', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path.startsWith('/users/search')) return Promise.resolve([]);
+      if (path.startsWith('/filiales/active')) return Promise.resolve([]);
+      return Promise.reject(new Error(`GET non mocké dans ce test : ${path}`));
+    });
+  });
+
+  // Le contenu du dialogue est rendu dans un portail : dans l'arbre React il
+  // reste enfant du formulaire de création de bon, et sa soumission remontait
+  // au parent, qui affichait « Sélectionnez un collaborateur » alors que la
+  // création venait d'aboutir.
+  it('crée le collaborateur sans déclencher la soumission du formulaire englobant', async () => {
+    const utilisateur = userEvent.setup();
+    const onSubmitParent = vi.fn((e: { preventDefault: () => void }) => e.preventDefault());
+    vi.mocked(api.post).mockResolvedValue({
+      id: 'u-chantier',
+      displayName: 'Marc DUPONT',
+      email: null,
+      department: null,
+      isManualAccount: true,
+    } as never);
+    const onChange = vi.fn();
+
+    render(
+      <form onSubmit={onSubmitParent}>
+        <UserAutocomplete value={null} onChange={onChange} />
+        <button type="submit">Créer le bon</button>
+      </form>,
+    );
+
+    await utilisateur.type(screen.getByLabelText('Rechercher un collaborateur'), 'Dupont');
+    await utilisateur.click(await screen.findByRole('button', { name: /créer un collaborateur/i }));
+    await utilisateur.type(screen.getByLabelText(/prénom/i), 'Marc');
+    await utilisateur.type(screen.getByLabelText(/^nom/i), 'Dupont');
+    await utilisateur.click(screen.getByRole('button', { name: /^créer$/i }));
+
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ id: 'u-chantier' })));
+    expect(onSubmitParent).not.toHaveBeenCalled();
+  });
+});

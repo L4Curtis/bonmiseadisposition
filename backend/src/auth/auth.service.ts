@@ -5,6 +5,7 @@ import { AppConfigService } from '../config/config.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AccountLockedException, AccountConflictException } from './exceptions';
 import { resolveRoleFromGroups } from './role-mapping';
+import { recordSsoRoleDiagnostic, type GroupsClaimState } from './sso-diagnostic';
 import {
   RevokedTokenStore,
   isTokenRevoked as isTokenRevokedImpl,
@@ -106,6 +107,7 @@ export class AuthService implements OnModuleDestroy {
         logger: this.logger,
         createTokens: (user) => this.createTokensForUser(user),
         syncRoleFromGroups: (userId, groups) => this.syncUserRoleFromGroups(userId, groups),
+        recordGroupsClaimIssue: (userId, state) => this.recordGroupsClaimIssue(userId, state),
       },
       code,
       state,
@@ -114,7 +116,7 @@ export class AuthService implements OnModuleDestroy {
   }
 
   async createTokensForUser(
-    user: { id: string; email: string; role: string },
+    user: { id: string; email: string | null; role: string },
     authTime?: number,
   ): Promise<{ accessToken: string; refreshToken: string }> {
     return createTokensForUserImpl({ jwtService: this.jwtService, getJwtSecret: () => this.getJwtSecret() }, user, authTime);
@@ -148,9 +150,38 @@ export class AuthService implements OnModuleDestroy {
     const directionGroupId = await this.configService.get('entra', 'direction_group_id');
 
     const { role, isItStaff } = resolveRoleFromGroups(groups, { adminGroupId, technicianGroupId, directionGroupId });
-    await this.prisma.user.update({
+    const user = await this.prisma.user.update({
       where: { id: userId },
       data: { role, isItStaff },
+    });
+
+    await recordSsoRoleDiagnostic(this.prisma, user, {
+      state: 'presente',
+      groupsCount: groups.length,
+      configured: {
+        admin: !!adminGroupId?.trim(),
+        technician: !!technicianGroupId?.trim(),
+        direction: !!directionGroupId?.trim(),
+      },
+      resolvedRole: role,
+      aucuneCorrespondance: role === 'collaborator' && groups.length > 0,
+    });
+  }
+
+  /** Connexion SSO sans liste de groupes utilisable : le rôle en base est
+   *  conservé, et la raison est tracée pour l'administrateur. */
+  private async recordGroupsClaimIssue(userId: string, state: GroupsClaimState): Promise<void> {
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    await recordSsoRoleDiagnostic(this.prisma, user, {
+      state,
+      groupsCount: 0,
+      configured: {
+        admin: !!(await this.configService.get('entra', 'admin_group_id'))?.trim(),
+        technician: !!(await this.configService.get('entra', 'technician_group_id'))?.trim(),
+        direction: !!(await this.configService.get('entra', 'direction_group_id'))?.trim(),
+      },
+      resolvedRole: null,
+      aucuneCorrespondance: false,
     });
   }
 

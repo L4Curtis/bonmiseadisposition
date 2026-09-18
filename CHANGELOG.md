@@ -4,6 +4,40 @@ Historique des évolutions notables de l'application. Les entrées les plus réc
 
 ---
 
+## 2026-09-18 — Collaborateurs sans compte Active Directory, et rôles SSO enfin diagnosticables
+
+Les compagnons de chantier n'ont pas de compte dans l'annuaire : ils n'existaient donc pas dans
+l'application et ne pouvaient pas recevoir de matériel. Par ailleurs, une personne placée dans un groupe
+Entra n'obtenait pas son rôle, sans aucune explication visible.
+
+### Ajouté
+- **Collaborateur créé à la main** : prénom et nom suffisent, l'adresse email est facultative. Création
+  depuis le formulaire du bon quand la recherche ne donne rien (le compte est alors sélectionné
+  automatiquement) et depuis l'annuaire. Modification et désactivation réservées à ces comptes ; les comptes
+  de l'annuaire restent en lecture seule. Création et modification tracées dans le journal d'audit.
+- Ces comptes ne peuvent jamais se connecter, ni en SSO faute d'adresse, ni en local faute de mot de passe,
+  et la synchronisation Active Directory ne peut ni les désactiver ni les écraser.
+- **Diagnostic SSO** dans Configuration → Entra ID : les dernières connexions, le nombre de groupes reçus,
+  le rôle attribué et, en cas d'échec, la raison exacte. Le cas « revendication de groupes non configurée »
+  et celui des utilisateurs appartenant à trop de groupes sont nommés distinctement.
+
+### Corrigé
+- **Aucun rôle attribué à la connexion SSO** : sans la revendication de groupes sur l'inscription
+  d'application Entra, le jeton n'en contient aucun, l'application conservait le rôle enregistré et n'en
+  disait rien en dehors des journaux du conteneur. La page de configuration rappelle désormais la
+  manipulation à faire, et le diagnostic l'affiche.
+- La correspondance des identifiants de groupe ignore désormais les espaces et la casse : un identifiant
+  collé depuis le portail Entra ne fait plus échouer la correspondance en silence.
+- **Le dialogue de création de collaborateur soumettait le formulaire du bon** : son contenu est affiché
+  dans un portail mais reste enfant du formulaire dans l'arbre React, et l'événement remontait. Le message
+  « Sélectionnez un collaborateur » s'affichait alors que la création venait d'aboutir.
+- Une adresse absente est acceptée partout : création de bon, signature présentielle, PDF, exports CSV et
+  écrans affichent « — ». Aucun email n'est tenté vers une adresse vide, avec une trace explicite dans
+  l'historique des envois du bon plutôt qu'une erreur technique.
+- La note « rôle recalculé depuis Entra » ne s'affiche plus sur les comptes créés à la main.
+
+---
+
 ## 2026-09-18 — Couleurs : tout l'écran suit enfin le thème de l'application
 
 Un utilisateur a signalé une modale bleue (« Initier la restitution ») dans une application rouge. Le bleu

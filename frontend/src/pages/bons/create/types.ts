@@ -1,8 +1,10 @@
 export interface UserResult {
   id: string;
   displayName: string;
-  email: string;
-  department?: string;
+  /** `null` pour un collaborateur créé manuellement sans adresse email — voir
+   *  isDeliverableEmail (@/lib/email), qui accepte déjà cette valeur. */
+  email: string | null;
+  department?: string | null;
 }
 
 export interface CatalogItem {

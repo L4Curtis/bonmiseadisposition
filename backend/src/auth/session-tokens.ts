@@ -39,11 +39,14 @@ export function resolveJwtSecret(secret: string | undefined): string {
 
 export async function createTokensForUser(
   deps: Pick<SessionTokenDeps, 'jwtService' | 'getJwtSecret'>,
-  user: { id: string; email: string; role: string },
+  // `email` optionnel en base depuis l'arrivée des collaborateurs créés à la
+ // main ; seuls des comptes authentifiables passent ici, ils en ont toujours
+ // une. Le repli garde le jeton bien formé sans masquer le cas.
+  user: { id: string; email: string | null; role: string },
   authTime?: number,
 ): Promise<{ accessToken: string; refreshToken: string }> {
   const jwtSecret = deps.getJwtSecret();
-  const payload = { sub: user.id, email: user.email, role: user.role };
+  const payload = { sub: user.id, email: user.email ?? '', role: user.role };
   const accessToken = deps.jwtService.sign(payload, { secret: jwtSecret, expiresIn: '15m' });
   // authTime = epoch seconds of the ORIGINAL login, carried across rotations
   // to enforce an absolute session lifetime.
@@ -102,7 +105,7 @@ export async function refreshAccessToken(
     // Revoke old refresh token (8h TTL to match refresh token lifetime)
     await revokeRefreshToken({ prisma: deps.prisma, logger: deps.logger }, deps.store, refreshToken, REFRESH_TOKEN_TTL_MS);
 
-    let user: { id: string; email: string; role: string; active: boolean; passwordChangedAt: Date | null };
+    let user: { id: string; email: string | null; role: string; active: boolean; passwordChangedAt: Date | null };
     try {
       user = await deps.prisma.user.findUniqueOrThrow({ where: { id: payload.sub } });
     } catch (err: unknown) {

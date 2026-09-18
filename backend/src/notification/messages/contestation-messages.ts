@@ -5,7 +5,7 @@ import { EmailMessage } from './signature-request-messages';
 /** Variables + sujet de l'alerte de contestation envoyée au staff IT. */
 export function buildContestationAlertMessage(
   bon: NotificationBon,
-  contestingUser: { displayName?: string; email?: string },
+  contestingUser: { displayName?: string; email?: string | null },
   message: string,
 ): EmailMessage {
   const filialeNom = bon.filiale?.displayName ?? '';

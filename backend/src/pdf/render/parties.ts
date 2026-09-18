@@ -1,6 +1,6 @@
 import { BonForPdf } from '../pdf.service';
 import { PdfColorScheme, PdfTemplateConfig } from '../pdf-template-config';
-import { RenderFonts } from './layout';
+import { formatOptionalText, RenderFonts } from './layout';
 
 // ─── PARTIES (collaborateur / entité) ─────────────────────────────────────────
 // Les deux boîtes d'information affichées sous l'en-tête. Avance `doc.y`
@@ -67,9 +67,9 @@ export function drawPartiesSection(
 
   // Collaborateur box (left)
   const collabRows: [string, string][] = [
-    ['Nom complet', `${civiliteLabel} ${bon.collaborateur?.displayName || '—'}`],
-    ['Email', bon.collaborateurEmail || '—'],
-    ['Service', bon.collaborateur?.department || '—'],
+    ['Nom complet', `${civiliteLabel} ${formatOptionalText(bon.collaborateur?.displayName)}`],
+    ['Email', formatOptionalText(bon.collaborateurEmail)],
+    ['Service', formatOptionalText(bon.collaborateur?.department)],
   ];
   let collabBoxH = 0;
   if (config.infoBoxes.showCollaborateur) {

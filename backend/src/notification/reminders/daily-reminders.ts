@@ -4,7 +4,7 @@ import { AppConfigService } from '../../config/config.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TemplatesService } from '../../templates/templates.service';
 import { generateSignatureToken } from '../../common/tokens';
-import { SendEmailResult, logNotificationResult, blockIfAppUrlMissing } from '../notification-log';
+import { SendEmailResult, logNotificationResult, blockIfAppUrlMissing, blockIfEmailMissing } from '../notification-log';
 import { buildReminderMessage } from '../messages/reminder-message';
 
 // ─── Cron: Rappels quotidiens ────────────────────────────────────────────────
@@ -157,11 +157,19 @@ export async function runDailyReminders(deps: DailyRemindersDeps): Promise<void>
         continue;
       }
 
-      // Vérifiée AVANT toute régénération de token : inutile de consommer
-      // (et d'invalider) un token pour un email qui ne partira de toute
-      // façon pas — app_url absente bloque l'envoi plus bas.
+      // Vérifiées AVANT toute régénération de token : inutile de consommer
+      // (et d'invalider) un token pour un rappel qui ne partira de toute
+      // façon pas — adresse absente (collaborateur créé manuellement, signe
+      // en présentiel) ou app_url non configurée.
+      const recipientEmail = bon.collaborateurEmail;
+      if (!recipientEmail) {
+        await blockIfEmailMissing(prisma, logger, bon.id, recipientEmail, 'reminder', {
+          reminderNumber: reminderCount + 1,
+        });
+        continue;
+      }
       if (
-        await blockIfAppUrlMissing(prisma, logger, appUrl, bon.id, bon.collaborateurEmail, 'reminder', {
+        await blockIfAppUrlMissing(prisma, logger, appUrl, bon.id, recipientEmail, 'reminder', {
           reminderNumber: reminderCount + 1,
         })
       ) {
@@ -195,12 +203,12 @@ export async function runDailyReminders(deps: DailyRemindersDeps): Promise<void>
       });
 
       const html = await templatesService.renderTemplate('reminder', vars);
-      const result = await sendEmail(bon.collaborateurEmail, subject, html);
+      const result = await sendEmail(recipientEmail, subject, html);
       if (result.ok) sentCount++;
 
       await logNotificationResult(prisma, {
         bonId: bon.id,
-        recipientEmail: bon.collaborateurEmail,
+        recipientEmail,
         type: 'reminder',
         result,
         reminderNumber: reminderCount + 1,

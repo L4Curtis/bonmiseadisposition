@@ -4,17 +4,29 @@ export interface User {
   id: string;
   samAccountName: string;
   displayName: string;
-  email: string;
-  department?: string;
+  /** `null` pour un collaborateur créé manuellement sans adresse email
+   *  (compagnon de chantier sans compte Active Directory) : il ne peut alors
+   *  recevoir aucun lien et signe ses bons en présentiel. */
+  email: string | null;
+  /** `null` en base (colonne `department String?`) — jamais garanti renseigné,
+   *  y compris pour un compte manuel dont le service n'a pas été précisé. */
+  department?: string | null;
   company?: string;
   title?: string;
   filialeId?: string;
   isItStaff: boolean;
   isLocalAccount: boolean;
+  /** Compte créé à la main par un administrateur (sans compte Active
+   *  Directory), par opposition à un compte synchronisé depuis l'annuaire. */
+  isManualAccount: boolean;
   mustChangePassword: boolean;
   role: UserRole;
   active: boolean;
   filiale?: Filiale;
+  /** Renseignés uniquement pour un compte manuel — permettent de préremplir
+   *  le formulaire de modification (à défaut, on retombe sur displayName). */
+  firstName?: string;
+  lastName?: string;
 }
 
 export interface Filiale {

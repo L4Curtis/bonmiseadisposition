@@ -73,6 +73,37 @@ export async function logFailedNotification(
 }
 
 /**
+ * Garde commune à tous les envois de notification par email : un collaborateur
+ * créé manuellement (compagnon de chantier, cf. User.isManualAccount) n'a pas
+ * d'adresse email — ce n'est pas une erreur technique, juste un destinataire
+ * qui ne peut pas recevoir d'email (il signe en présentiel). Bloque l'envoi
+ * AVANT toute tentative SMTP, journalise explicitement (status 'failed', avec
+ * un message métier plutôt qu'une erreur SMTP) et retourne true pour que
+ * l'appelant s'arrête sans envoyer.
+ */
+export async function blockIfEmailMissing(
+  prisma: PrismaService,
+  logger: Logger,
+  bonId: string,
+  recipientEmail: string | null | undefined,
+  type: NotificationType,
+  extra?: { reminderNumber?: number },
+): Promise<boolean> {
+  if (recipientEmail) return false;
+
+  const errorMessage = 'Adresse email du collaborateur absente — signature/notification présentielle, aucun email envoyé';
+  logger.log(`Email non envoyé (bon ${bonId}, type ${type}) : ${errorMessage}`);
+  await logFailedNotification(prisma, {
+    bonId,
+    recipientEmail: '',
+    type,
+    errorMessage,
+    reminderNumber: extra?.reminderNumber,
+  });
+  return true;
+}
+
+/**
  * Garde commune à tous les emails "à lien" (signature ou portail) : un lien
  * construit sur une app_url vide serait relatif (ex. "/signer/xxx" ou
  * "/mes-bons") — un lien mort silencieusement envoyé et journalisé "sent".

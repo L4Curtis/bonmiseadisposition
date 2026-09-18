@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { api } from '@/lib/api';
-import { Search, X } from 'lucide-react';
+import { Search, X, UserPlus } from 'lucide-react';
 import type { UserResult } from './types';
+import { ManualUserDialog } from './ManualUserDialog';
 
 // ── Autocomplete utilisateur ──────────────────────────────────
 // Exporté (avec CatalogSearch) uniquement pour permettre leur test unitaire
@@ -16,6 +17,7 @@ export function UserAutocomplete({
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<UserResult[]>([]);
   const [open, setOpen] = useState(false);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -37,12 +39,22 @@ export function UserAutocomplete({
     return () => { ignore = true; clearTimeout(t); };
   }, [query]);
 
+  // Le compte créé est immédiatement sélectionné dans le formulaire — inutile
+  // de retaper la recherche pour le retrouver.
+  const handleCreated = (user: UserResult) => {
+    onChange(user);
+    setQuery('');
+    setOpen(false);
+  };
+
   if (value) {
     return (
       <div className="flex items-center justify-between rounded-md border border-primary/20 bg-primary/10 px-3 py-2">
         <div>
           <p className="text-sm font-medium">{value.displayName}</p>
-          <p className="text-xs text-muted-foreground">{value.email}{value.department ? ` — ${value.department}` : ''}</p>
+          <p className="text-xs text-muted-foreground">
+            {value.email || '—'}{value.department ? ` — ${value.department}` : ''}
+          </p>
         </div>
         <button
           type="button"
@@ -82,16 +94,32 @@ export function UserAutocomplete({
               onClick={(e) => { e.preventDefault(); onChange(u); setQuery(''); setOpen(false); }}
             >
               <span className="font-medium">{u.displayName}</span>
-              <span className="text-xs text-muted-foreground/70">{u.email}{u.department ? ` — ${u.department}` : ''}</span>
+              <span className="text-xs text-muted-foreground/70">
+                {u.email || '—'}{u.department ? ` — ${u.department}` : ''}
+              </span>
             </button>
           ))}
         </div>
       )}
       {open && query.length >= 2 && results.length === 0 && (
-        <div className="absolute z-10 mt-1 w-full rounded-md border bg-card shadow-lg px-3 py-2 text-sm text-muted-foreground/70">
-          Aucun collaborateur trouvé
+        <div className="absolute z-10 mt-1 w-full rounded-md border bg-card shadow-lg px-3 py-2 text-sm">
+          <p className="text-muted-foreground/70">Aucun collaborateur trouvé</p>
+          <button
+            type="button"
+            onClick={(e) => { e.preventDefault(); setCreateDialogOpen(true); }}
+            className="mt-2 flex items-center gap-1.5 font-medium text-primary hover:underline"
+          >
+            <UserPlus className="h-3.5 w-3.5" aria-hidden="true" />
+            Créer un collaborateur
+          </button>
         </div>
       )}
+      <ManualUserDialog
+        open={createDialogOpen}
+        onOpenChange={setCreateDialogOpen}
+        initialLastName={query}
+        onCreated={handleCreated}
+      />
     </div>
   );
 }

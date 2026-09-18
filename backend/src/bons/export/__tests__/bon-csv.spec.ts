@@ -65,4 +65,17 @@ describe('buildExportCsv', () => {
     const csv = buildExportCsv([row]);
     expect(csv).toContain("'=cmd|/c calc");
   });
+
+  it('shows "—" instead of an empty/null cell when the collaborator has no email (manual account)', () => {
+    const row = makeRow({
+      collaborateur: { displayName: 'Jean DUPONT', email: null, department: null },
+    });
+
+    const csv = buildExportCsv([row]);
+    const dataLine = csv.split('\n')[1];
+
+    expect(dataLine).toContain('"—"');
+    expect(dataLine).not.toContain('"null"');
+    expect(dataLine).not.toContain('"undefined"');
+  });
 });

@@ -44,7 +44,7 @@ export interface BonForPdf {
     displayName?: string;
     department?: string | null;
   };
-  collaborateurEmail?: string;
+  collaborateurEmail?: string | null;
   createdBy?: {
     displayName?: string;
   };

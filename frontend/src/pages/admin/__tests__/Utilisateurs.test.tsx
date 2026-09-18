@@ -53,6 +53,7 @@ const users = [
     email: 'current@example.com',
     isItStaff: true,
     isLocalAccount: true,
+    isManualAccount: false,
     mustChangePassword: false,
     role: 'admin',
     active: true,
@@ -64,17 +65,37 @@ const users = [
     email: 'jean.dupont@example.com',
     isItStaff: false,
     isLocalAccount: false,
+    isManualAccount: false,
     mustChangePassword: false,
     role: 'collaborator',
     active: true,
   },
 ];
 
+/** Compte créé manuellement (compagnon de chantier sans compte Active
+ *  Directory, sans email) — utilisé par les tests dédiés ci-dessous, séparé
+ *  de `users` pour ne pas perturber les assertions existantes (ex. un seul
+ *  badge « Collaborateur », un seul <select> par utilisateur, etc.). */
+const manualUser = {
+  id: 'user-3',
+  samAccountName: 'manuel-marc',
+  displayName: 'Marc Ouvrier',
+  email: null,
+  department: 'Chantier',
+  isItStaff: false,
+  isLocalAccount: false,
+  isManualAccount: true,
+  mustChangePassword: false,
+  role: 'collaborator',
+  active: true,
+};
+
 beforeEach(() => {
   vi.resetAllMocks();
   mockRole = 'admin';
   vi.mocked(api.get).mockImplementation((path: string) => {
     if (path.startsWith('/users?')) return Promise.resolve({ users, total: users.length, page: 1, limit: 25 });
+    if (path.startsWith('/filiales/active')) return Promise.resolve([]);
     return Promise.resolve(null);
   });
 });
@@ -122,6 +143,101 @@ describe('UtilisateursPage — rôle direction (lot 3b)', () => {
 
     await waitFor(() => {
       expect(api.patch).toHaveBeenCalledWith('/admin/users/user-2/role', { role: 'direction' });
+    });
+  });
+});
+
+describe('UtilisateursPage — collaborateurs créés manuellement', () => {
+  it('affiche le badge « Créé manuellement » et « — » pour un compte sans email', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path.startsWith('/users?')) {
+        const all = [...users, manualUser];
+        return Promise.resolve({ users: all, total: all.length, page: 1, limit: 25 });
+      }
+      if (path.startsWith('/filiales/active')) return Promise.resolve([]);
+      return Promise.resolve(null);
+    });
+
+    renderWithProviders(<UtilisateursPage />);
+
+    const name = await screen.findByText('Marc Ouvrier');
+    expect(screen.getByText('Créé manuellement')).toBeInTheDocument();
+
+    // La colonne Email (2e <td> de la ligne) affiche « — », jamais "null" ni une chaîne vide.
+    const row = name.closest('tr');
+    expect(row).not.toBeNull();
+    const emailCell = row!.querySelectorAll('td')[1];
+    expect(emailCell.textContent).toBe('—');
+  });
+
+  it("n'affiche pas de bouton Modifier pour un compte d'annuaire, mais l'affiche pour un compte manuel", async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path.startsWith('/users?')) {
+        const all = [...users, manualUser];
+        return Promise.resolve({ users: all, total: all.length, page: 1, limit: 25 });
+      }
+      if (path.startsWith('/filiales/active')) return Promise.resolve([]);
+      return Promise.resolve(null);
+    });
+
+    renderWithProviders(<UtilisateursPage />);
+
+    await screen.findByText('Marc Ouvrier');
+
+    // Compte manuel : modification et activation/désactivation disponibles,
+    // et un seul bouton Modifier dans toute la page (pas sur les comptes d'annuaire).
+    expect(screen.getAllByRole('button', { name: 'Modifier' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: /Désactiver|Activer/ })).toHaveLength(1);
+
+    // Compte d'annuaire (Jean Dupont) : lecture seule, phrase explicative.
+    expect(screen.getByText(/Compte Active Directory : modifiable dans Active Directory/i)).toBeInTheDocument();
+  });
+
+  it('crée un collaborateur depuis l\'annuaire via le bouton « Ajouter un collaborateur »', async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    vi.mocked(api.post).mockResolvedValue({ ...manualUser, id: 'user-4', displayName: 'Léa Compagnon' });
+
+    renderWithProviders(<UtilisateursPage />);
+    await screen.findByText('Jean Dupont');
+
+    await user.click(screen.getByRole('button', { name: /Ajouter un collaborateur/i }));
+    await user.type(await screen.findByLabelText('Prénom *'), 'Léa');
+    await user.type(screen.getByLabelText('Nom *'), 'Compagnon');
+    await user.click(screen.getByRole('button', { name: 'Créer' }));
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/users/manual', {
+        firstName: 'Léa',
+        lastName: 'Compagnon',
+        email: '',
+        department: '',
+      });
+    });
+    // La liste est rechargée après création (au moins un appel supplémentaire à GET /users).
+    await waitFor(() => {
+      expect(vi.mocked(api.get).mock.calls.filter(([p]) => p.startsWith('/users?')).length).toBeGreaterThan(1);
+    });
+  });
+
+  it('active/désactive un compte manuel via PATCH /users/:id/manual', async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path.startsWith('/users?')) {
+        const all = [...users, manualUser];
+        return Promise.resolve({ users: all, total: all.length, page: 1, limit: 25 });
+      }
+      if (path.startsWith('/filiales/active')) return Promise.resolve([]);
+      return Promise.resolve(null);
+    });
+    vi.mocked(api.patch).mockResolvedValue({ ...manualUser, active: false });
+
+    renderWithProviders(<UtilisateursPage />);
+    await screen.findByText('Marc Ouvrier');
+
+    await user.click(screen.getByRole('button', { name: /Désactiver/i }));
+
+    await waitFor(() => {
+      expect(api.patch).toHaveBeenCalledWith('/users/user-3/manual', { active: false });
     });
   });
 });

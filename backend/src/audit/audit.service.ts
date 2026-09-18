@@ -70,7 +70,11 @@ export class AuditService {
         where: { email: { in: emailsToResolve, mode: 'insensitive' } },
         select: { email: true, displayName: true },
       });
-      const nameByEmail = new Map(users.map((u) => [u.email.toLowerCase(), u.displayName]));
+      const nameByEmail = new Map(
+        users
+          .filter((u): u is typeof u & { email: string } => !!u.email)
+          .map((u) => [u.email.toLowerCase(), u.displayName]),
+      );
       const enriched = logs.map((l) => {
         if (!l.user && l.userEmail) {
           const displayName = nameByEmail.get(l.userEmail.toLowerCase());

@@ -310,6 +310,21 @@ describe('InventoryService', () => {
       expect(dataLine.split(';')[situationColumnIndex]).toBe('"En attente de signature"');
     });
 
+    it('affiche « — » (jamais null/undefined) quand le collaborateur n\'a pas d\'adresse email (compte manuel)', async () => {
+      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([
+        makeRow({
+          bon: { ...makeRow().bon, collaborateur: { id: 'u-2', displayName: 'Jean DUPONT', email: null, department: null } },
+        }),
+      ]);
+
+      const { csv } = await service.getExportCsv({});
+      const dataLine = csv.split('\n')[1];
+
+      expect(dataLine).toContain('"—"');
+      expect(dataLine).not.toContain('"null"');
+      expect(dataLine).not.toContain('"undefined"');
+    });
+
     it('plafonne à EXPORT_ROW_LIMIT lignes et signale la troncature', async () => {
       const rows = Array.from({ length: EXPORT_ROW_LIMIT + 1 }, (_, i) =>
         makeRow({ id: `be-${i}`, bon: { ...makeRow().bon, id: `b-${i}`, reference: `BON-2026-${i}` } }),

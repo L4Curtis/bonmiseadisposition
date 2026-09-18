@@ -29,7 +29,7 @@ export interface ExportBonRow {
   dateRestitution: Date | string | null;
   createdAt: Date | string;
   filiale: { displayName: string };
-  collaborateur: { displayName: string; email: string; department: string | null };
+  collaborateur: { displayName: string; email: string | null; department: string | null };
   createdBy: { displayName: string };
   equipments: Array<{
     catalogItem: { brand: string; model: string } | null;
@@ -73,7 +73,9 @@ export function buildExportCsv(bons: ExportBonRow[]): string {
       STATUS_LABELS[b.status] ?? b.status,
       b.filiale.displayName,
       b.collaborateur.displayName,
-      b.collaborateur.email,
+      // Compagnon de chantier sans compte email (voir User.isManualAccount) :
+      // « — » plutôt qu'une cellule vide/« null » dans l'export.
+      b.collaborateur.email ?? '—',
       b.collaborateur.department ?? '',
       b.dateMiseDisposition ? new Date(b.dateMiseDisposition).toLocaleDateString('fr-FR') : '',
       b.dateRestitution ? new Date(b.dateRestitution).toLocaleDateString('fr-FR') : '',

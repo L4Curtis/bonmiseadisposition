@@ -391,6 +391,28 @@ Internet / Intranet
 
 ---
 
+## Collaborateurs sans compte Active Directory
+
+Un compagnon de chantier n'a pas toujours de compte dans l'annuaire. Un technicien ou un administrateur
+peut créer le collaborateur à la main, depuis le formulaire du bon (quand la recherche ne donne aucun
+résultat) ou depuis Collaborateurs → Ajouter un collaborateur. Prénom et nom suffisent, l'adresse email est
+facultative.
+
+Sans adresse, la personne ne reçoit aucun lien : le bon se signe **en présentiel**, sur l'appareil du
+technicien. L'envoi et le renvoi par email sont refusés avec un message explicite. Ces comptes ne peuvent
+pas se connecter et la synchronisation Active Directory ne les touche jamais.
+
+## SSO Entra : attribution des rôles
+
+Le rôle est recalculé à **chaque** connexion SSO à partir des groupes reçus dans le jeton, selon les
+identifiants saisis dans Configuration → Entra ID (administrateur, technicien, direction).
+
+Prérequis côté Entra ID, sans lequel aucun rôle n'est attribué : inscription d'application → Configuration
+du jeton → Ajouter une revendication de groupes → groupes de sécurité, identifiant de groupe, pour le jeton
+d'identité. Sans cette revendication, l'application conserve le rôle enregistré et le signale dans
+Configuration → Entra ID → Dernières connexions SSO, qui indique aussi le nombre de groupes reçus et le rôle
+retenu pour chaque connexion.
+
 ## Sécurité
 
 Cette application a subi un audit de sécurité complet en mars 2026. **10+ vulnérabilités critiques et haute priorité ont été corrigées** :

@@ -5,6 +5,7 @@ import { LdapService } from '../../ldap/ldap.service';
 import { AppConfigService } from '../../config/config.service';
 import { SmbService } from '../../smb/smb.service';
 import { NotificationFailuresService } from '../notification-failures.service';
+import { SsoDiagnosticService } from '../sso-diagnostic.service';
 import { createMockConfigService, createMockSmbService } from '../../common/__tests__/helpers/mock-services';
 import { AuthUser } from '../../auth/auth-user.interface';
 
@@ -58,6 +59,7 @@ describe('AdminController', () => {
       configService as unknown as AppConfigService,
       smbService as unknown as SmbService,
       notificationFailuresService as unknown as NotificationFailuresService,
+      { getRecent: jest.fn().mockResolvedValue([]) } as unknown as SsoDiagnosticService,
     );
   });
 

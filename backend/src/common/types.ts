@@ -109,10 +109,13 @@ export interface NotificationBon {
   id: string;
   reference: string;
   civilite: Civilite;
-  collaborateurEmail: string;
+  // Optionnel : un collaborateur créé manuellement (compagnon de chantier)
+  // n'a pas d'adresse email — voir NotificationService pour la garde
+  // (aucun envoi tenté, trace explicite dans NotificationLog).
+  collaborateurEmail: string | null;
   dateMiseDisposition?: Date | string;
   dateRestitution?: Date | string | null;
-  collaborateur?: { displayName?: string; email?: string } | null;
+  collaborateur?: { displayName?: string; email?: string | null } | null;
   filiale?: { displayName?: string; name?: string } | null;
   equipments?: Array<{
     id: string;

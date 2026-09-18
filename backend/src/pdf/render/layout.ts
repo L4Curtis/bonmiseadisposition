@@ -27,6 +27,17 @@ export function formatDate(date: Date | string | null): string {
   });
 }
 
+/**
+ * Texte optionnel affiché dans les cases d'information du PDF (ex : email du
+ * collaborateur) : « — » pour une valeur absente, vide ou blanche — jamais
+ * "null"/"undefined" ni une ligne vide disgracieuse. Un collaborateur créé
+ * manuellement (compagnon de chantier) n'a par exemple pas d'adresse email.
+ */
+export function formatOptionalText(value: string | null | undefined): string {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : '—';
+}
+
 /** Horodatage complet (date + heure + fuseau) pour le certificat de preuve. */
 export function formatDateTime(date: Date | string | null | undefined): string {
   if (!date) return '—';

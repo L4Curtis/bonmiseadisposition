@@ -1,9 +1,14 @@
-import { BadRequestException, Controller, Get, NotFoundException, Param, Query, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException, Body, Controller, Get, NotFoundException, Param, Patch, Post, Query, UseGuards,
+} from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { AuthUser } from '../auth/auth-user.interface';
+import { CreateManualUserDto, UpdateManualUserDto } from './dto/manual-user.dto';
 
 @Controller('users')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -44,6 +49,26 @@ export class UsersController {
   @Get('search')
   search(@Query('q') q: string) {
     return this.usersService.search(q || '');
+  }
+
+  /** POST /users/manual — création d'une fiche pour une personne sans compte
+   *  Active Directory (compagnon de chantier). Déclarée avant `:id` par
+   *  convention (routes statiques avant routes paramétrées), bien que POST
+   *  ne puisse pas collisionner avec les GET ci-dessus. */
+  @Post('manual')
+  createManual(@Body() dto: CreateManualUserDto, @CurrentUser() user: AuthUser) {
+    return this.usersService.createManual(dto, user.id);
+  }
+
+  /** PATCH /users/:id/manual — modification d'un compte manuel uniquement
+   *  (rejetée pour un compte d'annuaire par UsersService.updateManual). */
+  @Patch(':id/manual')
+  updateManual(
+    @Param('id') id: string,
+    @Body() dto: UpdateManualUserDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.usersService.updateManual(id, dto, user.id);
   }
 
   @Get(':id')

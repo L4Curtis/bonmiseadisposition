@@ -61,12 +61,17 @@ model User {
   id                 String    @id @default(uuid())
   samAccountName     String    @unique @map("sam_account_name")
   displayName        String    @map("display_name")
+  // Optionnel : les compagnons de chantier créés manuellement (voir
+  // isManualAccount ci-dessous) n'ont pas d'adresse email professionnelle.
   // @unique ci-dessous reste sensible à la casse (comportement Prisma par
   // défaut) ; l'unicité réellement appliquée est insensible à la casse via
   // l'index fonctionnel users_email_lower_idx (migration
   // 20260916100100_normalize_emails : UNIQUE INDEX sur lower(email)), non
   // représentable dans ce schéma sans les previewFeatures extendedIndexes.
-  email              String    @unique
+  // PostgreSQL autorise plusieurs NULL dans un index unique (classique ou
+  // fonctionnel) : plusieurs comptes manuels sans email peuvent coexister,
+  // seule une VALEUR d'email dupliquée (insensible à la casse) est rejetée.
+  email              String?   @unique
   department         String?
   company            String?
   title              String?
@@ -78,6 +83,14 @@ model User {
   active             Boolean   @default(true)
   passwordHash       String?   @map("password_hash")
   isLocalAccount     Boolean   @default(false) @map("is_local_account")
+  // Compte créé à la main depuis l'annuaire (POST /users/manual) pour les
+  // personnes sans compte Active Directory (compagnons de chantier) : ni AD,
+  // ni compte local authentifiable (passwordHash toujours null, isLocalAccount
+  // toujours false). Exclu de la synchronisation LDAP (jamais désactivé,
+  // modifié ni compté comme absent) et ne peut jamais se connecter (ni SSO —
+  // pas d'email forcément —, ni login local — pas d'empreinte de mot de
+  // passe).
+  isManualAccount    Boolean   @default(false) @map("is_manual_account")
   mustChangePassword Boolean   @default(false) @map("must_change_password")
   passwordChangedAt  DateTime? @map("password_changed_at")
   createdAt          DateTime  @default(now()) @map("created_at")
@@ -183,7 +196,11 @@ model Bon {
   filiale                  Filiale   @relation(fields: [filialeId], references: [id])
   collaborateurId          String    @map("collaborateur_id")
   collaborateur            User      @relation("BonCollaborateur", fields: [collaborateurId], references: [id])
-  collaborateurEmail       String    @map("collaborateur_email")
+  // Optionnel : un bon peut être établi au nom d'un collaborateur sans adresse
+  // email (compagnon de chantier créé manuellement, cf. User.isManualAccount).
+  // Un bon sans adresse ne peut être ni envoyé ni relancé par email — seule la
+  // signature présentielle reste possible (voir common/email.ts).
+  collaborateurEmail       String?   @map("collaborateur_email")
   createdById              String    @map("created_by_id")
   createdBy                User      @relation("BonCreatedBy", fields: [createdById], references: [id])
   civilite                 Civilite

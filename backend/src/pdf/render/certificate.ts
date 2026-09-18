@@ -1,6 +1,6 @@
 import { BonForPdf } from '../pdf.service';
 import { PdfColorScheme, PdfFontsConfig } from '../pdf-template-config';
-import { RenderFonts, drawSectionTitle, formatDateTime } from './layout';
+import { RenderFonts, drawSectionTitle, formatDateTime, formatOptionalText } from './layout';
 
 // ─── CERTIFICAT DE SIGNATURE ÉLECTRONIQUE ─────────────────────────────────────
 // Pièce probante annexée au document : rôle + phase de chaque signature,
@@ -84,7 +84,7 @@ export function drawCertificateSection(
     let ry = cardY + 8;
     const meta: [string, string][] = sig.signedByProxy
       ? [
-          ['Titulaire', bon.collaborateurEmail || '—'],
+          ['Titulaire', formatOptionalText(bon.collaborateurEmail)],
           ['Recueilli par', sig.signerEmail || '—'],
           ['Horodatage', formatDateTime(sig.signedAt)],
           ['Adresse IP', sig.signerIp || '—'],

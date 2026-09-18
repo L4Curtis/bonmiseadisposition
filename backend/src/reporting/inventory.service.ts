@@ -270,7 +270,9 @@ export class InventoryService {
         it.serialNumber ?? '',
         it.inventoryNumber ?? '',
         it.collaborateur.displayName,
-        it.collaborateur.email,
+        // Compagnon de chantier sans compte email (voir User.isManualAccount) :
+        // « — » plutôt qu'une cellule vide/« null » dans l'export.
+        it.collaborateur.email ?? '—',
         it.collaborateur.department ?? '',
         it.filiale.displayName,
         it.bonReference,

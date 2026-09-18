@@ -313,6 +313,15 @@ describe('PdfService', () => {
       expect(result.subarray(0, 4).toString()).toBe('%PDF');
     });
 
+    it('should generate a PDF without error when the collaborator has no email address (manual account)', async () => {
+      const bon = bonForPdf({ collaborateurEmail: null });
+
+      const result = await service.generateBonPdf(bon, noSigImages, 'mise_disposition');
+
+      expect(result).toBeInstanceOf(Buffer);
+      expect(result.subarray(0, 4).toString()).toBe('%PDF');
+    });
+
     // ─── Cachet de filiale : ne doit jamais chevaucher la case IT ───────────
 
     it('should never overlap the IT signature box with the stamp (stampY >= sigY + 145)', async () => {
