@@ -25,11 +25,11 @@ export function EmailTemplateResetDialog({
     setLoading(true);
     try {
       await api.delete(`/admin/email-templates/${template.id}`);
-      toast({ title: 'Template reinitialise' });
+      toast({ title: 'Template réinitialisé' });
       onReset();
       onClose();
     } catch {
-      toast({ title: 'Erreur', description: 'Impossible de reinitialiser.', variant: 'destructive' });
+      toast({ title: 'Erreur', description: 'Impossible de réinitialiser.', variant: 'destructive' });
     } finally {
       setLoading(false);
     }
@@ -39,16 +39,16 @@ export function EmailTemplateResetDialog({
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Reinitialiser le template</DialogTitle>
+          <DialogTitle>Réinitialiser le template</DialogTitle>
           <DialogDescription>
-            Le template <strong>{template?.name}</strong> sera remplace par sa version par defaut. Cette action est irreversible.
+            Le template <strong>{template?.name}</strong> sera remplacé par sa version par défaut. Cette action est irréversible.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <DialogClose asChild><Button variant="outline">Annuler</Button></DialogClose>
           <Button variant="destructive" onClick={handleReset} disabled={loading}>
             {loading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-            Reinitialiser
+            Réinitialiser
           </Button>
         </DialogFooter>
       </DialogContent>

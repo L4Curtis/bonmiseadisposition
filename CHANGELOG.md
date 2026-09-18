@@ -4,6 +4,27 @@ Historique des évolutions notables de l'application. Les entrées les plus réc
 
 ---
 
+## 2026-09-18 — Configuration, modèles d'emails et inventaire : lisibilité et outils
+
+### Ajouté
+- **État de la configuration** : chaque rubrique (Général, Active Directory, Entra, SMTP, Rappels, Tokens,
+  Export SMB, Horodatage, Rétention) affiche si elle est configurée, incomplète, désactivée ou jamais
+  renseignée, avec la conséquence concrète (« SMTP incomplet : aucun lien de signature ne part, seule la
+  signature présentielle fonctionne ») et la date de dernière modification. Synthèse sur la page Général,
+  pastille dans le menu. Seule la présence des clés est testée : aucune valeur secrète n'est lue ni renvoyée.
+- **Modèles d'emails** : recherche, filtre par catégorie et par destinataire, badge « Personnalisé » sur les
+  modèles modifiés, et **envoi d'un email de test** à une adresse choisie, rendu avec les variables
+  d'exemple, sans créer ni modifier de bon, tracé dans le journal d'audit.
+- **Inventaire** : ancienneté du prêt affichée et triable, tuiles cliquables qui filtrent la liste, retards
+  signalés sur toute la ligne avec le nombre de jours, export CSV reprenant filtres, tri, ancienneté et retard.
+
+### Corrigé
+- Page des modèles : accents manquants du titre, du sous-titre et des libellés de configuration PDF ; la
+  pastille de catégorie porte désormais son libellé.
+- Badge « Modifie » renommé « Personnalisé » sur les modèles d'emails et de PDF.
+
+---
+
 ## 2026-09-18 — Catalogue, filiales et données de démonstration
 
 ### Ajouté

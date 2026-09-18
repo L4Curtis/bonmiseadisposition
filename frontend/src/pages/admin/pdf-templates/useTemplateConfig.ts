@@ -16,8 +16,8 @@ interface UseTemplateConfigResult {
   copyVariable: (name: string) => Promise<void>;
 }
 
-/** Chargement + edition de la configuration d'un modele PDF (utilise par la
- *  boite de dialogue d'edition, seulement quand elle est ouverte). */
+/** Chargement + édition de la configuration d'un modèle PDF (utilisé par la
+ *  boîte de dialogue d'édition, seulement quand elle est ouverte). */
 export function useTemplateConfig(
   templateId: string | null,
   open: boolean,
@@ -72,11 +72,11 @@ export function useTemplateConfig(
     setSaving(true);
     try {
       await api.patch(`/admin/pdf-templates/${templateId}`, config);
-      toast({ title: 'Modele mis a jour' });
+      toast({ title: 'Modèle mis à jour' });
       onSaved();
       onClose();
     } catch {
-      toast({ title: 'Erreur', description: 'Echec de la sauvegarde', variant: 'destructive' });
+      toast({ title: 'Erreur', description: 'Échec de la sauvegarde', variant: 'destructive' });
     } finally {
       setSaving(false);
     }

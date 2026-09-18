@@ -31,8 +31,12 @@ export function PdfTemplateList({
           key={tpl.id}
           className="flex items-center gap-4 px-4 py-3 bg-card hover:bg-muted/30 transition-colors"
         >
-          {/* Color dot */}
-          <div className={`h-3 w-3 rounded-full shrink-0 ${DOC_TYPE_COLORS[tpl.documentType] ?? 'bg-muted-foreground/40'}`} />
+          {/* Pastille de type de document — décorative, le nom du modèle est affiché juste à côté */}
+          <div
+            className={`h-3 w-3 rounded-full shrink-0 ${DOC_TYPE_COLORS[tpl.documentType] ?? 'bg-muted-foreground/40'}`}
+            aria-hidden="true"
+            title={tpl.name}
+          />
 
           {/* Info */}
           <div className="flex-1 min-w-0">
@@ -40,7 +44,7 @@ export function PdfTemplateList({
               <p className="text-sm font-medium truncate">{tpl.name}</p>
               {tpl.isCustomized && (
                 <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-warning/40 text-warning">
-                  Modifie
+                  Personnalisé
                 </Badge>
               )}
             </div>
@@ -49,14 +53,14 @@ export function PdfTemplateList({
 
           {/* Actions */}
           <div className="flex items-center gap-1 shrink-0">
-            <Button variant="ghost" size="sm" onClick={() => onPreview(tpl.id)} title="Apercu">
+            <Button variant="ghost" size="sm" onClick={() => onPreview(tpl.id)} title="Aperçu">
               <Eye className="h-4 w-4" />
             </Button>
             <Button variant="ghost" size="sm" onClick={() => onEdit(tpl.id)} title="Modifier">
               <Pencil className="h-4 w-4" />
             </Button>
             {tpl.isCustomized && (
-              <Button variant="ghost" size="sm" onClick={() => onReset(tpl.id)} title="Reinitialiser">
+              <Button variant="ghost" size="sm" onClick={() => onReset(tpl.id)} title="Réinitialiser">
                 <RotateCcw className="h-4 w-4 text-destructive" />
               </Button>
             )}

@@ -24,6 +24,11 @@ export interface InventorySituationSummary {
   count: number;
 }
 
+/** Sens de tri de la colonne « Mise à disposition » (ancienneté) — seule
+ *  colonne triable exposée dans l'interface pour l'instant, même si l'API
+ *  accepte aussi `collaborateur`/`category` (cf. inventory-query.dto.ts). */
+export type SortDirection = 'asc' | 'desc';
+
 export interface InventoryItem {
   equipmentId: string;
   label: string;

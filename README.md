@@ -402,6 +402,20 @@ Sans adresse, la personne ne reçoit aucun lien : le bon se signe **en présenti
 technicien. L'envoi et le renvoi par email sont refusés avec un message explicite. Ces comptes ne peuvent
 pas se connecter et la synchronisation Active Directory ne les touche jamais.
 
+## Configuration : état des rubriques
+
+Admin → Configuration → Général affiche l'état de chaque rubrique : configurée, incomplète, désactivée ou
+jamais renseignée, avec ce que cela empêche et la date de dernière modification. Le menu de gauche porte la
+même information sous forme de pastille. L'état est calculé à partir de la seule présence des clés
+attendues : aucune valeur secrète n'est déchiffrée ni renvoyée.
+
+## Modèles d'emails : test d'envoi
+
+Admin → Modèles permet de rechercher et de filtrer les modèles, de repérer ceux qui ont été personnalisés,
+et d'envoyer un email de test à une adresse choisie. Le modèle est rendu avec des variables d'exemple,
+aucun bon n'est créé ni modifié, et l'envoi est tracé dans le journal d'audit. Si le SMTP n'est pas
+configuré, le message le dit explicitement.
+
 ## Catalogue et filiales : import et export CSV
 
 Admin → Catalogue et Admin → Filiales proposent un export CSV, un modèle téléchargeable et un import.

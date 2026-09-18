@@ -137,12 +137,13 @@ describe('useInventory', () => {
     await waitFor(() => expect(result.current.items).toHaveLength(1));
   });
 
-  it('resetFilters vide les filtres, la recherche et remet la page à 1', async () => {
+  it('resetFilters vide les filtres, la recherche, le tri retard et remet la page à 1', async () => {
     mockApiGet();
     const { result } = renderHook(() => useInventory(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     act(() => { result.current.setFilialeFilter('f1'); result.current.setCategoryFilter('pc_portable'); });
+    act(() => result.current.setOverdueFilter(true));
     await waitFor(() => expect(result.current.filialeFilter).toBe('f1'));
 
     act(() => result.current.resetFilters());
@@ -150,7 +151,50 @@ describe('useInventory', () => {
     expect(result.current.filialeFilter).toBe('');
     expect(result.current.categoryFilter).toBe('');
     expect(result.current.searchInput).toBe('');
+    expect(result.current.overdueFilter).toBe(false);
     expect(result.current.page).toBe(1);
+  });
+
+  it('toggleDateSort bascule asc/desc, transmet sort/direction à l’API et remet la page à 1', async () => {
+    mockApiGet();
+    const { result } = renderHook(() => useInventory(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(() => result.current.setPage(2));
+    await waitFor(() => expect(result.current.page).toBe(2));
+
+    act(() => result.current.toggleDateSort());
+    await waitFor(() => expect(result.current.sortDirection).toBe('asc'));
+    expect(result.current.page).toBe(1);
+
+    await waitFor(() => {
+      const lastCall = vi.mocked(api.get).mock.calls
+        .map(([path]) => path as string)
+        .filter((p) => p.startsWith('/reporting/inventory?'))
+        .at(-1);
+      expect(lastCall).toContain('sort=dateMiseDisposition');
+      expect(lastCall).toContain('direction=asc');
+    });
+
+    act(() => result.current.toggleDateSort());
+    await waitFor(() => expect(result.current.sortDirection).toBe('desc'));
+  });
+
+  it('setOverdueFilter transmet overdue=1 à l’API et le persiste dans l’URL', async () => {
+    mockApiGet();
+    const { result } = renderHook(() => useInventory(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(() => result.current.setOverdueFilter(true));
+
+    await waitFor(() => {
+      const lastCall = vi.mocked(api.get).mock.calls
+        .map(([path]) => path as string)
+        .filter((p) => p.startsWith('/reporting/inventory?'))
+        .at(-1);
+      expect(lastCall).toContain('overdue=1');
+    });
+    expect(result.current.hasActiveFilters).toBe(true);
   });
 
   it('handleExport télécharge le CSV avec les filtres actifs', async () => {
@@ -166,5 +210,22 @@ describe('useInventory', () => {
 
     expect(api.getBlob).toHaveBeenCalledWith(expect.stringContaining('filialeId=f1'));
     expect(result.current.exportLoading).toBe(false);
+  });
+
+  it('handleExport reflète aussi le tri et le filtre "retards uniquement" actifs', async () => {
+    mockApiGet();
+    vi.mocked(api.getBlob).mockResolvedValue(new Blob(['a,b'], { type: 'text/csv' }));
+    const { result } = renderHook(() => useInventory(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(() => { result.current.setOverdueFilter(true); result.current.toggleDateSort(); });
+    await waitFor(() => expect(result.current.overdueFilter).toBe(true));
+
+    await act(async () => { await result.current.handleExport(); });
+
+    const [exportUrl] = vi.mocked(api.getBlob).mock.calls.at(-1) as [string];
+    expect(exportUrl).toContain('overdue=1');
+    expect(exportUrl).toContain('sort=dateMiseDisposition');
+    expect(exportUrl).toContain('direction=asc');
   });
 });

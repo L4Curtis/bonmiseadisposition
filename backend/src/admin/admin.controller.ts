@@ -149,6 +149,15 @@ export class AdminController {
 
   // ── Config CRUD ───────────────────────────────────────────────────────────
 
+  /** GET /admin/config/health — état par rubrique (configuré / incomplet /
+   *  désactivé / non configuré), sans aucun secret. Déclaré AVANT
+   *  config/:category pour ne pas être capturé comme category="health". */
+  @Get('config/health')
+  @Roles('admin')
+  async getConfigHealth() {
+    return this.adminService.getConfigHealth();
+  }
+
   @Get('config/:category')
   async getConfig(@Param('category') category: string, @CurrentUser() user: AuthUser) {
     if (!ALLOWED_CATEGORIES.includes(category)) {

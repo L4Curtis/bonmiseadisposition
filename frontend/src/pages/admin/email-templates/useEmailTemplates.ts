@@ -17,10 +17,13 @@ interface UseEmailTemplatesResult {
   setEditTarget: (t: TemplateDefinition | null) => void;
   resetTarget: TemplateDefinition | null;
   setResetTarget: (t: TemplateDefinition | null) => void;
+  testTarget: TemplateDefinition | null;
+  setTestTarget: (t: TemplateDefinition | null) => void;
 }
 
 /** Chargement de la liste des templates email, export/import JSON et
- *  selection du template cible pour l'apercu / l'edition / la reinitialisation. */
+ *  sélection du template cible pour l'aperçu / l'édition / la
+ *  réinitialisation / l'envoi d'un test. */
 export function useEmailTemplates(): UseEmailTemplatesResult {
   const [templates, setTemplates] = useState<TemplateDefinition[]>([]);
   const [loading, setLoading] = useState(true);
@@ -28,6 +31,7 @@ export function useEmailTemplates(): UseEmailTemplatesResult {
   const [previewTarget, setPreviewTarget] = useState<TemplateDefinition | null>(null);
   const [editTarget, setEditTarget] = useState<TemplateDefinition | null>(null);
   const [resetTarget, setResetTarget] = useState<TemplateDefinition | null>(null);
+  const [testTarget, setTestTarget] = useState<TemplateDefinition | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchTemplates = useCallback(async () => {
@@ -53,7 +57,7 @@ export function useEmailTemplates(): UseEmailTemplatesResult {
       a.download = `email-templates-export-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       URL.revokeObjectURL(url);
-      toast({ title: 'Export reussi' });
+      toast({ title: 'Export réussi' });
     } catch {
       toast({ title: 'Erreur', description: "Impossible d'exporter.", variant: 'destructive' });
     }
@@ -71,10 +75,10 @@ export function useEmailTemplates(): UseEmailTemplatesResult {
         return;
       }
       const result = await api.post<{ imported: number; skipped: number }>('/admin/email-templates/import', data);
-      toast({ title: `Import : ${result.imported} template(s) importe(s), ${result.skipped} ignore(s)` });
+      toast({ title: `Import : ${result.imported} template(s) importé(s), ${result.skipped} ignoré(s)` });
       await fetchTemplates();
     } catch {
-      toast({ title: 'Erreur', description: "Echec de l'import", variant: 'destructive' });
+      toast({ title: 'Erreur', description: "Échec de l'import", variant: 'destructive' });
     } finally {
       setImporting(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -87,5 +91,6 @@ export function useEmailTemplates(): UseEmailTemplatesResult {
     previewTarget, setPreviewTarget,
     editTarget, setEditTarget,
     resetTarget, setResetTarget,
+    testTarget, setTestTarget,
   };
 }

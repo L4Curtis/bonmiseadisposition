@@ -19,8 +19,8 @@ interface UsePdfTemplatesResult {
   setResetTarget: (id: string | null) => void;
 }
 
-/** Chargement de la liste des modeles PDF, export/import JSON et selection du
- *  modele cible pour l'apercu / l'edition / la reinitialisation. */
+/** Chargement de la liste des modèles PDF, export/import JSON et sélection du
+ *  modèle cible pour l'aperçu / l'édition / la réinitialisation. */
 export function usePdfTemplates(): UsePdfTemplatesResult {
   const [templates, setTemplates] = useState<PdfTemplateDefinition[]>([]);
   const [loading, setLoading] = useState(true);
@@ -35,7 +35,7 @@ export function usePdfTemplates(): UsePdfTemplatesResult {
       const data = await api.get<PdfTemplateDefinition[]>('/admin/pdf-templates');
       setTemplates(data);
     } catch {
-      toast({ title: 'Erreur', description: 'Impossible de charger les modeles PDF', variant: 'destructive' });
+      toast({ title: 'Erreur', description: 'Impossible de charger les modèles PDF', variant: 'destructive' });
     } finally {
       setLoading(false);
     }
@@ -53,9 +53,9 @@ export function usePdfTemplates(): UsePdfTemplatesResult {
       a.download = `pdf-templates-export-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       URL.revokeObjectURL(url);
-      toast({ title: 'Export reussi' });
+      toast({ title: 'Export réussi' });
     } catch {
-      toast({ title: 'Erreur', description: 'Echec de l\'export', variant: 'destructive' });
+      toast({ title: 'Erreur', description: 'Échec de l\'export', variant: 'destructive' });
     }
   };
 
@@ -71,10 +71,10 @@ export function usePdfTemplates(): UsePdfTemplatesResult {
         return;
       }
       const result = await api.post<{ imported: number; skipped: number }>('/admin/pdf-templates/import', data);
-      toast({ title: `Import : ${result.imported} modele(s) importe(s), ${result.skipped} ignore(s)` });
+      toast({ title: `Import : ${result.imported} modèle(s) importé(s), ${result.skipped} ignoré(s)` });
       await fetchTemplates();
     } catch {
-      toast({ title: 'Erreur', description: 'Echec de l\'import', variant: 'destructive' });
+      toast({ title: 'Erreur', description: 'Échec de l\'import', variant: 'destructive' });
     } finally {
       setImporting(false);
       if (fileInputRef.current) fileInputRef.current.value = '';

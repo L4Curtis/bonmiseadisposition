@@ -16,6 +16,7 @@ describe('AdminController', () => {
     getConfigSection: jest.Mock;
     changeUserRole: jest.Mock;
     ensureNonLocalAdminExists: jest.Mock;
+    getConfigHealth: jest.Mock;
   };
   let ldapService: { validateLdapFilter: jest.Mock };
   let configService: ReturnType<typeof createMockConfigService>;
@@ -45,6 +46,7 @@ describe('AdminController', () => {
       getConfigSection: jest.fn().mockResolvedValue({}),
       changeUserRole: jest.fn().mockResolvedValue({ id: 'user-2', role: 'direction', isItStaff: false }),
       ensureNonLocalAdminExists: jest.fn().mockResolvedValue(undefined),
+      getConfigHealth: jest.fn().mockResolvedValue({ sections: [] }),
     };
     ldapService = { validateLdapFilter: jest.fn() };
     configService = createMockConfigService();
@@ -103,6 +105,20 @@ describe('AdminController', () => {
         ['client_secret'],
         adminUser.id,
       );
+    });
+  });
+
+  // ─── getConfigHealth ────────────────────────────────────────────────────────────
+
+  describe('getConfigHealth', () => {
+    it('délègue à adminService.getConfigHealth', async () => {
+      const sections = [{ key: 'smtp', label: 'Email / SMTP', state: 'configure', detail: 'ok', updatedAt: null }];
+      adminService.getConfigHealth.mockResolvedValue({ sections });
+
+      const result = await controller.getConfigHealth();
+
+      expect(adminService.getConfigHealth).toHaveBeenCalled();
+      expect(result).toEqual({ sections });
     });
   });
 

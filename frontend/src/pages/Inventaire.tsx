@@ -30,6 +30,10 @@ export function InventairePage() {
     setCategoryFilter,
     situationFilter,
     setSituationFilter,
+    overdueFilter,
+    setOverdueFilter,
+    sortDirection,
+    toggleDateSort,
     searchInput,
     setSearchInput,
     resetFilters,
@@ -67,7 +71,15 @@ export function InventairePage() {
         </Button>
       </div>
 
-      <InventorySummaryCards summary={summary} summaryError={summaryError} onRetry={loadSummary} />
+      <InventorySummaryCards
+        summary={summary}
+        summaryError={summaryError}
+        onRetry={loadSummary}
+        onOverdueClick={() => setOverdueFilter(true)}
+        overdueActive={overdueFilter}
+        onSignatureWaitingClick={() => setSituationFilter('en_attente_signature')}
+        signatureWaitingActive={situationFilter === 'en_attente_signature'}
+      />
 
       <InventoryFilters
         searchInput={searchInput}
@@ -81,6 +93,8 @@ export function InventairePage() {
         situations={summary?.bySituation ?? []}
         filiales={filiales}
         categories={summary?.byCategory ?? []}
+        overdueFilter={overdueFilter}
+        onClearOverdue={() => setOverdueFilter(false)}
         hasActiveFilters={hasActiveFilters}
         onReset={resetFilters}
       />
@@ -93,6 +107,8 @@ export function InventairePage() {
         hasActiveFilters={hasActiveFilters}
         onResetFilters={resetFilters}
         canLinkToBon={canLinkToBon}
+        sortDirection={sortDirection}
+        onToggleDateSort={toggleDateSort}
       />
 
       {/* Pagination */}

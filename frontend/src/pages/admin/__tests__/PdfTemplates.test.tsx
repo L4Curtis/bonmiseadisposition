@@ -58,10 +58,10 @@ describe('PdfTemplatesPage', () => {
     expect(api.get).toHaveBeenCalledWith('/admin/pdf-templates');
   });
 
-  it('affiche le badge "Modifie" uniquement pour les modeles personnalises', async () => {
+  it('affiche le badge "Personnalisé" uniquement pour les modeles personnalises', async () => {
     renderWithProviders(<PdfTemplatesPage />);
 
     await screen.findByText('Restitution');
-    expect(screen.getAllByText('Modifie')).toHaveLength(1);
+    expect(screen.getAllByText('Personnalisé')).toHaveLength(1);
   });
 });

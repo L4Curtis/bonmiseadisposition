@@ -259,6 +259,38 @@ describe('AdminService', () => {
     });
   });
 
+  // ─── getConfigHealth ─────────────────────────────────────────────────────────
+
+  describe('getConfigHealth', () => {
+    it('interroge uniquement les catégories de configuration couvertes (jamais "system")', async () => {
+      prisma.appConfig.findMany.mockResolvedValue([]);
+
+      await service.getConfigHealth();
+
+      expect(prisma.appConfig.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { category: { in: expect.arrayContaining(['general', 'smtp', 'ldap', 'entra', 'smb', 'rappels', 'tokens', 'timestamp', 'retention']) } },
+        }),
+      );
+      const calledWith = prisma.appConfig.findMany.mock.calls[0][0] as { where: { category: { in: string[] } } };
+      expect(calledWith.where.category.in).not.toContain('system');
+    });
+
+    it('renvoie une section par catégorie couverte, sans jamais exposer un secret', async () => {
+      prisma.appConfig.findMany.mockResolvedValue([
+        { category: 'smtp', key: 'host', value: 'smtp.exemple.fr', updatedAt: new Date('2026-02-01T00:00:00Z') },
+        { category: 'smtp', key: 'password', value: 'ENCRYPTED:top-secret-value', updatedAt: new Date('2026-02-01T00:00:00Z') },
+      ]);
+
+      const result = await service.getConfigHealth();
+
+      expect(result.sections).toHaveLength(9);
+      const smtp = result.sections.find((s) => s.key === 'smtp');
+      expect(smtp?.state).toBe('incomplet'); // port et from manquants
+      expect(JSON.stringify(result)).not.toContain('top-secret-value');
+    });
+  });
+
   // ─── ensureNonLocalAdminExists ───────────────────────────────────────────────
 
   describe('ensureNonLocalAdminExists', () => {

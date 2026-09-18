@@ -22,8 +22,8 @@ export function PdfTemplatesPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">Modeles PDF</h1>
-          <p className="text-sm text-muted-foreground mt-1">Personnalisez l'apparence des documents PDF generes</p>
+          <h1 className="text-xl font-semibold">Modèles PDF</h1>
+          <p className="text-sm text-muted-foreground mt-1">Personnalisez l'apparence des documents PDF générés</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={handleExport}>

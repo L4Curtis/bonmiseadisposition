@@ -47,7 +47,7 @@ export function EmailTemplateEditor({
     setSaving(true);
     try {
       await api.patch(`/admin/email-templates/${template.id}`, { html });
-      toast({ title: 'Template sauvegarde' });
+      toast({ title: 'Template sauvegardé' });
       onSaved();
       onClose();
     } catch {
@@ -78,7 +78,7 @@ export function EmailTemplateEditor({
                 tab === t ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
               }`}
             >
-              {t === 'code' ? 'Editeur HTML' : 'Apercu'}
+              {t === 'code' ? 'Éditeur HTML' : 'Aperçu'}
             </button>
           ))}
         </div>
@@ -105,7 +105,7 @@ export function EmailTemplateEditor({
 
           {tab === 'preview' && (
             <div className="flex-1 bg-white dark:bg-card overflow-auto">
-              <AutoIframe srcDoc={html} title="Apercu" />
+              <AutoIframe srcDoc={html} title="Aperçu" />
             </div>
           )}
         </div>

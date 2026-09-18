@@ -14,6 +14,10 @@ interface InventoryFiltersProps {
   situations: InventorySituationSummary[];
   filiales: Filiale[];
   categories: InventoryCategorySummary[];
+  /** Filtre « en retard de restitution » activé depuis la tuile — affiché ici
+   *  comme un chip refermable, la tuile n'ayant pas d'état visuel persistant. */
+  overdueFilter: boolean;
+  onClearOverdue: () => void;
   hasActiveFilters: boolean;
   onReset: () => void;
 }
@@ -31,6 +35,8 @@ export function InventoryFilters({
   situations,
   filiales,
   categories,
+  overdueFilter,
+  onClearOverdue,
   hasActiveFilters,
   onReset,
 }: InventoryFiltersProps) {
@@ -93,6 +99,16 @@ export function InventoryFilters({
           </option>
         ))}
       </select>
+
+      {overdueFilter && (
+        <button
+          onClick={onClearOverdue}
+          className="inline-flex items-center gap-1 rounded-full border border-destructive/30 bg-destructive/10 px-2.5 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/15"
+        >
+          Retards uniquement
+          <X className="h-3 w-3" />
+        </button>
+      )}
 
       {hasActiveFilters && (
         <button

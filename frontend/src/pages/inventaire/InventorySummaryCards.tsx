@@ -8,11 +8,27 @@ interface InventorySummaryCardsProps {
   summary: InventorySummary | null;
   summaryError: string | null;
   onRetry: () => void;
+  /** Filtre la liste sur les retards de restitution (tuile cliquable). */
+  onOverdueClick: () => void;
+  overdueActive: boolean;
+  /** Filtre la liste sur la situation « en attente de signature » (tuile cliquable). */
+  onSignatureWaitingClick: () => void;
+  signatureWaitingActive: boolean;
 }
 
 /** Tuiles de résumé du parc prêté : total, retards, catégories, filiales.
+ *  « En retard de restitution » et « En attente de signature » filtrent la
+ *  liste au clic (état persisté dans l'URL par useInventory).
  *  Affiche une erreur explicite avec « Réessayer » si le résumé échoue à charger. */
-export function InventorySummaryCards({ summary, summaryError, onRetry }: InventorySummaryCardsProps) {
+export function InventorySummaryCards({
+  summary,
+  summaryError,
+  onRetry,
+  onOverdueClick,
+  overdueActive,
+  onSignatureWaitingClick,
+  signatureWaitingActive,
+}: InventorySummaryCardsProps) {
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       {summaryError ? (
@@ -30,12 +46,16 @@ export function InventorySummaryCards({ summary, summaryError, onRetry }: Invent
             label="En retard de restitution"
             value={summary.overdue}
             tone={summary.overdue > 0 ? 'danger' : 'default'}
+            onClick={onOverdueClick}
+            className={overdueActive ? 'ring-2 ring-destructive/50' : undefined}
           />
           <StatCard
             icon={Clock}
             label="En attente de signature"
             value={summary.bySituation.find((s) => s.situation === 'en_attente_signature')?.count ?? 0}
             hint="Matériel remis, bon non encore signé"
+            onClick={onSignatureWaitingClick}
+            className={signatureWaitingActive ? 'ring-2 ring-primary/50' : undefined}
           />
           <StatCard icon={Building2} label="Filiales" value={summary.byFiliale.length} />
         </>

@@ -1,10 +1,13 @@
 import { Button } from '@/components/ui/button';
 import { Download, Upload, Loader2 } from 'lucide-react';
 import { useEmailTemplates } from './email-templates/useEmailTemplates';
+import { useEmailTemplateFilters } from './email-templates/useEmailTemplateFilters';
+import { EmailTemplateFilters } from './email-templates/EmailTemplateFilters';
 import { EmailTemplateList } from './email-templates/EmailTemplateList';
 import { EmailTemplatePreview } from './email-templates/EmailTemplatePreview';
 import { EmailTemplateEditor } from './email-templates/EmailTemplateEditor';
 import { EmailTemplateResetDialog } from './email-templates/EmailTemplateResetDialog';
+import { EmailTemplateTestDialog } from './email-templates/EmailTemplateTestDialog';
 
 // ─── Main Page ───────────────────────────────────────────────────────────────
 
@@ -15,15 +18,22 @@ export function TemplatesPage() {
     previewTarget, setPreviewTarget,
     editTarget, setEditTarget,
     resetTarget, setResetTarget,
+    testTarget, setTestTarget,
   } = useEmailTemplates();
+
+  const {
+    searchInput, setSearchInput, categoryFilter, setCategoryFilter,
+    recipientFilter, setRecipientFilter, recipients,
+    filteredTemplates, hasActiveFilters, resetFilters,
+  } = useEmailTemplateFilters(templates);
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">Modeles d'emails</h1>
-          <p className="text-sm text-muted-foreground mt-1">Personnalisez les emails automatiques envoyes par l'application</p>
+          <h1 className="text-xl font-semibold">Modèles d'emails</h1>
+          <p className="text-sm text-muted-foreground mt-1">Personnalisez les emails automatiques envoyés par l'application</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={handleExport}>
@@ -44,13 +54,28 @@ export function TemplatesPage() {
         </div>
       </div>
 
+      {/* Filtres */}
+      <EmailTemplateFilters
+        searchInput={searchInput}
+        onSearchInputChange={setSearchInput}
+        categoryFilter={categoryFilter}
+        onCategoryFilterChange={setCategoryFilter}
+        recipientFilter={recipientFilter}
+        onRecipientFilterChange={setRecipientFilter}
+        recipients={recipients}
+        hasActiveFilters={hasActiveFilters}
+        onReset={resetFilters}
+      />
+
       {/* Template list */}
       <EmailTemplateList
-        templates={templates}
+        templates={filteredTemplates}
+        totalCount={templates.length}
         loading={loading}
         onPreview={setPreviewTarget}
         onEdit={setEditTarget}
         onReset={setResetTarget}
+        onTest={setTestTarget}
       />
 
       {/* Dialogs */}
@@ -70,6 +95,11 @@ export function TemplatesPage() {
         open={!!resetTarget}
         onClose={() => setResetTarget(null)}
         onReset={fetchTemplates}
+      />
+      <EmailTemplateTestDialog
+        template={testTarget}
+        open={!!testTarget}
+        onClose={() => setTestTarget(null)}
       />
     </div>
   );

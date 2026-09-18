@@ -1,10 +1,12 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
-import type { ElementType } from 'react';
+import { useEffect, useState, type ElementType } from 'react';
 import {
   Settings, Server, Shield, Mail, Bell, Key, HardDrive, Activity,
   FileText, Clock, ShieldCheck,
 } from 'lucide-react';
+import { api } from '@/lib/api';
+import { CONFIG_HEALTH_STATE_LABELS, type ConfigHealthState } from '@/pages/admin/configuration/ConfigHealthCard';
 
 type SubNavItem = {
   to: string;
@@ -50,8 +52,53 @@ export function getSubNavForPath(pathname: string): SubNavSection | null {
   return subNavSections.find((s) => pathname.startsWith(s.basePath)) ?? null;
 }
 
+const STATE_DOT_CLASSNAME: Record<ConfigHealthState, string> = {
+  configure: 'bg-success',
+  incomplet: 'bg-warning',
+  desactive: 'bg-muted-foreground',
+  non_configure: 'bg-destructive',
+};
+
+/** Dernier segment de l'URL, utilisé comme clé de rubrique de configuration
+ *  (ex. '/admin/configuration/smtp' → 'smtp'). "monitoring" n'est pas une
+ *  rubrique de configuration à part entière (pas de clés propres) : elle
+ *  surveille les exports déjà couverts par la rubrique "smb", dont l'état
+ *  est repris telle quelle. */
+function healthKeyForItem(to: string): string {
+  const segment = to.split('/').pop() ?? '';
+  return segment === 'monitoring' ? 'smb' : segment;
+}
+
+/** Pastille d'état de configuration (couleur = jeton du thème, jamais de
+ *  couleur de palette) — chargée une fois pour la sous-navigation
+ *  Configuration, afin de repérer d'un coup d'œil ce qui reste à faire. */
+function useConfigHealthByKey(enabled: boolean): Record<string, ConfigHealthState> {
+  const [byKey, setByKey] = useState<Record<string, ConfigHealthState>>({});
+
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+    api.get<{ sections: { key: string; state: ConfigHealthState }[] }>('/admin/config/health')
+      .then((data) => {
+        if (cancelled) return;
+        const next: Record<string, ConfigHealthState> = {};
+        for (const s of data.sections) next[s.key] = s.state;
+        setByKey(next);
+      })
+      .catch(() => {
+        // Pastille purement indicative : une erreur silencieuse (droits,
+        // réseau) ne doit pas empêcher l'affichage du menu lui-même.
+      });
+    return () => { cancelled = true; };
+  }, [enabled]);
+
+  return byKey;
+}
+
 export function AdminSubNav({ section }: { section: SubNavSection }) {
   const location = useLocation();
+  const isConfigSection = section.basePath === '/admin/configuration';
+  const healthByKey = useConfigHealthByKey(isConfigSection);
 
   return (
     <nav
@@ -67,6 +114,7 @@ export function AdminSubNav({ section }: { section: SubNavSection }) {
         <div className="space-y-0.5">
           {section.items.map(({ to, label, icon: Icon }) => {
             const isActive = location.pathname === to;
+            const healthState = isConfigSection ? healthByKey[healthKeyForItem(to)] : undefined;
             return (
               <NavLink
                 key={to}
@@ -79,7 +127,16 @@ export function AdminSubNav({ section }: { section: SubNavSection }) {
                 )}
               >
                 <Icon className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate">{label}</span>
+                <span className="flex-1 truncate">{label}</span>
+                {healthState && (
+                  <>
+                    <span
+                      className={cn('h-1.5 w-1.5 shrink-0 rounded-full', STATE_DOT_CLASSNAME[healthState])}
+                      aria-hidden="true"
+                    />
+                    <span className="sr-only">{CONFIG_HEALTH_STATE_LABELS[healthState]}</span>
+                  </>
+                )}
               </NavLink>
             );
           })}

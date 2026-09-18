@@ -1,8 +1,7 @@
-import { todayInParis } from '@/lib/kpi-period';
+import { daysOverdue } from './dateMetrics';
 
 /** Un équipement est en retard quand sa date de restitution prévue est passée
- *  (comparaison sur la date seule, fuseau Paris — cf. todayInParis). */
+ *  (comparaison sur la date seule, fuseau Paris — cf. dateMetrics.daysSince). */
 export function isOverdue(dateRestitution: string | null): boolean {
-  if (!dateRestitution) return false;
-  return dateRestitution.slice(0, 10) < todayInParis();
+  return daysOverdue(dateRestitution) !== null;
 }

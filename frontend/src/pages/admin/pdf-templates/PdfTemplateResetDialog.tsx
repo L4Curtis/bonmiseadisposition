@@ -24,11 +24,11 @@ export function PdfTemplateResetDialog({
     setLoading(true);
     try {
       await api.delete(`/admin/pdf-templates/${templateId}`);
-      toast({ title: 'Modele reinitialise' });
+      toast({ title: 'Modèle réinitialisé' });
       onReset();
       onClose();
     } catch {
-      toast({ title: 'Erreur', description: 'Echec de la reinitialisation', variant: 'destructive' });
+      toast({ title: 'Erreur', description: 'Échec de la réinitialisation', variant: 'destructive' });
     } finally {
       setLoading(false);
     }
@@ -38,9 +38,9 @@ export function PdfTemplateResetDialog({
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Reinitialiser le modele</DialogTitle>
+          <DialogTitle>Réinitialiser le modèle</DialogTitle>
           <DialogDescription>
-            Toutes les personnalisations seront perdues. Le modele reviendra a sa configuration par defaut.
+            Toutes les personnalisations seront perdues. Le modèle reviendra à sa configuration par défaut.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter className="gap-2">
@@ -49,7 +49,7 @@ export function PdfTemplateResetDialog({
           </DialogClose>
           <Button variant="destructive" onClick={handleReset} disabled={loading}>
             {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Reinitialiser
+            Réinitialiser
           </Button>
         </DialogFooter>
       </DialogContent>

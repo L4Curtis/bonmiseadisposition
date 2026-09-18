@@ -5,6 +5,7 @@ import { EncryptionService } from '../config/encryption.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { isItRole } from '../common/roles';
 import * as nodemailer from 'nodemailer';
+import { CONFIG_HEALTH_CATEGORIES, ConfigHealthSection, computeConfigHealth } from './config-health';
 
 @Injectable()
 export class AdminService {
@@ -18,6 +19,20 @@ export class AdminService {
 
   async getConfigSection(category: string, options?: { maskSecrets?: boolean }) {
     return this.configService.getAll(category, options);
+  }
+
+  /**
+   * GET /admin/config/health — état calculé par rubrique de configuration
+   * (configuré / incomplet / désactivé / non configuré), sans jamais exposer
+   * de secret : seule la présence d'une valeur est lue directement en base
+   * (jamais déchiffrée). Voir config-health.ts pour les règles par rubrique.
+   */
+  async getConfigHealth(): Promise<{ sections: ConfigHealthSection[] }> {
+    const rows = await this.prisma.appConfig.findMany({
+      where: { category: { in: [...CONFIG_HEALTH_CATEGORIES] } },
+      select: { category: true, key: true, value: true, updatedAt: true },
+    });
+    return { sections: computeConfigHealth(rows, { frontendUrlEnv: process.env.FRONTEND_URL }) };
   }
 
   async setConfigValue(

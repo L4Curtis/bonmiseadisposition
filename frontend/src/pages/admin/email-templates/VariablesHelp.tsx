@@ -22,7 +22,7 @@ export function VariablesHelp({ variables }: VariablesHelpProps) {
             onClick={() => {
               const token = `{{${v.name}}}`;
               navigator.clipboard?.writeText(token);
-              toast({ title: 'Copie', description: `${token} copie dans le presse-papier` });
+              toast({ title: 'Copié', description: `${token} copié dans le presse-papier` });
             }}
           >
             {`{{${v.name}}}`}

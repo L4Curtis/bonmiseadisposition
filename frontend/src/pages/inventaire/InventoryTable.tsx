@@ -2,10 +2,12 @@ import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/StatusBadge';
-import { formatDate } from '@/lib/utils';
-import { Boxes, X } from 'lucide-react';
+import { cn, formatDate } from '@/lib/utils';
+import { formatDays } from '@/lib/kpi-format';
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Boxes, X } from 'lucide-react';
 import { isOverdue } from './isOverdue';
-import type { EquipmentSituation, InventoryItem } from './types';
+import { daysOverdue, daysSince } from './dateMetrics';
+import type { EquipmentSituation, InventoryItem, SortDirection } from './types';
 
 /** Couleurs de situation, en classes sémantiques compatibles thème sombre. */
 const SITUATION_CLASSES: Record<EquipmentSituation, string> = {
@@ -41,6 +43,31 @@ interface InventoryTableProps {
   onResetFilters: () => void;
   /** Direction : lecture seule, aucun accès aux bons individuels (/bons/:id → 403). */
   canLinkToBon: boolean;
+  /** Tri serveur sur l'ancienneté (colonne « Mise à disposition »). '' = ordre
+   *  par défaut de l'API (le plus récent d'abord). */
+  sortDirection: '' | SortDirection;
+  onToggleDateSort: () => void;
+}
+
+/** En-tête triable de la colonne « Mise à disposition » (ancienneté) — seule
+ *  colonne triable exposée pour l'instant (cf. types.SortDirection). */
+function DateSortHeader({ direction, onToggle }: { direction: '' | SortDirection; onToggle: () => void }) {
+  const Icon = direction === 'asc' ? ArrowUp : direction === 'desc' ? ArrowDown : ArrowUpDown;
+  return (
+    <th
+      className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden lg:table-cell"
+      aria-sort={direction === 'asc' ? 'ascending' : direction === 'desc' ? 'descending' : 'none'}
+    >
+      <button
+        type="button"
+        onClick={onToggle}
+        className="inline-flex items-center gap-1 normal-case tracking-normal hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 rounded"
+      >
+        Mise à disposition
+        <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+      </button>
+    </th>
+  );
 }
 
 /** Tableau de l'inventaire du parc prêté : gère lui-même le chargement,
@@ -53,6 +80,8 @@ export function InventoryTable({
   hasActiveFilters,
   onResetFilters,
   canLinkToBon,
+  sortDirection,
+  onToggleDateSort,
 }: InventoryTableProps) {
   return (
     <div className="bg-card rounded-xl border border-border card-elevated overflow-hidden">
@@ -98,15 +127,22 @@ export function InventoryTable({
                 <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden md:table-cell">Filiale</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Situation</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Bon</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden lg:table-cell">Mise à dispo</th>
+                <DateSortHeader direction={sortDirection} onToggle={onToggleDateSort} />
                 <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden xl:table-cell">Restitution prévue</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {items.map((it) => {
                 const overdue = isOverdue(it.dateRestitution);
+                const retardJours = daysOverdue(it.dateRestitution);
                 return (
-                  <tr key={it.equipmentId} className="hover:bg-muted/40 transition-colors">
+                  <tr
+                    key={it.equipmentId}
+                    className={cn(
+                      'transition-colors',
+                      overdue ? 'bg-destructive/5 hover:bg-destructive/10' : 'hover:bg-muted/40',
+                    )}
+                  >
                     <td className="px-4 py-3.5">
                       <div className="font-medium text-foreground leading-tight">{it.label}</div>
                       <div className="text-xs text-muted-foreground/70 mt-0.5">
@@ -134,6 +170,12 @@ export function InventoryTable({
                       >
                         {it.situationLabel}
                       </span>
+                      {retardJours !== null && (
+                        <div className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-destructive">
+                          <AlertTriangle className="h-3 w-3" aria-hidden="true" />
+                          {`Retard ${retardJours} j`}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3.5">
                       {canLinkToBon ? (
@@ -152,11 +194,17 @@ export function InventoryTable({
                         <StatusBadge status={it.bonStatus} />
                       </div>
                     </td>
-                    <td className="px-4 py-3.5 text-muted-foreground hidden lg:table-cell whitespace-nowrap">
-                      {formatDate(it.dateMiseDisposition)}
+                    <td className="px-4 py-3.5 hidden lg:table-cell whitespace-nowrap">
+                      <div className="text-muted-foreground">{formatDate(it.dateMiseDisposition)}</div>
+                      <div className="text-xs text-muted-foreground/70 mt-0.5">
+                        {`il y a ${formatDays(daysSince(it.dateMiseDisposition))}`}
+                      </div>
                     </td>
                     <td className={`px-4 py-3.5 hidden xl:table-cell whitespace-nowrap ${overdue ? 'text-destructive font-medium' : 'text-muted-foreground'}`}>
                       {it.dateRestitution ? formatDate(it.dateRestitution) : '—'}
+                      {retardJours !== null && (
+                        <span className="ml-1.5 text-xs font-semibold">{`(+${retardJours} j)`}</span>
+                      )}
                     </td>
                   </tr>
                 );

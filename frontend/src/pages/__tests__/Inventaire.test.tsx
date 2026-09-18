@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { InventairePage } from '../Inventaire';
 
@@ -116,5 +116,51 @@ describe('InventairePage', () => {
 
     const ref = await screen.findByText('BMD-2026-0001');
     expect(ref.closest('a')).toBeNull();
+  });
+
+  it('cliquer sur la tuile « En retard de restitution » filtre la liste et affiche le chip actif', async () => {
+    const { user } = renderWithProviders(<InventairePage />);
+    await screen.findByText('Jean Dupont');
+
+    await user.click(screen.getByRole('button', { name: /En retard de restitution/ }));
+
+    await waitFor(() => {
+      const lastCall = vi.mocked(api.get).mock.calls
+        .map(([path]) => path as string)
+        .filter((p) => p.startsWith('/reporting/inventory?'))
+        .at(-1);
+      expect(lastCall).toContain('overdue=1');
+    });
+    expect(await screen.findByText('Retards uniquement')).toBeInTheDocument();
+  });
+
+  it('cliquer sur la tuile « En attente de signature » filtre la liste sur cette situation', async () => {
+    const { user } = renderWithProviders(<InventairePage />);
+    await screen.findByText('Jean Dupont');
+
+    await user.click(screen.getByRole('button', { name: /En attente de signature/ }));
+
+    await waitFor(() => {
+      const select = screen.getByLabelText('Filtrer par situation') as HTMLSelectElement;
+      expect(select.value).toBe('en_attente_signature');
+    });
+  });
+
+  it('met en évidence une ligne en retard avec le nombre de jours de retard', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path.startsWith('/reporting/inventory/summary')) return Promise.resolve(summary);
+      if (path.startsWith('/reporting/inventory')) {
+        return Promise.resolve({
+          ...listResponse,
+          items: [{ ...listResponse.items[0], dateRestitution: '2020-01-01T00:00:00.000Z' }],
+        });
+      }
+      if (path.startsWith('/filiales/active')) return Promise.resolve([]);
+      return Promise.resolve(null);
+    });
+
+    renderWithProviders(<InventairePage />);
+
+    expect(await screen.findByText(/Retard \d+ j/)).toBeInTheDocument();
   });
 });

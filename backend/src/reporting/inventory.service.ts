@@ -1,44 +1,22 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, EquipmentCategory } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { STATUS_LABELS } from '../common/status-labels';
 import {
   CATEGORY_LABELS,
   SITUATION_BON_STATUSES,
-  SITUATION_LABELS,
   buildParcEquipmentWhere,
   buildSituationBreakdown,
-  escapeCsvCell,
   parcEquipmentSql,
   situationCaseSql,
-  situationForBonStatus,
 } from '../common/bon-predicates';
-import { InventoryQueryDto, InventorySortField } from './dto/inventory-query.dto';
+import { InventoryQueryDto, InventorySortField, SortDirection } from './dto/inventory-query.dto';
+import { ITEM_SELECT, toInventoryItem } from './inventory-mapper';
+import { buildInventoryCsv } from './inventory-csv';
+import { parisMidnightUtc } from './inventory-dates';
 
 const DEFAULT_PAGE_LIMIT = 50;
 const MAX_PAGE_LIMIT = 200;
 export const EXPORT_ROW_LIMIT = 10000;
-
-const ITEM_SELECT = {
-  id: true,
-  customLabel: true,
-  serialNumber: true,
-  inventoryNumber: true,
-  catalogItem: { select: { category: true, brand: true, model: true } },
-  bon: {
-    select: {
-      id: true,
-      reference: true,
-      status: true,
-      dateMiseDisposition: true,
-      dateRestitution: true,
-      collaborateur: { select: { id: true, displayName: true, email: true, department: true } },
-      filiale: { select: { id: true, name: true, displayName: true } },
-    },
-  },
-} satisfies Prisma.BonEquipmentSelect;
-
-type InventoryRow = Prisma.BonEquipmentGetPayload<{ select: typeof ITEM_SELECT }>;
 
 /**
  * Vue « Inventaire du parc en circulation » : liste, résumé agrégé et export
@@ -48,7 +26,9 @@ type InventoryRow = Prisma.BonEquipmentGetPayload<{ select: typeof ITEM_SELECT }
  * BonEquipment dont le bon a un statut ∈ PARC_BON_STATUSES, returnedAt IS NULL
  * et notReturned = false — décomposée en 3 situations mutuellement
  * exclusives (`en_attente_signature`, `en_circulation`, `en_litige`), voir
- * bon-predicates.ts.
+ * bon-predicates.ts. Le mapping ligne → item (`toInventoryItem`) et le CSV
+ * (`buildInventoryCsv`) sont extraits dans des modules dédiés pour rester
+ * testables isolément et garder ce service sous la limite de lignes du repo.
  */
 @Injectable()
 export class InventoryService {
@@ -57,8 +37,8 @@ export class InventoryService {
   /** Where partagé par la liste paginée et l'export CSV. Base « en
    *  circulation » (+ filiale) fournie par le prédicat commun
    *  `buildParcEquipmentWhere` — les autres filtres restent spécifiques à
-   *  cette vue. */
-  private buildWhere(filters: InventoryQueryDto): Prisma.BonEquipmentWhereInput {
+   *  cette vue. `now` est injectable (tests) pour figer le filtre `overdue`. */
+  private buildWhere(filters: InventoryQueryDto, now: Date = new Date()): Prisma.BonEquipmentWhereInput {
     const and: Prisma.BonEquipmentWhereInput[] = [
       ...(buildParcEquipmentWhere({ filialeId: filters.filialeId }).AND as Prisma.BonEquipmentWhereInput[]),
     ];
@@ -78,6 +58,13 @@ export class InventoryService {
           : { catalogItem: { category: filters.category } },
       );
     }
+    if (filters.overdue) {
+      // Alimente la tuile « En retard de restitution » — indépendant de
+      // `situation` (un équipement en_circulation ou en_litige peut être en
+      // retard). `lt` exclut naturellement les dateRestitution NULL (SQL
+      // `NULL < x` est indéterminé, jamais vrai).
+      and.push({ bon: { dateRestitution: { lt: parisMidnightUtc(now) } } });
+    }
 
     const search = filters.search?.trim();
     if (search) {
@@ -96,68 +83,39 @@ export class InventoryService {
     return { AND: and };
   }
 
-  private buildOrderBy(sort?: InventorySortField): Prisma.BonEquipmentOrderByWithRelationInput {
+  /** `direction` s'applique au champ `sort` choisi ; à défaut, conserve les
+   *  sens historiques (collaborateur/catégorie croissants, mise à disposition
+   *  décroissante) pour ne pas changer l'ordre par défaut de la liste. */
+  private buildOrderBy(sort?: InventorySortField, direction?: SortDirection): Prisma.BonEquipmentOrderByWithRelationInput {
     switch (sort) {
       case 'collaborateur':
-        return { bon: { collaborateur: { displayName: 'asc' } } };
+        return { bon: { collaborateur: { displayName: direction ?? 'asc' } } };
       case 'category':
-        return { catalogItem: { category: 'asc' } };
+        return { catalogItem: { category: direction ?? 'asc' } };
       case 'dateMiseDisposition':
       default:
-        return { bon: { dateMiseDisposition: 'desc' } };
+        return { bon: { dateMiseDisposition: direction ?? 'desc' } };
     }
-  }
-
-  private toItem(row: InventoryRow) {
-    const category = row.catalogItem?.category ?? EquipmentCategory.autre;
-    const label = row.catalogItem
-      ? `${row.catalogItem.brand} ${row.catalogItem.model}`
-      : row.customLabel ?? 'Équipement';
-
-    const situation = situationForBonStatus(row.bon.status);
-    if (!situation) {
-      // Ne doit jamais arriver : buildWhere restreint bon.status aux statuts
-      // couverts par PARC_BON_STATUSES (voir buildParcEquipmentWhere).
-      throw new Error(`Statut de bon hors du parc en circulation dans l'inventaire : ${row.bon.status}`);
-    }
-
-    return {
-      equipmentId: row.id,
-      label,
-      category,
-      categoryLabel: CATEGORY_LABELS[category] ?? category,
-      serialNumber: row.serialNumber,
-      inventoryNumber: row.inventoryNumber,
-      bonId: row.bon.id,
-      bonReference: row.bon.reference,
-      bonStatus: row.bon.status,
-      situation,
-      situationLabel: SITUATION_LABELS[situation],
-      dateMiseDisposition: row.bon.dateMiseDisposition,
-      dateRestitution: row.bon.dateRestitution,
-      collaborateur: row.bon.collaborateur,
-      filiale: row.bon.filiale,
-    };
   }
 
   /** GET /reporting/inventory */
-  async getInventory(query: InventoryQueryDto) {
+  async getInventory(query: InventoryQueryDto, now: Date = new Date()) {
     const page = query.page ?? 1;
     const limit = Math.min(query.limit ?? DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT);
-    const where = this.buildWhere(query);
+    const where = this.buildWhere(query, now);
 
     const [rows, total] = await Promise.all([
       this.prisma.bonEquipment.findMany({
         where,
         select: ITEM_SELECT,
-        orderBy: this.buildOrderBy(query.sort),
+        orderBy: this.buildOrderBy(query.sort, query.direction),
         skip: (page - 1) * limit,
         take: limit,
       }),
       this.prisma.bonEquipment.count({ where }),
     ]);
 
-    return { items: rows.map((r) => this.toItem(r)), total, page, limit };
+    return { items: rows.map((r) => toInventoryItem(r)), total, page, limit };
   }
 
   /**
@@ -243,49 +201,23 @@ export class InventoryService {
   }
 
   /**
-   * GET /reporting/inventory/export — CSV complet (mêmes filtres que la
-   * liste, sans pagination), plafonné à EXPORT_ROW_LIMIT lignes.
+   * GET /reporting/inventory/export — CSV complet (mêmes filtres et même tri
+   * que la liste, sans pagination), plafonné à EXPORT_ROW_LIMIT lignes.
+   * `now` est injectable (tests) pour figer le filtre `overdue` et les
+   * colonnes calculées (ancienneté, retard) — voir inventory-csv.ts.
    */
-  async getExportCsv(query: InventoryQueryDto): Promise<{ csv: string; truncated: boolean }> {
-    const where = this.buildWhere(query);
+  async getExportCsv(query: InventoryQueryDto, now: Date = new Date()): Promise<{ csv: string; truncated: boolean }> {
+    const where = this.buildWhere(query, now);
     const rows = await this.prisma.bonEquipment.findMany({
       where,
       select: ITEM_SELECT,
-      orderBy: this.buildOrderBy(query.sort),
+      orderBy: this.buildOrderBy(query.sort, query.direction),
       take: EXPORT_ROW_LIMIT + 1,
     });
 
     const truncated = rows.length > EXPORT_ROW_LIMIT;
-    const items = (truncated ? rows.slice(0, EXPORT_ROW_LIMIT) : rows).map((r) => this.toItem(r));
+    const items = (truncated ? rows.slice(0, EXPORT_ROW_LIMIT) : rows).map((r) => toInventoryItem(r));
 
-    const headers = [
-      'Équipement', 'Catégorie', 'N° série', 'N° inventaire',
-      'Collaborateur', 'Email', 'Service', 'Filiale',
-      'Référence bon', 'Statut bon', 'Situation', 'Date mise à disposition', 'Date restitution prévue',
-    ];
-    const dataRows = items.map((it) =>
-      [
-        it.label,
-        it.categoryLabel,
-        it.serialNumber ?? '',
-        it.inventoryNumber ?? '',
-        it.collaborateur.displayName,
-        // Compagnon de chantier sans compte email (voir User.isManualAccount) :
-        // « — » plutôt qu'une cellule vide/« null » dans l'export.
-        it.collaborateur.email ?? '—',
-        it.collaborateur.department ?? '',
-        it.filiale.displayName,
-        it.bonReference,
-        STATUS_LABELS[it.bonStatus] ?? it.bonStatus,
-        it.situationLabel,
-        it.dateMiseDisposition ? new Date(it.dateMiseDisposition).toLocaleDateString('fr-FR') : '',
-        it.dateRestitution ? new Date(it.dateRestitution).toLocaleDateString('fr-FR') : '',
-      ].map(escapeCsvCell),
-    );
-
-    const csv = [headers.map(escapeCsvCell).join(';'), ...dataRows.map((r) => r.join(';'))].join('\n');
-    // BOM UTF-8 (U+FEFF) pour Excel — via fromCharCode pour éviter tout
-    // caractère littéral invisible dans le source.
-    return { csv: String.fromCharCode(0xfeff) + csv, truncated };
+    return { csv: buildInventoryCsv(items, now), truncated };
   }
 }

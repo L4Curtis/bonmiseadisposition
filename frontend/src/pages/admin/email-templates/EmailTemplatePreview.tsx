@@ -27,7 +27,7 @@ export function EmailTemplatePreview({ template, open, onClose }: EmailTemplateP
       .then((r) => { if (!cancelled) setHtml(r.html); })
       .catch(() => {
         if (cancelled) return;
-        toast({ title: 'Erreur', description: "Impossible de charger l'apercu.", variant: 'destructive' });
+        toast({ title: 'Erreur', description: "Impossible de charger l'aperçu.", variant: 'destructive' });
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };

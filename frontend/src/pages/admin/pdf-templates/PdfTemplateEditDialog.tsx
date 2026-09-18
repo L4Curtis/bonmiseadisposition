@@ -26,8 +26,8 @@ export function PdfTemplateEditDialog({
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Modifier le modele PDF</DialogTitle>
-          <DialogDescription>Personnalisez l'apparence du document genere</DialogDescription>
+          <DialogTitle>Modifier le modèle PDF</DialogTitle>
+          <DialogDescription>Personnalisez l'apparence du document généré</DialogDescription>
         </DialogHeader>
 
         {loading ? (

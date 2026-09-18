@@ -36,8 +36,8 @@ export function PdfTemplatePreview({ templateId, open, onClose }: PdfTemplatePre
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-w-4xl h-[85vh] flex flex-col">
         <DialogHeader className="shrink-0">
-          <DialogTitle>Apercu PDF</DialogTitle>
-          <DialogDescription>Visualisation avec des donnees fictives</DialogDescription>
+          <DialogTitle>Aperçu PDF</DialogTitle>
+          <DialogDescription>Visualisation avec des données fictives</DialogDescription>
         </DialogHeader>
         {loading ? (
           <div className="flex-1 flex items-center justify-center">
@@ -47,10 +47,10 @@ export function PdfTemplatePreview({ templateId, open, onClose }: PdfTemplatePre
           <iframe
             src={pdfUrl}
             className="flex-1 w-full rounded border border-border min-h-0"
-            title="Apercu PDF"
+            title="Aperçu PDF"
           />
         ) : (
-          <p className="flex-1 flex items-center justify-center text-muted-foreground">Impossible de charger l'apercu</p>
+          <p className="flex-1 flex items-center justify-center text-muted-foreground">Impossible de charger l'aperçu</p>
         )}
       </DialogContent>
     </Dialog>

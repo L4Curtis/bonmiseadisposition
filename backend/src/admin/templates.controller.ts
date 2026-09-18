@@ -2,6 +2,8 @@ import {
   Controller, Get, Patch, Delete, Post, Body, Param, UseGuards, BadRequestException,
 } from '@nestjs/common';
 import { TemplatesService } from '../templates/templates.service';
+import { TemplateTestMailerService } from '../templates/template-test-mailer.service';
+import { isDeliverableEmail } from '../common/email';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -11,7 +13,10 @@ import { AuthUser } from '../auth/auth-user.interface';
 @Controller('admin/email-templates')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class TemplatesController {
-  constructor(private readonly templatesService: TemplatesService) {}
+  constructor(
+    private readonly templatesService: TemplatesService,
+    private readonly templateTestMailerService: TemplateTestMailerService,
+  ) {}
 
   @Get()
   @Roles('admin', 'technician')
@@ -82,5 +87,20 @@ export class TemplatesController {
   async reset(@Param('id') id: string) {
     await this.templatesService.resetTemplate(id);
     return { success: true };
+  }
+
+  /** Envoie un email de test (variables d'exemple) sans créer ni modifier de bon */
+  @Post(':id/test')
+  @Roles('admin')
+  async sendTest(
+    @Param('id') id: string,
+    @Body() body: { email: string },
+    @CurrentUser() user: AuthUser,
+  ) {
+    const email = typeof body?.email === 'string' ? body.email.trim() : '';
+    if (!email || !isDeliverableEmail(email)) {
+      throw new BadRequestException('Une adresse email valide est requise');
+    }
+    return this.templateTestMailerService.sendTest(id, email, user?.id);
   }
 }

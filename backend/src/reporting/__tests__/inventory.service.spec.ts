@@ -106,6 +106,30 @@ describe('InventoryService', () => {
         OR: [{ catalogItemId: null }, { catalogItem: { category: 'autre' } }],
       });
     });
+
+    it('ajoute le filtre "overdue" (retard de restitution), indépendant de la situation', async () => {
+      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.bonEquipment.count as jest.Mock).mockResolvedValue(0);
+      const now = new Date('2026-09-18T10:00:00.000Z');
+
+      await service.getInventory({ overdue: true }, now);
+
+      const call = (prisma.bonEquipment.findMany as jest.Mock).mock.calls[0][0];
+      expect(call.where.AND).toContainEqual({
+        bon: { dateRestitution: { lt: new Date('2026-09-18T00:00:00.000Z') } },
+      });
+    });
+
+    it('n\'ajoute aucun filtre "overdue" quand il est absent ou faux', async () => {
+      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.bonEquipment.count as jest.Mock).mockResolvedValue(0);
+
+      await service.getInventory({});
+      const call = (prisma.bonEquipment.findMany as jest.Mock).mock.calls[0][0];
+      // Exactement 3 clauses (returnedAt, notReturned, statuts) — aucun filtre
+      // dateRestitution ajouté.
+      expect(call.where.AND).toHaveLength(3);
+    });
   });
 
   describe('getInventory — pagination et mapping', () => {
@@ -195,6 +219,41 @@ describe('InventoryService', () => {
       (prisma.bonEquipment.count as jest.Mock).mockResolvedValue(1);
 
       await expect(service.getInventory({})).rejects.toThrow(/hors du parc en circulation/);
+    });
+  });
+
+  describe('getInventory — tri (sort/direction)', () => {
+    async function orderByOf(query: Parameters<InventoryService['getInventory']>[0]) {
+      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.bonEquipment.count as jest.Mock).mockResolvedValue(0);
+      await service.getInventory(query);
+      return (prisma.bonEquipment.findMany as jest.Mock).mock.calls.at(-1)[0].orderBy;
+    }
+
+    it('trie par dateMiseDisposition décroissant par défaut (aucun paramètre)', async () => {
+      expect(await orderByOf({})).toEqual({ bon: { dateMiseDisposition: 'desc' } });
+    });
+
+    it('applique "direction" au champ dateMiseDisposition explicitement choisi', async () => {
+      expect(await orderByOf({ sort: 'dateMiseDisposition', direction: 'asc' })).toEqual({
+        bon: { dateMiseDisposition: 'asc' },
+      });
+      expect(await orderByOf({ sort: 'dateMiseDisposition', direction: 'desc' })).toEqual({
+        bon: { dateMiseDisposition: 'desc' },
+      });
+    });
+
+    it('trie par collaborateur/catégorie croissant par défaut, et applique "direction" si fournie', async () => {
+      expect(await orderByOf({ sort: 'collaborateur' })).toEqual({
+        bon: { collaborateur: { displayName: 'asc' } },
+      });
+      expect(await orderByOf({ sort: 'collaborateur', direction: 'desc' })).toEqual({
+        bon: { collaborateur: { displayName: 'desc' } },
+      });
+      expect(await orderByOf({ sort: 'category' })).toEqual({ catalogItem: { category: 'asc' } });
+      expect(await orderByOf({ sort: 'category', direction: 'desc' })).toEqual({
+        catalogItem: { category: 'desc' },
+      });
     });
   });
 
@@ -310,6 +369,44 @@ describe('InventoryService', () => {
       expect(dataLine.split(';')[situationColumnIndex]).toBe('"En attente de signature"');
     });
 
+    it('ajoute les colonnes « Ancienneté (jours) » et « Retard (jours) », calculées depuis `now`', async () => {
+      const now = new Date('2026-09-18T10:00:00.000Z');
+      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([
+        makeRow({
+          bon: {
+            ...makeRow().bon,
+            dateMiseDisposition: new Date('2026-09-01T00:00:00.000Z'), // 17 j avant `now`
+            dateRestitution: new Date('2026-09-10T00:00:00.000Z'), // 8 j de retard
+          },
+        }),
+      ]);
+
+      const { csv } = await service.getExportCsv({}, now);
+      const [headerLine, dataLine] = csv.slice(1).split('\n');
+      const cols = headerLine.split(';');
+
+      expect(cols).toContain('"Ancienneté (jours)"');
+      expect(cols).toContain('"Retard (jours)"');
+      const values = dataLine.split(';');
+      expect(values[cols.indexOf('"Ancienneté (jours)"')]).toBe('"17"');
+      expect(values[cols.indexOf('"Retard (jours)"')]).toBe('"8"');
+    });
+
+    it('laisse la colonne « Retard (jours) » vide quand la restitution n\'est pas en retard', async () => {
+      const now = new Date('2026-09-18T10:00:00.000Z');
+      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([
+        makeRow({
+          bon: { ...makeRow().bon, dateRestitution: new Date('2026-12-01T00:00:00.000Z') },
+        }),
+      ]);
+
+      const { csv } = await service.getExportCsv({}, now);
+      const [headerLine, dataLine] = csv.slice(1).split('\n');
+      const cols = headerLine.split(';');
+
+      expect(dataLine.split(';')[cols.indexOf('"Retard (jours)"')]).toBe('""');
+    });
+
     it('affiche « — » (jamais null/undefined) quand le collaborateur n\'a pas d\'adresse email (compte manuel)', async () => {
       (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([
         makeRow({
@@ -358,6 +455,39 @@ describe('InventoryService', () => {
     it('est optionnelle (absente => aucune erreur)', async () => {
       const dto = plainToInstance(InventoryQueryDto, {});
       expect(await validate(dto)).toHaveLength(0);
+    });
+  });
+
+  describe('InventoryQueryDto — tri (sort/direction) et filtre overdue', () => {
+    it.each(['asc', 'desc'])('accepte la direction valide « %s »', async (direction) => {
+      const dto = plainToInstance(InventoryQueryDto, { sort: 'dateMiseDisposition', direction });
+      expect(await validate(dto)).toHaveLength(0);
+    });
+
+    it('rejette une direction inconnue', async () => {
+      const dto = plainToInstance(InventoryQueryDto, { direction: 'croissant' });
+      const errors = await validate(dto);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].constraints).toHaveProperty('isIn');
+    });
+
+    it.each(['1', 'true', 'TRUE', true])('accepte "overdue" en booléen ou chaîne « %s »', async (value) => {
+      const dto = plainToInstance(InventoryQueryDto, { overdue: value });
+      expect(await validate(dto)).toHaveLength(0);
+      expect(dto.overdue).toBe(true);
+    });
+
+    it('traite toute chaîne non reconnue comme "false" (même convention que QueryBonsDto.overdue)', async () => {
+      const dto = plainToInstance(InventoryQueryDto, { overdue: 'peut-être' });
+      expect(await validate(dto)).toHaveLength(0);
+      expect(dto.overdue).toBe(false);
+    });
+
+    it('rejette une valeur "overdue" qui n\'est ni un booléen ni une chaîne', async () => {
+      const dto = plainToInstance(InventoryQueryDto, { overdue: { nope: true } });
+      const errors = await validate(dto);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].constraints).toHaveProperty('isBoolean');
     });
   });
 });

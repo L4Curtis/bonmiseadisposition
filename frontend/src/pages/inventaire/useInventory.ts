@@ -4,12 +4,49 @@ import { api } from '@/lib/api';
 import { errorMessage, showActionError } from '@/lib/errors';
 import { toast } from '@/hooks/use-toast';
 import type { Filiale } from '@/types';
-import type { EquipmentSituation, InventoryItem, InventoryListResponse, InventorySummary } from './types';
+import type {
+  EquipmentSituation,
+  InventoryItem,
+  InventoryListResponse,
+  InventorySummary,
+  SortDirection,
+} from './types';
 
 const SITUATIONS: EquipmentSituation[] = ['en_attente_signature', 'en_circulation', 'en_litige'];
 
 function readSituation(value: string | null): '' | EquipmentSituation {
   return SITUATIONS.includes(value as EquipmentSituation) ? (value as EquipmentSituation) : '';
+}
+
+function readDirection(value: string | null): '' | SortDirection {
+  return value === 'asc' || value === 'desc' ? value : '';
+}
+
+interface InventoryFilterState {
+  filialeFilter: string;
+  categoryFilter: string;
+  situationFilter: string;
+  search: string;
+  overdueFilter: boolean;
+  sortDirection: '' | SortDirection;
+}
+
+/** Couple [clé, valeur] des filtres actifs — partagé par la synchronisation
+ *  d'URL, le fetch de la liste paginée et l'export CSV, pour que les trois
+ *  restent toujours exactement alignés (cf. exigence « l'export reflète les
+ *  filtres actifs »). */
+function buildFilterEntries(f: InventoryFilterState): [string, string][] {
+  const entries: [string, string][] = [];
+  if (f.filialeFilter) entries.push(['filialeId', f.filialeFilter]);
+  if (f.categoryFilter) entries.push(['category', f.categoryFilter]);
+  if (f.situationFilter) entries.push(['situation', f.situationFilter]);
+  if (f.search) entries.push(['search', f.search]);
+  if (f.overdueFilter) entries.push(['overdue', '1']);
+  if (f.sortDirection) {
+    entries.push(['sort', 'dateMiseDisposition']);
+    entries.push(['direction', f.sortDirection]);
+  }
+  return entries;
 }
 
 const LIMIT = 50;
@@ -52,11 +89,24 @@ export function useInventory() {
   );
   const [searchInput, setSearchInput] = useState(searchParams.get('search') ?? '');
   const [search, setSearch] = useState(searchParams.get('search') ?? '');
+  const [overdueFilter, setOverdueFilterState] = useState(searchParams.get('overdue') === '1');
+  const [sortDirection, setSortDirectionState] = useState<'' | SortDirection>(() =>
+    readDirection(searchParams.get('direction')),
+  );
   const [exportLoading, setExportLoading] = useState(false);
 
   const setFilialeFilter = (value: string) => { setFilialeFilterState(value); setPage(1); };
   const setCategoryFilter = (value: string) => { setCategoryFilterState(value); setPage(1); };
   const setSituationFilter = (value: string) => { setSituationFilterState(readSituation(value)); setPage(1); };
+  const setOverdueFilter = (value: boolean) => { setOverdueFilterState(value); setPage(1); };
+
+  /** Bascule le sens de tri de la colonne « Mise à disposition » (ancienneté).
+   *  Le premier clic part du sens implicite par défaut (desc, le plus récent
+   *  d'abord côté API) et bascule vers asc (le plus ancien d'abord). */
+  const toggleDateSort = () => {
+    setSortDirectionState((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    setPage(1);
+  };
 
   const resetFilters = () => {
     setFilialeFilterState('');
@@ -64,6 +114,7 @@ export function useInventory() {
     setSituationFilterState('');
     setSearchInput('');
     setSearch('');
+    setOverdueFilterState(false);
     setPage(1);
   };
 
@@ -87,11 +138,11 @@ export function useInventory() {
 
   // ── Chargement de la liste paginée ──────────────────────────────────────────
   useEffect(() => {
-    const urlParams: Record<string, string> = {};
-    if (filialeFilter) urlParams['filialeId'] = filialeFilter;
-    if (categoryFilter) urlParams['category'] = categoryFilter;
-    if (situationFilter) urlParams['situation'] = situationFilter;
-    if (search) urlParams['search'] = search;
+    const filterEntries = buildFilterEntries({
+      filialeFilter, categoryFilter, situationFilter, search, overdueFilter, sortDirection,
+    });
+
+    const urlParams = Object.fromEntries(filterEntries);
     if (page > 1) urlParams['page'] = String(page);
     setSearchParams(urlParams, { replace: true });
 
@@ -100,11 +151,7 @@ export function useInventory() {
     // Un flag d'ignorance protège contre une réponse arrivée après qu'un nouveau
     // filtre a relancé la requête (résultat obsolète qui écraserait le récent).
     let ignore = false;
-    const params = new URLSearchParams();
-    if (filialeFilter) params.set('filialeId', filialeFilter);
-    if (categoryFilter) params.set('category', categoryFilter);
-    if (situationFilter) params.set('situation', situationFilter);
-    if (search) params.set('search', search);
+    const params = new URLSearchParams(filterEntries);
     params.set('page', String(page));
     params.set('limit', String(LIMIT));
 
@@ -129,16 +176,14 @@ export function useInventory() {
       ignore = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filialeFilter, categoryFilter, situationFilter, search, page, reloadKey]);
+  }, [filialeFilter, categoryFilter, situationFilter, search, overdueFilter, sortDirection, page, reloadKey]);
 
   const handleExport = async () => {
     setExportLoading(true);
     try {
-      const params = new URLSearchParams();
-      if (filialeFilter) params.set('filialeId', filialeFilter);
-      if (categoryFilter) params.set('category', categoryFilter);
-      if (situationFilter) params.set('situation', situationFilter);
-      if (search) params.set('search', search);
+      const params = new URLSearchParams(
+        buildFilterEntries({ filialeFilter, categoryFilter, situationFilter, search, overdueFilter, sortDirection }),
+      );
       const blob = await api.getBlob(`/reporting/inventory/export?${params}`);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -155,7 +200,7 @@ export function useInventory() {
   };
 
   const totalPages = Math.ceil(total / LIMIT);
-  const hasActiveFilters = !!(filialeFilter || categoryFilter || situationFilter || search);
+  const hasActiveFilters = !!(filialeFilter || categoryFilter || situationFilter || search || overdueFilter);
   const rangeStart = total === 0 ? 0 : (page - 1) * LIMIT + 1;
   const rangeEnd = Math.min(page * LIMIT, total);
 
@@ -177,6 +222,10 @@ export function useInventory() {
     setCategoryFilter,
     situationFilter,
     setSituationFilter,
+    overdueFilter,
+    setOverdueFilter,
+    sortDirection,
+    toggleDateSort,
     searchInput,
     setSearchInput,
     resetFilters,
