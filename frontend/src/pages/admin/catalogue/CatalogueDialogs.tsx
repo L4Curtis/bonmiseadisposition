@@ -1,42 +1,53 @@
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
-import type { DeleteTarget, RemovePackItemTarget } from './types';
+import type { DeactivateTarget, Pack, RemovePackItemTarget } from './types';
 
 interface CatalogueDialogsProps {
-  deleteTarget: DeleteTarget | null;
-  onCancelDelete: () => void;
-  onConfirmDelete: () => void;
+  deactivateTarget: DeactivateTarget | null;
+  onCancelDeactivate: () => void;
+  onConfirmDeactivate: () => void;
+  deactivating: boolean;
   removePackItemTarget: RemovePackItemTarget | null;
   onCancelRemovePackItem: () => void;
   onConfirmRemovePackItem: () => void;
+  removingPackItem: boolean;
+  duplicateTarget: Pack | null;
+  duplicateName: string;
+  onDuplicateNameChange: (value: string) => void;
+  onCancelDuplicate: () => void;
+  onConfirmDuplicate: () => void;
+  duplicating: boolean;
 }
 
-/** Boites de confirmation du catalogue : desactivation d'un equipement/pack,
- *  et retrait d'un equipement d'un pack. */
+/** Boîtes de dialogue du catalogue : désactivation d'un équipement/pack,
+ *  retrait d'un équipement d'un pack, et duplication d'un pack. */
 export function CatalogueDialogs({
-  deleteTarget, onCancelDelete, onConfirmDelete,
-  removePackItemTarget, onCancelRemovePackItem, onConfirmRemovePackItem,
+  deactivateTarget, onCancelDeactivate, onConfirmDeactivate, deactivating,
+  removePackItemTarget, onCancelRemovePackItem, onConfirmRemovePackItem, removingPackItem,
+  duplicateTarget, duplicateName, onDuplicateNameChange, onCancelDuplicate, onConfirmDuplicate, duplicating,
 }: CatalogueDialogsProps) {
   return (
     <>
-      <Dialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) onCancelDelete(); }}>
+      <Dialog open={deactivateTarget !== null} onOpenChange={(open) => { if (!open) onCancelDeactivate(); }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              Desactiver {deleteTarget?.type === 'pack' ? 'ce pack' : 'cet equipement'}
+              Désactiver {deactivateTarget?.type === 'pack' ? 'ce pack' : 'cet équipement'}
             </DialogTitle>
             <DialogDescription>
-              Voulez-vous vraiment desactiver &laquo;&nbsp;{deleteTarget?.label}&nbsp;&raquo; ?
+              Voulez-vous vraiment désactiver &laquo;&nbsp;{deactivateTarget?.label}&nbsp;&raquo; ?
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={onCancelDelete}>
+            <Button variant="outline" onClick={onCancelDeactivate} disabled={deactivating}>
               Annuler
             </Button>
-            <Button variant="destructive" onClick={onConfirmDelete}>
-              Desactiver
+            <Button variant="destructive" onClick={onConfirmDeactivate} disabled={deactivating}>
+              Désactiver
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -52,11 +63,41 @@ export function CatalogueDialogs({
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={onCancelRemovePackItem}>
+            <Button variant="outline" onClick={onCancelRemovePackItem} disabled={removingPackItem}>
               Annuler
             </Button>
-            <Button variant="destructive" onClick={onConfirmRemovePackItem}>
+            <Button variant="destructive" onClick={onConfirmRemovePackItem} disabled={removingPackItem}>
               Retirer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={duplicateTarget !== null} onOpenChange={(open) => { if (!open) onCancelDuplicate(); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Dupliquer ce pack</DialogTitle>
+            <DialogDescription>
+              Crée un nouveau pack avec les mêmes équipements que
+              &nbsp;&laquo;&nbsp;{duplicateTarget?.name}&nbsp;&raquo;.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1">
+            <Label htmlFor="duplicate-pack-name">Nom du nouveau pack</Label>
+            <Input
+              id="duplicate-pack-name"
+              value={duplicateName}
+              onChange={(e) => onDuplicateNameChange(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') onConfirmDuplicate(); }}
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={onCancelDuplicate} disabled={duplicating}>
+              Annuler
+            </Button>
+            <Button onClick={onConfirmDuplicate} disabled={duplicating || !duplicateName.trim()}>
+              Dupliquer
             </Button>
           </DialogFooter>
         </DialogContent>

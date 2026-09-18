@@ -1,71 +1,35 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { errorMessage, showActionError } from '@/lib/errors';
-import { toast } from '@/hooks/use-toast';
-import { buildAddItemPayload, buildRemoveItemPayload, buildUpdateQuantityPayload } from './lib/packItems';
-import type { CatalogItem, CatalogItemFormValues, DeleteTarget, Pack, RemovePackItemTarget } from './types';
+import { errorMessage } from '@/lib/errors';
+import { useCatalogueItems } from './useCatalogueItems';
+import { useCataloguePacks } from './useCataloguePacks';
+import type { CatalogItem, DeactivateTarget, Pack } from './types';
 
-interface UseCatalogueResult {
-  items: CatalogItem[];
-  packs: Pack[];
-  loading: boolean;
-  loadError: string | null;
-  tab: 'catalogue' | 'packs';
-  setTab: (tab: 'catalogue' | 'packs') => void;
-  creating: boolean;
-  setCreating: (v: boolean) => void;
-  editingId: string | null;
-  setEditingId: (id: string | null) => void;
-  expandedPack: string | null;
-  setExpandedPack: (id: string | null) => void;
-  newPackName: string;
-  setNewPackName: (v: string) => void;
-  deleteTarget: DeleteTarget | null;
-  setDeleteTarget: (t: DeleteTarget | null) => void;
-  removePackItemTarget: RemovePackItemTarget | null;
-  setRemovePackItemTarget: (t: RemovePackItemTarget | null) => void;
-  pendingPackId: string | null;
-  fetchData: () => Promise<void>;
-  createItem: (data: CatalogItemFormValues) => Promise<boolean>;
-  updateItem: (id: string, data: CatalogItemFormValues) => Promise<boolean>;
-  reactivateItem: (item: CatalogItem) => Promise<void>;
-  reactivatePack: (pack: Pack) => Promise<void>;
-  confirmDelete: () => Promise<void>;
-  createPack: () => Promise<void>;
-  addItemToPack: (pack: Pack, catalogItem: CatalogItem, quantity: number) => Promise<void>;
-  removeItemFromPack: (pack: Pack, catalogItemId: string) => Promise<void>;
-  confirmRemovePackItem: () => Promise<void>;
-  updateItemQty: (pack: Pack, catalogItemId: string, quantity: number) => Promise<void>;
-}
+/** Hook composite de la page Catalogue : charge le catalogue et les packs au
+ *  montage, et orchestre la désactivation (même boîte de dialogue pour un
+ *  équipement ou un pack). Le CRUD détaillé vit dans {@link useCatalogueItems}
+ *  et {@link useCataloguePacks} — chaque mutation y met à jour l'état local à
+ *  partir de la réponse de l'API plutôt que de tout recharger ; seul l'import
+ *  CSV en masse recharge le catalogue seul (jamais les packs), car sa réponse
+ *  ne décrit pas individuellement chaque équipement créé/réactivé. */
+export function useCatalogue() {
+  const itemsApi = useCatalogueItems();
+  const packsApi = useCataloguePacks();
 
-/** Chargement, recherche et CRUD du catalogue d'equipements et des packs
- *  (creation/edition/desactivation d'equipements, creation/desactivation de
- *  packs, ajout/retrait/quantite des equipements d'un pack). */
-export function useCatalogue(): UseCatalogueResult {
-  const [items, setItems] = useState<CatalogItem[]>([]);
-  const [packs, setPacks] = useState<Pack[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [tab, setTab] = useState<'catalogue' | 'packs'>('catalogue');
-  const [creating, setCreating] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [expandedPack, setExpandedPack] = useState<string | null>(null);
-  const [newPackName, setNewPackName] = useState('');
-  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
-  const [removePackItemTarget, setRemovePackItemTarget] = useState<RemovePackItemTarget | null>(null);
-  // Pack en cours de modification (ajout/retrait/quantité) — désactive ses
-  // boutons +/- pendant la requête pour éviter une closure périmée en cas de
-  // clics rapprochés (le PUT remplace toute la liste d'items du pack).
-  const [pendingPackId, setPendingPackId] = useState<string | null>(null);
+  const [deactivateTarget, setDeactivateTarget] = useState<DeactivateTarget | null>(null);
+  const [deactivating, setDeactivating] = useState(false);
 
-  const fetchData = async () => {
+  const fetchData = async (): Promise<void> => {
     try {
       const [catalogData, packsData] = await Promise.all([
         api.get<CatalogItem[]>('/equipment/catalog'),
         api.get<Pack[]>('/equipment/packs'),
       ]);
-      setItems(catalogData);
-      setPacks(packsData);
+      itemsApi.setItems(catalogData);
+      packsApi.setPacks(packsData);
       setLoadError(null);
     } catch (e: unknown) {
       setLoadError(errorMessage(e, 'Erreur lors du chargement du catalogue'));
@@ -76,147 +40,61 @@ export function useCatalogue(): UseCatalogueResult {
 
   useEffect(() => { fetchData(); }, []);
 
-  const createItem = async (data: CatalogItemFormValues): Promise<boolean> => {
+  const confirmDeactivate = async (): Promise<void> => {
+    if (!deactivateTarget) return;
+    setDeactivating(true);
     try {
-      await api.post('/equipment/catalog', data);
-      toast({ title: 'Equipement ajoute au catalogue', variant: 'success' });
-      setCreating(false);
-      await fetchData();
-      return true;
-    } catch (e: unknown) {
-      showActionError(e, "Erreur lors de l'ajout");
-      return false;
-    }
-  };
-
-  const updateItem = async (id: string, data: CatalogItemFormValues): Promise<boolean> => {
-    try {
-      await api.put(`/equipment/catalog/${id}`, data);
-      toast({ title: 'Equipement mis a jour', variant: 'success' });
-      setEditingId(null);
-      await fetchData();
-      return true;
-    } catch (e: unknown) {
-      showActionError(e, 'Erreur lors de la mise a jour');
-      return false;
-    }
-  };
-
-  const reactivateItem = async (item: CatalogItem) => {
-    try {
-      await api.put(`/equipment/catalog/${item.id}`, { active: true });
-      toast({ title: 'Equipement réactivé', variant: 'success' });
-      await fetchData();
-    } catch (e: unknown) {
-      showActionError(e, 'Erreur lors de la réactivation');
-    }
-  };
-
-  const reactivatePack = async (pack: Pack) => {
-    try {
-      await api.put(`/equipment/packs/${pack.id}`, { active: true });
-      toast({ title: 'Pack réactivé', variant: 'success' });
-      await fetchData();
-    } catch (e: unknown) {
-      showActionError(e, 'Erreur lors de la réactivation');
-    }
-  };
-
-  const confirmDelete = async () => {
-    if (!deleteTarget) return;
-    try {
-      if (deleteTarget.type === 'item') {
-        await api.delete(`/equipment/catalog/${deleteTarget.id}`);
-        toast({ title: 'Equipement desactive', variant: 'success' });
+      if (deactivateTarget.type === 'item') {
+        await itemsApi.deactivateItem(deactivateTarget.id);
       } else {
-        await api.delete(`/equipment/packs/${deleteTarget.id}`);
-        toast({ title: 'Pack desactive', variant: 'success' });
+        await packsApi.deactivatePack(deactivateTarget.id);
       }
-      await fetchData();
-    } catch (e: unknown) {
-      showActionError(e, 'Erreur lors de la desactivation');
     } finally {
-      setDeleteTarget(null);
-    }
-  };
-
-  const createPack = async () => {
-    if (!newPackName.trim()) {
-      toast({ title: 'Veuillez saisir un nom pour le pack', variant: 'destructive' });
-      return;
-    }
-    try {
-      await api.post('/equipment/packs', { name: newPackName.trim() });
-      toast({ title: 'Pack cree', variant: 'success' });
-      setNewPackName('');
-      await fetchData();
-    } catch (e: unknown) {
-      showActionError(e, 'Erreur lors de la creation du pack');
-    }
-  };
-
-  const addItemToPack = async (pack: Pack, catalogItem: CatalogItem, quantity: number) => {
-    const current = packs.find((p) => p.id === pack.id) ?? pack;
-    const newItems = buildAddItemPayload(current.items, catalogItem.id, quantity);
-    setPendingPackId(pack.id);
-    try {
-      await api.put(`/equipment/packs/${pack.id}`, { items: newItems });
-      await fetchData();
-    } catch (e: unknown) {
-      showActionError(e, "Erreur lors de l'ajout de l'équipement au pack");
-    } finally {
-      setPendingPackId(null);
-    }
-  };
-
-  const removeItemFromPack = async (pack: Pack, catalogItemId: string) => {
-    const current = packs.find((p) => p.id === pack.id) ?? pack;
-    const newItems = buildRemoveItemPayload(current.items, catalogItemId);
-    setPendingPackId(pack.id);
-    try {
-      await api.put(`/equipment/packs/${pack.id}`, { items: newItems });
-      await fetchData();
-    } catch (e: unknown) {
-      showActionError(e, "Erreur lors du retrait de l'équipement");
-    } finally {
-      setPendingPackId(null);
-    }
-  };
-
-  const confirmRemovePackItem = async () => {
-    if (!removePackItemTarget) return;
-    const { pack, catalogItemId } = removePackItemTarget;
-    setRemovePackItemTarget(null);
-    await removeItemFromPack(pack, catalogItemId);
-  };
-
-  const updateItemQty = async (pack: Pack, catalogItemId: string, quantity: number) => {
-    if (quantity < 1) return;
-    const current = packs.find((p) => p.id === pack.id) ?? pack;
-    const newItems = buildUpdateQuantityPayload(current.items, catalogItemId, quantity);
-    setPendingPackId(pack.id);
-    try {
-      await api.put(`/equipment/packs/${pack.id}`, { items: newItems });
-      await fetchData();
-    } catch (e: unknown) {
-      showActionError(e, 'Erreur lors de la mise à jour de la quantité');
-    } finally {
-      setPendingPackId(null);
+      setDeactivating(false);
+      setDeactivateTarget(null);
     }
   };
 
   return {
-    items, packs, loading, loadError,
-    tab, setTab,
-    creating, setCreating,
-    editingId, setEditingId,
-    expandedPack, setExpandedPack,
-    newPackName, setNewPackName,
-    deleteTarget, setDeleteTarget,
-    removePackItemTarget, setRemovePackItemTarget,
-    pendingPackId,
-    fetchData, createItem, updateItem, reactivateItem, reactivatePack,
-    confirmDelete, createPack, addItemToPack, removeItemFromPack,
-    confirmRemovePackItem, updateItemQty,
+    items: itemsApi.items,
+    packs: packsApi.packs,
+    loading,
+    loadError,
+    tab,
+    setTab,
+    creating: itemsApi.creating,
+    setCreating: itemsApi.setCreating,
+    editingId: itemsApi.editingId,
+    setEditingId: itemsApi.setEditingId,
+    expandedPack: packsApi.expandedPack,
+    setExpandedPack: packsApi.setExpandedPack,
+    newPackName: packsApi.newPackName,
+    setNewPackName: packsApi.setNewPackName,
+    deactivateTarget,
+    setDeactivateTarget,
+    deactivating,
+    removePackItemTarget: packsApi.removePackItemTarget,
+    setRemovePackItemTarget: packsApi.setRemovePackItemTarget,
+    removingPackItem: packsApi.removingPackItem,
+    duplicateTarget: packsApi.duplicateTarget,
+    setDuplicateTarget: packsApi.setDuplicateTarget,
+    duplicateName: packsApi.duplicateName,
+    setDuplicateName: packsApi.setDuplicateName,
+    duplicating: packsApi.duplicating,
+    pendingPackId: packsApi.pendingPackId,
+    pendingItemId: itemsApi.pendingItemId,
+    fetchData,
+    reloadCatalog: itemsApi.reloadCatalog,
+    createItem: itemsApi.createItem,
+    updateItem: itemsApi.updateItem,
+    reactivateItem: itemsApi.reactivateItem,
+    reactivatePack: packsApi.reactivatePack,
+    confirmDeactivate,
+    createPack: packsApi.createPack,
+    addItemToPack: packsApi.addItemToPack,
+    removeItemFromPack: packsApi.removeItemFromPack,
+    confirmRemovePackItem: packsApi.confirmRemovePackItem,
+    updateItemQty: packsApi.updateItemQty,
+    confirmDuplicate: packsApi.confirmDuplicate,
   };
 }

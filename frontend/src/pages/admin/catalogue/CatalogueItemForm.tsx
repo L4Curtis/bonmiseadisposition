@@ -26,6 +26,10 @@ export function CatalogueItemForm({ item, onSave, onCancel }: CatalogueItemFormP
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
+  // Suffixe d'id stable par instance : la création et l'édition inline
+  // peuvent en théorie s'afficher en même temps (formulaires indépendants),
+  // il faut donc éviter des id en double dans le DOM.
+  const idSuffix = item?.id ?? 'new';
 
   const handleSave = async () => {
     const validationError = validateCatalogItemForm(form);
@@ -52,9 +56,9 @@ export function CatalogueItemForm({ item, onSave, onCancel }: CatalogueItemFormP
       )}
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1">
-          <Label>Categorie</Label>
+          <Label htmlFor={`catalogue-item-category-${idSuffix}`}>Catégorie</Label>
           <Select value={form.category} onValueChange={(v) => setForm((f) => ({ ...f, category: v }))}>
-            <SelectTrigger>
+            <SelectTrigger id={`catalogue-item-category-${idSuffix}`}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -65,23 +69,38 @@ export function CatalogueItemForm({ item, onSave, onCancel }: CatalogueItemFormP
           </Select>
         </div>
         <div className="space-y-1">
-          <Label>Marque</Label>
-          <Input value={form.brand} onChange={(e) => setForm((f) => ({ ...f, brand: e.target.value }))} placeholder="Lenovo" />
+          <Label htmlFor={`catalogue-item-brand-${idSuffix}`}>Marque</Label>
+          <Input
+            id={`catalogue-item-brand-${idSuffix}`}
+            value={form.brand}
+            onChange={(e) => setForm((f) => ({ ...f, brand: e.target.value }))}
+            placeholder="Lenovo"
+          />
         </div>
         <div className="space-y-1">
-          <Label>Modele</Label>
-          <Input value={form.model} onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))} placeholder="ThinkBook 16 G6" />
+          <Label htmlFor={`catalogue-item-model-${idSuffix}`}>Modèle</Label>
+          <Input
+            id={`catalogue-item-model-${idSuffix}`}
+            value={form.model}
+            onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))}
+            placeholder="ThinkBook 16 G6"
+          />
         </div>
         <div className="space-y-1">
-          <Label>Description</Label>
-          <Input value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="Optionnel" />
+          <Label htmlFor={`catalogue-item-description-${idSuffix}`}>Description</Label>
+          <Input
+            id={`catalogue-item-description-${idSuffix}`}
+            value={form.description}
+            onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+            placeholder="Optionnel"
+          />
         </div>
       </div>
       <div className="flex gap-2">
         <Button
           size="sm"
           disabled={saving || saved}
-          className={saved ? 'bg-green-600 hover:bg-green-600 text-white' : ''}
+          className={saved ? 'bg-green-600 hover:bg-green-600 dark:bg-green-500 dark:hover:bg-green-500 text-white' : ''}
           onClick={handleSave}
         >
           {saved ? <Check className="h-3 w-3" /> : null}

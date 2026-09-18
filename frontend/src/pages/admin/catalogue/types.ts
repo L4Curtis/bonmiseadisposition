@@ -1,14 +1,14 @@
 export const CATEGORIES: Record<string, string> = {
   pc_portable: 'PC Portable',
   pc_fixe: 'PC Fixe',
-  ecran: 'Ecran',
+  ecran: 'Écran',
   souris: 'Souris',
   clavier: 'Clavier',
   casque: 'Casque',
-  telephone: 'Telephone',
+  telephone: 'Téléphone',
   housse: 'Housse',
   dock: 'Dock',
-  cable: 'Cable',
+  cable: 'Câble',
   autre: 'Autre',
 };
 
@@ -29,7 +29,8 @@ export interface Pack {
   items: { id: string; catalogItem: CatalogItem; quantity: number; order: number }[];
 }
 
-export type DeleteTarget =
+/** Cible de la boîte de confirmation de désactivation (équipement ou pack). */
+export type DeactivateTarget =
   | { type: 'item'; id: string; label: string }
   | { type: 'pack'; id: string; label: string };
 
@@ -40,4 +41,12 @@ export interface CatalogItemFormValues {
   brand: string;
   model: string;
   description: string;
+}
+
+/** Réponse de POST /equipment/catalog/import. */
+export interface CatalogImportSummary {
+  created: number;
+  updated: number;
+  skipped: number;
+  errors: { index: number; message: string }[];
 }
