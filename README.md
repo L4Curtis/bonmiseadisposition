@@ -402,6 +402,32 @@ Sans adresse, la personne ne reçoit aucun lien : le bon se signe **en présenti
 technicien. L'envoi et le renvoi par email sont refusés avec un message explicite. Ces comptes ne peuvent
 pas se connecter et la synchronisation Active Directory ne les touche jamais.
 
+## Catalogue et filiales : import et export CSV
+
+Admin → Catalogue et Admin → Filiales proposent un export CSV, un modèle téléchargeable et un import.
+Le modèle rappelle les valeurs acceptées (catégories d'équipement notamment) ; les lignes commençant par
+« # » y sont des commentaires, ignorées à l'import. L'import affiche un aperçu, puis un compte rendu :
+créés, mis à jour, ignorés, et erreurs ligne par ligne.
+
+L'export des filiales inclut les images (logo, cachet) en base64 uniquement sur demande, le fichier
+devenant alors volumineux. À l'import, une image est acceptée seulement si ses octets d'en-tête
+correspondent réellement à du PNG ou du JPEG.
+
+Les éléments désactivés sont masqués par défaut dans les deux pages, un contrôle permet de les afficher.
+
+## Données de démonstration
+
+`backend/scripts/demo-data.sql` remplit une instance de test : filiales, collaborateurs (dont des comptes
+sans adresse), catalogue, packs et 140 bons sur douze mois avec signatures, emails, contestations et
+journal d'audit. Tout porte la marque `[DEMO]`, le script est rejouable et se termine par un récapitulatif.
+
+```sh
+# depuis le conteneur de la base (DATABASE_URL n'y existe pas : préciser l'utilisateur)
+psql -U app -d bons_disposition -v ON_ERROR_STOP=1 -f demo-data.sql
+```
+
+`backend/scripts/demo-data-a-coller.txt` contient la même chose prête à coller dans une console web.
+
 ## SSO Entra : attribution des rôles
 
 Le rôle est recalculé à **chaque** connexion SSO à partir des groupes reçus dans le jeton, selon les

@@ -8,14 +8,19 @@ import {
 } from 'lucide-react';
 import { PackItemAdder } from './PackItemAdder';
 import { PackItemRow } from './PackItemRow';
+import { StatusFilterSelect } from './StatusFilterSelect';
+import type { ItemStatusFilter } from './lib/statusFilter';
 import type {
   CatalogItem, DeactivateTarget, Pack, RemovePackItemTarget,
 } from './types';
 
 interface PackListProps {
   packs: Pack[];
+  totalPacksCount: number;
   allItems: CatalogItem[];
   loading: boolean;
+  statusFilter: ItemStatusFilter;
+  onStatusFilterChange: (value: ItemStatusFilter) => void;
   newPackName: string;
   onNewPackNameChange: (v: string) => void;
   onCreatePack: () => void;
@@ -30,24 +35,32 @@ interface PackListProps {
   onRemoveItemRequest: (target: RemovePackItemTarget) => void;
 }
 
+function totalQuantity(pack: Pack): number {
+  return pack.items.reduce((sum, item) => sum + item.quantity, 0);
+}
+
 export function PackList({
-  packs, allItems, loading, newPackName, onNewPackNameChange, onCreatePack,
+  packs, totalPacksCount, allItems, loading, statusFilter, onStatusFilterChange,
+  newPackName, onNewPackNameChange, onCreatePack,
   expandedPack, onToggleExpand, pendingPackId, onDeactivateRequest, onReactivatePack,
   onDuplicateRequest, onAddItemToPack, onUpdateItemQty, onRemoveItemRequest,
 }: PackListProps) {
   return (
     <div className="space-y-3">
-      <div className="flex gap-2">
-        <Input
-          placeholder="Nom du pack (ex: Pack nouveau collaborateur)"
-          aria-label="Nom du nouveau pack"
-          value={newPackName}
-          onChange={(e) => onNewPackNameChange(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && onCreatePack()}
-        />
-        <Button size="sm" onClick={onCreatePack}>
-          <Plus className="h-4 w-4" /> Créer
-        </Button>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex gap-2 flex-1 min-w-52">
+          <Input
+            placeholder="Nom du pack (ex: Pack nouveau collaborateur)"
+            aria-label="Nom du nouveau pack"
+            value={newPackName}
+            onChange={(e) => onNewPackNameChange(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && onCreatePack()}
+          />
+          <Button size="sm" onClick={onCreatePack}>
+            <Plus className="h-4 w-4" /> Créer
+          </Button>
+        </div>
+        <StatusFilterSelect value={statusFilter} onChange={onStatusFilterChange} label="Filtrer les packs par état" />
       </div>
       <div className="space-y-2">
         {loading ? (
@@ -63,6 +76,12 @@ export function PackList({
               </CardContent>
             </Card>
           ))
+        ) : packs.length === 0 ? (
+          <p className="py-8 text-center text-sm text-muted-foreground/70">
+            {totalPacksCount === 0
+              ? 'Aucun pack pour le moment — créez-en un ci-dessus.'
+              : 'Aucun pack ne correspond à ce filtre.'}
+          </p>
         ) : packs.map((pack) => {
           const packPending = pendingPackId === pack.id;
           return (
@@ -81,7 +100,8 @@ export function PackList({
                   )}
                   <Package className="h-4 w-4 text-primary" />
                   {pack.name}
-                  <Badge variant="outline">{pack.items.length} item(s)</Badge>
+                  <Badge variant="outline">{pack.items.length} article(s)</Badge>
+                  <Badge variant="outline">{totalQuantity(pack)} unité(s)</Badge>
                   {!pack.active && (
                     <Badge variant="outline" className="border-destructive/40 text-destructive">
                       Désactivé

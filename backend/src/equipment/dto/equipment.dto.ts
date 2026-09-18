@@ -155,8 +155,14 @@ export class UpdatePackDto {
 // ferait échouer toute la requête (400) dès la première ligne invalide,
 // contrairement au contrat attendu.
 
+/** Message d'erreur listant explicitement les valeurs acceptées — un
+ *  administrateur import un CSV externe (Excel, export d'un autre outil...)
+ *  et doit pouvoir corriger sa colonne catégorie sans consulter le code. */
+const CATEGORY_ERROR_MESSAGE =
+  `category invalide. Valeurs acceptées : ${Object.values(EquipmentCategoryEnum).join(', ')}.`;
+
 export class ImportCatalogItemDto {
-  @IsEnum(EquipmentCategoryEnum, { message: 'category doit être une valeur valide du catalogue.' })
+  @IsEnum(EquipmentCategoryEnum, { message: CATEGORY_ERROR_MESSAGE })
   category!: EquipmentCategoryEnum;
 
   @IsString({ message: 'brand est requis.' })

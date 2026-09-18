@@ -161,6 +161,18 @@ Si l'application tourne déjà avec la stack tout-en-un (`docker-compose.prod.ym
 
 ---
 
+## Piège à éviter : deux stacks derrière le même proxy
+
+Si une deuxième instance (recette, démonstration) tourne sur le même réseau de proxy, **ses services
+doivent porter des noms uniques**. Deux stacks qui déclarent chacune un service `frontend` sur le même
+réseau créent un nom ambigu : le proxy résout alors `frontend` vers l'un ou l'autre conteneur, au hasard
+des requêtes. L'utilisateur est servi tantôt par la recette, tantôt par la production, avec la base
+correspondante — d'où des symptômes déroutants : configuration qui « revient » à l'ancienne valeur,
+connexion qui échoue une fois sur deux, données qui disparaissent puis réapparaissent.
+
+Donnez donc un nom de service et un `container_name` distincts à chaque instance (`frontend-test`,
+`bons-test-frontend`), et faites pointer le proxy sur ce nom précis.
+
 ## Dépannage
 
 | Symptôme | Cause probable |

@@ -131,8 +131,16 @@ export function parseCatalogCsv(text: string): ParseCatalogCsvResult {
   return { rows, invalidRows };
 }
 
-function escapeCsvField(value: string): string {
-  return /[;,"\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+/** Échappe une cellule CSV — reproduit fidèlement `escapeCsvCell` du backend
+ *  (`backend/src/common/bon-predicates.ts`) : chaque cellule est systéma-
+ *  tiquement entre guillemets (guillemets internes doublés), et toute valeur
+ *  commençant par `=`, `+`, `-`, `@`, une tabulation ou un retour chariot est
+ *  préfixée d'une apostrophe — protection contre l'injection de formule à
+ *  l'ouverture du fichier dans Excel/LibreOffice. */
+export function escapeCsvCell(value: string): string {
+  let s = String(value ?? '').replace(/"/g, '""');
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  return `"${s}"`;
 }
 
 /** Génère le CSV du catalogue affiché, mêmes colonnes que l'import,
@@ -140,10 +148,39 @@ function escapeCsvField(value: string): string {
 export function buildCatalogCsv(
   items: { category: string; brand: string; model: string; description?: string }[],
 ): string {
-  const header = EXPECTED_COLUMNS.join(';');
+  const header = EXPECTED_COLUMNS.map(escapeCsvCell).join(';');
   const lines = items.map((item) => [item.category, item.brand, item.model, item.description ?? '']
-    .map(escapeCsvField)
+    .map(escapeCsvCell)
     .join(';'));
+  return [header, ...lines].join('\r\n');
+}
+
+/** Un équipement d'exemple par catégorie autorisée, pour le modèle CSV
+ *  téléchargeable : la personne qui importe découvre ainsi les valeurs
+ *  acceptées pour `categorie` sans avoir besoin de documentation externe. */
+const TEMPLATE_EXAMPLES: Record<string, { brand: string; model: string; description: string }> = {
+  pc_portable: { brand: 'Lenovo', model: 'ThinkPad T14', description: 'Ordinateur portable standard' },
+  pc_fixe: { brand: 'HP', model: 'EliteDesk 800', description: 'Poste fixe de bureau' },
+  ecran: { brand: 'Dell', model: 'P2422H', description: 'Écran 24 pouces' },
+  souris: { brand: 'Logitech', model: 'MX Master 3', description: 'Souris sans fil' },
+  clavier: { brand: 'Logitech', model: 'K120', description: 'Clavier filaire' },
+  casque: { brand: 'Jabra', model: 'Evolve2 40', description: 'Casque avec micro' },
+  telephone: { brand: 'Apple', model: 'iPhone SE', description: 'Téléphone professionnel' },
+  housse: { brand: 'Targus', model: 'Housse 15 pouces', description: 'Housse de protection' },
+  dock: { brand: 'Dell', model: 'WD19', description: "Station d'accueil USB-C" },
+  cable: { brand: 'Générique', model: 'Câble USB-C 1m', description: 'Câble de charge/données' },
+  autre: { brand: 'Divers', model: 'Article non catégorisé', description: 'À adapter selon le besoin' },
+};
+
+/** Génère un CSV modèle : en-tête + une ligne d'exemple par catégorie
+ *  autorisée (voir {@link TEMPLATE_EXAMPLES}), pour que l'import ne nécessite
+ *  aucune documentation externe. */
+export function buildCatalogTemplateCsv(): string {
+  const header = EXPECTED_COLUMNS.map(escapeCsvCell).join(';');
+  const lines = Object.keys(CATEGORIES).map((category) => {
+    const example = TEMPLATE_EXAMPLES[category] ?? { brand: 'Marque', model: 'Modèle', description: '' };
+    return [category, example.brand, example.model, example.description].map(escapeCsvCell).join(';');
+  });
   return [header, ...lines].join('\r\n');
 }
 

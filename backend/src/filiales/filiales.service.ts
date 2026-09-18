@@ -1,7 +1,9 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateFilialeDto, UpdateFilialeDto } from './dto/filiale.dto';
+import { CreateFilialeDto, UpdateFilialeDto, ImportFilialesDto, ImportFilialesResult } from './dto/filiale.dto';
+import { buildFilialesExportCsv, buildFilialesImportTemplateCsv } from './filiales-csv';
+import { importFilialeItems } from './filiales-import';
 import { existsSync, unlinkSync } from 'fs';
 import { join } from 'path';
 
@@ -89,5 +91,24 @@ export class FilialesService {
   private deleteFile(relativePath: string) {
     const fullPath = join(process.cwd(), 'data', relativePath);
     if (existsSync(fullPath)) unlinkSync(fullPath);
+  }
+
+  /** GET /filiales/export — CSV complet (logos/cachets en base64 uniquement
+   *  si `includeImages`, cf. filiales-csv.ts). */
+  async exportCsv(includeImages: boolean): Promise<string> {
+    const filiales = await this.prisma.filiale.findMany({ orderBy: { displayName: 'asc' } });
+    return buildFilialesExportCsv(filiales, includeImages);
+  }
+
+  /** GET /filiales/import/template — modèle CSV avec deux lignes d'exemple
+   *  commentées (cf. filiales-csv.ts). */
+  getImportTemplate(): string {
+    return buildFilialesImportTemplateCsv();
+  }
+
+  /** POST /filiales/import — voir filiales-import.ts pour le détail du
+   *  contrat (création / mise à jour / ignoré / erreur par ligne). */
+  async importFiliales(dto: ImportFilialesDto, userId: string): Promise<ImportFilialesResult> {
+    return importFilialeItems(this.prisma, dto.items, userId);
   }
 }

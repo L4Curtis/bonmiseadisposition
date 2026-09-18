@@ -1,7 +1,17 @@
-export function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+export function Toggle({
+  checked,
+  onChange,
+  id,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  /** Permet de lier un <Label htmlFor> externe à ce contrôle. */
+  id?: string;
+}) {
   return (
     <button
       type="button"
+      id={id}
       role="switch"
       aria-checked={checked}
       onClick={() => onChange(!checked)}

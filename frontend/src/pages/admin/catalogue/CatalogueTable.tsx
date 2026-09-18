@@ -3,15 +3,18 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
-  Plus, Pencil, Ban, ArrowUp, ArrowDown, ArrowUpDown,
+  Pencil, Ban, ArrowUp, ArrowDown, ArrowUpDown,
 } from 'lucide-react';
 import { CatalogueItemForm } from './CatalogueItemForm';
+import { CatalogueEmptyState } from './CatalogueEmptyState';
 import { CATEGORIES } from './types';
 import type { CatalogueSortKey, SortDirection } from './lib/search';
 import type { CatalogItem, CatalogItemFormValues, DeactivateTarget } from './types';
 
 interface CatalogueTableProps {
   items: CatalogItem[];
+  totalCount: number;
+  hasInactiveItems: boolean;
   loading: boolean;
   creating: boolean;
   editingId: string | null;
@@ -19,7 +22,6 @@ interface CatalogueTableProps {
   sortKey: CatalogueSortKey;
   sortDirection: SortDirection;
   onSort: (key: CatalogueSortKey) => void;
-  onStartCreating: () => void;
   onCreate: (data: CatalogItemFormValues) => Promise<boolean>;
   onCancelCreating: () => void;
   onStartEditing: (id: string) => void;
@@ -27,6 +29,10 @@ interface CatalogueTableProps {
   onCancelEditing: () => void;
   onDeactivateRequest: (target: DeactivateTarget) => void;
   onReactivate: (item: CatalogItem) => void;
+  onAddEquipment: () => void;
+  onImport: () => void;
+  onDownloadTemplate: () => void;
+  onResetFilters: () => void;
 }
 
 interface SortableHeaderProps {
@@ -58,19 +64,20 @@ function SortableHeader({ label, sortKey, activeKey, direction, onSort }: Sortab
 }
 
 export function CatalogueTable({
-  items, loading, creating, editingId, pendingItemId,
+  items, totalCount, hasInactiveItems, loading, creating, editingId, pendingItemId,
   sortKey, sortDirection, onSort,
-  onStartCreating, onCreate, onCancelCreating,
+  onCreate, onCancelCreating,
   onStartEditing, onUpdate, onCancelEditing,
   onDeactivateRequest, onReactivate,
+  onAddEquipment, onImport, onDownloadTemplate, onResetFilters,
 }: CatalogueTableProps) {
+  // Colonne Statut affichée seulement si des équipements désactivés sont
+  // effectivement visibles dans la liste filtrée — inutile quand ils sont
+  // masqués par le filtre d'état (cas par défaut).
+  const columnCount = hasInactiveItems ? 5 : 4;
+
   return (
     <div className="space-y-3">
-      <div className="flex justify-end">
-        <Button size="sm" onClick={onStartCreating}>
-          <Plus className="h-4 w-4" /> Ajouter un équipement
-        </Button>
-      </div>
       {creating && <CatalogueItemForm onSave={onCreate} onCancel={onCancelCreating} />}
       <Card>
         <CardContent className="p-0">
@@ -80,7 +87,9 @@ export function CatalogueTable({
                 <SortableHeader label="Catégorie" sortKey="category" activeKey={sortKey} direction={sortDirection} onSort={onSort} />
                 <SortableHeader label="Marque" sortKey="brand" activeKey={sortKey} direction={sortDirection} onSort={onSort} />
                 <SortableHeader label="Modèle" sortKey="model" activeKey={sortKey} direction={sortDirection} onSort={onSort} />
-                <SortableHeader label="Statut" sortKey="status" activeKey={sortKey} direction={sortDirection} onSort={onSort} />
+                {hasInactiveItems && (
+                  <SortableHeader label="Statut" sortKey="status" activeKey={sortKey} direction={sortDirection} onSort={onSort} />
+                )}
                 <th className="px-4 py-3" />
               </tr>
             </thead>
@@ -91,20 +100,26 @@ export function CatalogueTable({
                     <td className="px-4 py-2"><Skeleton className="h-4 w-20" /></td>
                     <td className="px-4 py-2"><Skeleton className="h-4 w-16" /></td>
                     <td className="px-4 py-2"><Skeleton className="h-4 w-28" /></td>
-                    <td className="px-4 py-2"><Skeleton className="h-5 w-12 rounded-full" /></td>
+                    {hasInactiveItems && <td className="px-4 py-2"><Skeleton className="h-5 w-16 rounded-full" /></td>}
                     <td className="px-4 py-2"><Skeleton className="h-8 w-16" /></td>
                   </tr>
                 ))
               ) : items.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground/70">
-                    Aucun équipement ne correspond à la recherche
+                  <td colSpan={columnCount} className="p-0">
+                    <CatalogueEmptyState
+                      variant={totalCount === 0 ? 'empty-catalogue' : 'no-results'}
+                      onAddEquipment={onAddEquipment}
+                      onImport={onImport}
+                      onDownloadTemplate={onDownloadTemplate}
+                      onResetFilters={onResetFilters}
+                    />
                   </td>
                 </tr>
               ) : items.map((item) => (
-                <tr key={item.id} className="border-b last:border-0 hover:bg-muted/40">
+                <tr key={item.id} className="group border-b last:border-0 hover:bg-muted/40">
                   {editingId === item.id ? (
-                    <td colSpan={5} className="p-3">
+                    <td colSpan={columnCount} className="p-3">
                       <CatalogueItemForm
                         item={item}
                         onSave={(data) => onUpdate(item.id, data)}
@@ -115,17 +130,28 @@ export function CatalogueTable({
                     <>
                       <td className="px-4 py-2">{CATEGORIES[item.category]}</td>
                       <td className="px-4 py-2">{item.brand}</td>
-                      <td className="px-4 py-2">{item.model}</td>
-                      <td className="px-4 py-2">
-                        <Badge
-                          variant={item.active ? 'success' : 'outline'}
-                          className={item.active ? '' : 'border-destructive/40 text-destructive'}
-                        >
-                          {item.active ? 'Actif' : 'Désactivé'}
-                        </Badge>
+                      <td className="px-4 py-2 max-w-xs">
+                        <div className="font-medium text-foreground">{item.model}</div>
+                        {item.description && (
+                          <div
+                            className="truncate text-xs text-muted-foreground/70"
+                            title={item.description}
+                          >
+                            {item.description}
+                          </div>
+                        )}
                       </td>
+                      {hasInactiveItems && (
+                        <td className="px-4 py-2">
+                          {!item.active && (
+                            <Badge variant="outline" className="border-destructive/40 text-destructive">
+                              Désactivé
+                            </Badge>
+                          )}
+                        </td>
+                      )}
                       <td className="px-4 py-2">
-                        <div className="flex gap-1 justify-end">
+                        <div className="flex gap-1 justify-end opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                           <Button
                             variant="ghost"
                             size="icon"

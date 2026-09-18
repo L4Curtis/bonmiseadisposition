@@ -1,17 +1,29 @@
 import { Button } from '@/components/ui/button';
-import { Upload, Download } from 'lucide-react';
+import {
+  Upload, Download, FileDown, Plus,
+} from 'lucide-react';
 
 interface CatalogueToolbarProps {
+  onAddEquipment: () => void;
   onImport: () => void;
   onExport: () => void;
   exportDisabled: boolean;
+  onDownloadTemplate: () => void;
 }
 
-/** Actions globales du catalogue : import CSV en masse et export du catalogue
- *  actuellement affiché (recherche/filtre appliqués). */
-export function CatalogueToolbar({ onImport, onExport, exportDisabled }: CatalogueToolbarProps) {
+/** Actions du catalogue, groupées par importance : le modèle CSV et l'import/
+ *  export restent discrets (ghost/outline) pour ne pas concurrencer
+ *  visuellement l'action principale « Ajouter un équipement » (bouton plein,
+ *  à droite). */
+export function CatalogueToolbar({
+  onAddEquipment, onImport, onExport, exportDisabled, onDownloadTemplate,
+}: CatalogueToolbarProps) {
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-1.5">
+      <Button type="button" variant="ghost" size="sm" onClick={onDownloadTemplate}>
+        <FileDown className="h-4 w-4" />
+        Modèle CSV
+      </Button>
       <Button type="button" variant="outline" size="sm" onClick={onImport}>
         <Upload className="h-4 w-4" />
         Importer un CSV
@@ -19,6 +31,10 @@ export function CatalogueToolbar({ onImport, onExport, exportDisabled }: Catalog
       <Button type="button" variant="outline" size="sm" onClick={onExport} disabled={exportDisabled}>
         <Download className="h-4 w-4" />
         Exporter CSV
+      </Button>
+      <Button type="button" size="sm" onClick={onAddEquipment} className="ml-1">
+        <Plus className="h-4 w-4" />
+        Ajouter un équipement
       </Button>
     </div>
   );

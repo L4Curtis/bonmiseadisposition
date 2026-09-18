@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { buildCatalogCsv, parseCatalogCsv } from '../csv';
+import {
+  buildCatalogCsv, buildCatalogTemplateCsv, escapeCsvCell, parseCatalogCsv,
+} from '../csv';
+import { CATEGORIES } from '../../types';
 
 describe('parseCatalogCsv', () => {
   it('parse un CSV valide separe par des points-virgules', () => {
@@ -59,15 +62,76 @@ describe('parseCatalogCsv', () => {
   });
 });
 
+describe('escapeCsvCell — anti-injection de formule (parite avec le backend)', () => {
+  it.each([
+    ['=', '=SOMME(A1)'],
+    ['+', '+1234567'],
+    ['-', '-1234567'],
+    ['@', '@cmd|/c calc'],
+    ['tabulation', '\tcmd'],
+    ['retour chariot', '\rcmd'],
+  ])('préfixe d’une apostrophe une cellule commençant par « %s »', (_label, value) => {
+    expect(escapeCsvCell(value)).toBe(`"'${value}"`);
+  });
+
+  it('n’altère pas une cellule sans caractère déclencheur de formule', () => {
+    expect(escapeCsvCell('Dell')).toBe('"Dell"');
+  });
+
+  it('echappe une valeur contenant le separateur point-virgule', () => {
+    expect(escapeCsvCell('Ultrabook; 14 pouces')).toBe('"Ultrabook; 14 pouces"');
+  });
+
+  it('double les guillemets internes', () => {
+    expect(escapeCsvCell('12" écran')).toBe('"12"" écran"');
+  });
+
+  it('echappe un retour a la ligne interne', () => {
+    expect(escapeCsvCell('ligne 1\nligne 2')).toBe('"ligne 1\nligne 2"');
+  });
+});
+
 describe('buildCatalogCsv', () => {
-  it('genere un CSV avec en-tete et echappe les champs contenant le separateur', () => {
+  it('genere un CSV avec en-tete et echappe chaque cellule (guillemets systematiques)', () => {
     const csv = buildCatalogCsv([
       {
         category: 'pc_portable', brand: 'Lenovo', model: 'ThinkPad X1', description: 'Ultrabook; 14"',
       },
     ]);
     const lines = csv.split('\r\n');
-    expect(lines[0]).toBe('categorie;marque;modele;description');
-    expect(lines[1]).toBe('pc_portable;Lenovo;ThinkPad X1;"Ultrabook; 14"""');
+    expect(lines[0]).toBe('"categorie";"marque";"modele";"description"');
+    expect(lines[1]).toBe('"pc_portable";"Lenovo";"ThinkPad X1";"Ultrabook; 14"""');
+  });
+
+  it('protege une valeur qui ressemble a une formule (injection CSV)', () => {
+    const csv = buildCatalogCsv([
+      {
+        category: 'autre', brand: '=cmd', model: '+1', description: '',
+      },
+    ]);
+    const lines = csv.split('\r\n');
+    expect(lines[1]).toBe('"autre";"\'=cmd";"\'+1";""');
+  });
+});
+
+describe('buildCatalogTemplateCsv', () => {
+  it('genere une ligne d\'exemple pour chaque categorie autorisee', () => {
+    const csv = buildCatalogTemplateCsv();
+    const lines = csv.split('\r\n');
+    const categoryKeys = Object.keys(CATEGORIES);
+
+    expect(lines[0]).toBe('"categorie";"marque";"modele";"description"');
+    expect(lines).toHaveLength(categoryKeys.length + 1);
+
+    categoryKeys.forEach((key, idx) => {
+      expect(lines[idx + 1].startsWith(`"${key}";`)).toBe(true);
+    });
+  });
+
+  it('produit un CSV reimportable sans ligne invalide', () => {
+    const csv = buildCatalogTemplateCsv();
+    const { rows, invalidRows } = parseCatalogCsv(csv);
+    expect(invalidRows).toEqual([]);
+    expect(rows).toHaveLength(Object.keys(CATEGORIES).length);
   });
 });

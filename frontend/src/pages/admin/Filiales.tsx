@@ -1,12 +1,17 @@
 import { useAuth } from '@/contexts/AuthContext';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Plus } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { useFiliales } from './filiales/useFiliales';
+import { useFilialesImport } from './filiales/useFilialesImport';
+import { useFilialesExport } from './filiales/useFilialesExport';
+import { useFilialesStatusFilter } from './filiales/useFilialesStatusFilter';
 import { FilialeForm } from './filiales/FilialeForm';
 import { FilialeListItem } from './filiales/FilialeListItem';
 import { DeleteFilialeDialog } from './filiales/DeleteFilialeDialog';
+import { FilialesActionsBar } from './filiales/FilialesActionsBar';
+import { FilialesImportDialog } from './filiales/FilialesImportDialog';
+import { FilialesStatusFilter } from './filiales/FilialesStatusFilter';
 
 function FilialesSkeleton() {
   return (
@@ -57,13 +62,26 @@ export function FilialesPage() {
     uploadFile,
   } = useFiliales();
 
+  const importState = useFilialesImport(fetchFiliales);
+  const {
+    exporting, exportCsv, downloadingTemplate, downloadTemplate,
+  } = useFilialesExport();
+  const {
+    showInactive, setShowInactive, visibleFiliales, inactiveCount,
+  } = useFilialesStatusFilter(filiales);
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-foreground">Filiales</h1>
-        <Button size="sm" onClick={() => setCreating(true)}>
-          <Plus className="h-4 w-4" /> Ajouter
-        </Button>
+        <FilialesActionsBar
+          onAdd={() => setCreating(true)}
+          onImport={importState.openDialog}
+          onExportCsv={() => void exportCsv(false)}
+          onExportCsvWithImages={() => void exportCsv(true)}
+          onDownloadTemplate={() => void downloadTemplate()}
+          busy={exporting || downloadingTemplate}
+        />
       </div>
 
       {creating && (
@@ -79,10 +97,20 @@ export function FilialesPage() {
         </div>
       )}
 
+      {!loading && !loadError && filiales.length > 0 && (
+        <div className="flex justify-end">
+          <FilialesStatusFilter
+            showInactive={showInactive}
+            onChange={setShowInactive}
+            inactiveCount={inactiveCount}
+          />
+        </div>
+      )}
+
       <div className="space-y-3">
         {loading ? (
           <FilialesSkeleton />
-        ) : filiales.map((f) => (
+        ) : visibleFiliales.map((f) => (
           <FilialeListItem
             key={f.id}
             filiale={f}
@@ -100,6 +128,11 @@ export function FilialesPage() {
             Aucune filiale configurée
           </div>
         )}
+        {!loading && !loadError && filiales.length > 0 && visibleFiliales.length === 0 && (
+          <div className="text-center py-10 text-sm text-muted-foreground/70">
+            Toutes les filiales sont désactivées
+          </div>
+        )}
       </div>
 
       <DeleteFilialeDialog
@@ -107,6 +140,8 @@ export function FilialesPage() {
         onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}
         onConfirm={remove}
       />
+
+      <FilialesImportDialog state={importState} />
     </div>
   );
 }

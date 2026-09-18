@@ -1,3 +1,5 @@
+import { matchesStatusFilter } from './statusFilter';
+import type { ItemStatusFilter } from './statusFilter';
 import type { CatalogItem } from '../types';
 
 export const MAX_RESULTS = 15;
@@ -8,6 +10,7 @@ export type SortDirection = 'asc' | 'desc';
 export interface CatalogueTableFilters {
   search: string;
   category: string;
+  status: ItemStatusFilter;
   sortKey: CatalogueSortKey;
   sortDirection: SortDirection;
 }
@@ -76,6 +79,7 @@ export function filterAndSortCatalogItems(
   const q = filters.search.trim();
   const filtered = items.filter((item) => {
     if (filters.category && item.category !== filters.category) return false;
+    if (!matchesStatusFilter(item.active, filters.status)) return false;
     return matchesCatalogQuery(item, q, categoryLabels);
   });
 

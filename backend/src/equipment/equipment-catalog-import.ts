@@ -57,6 +57,14 @@ export async function importCatalogItems(
       continue;
     }
 
+    // Ligne de commentaire du modèle CSV (« # Catégories acceptées : … ») :
+    // ignorée en silence au cas où le navigateur ne l'aurait pas filtrée.
+    const categorieBrute = (raw as { category?: unknown }).category;
+    if (typeof categorieBrute === 'string' && categorieBrute.trim().startsWith('#')) {
+      result.skipped += 1;
+      continue;
+    }
+
     const instance = plainToInstance(ImportCatalogItemDto, raw as Record<string, unknown>);
     const violations = await validate(instance);
     if (violations.length > 0) {

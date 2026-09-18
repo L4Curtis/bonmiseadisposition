@@ -4,6 +4,41 @@ Historique des évolutions notables de l'application. Les entrées les plus réc
 
 ---
 
+## 2026-09-18 — Catalogue, filiales et données de démonstration
+
+### Ajouté
+- **Page Catalogue repensée** : vrais onglets avec compteurs, barre d'outils sur une ligne, filtre d'état
+  (les éléments désactivés sont masqués par défaut, pour le catalogue comme pour les packs), description
+  visible sous le modèle, états vides qui proposent l'action suivante, colonne Statut affichée seulement
+  quand des éléments désactivés sont visibles.
+- **Modèle CSV du catalogue** : une ligne d'exemple par catégorie autorisée et un rappel des valeurs
+  acceptées, pour qu'un administrateur n'ait pas à deviner. Les lignes commençant par « # » sont des
+  commentaires, ignorées à l'import côté navigateur comme côté serveur.
+- **Import et export CSV des filiales** : export léger ou avec les images encodées en base64, modèle
+  téléchargeable, import avec aperçu puis compte rendu ligne par ligne (créées, mises à jour, ignorées).
+  Filtre d'état également sur les filiales.
+- **Jeu de données de démonstration** (`backend/scripts/demo-data.sql`, version à coller dans une console
+  dans `backend/scripts/demo-data-a-coller.txt`) : filiales, collaborateurs dont des comptes sans adresse,
+  catalogue, packs et 140 bons répartis sur douze mois avec signatures, emails, rappels, contestations et
+  journal d'audit. Rejouable, et suppression fournie.
+
+### Sécurité
+- **Injection de formules CSV** : les exports produits côté navigateur passent désormais par le même
+  échappement que le serveur (guillemets doublés, apostrophe devant `=`, `+`, `-`, `@`, tabulation et
+  retour chariot).
+- **Images importées** (logo et cachet des filiales) : type réellement vérifié par les octets d'en-tête
+  et non par l'extension, taille plafonnée, nom de fichier toujours généré par l'application.
+- **Import du catalogue** : message listant les catégories acceptées, doublons détectés à l'intérieur du
+  fichier, limite de 500 lignes.
+
+### Corrigé
+- **Configuration incohérente entre plusieurs conteneurs backend** : le cache mémoire de la configuration
+  n'était vidé que sur l'instance qui recevait l'enregistrement. La date de dernière écriture en base sert
+  désormais de version partagée, relue au plus toutes les cinq secondes : une modification se propage à
+  tous les conteneurs en quelques secondes.
+
+---
+
 ## 2026-09-18 — Collaborateurs sans compte Active Directory, et rôles SSO enfin diagnosticables
 
 Les compagnons de chantier n'ont pas de compte dans l'annuaire : ils n'existaient donc pas dans

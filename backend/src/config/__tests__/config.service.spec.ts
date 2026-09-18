@@ -68,3 +68,55 @@ describe('AppConfigService', () => {
     });
   });
 });
+
+describe('AppConfigService — cohérence entre plusieurs instances', () => {
+  // Le cache vit en mémoire : avec plusieurs conteneurs backend, une
+  // modification enregistrée par l'un laissait les autres servir l'ancienne
+  // valeur jusqu'à 5 minutes (connexion SSO renvoyant vers l'ancienne URL une
+  // fois sur deux). La date de dernière écriture sert de version partagée.
+  let prisma: ReturnType<typeof createMockPrismaService>;
+  let encryption: ReturnType<typeof createMockEncryptionService>;
+  let service: AppConfigService;
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    prisma = createMockPrismaService();
+    encryption = createMockEncryptionService();
+    prisma.appConfig.aggregate = jest.fn().mockResolvedValue({ _max: { updatedAt: new Date('2026-09-18T10:00:00Z') } });
+    service = new AppConfigService(
+      prisma as unknown as PrismaService,
+      encryption as unknown as EncryptionService,
+    );
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  function valeurStockee(value: string) {
+    prisma.appConfig.findUnique.mockResolvedValue({ category: 'entra', key: 'redirect_uri', value, encrypted: false });
+  }
+
+  it('relit la base quand une autre instance a modifié la configuration', async () => {
+    valeurStockee('https://ancienne.local/api/auth/callback');
+    expect(await service.get('entra', 'redirect_uri')).toBe('https://ancienne.local/api/auth/callback');
+
+    // Écriture par une AUTRE instance : la date de dernière écriture avance.
+    prisma.appConfig.aggregate = jest.fn().mockResolvedValue({ _max: { updatedAt: new Date('2026-09-18T10:05:00Z') } });
+    valeurStockee('https://nouvelle.local/api/auth/callback');
+
+    jest.advanceTimersByTime(6000); // au-delà de l'intervalle de vérification
+    expect(await service.get('entra', 'redirect_uri')).toBe('https://nouvelle.local/api/auth/callback');
+  });
+
+  it('sert le cache sans relire la base tant que rien ne change', async () => {
+    valeurStockee('https://stable.local/api/auth/callback');
+    await service.get('entra', 'redirect_uri');
+    const appelsApresPremiereLecture = prisma.appConfig.findUnique.mock.calls.length;
+
+    jest.advanceTimersByTime(6000);
+    await service.get('entra', 'redirect_uri');
+
+    expect(prisma.appConfig.findUnique.mock.calls.length).toBe(appelsApresPremiereLecture);
+  });
+});

@@ -2,16 +2,18 @@ import { useEffect, useMemo, useState } from 'react';
 import { CATEGORIES } from './types';
 import { filterAndSortCatalogItems } from './lib/search';
 import type { CatalogueSortKey, SortDirection } from './lib/search';
+import type { ItemStatusFilter } from './lib/statusFilter';
 import type { CatalogItem } from './types';
 
 export const CATALOGUE_PAGE_SIZE = 10;
 const SEARCH_DEBOUNCE_MS = 300;
 
-/** Recherche (anti-rebond), filtre par catégorie, tri par colonne et
- *  pagination pour la table du catalogue. Le volume d'équipements est faible :
- *  tout se fait côté client, à partir de la liste déjà chargée par
- *  {@link useCatalogue}. */
-export function useCatalogueFilters(items: CatalogItem[]) {
+/** Recherche (anti-rebond), filtre par catégorie, filtre d'état (géré par
+ *  l'appelant, partagé avec les packs — voir {@link ./lib/statusFilter}), tri
+ *  par colonne et pagination pour la table du catalogue. Le volume
+ *  d'équipements est faible : tout se fait côté client, à partir de la liste
+ *  déjà chargée par {@link useCatalogue}. */
+export function useCatalogueFilters(items: CatalogItem[], statusFilter: ItemStatusFilter) {
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilterState] = useState('');
@@ -26,7 +28,7 @@ export function useCatalogueFilters(items: CatalogItem[]) {
   }, [searchInput]);
 
   // Retour à la page 1 dès qu'un filtre change (évite une page vide)
-  useEffect(() => { setPage(1); }, [search, categoryFilter]);
+  useEffect(() => { setPage(1); }, [search, categoryFilter, statusFilter]);
 
   const setCategoryFilter = (value: string): void => setCategoryFilterState(value);
 
@@ -41,9 +43,9 @@ export function useCatalogueFilters(items: CatalogItem[]) {
 
   const filteredItems = useMemo(
     () => filterAndSortCatalogItems(items, CATEGORIES, {
-      search, category: categoryFilter, sortKey, sortDirection,
+      search, category: categoryFilter, status: statusFilter, sortKey, sortDirection,
     }),
-    [items, search, categoryFilter, sortKey, sortDirection],
+    [items, search, categoryFilter, statusFilter, sortKey, sortDirection],
   );
 
   const totalPages = Math.max(1, Math.ceil(filteredItems.length / CATALOGUE_PAGE_SIZE));

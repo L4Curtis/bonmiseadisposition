@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Put, Patch, Delete, Body, Param,
+  Controller, Get, Post, Put, Patch, Delete, Body, Param, Query,
   UseGuards, UseInterceptors, UploadedFile, Res, BadRequestException,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
@@ -8,10 +8,12 @@ import { Response } from 'express';
 import { join, basename } from 'path';
 import { existsSync, unlinkSync } from 'fs';
 import { FilialesService } from './filiales.service';
-import { CreateFilialeDto, UpdateFilialeDto } from './dto/filiale.dto';
+import { CreateFilialeDto, UpdateFilialeDto, ImportFilialesDto } from './dto/filiale.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { AuthUser } from '../auth/auth-user.interface';
 
 @Controller('filiales')
 @UseGuards(JwtAuthGuard)
@@ -26,6 +28,33 @@ export class FilialesController {
   @Get('active')
   findActive() {
     return this.filialesService.findActive();
+  }
+
+  /** GET /filiales/export?images=1 — CSV (BOM UTF-8, séparateur `;`) :
+   *  nom;nom_affiche;adresse;siret;active;logo_base64;cachet_base64.
+   *  Logo/cachet en base64 (sans préfixe data URL) uniquement si
+   *  `images=1` — cf. filiales-csv.ts pour le détail du contrat. */
+  @Get('export')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  async exportCsv(@Query('images') images: string | undefined, @Res() res: Response) {
+    const csv = await this.filialesService.exportCsv(images === '1');
+    const filename = `filiales-${new Date().toISOString().slice(0, 10)}.csv`;
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(csv);
+  }
+
+  /** GET /filiales/import/template — même en-tête que l'export, plus deux
+   *  lignes d'exemple commentées (cf. filiales-csv.ts). */
+  @Get('import/template')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  importTemplate(@Res() res: Response) {
+    const csv = this.filialesService.getImportTemplate();
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="modele-import-filiales.csv"');
+    res.send(csv);
   }
 
   @Get(':id')
@@ -54,6 +83,15 @@ export class FilialesController {
   @Roles('admin', 'technician')
   create(@Body() dto: CreateFilialeDto) {
     return this.filialesService.create(dto);
+  }
+
+  /** POST /filiales/import — import en masse (max 200 lignes) : cf.
+   *  filiales-import.ts pour le détail exact du contrat. */
+  @Post('import')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  importFiliales(@Body() dto: ImportFilialesDto, @CurrentUser() user: AuthUser) {
+    return this.filialesService.importFiliales(dto, user.id);
   }
 
   @Put(':id')

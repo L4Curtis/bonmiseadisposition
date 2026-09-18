@@ -58,6 +58,8 @@ BonDeMiseADisposition/
 │   ├── nest-cli.json                   # Config CLI NestJS
 │   │
 │   ├── scripts/reset-admin-password.js   # réinitialisation du mot de passe admin@local (embarqué dans l'image)
+│   ├── scripts/demo-data.sql             # jeu de démonstration (filiales, catalogue, 140 bons) — instances de test
+│   ├── scripts/demo-data-a-coller.txt    # même contenu, prêt à coller dans une console web
 ├── prisma/
 │   │   ├── schema.prisma               # 13 modeles, 6 enums (voir detail ci-dessous)
 │   │   └── migrations/

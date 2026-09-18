@@ -4,18 +4,18 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Upload, AlertTriangle, CheckCircle2 } from 'lucide-react';
-import { CSV_IMPORT_MAX_ROWS } from './lib/csv';
-import { CATEGORIES } from './types';
-import type { useCatalogueImport } from './useCatalogueImport';
+import { FILIALE_IMPORT_MAX_ROWS } from './lib/csv';
+import type { useFilialesImport } from './useFilialesImport';
 
-interface CatalogueImportDialogProps {
-  state: ReturnType<typeof useCatalogueImport>;
+interface FilialesImportDialogProps {
+  state: ReturnType<typeof useFilialesImport>;
 }
 
-/** Boîte d'import CSV du catalogue : sélection du fichier, aperçu du nombre de
- *  lignes valides/invalides, puis compte rendu détaillé (créés, réactivés,
- *  ignorés, erreurs ligne par ligne) une fois l'appel API terminé. */
-export function CatalogueImportDialog({ state }: CatalogueImportDialogProps) {
+/** Boîte d'import CSV des filiales : sélection du fichier, aperçu du nombre
+ *  de lignes valides/invalides avant tout envoi, puis compte rendu détaillé
+ *  (créées, mises à jour, ignorées, erreurs ligne par ligne) une fois l'appel
+ *  API terminé. */
+export function FilialesImportDialog({ state }: FilialesImportDialogProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const {
     open, closeDialog, fileName, rows, invalidRows,
@@ -28,15 +28,10 @@ export function CatalogueImportDialog({ state }: CatalogueImportDialogProps) {
         <DialogHeader>
           <DialogTitle>Importer un CSV</DialogTitle>
           <DialogDescription>
-            Colonnes attendues : categorie;marque;modele;description (séparateur point-virgule ou virgule,
-            500 lignes maximum).
+            Colonnes attendues : nom;nom_affiche;adresse;siret;active;logo_base64;cachet_base64
+            (séparateur point-virgule ou virgule, {FILIALE_IMPORT_MAX_ROWS} lignes maximum).
           </DialogDescription>
         </DialogHeader>
-
-        <div className="rounded-md border border-border bg-muted/40 p-2 text-xs text-muted-foreground">
-          <p className="mb-1 font-medium text-foreground/80">Valeurs de « categorie » acceptées</p>
-          <p>{Object.keys(CATEGORIES).join(', ')}</p>
-        </div>
 
         <div className="space-y-3">
           <input
@@ -60,7 +55,7 @@ export function CatalogueImportDialog({ state }: CatalogueImportDialogProps) {
           {tooManyRows && (
             <div role="alert" className="rounded-md bg-destructive/10 border border-destructive/20 p-2">
               <p className="text-sm text-destructive">
-                {rows.length} lignes valides détectées, la limite est de {CSV_IMPORT_MAX_ROWS} lignes par import.
+                {rows.length} lignes valides détectées, la limite est de {FILIALE_IMPORT_MAX_ROWS} lignes par import.
               </p>
             </div>
           )}
@@ -98,7 +93,7 @@ export function CatalogueImportDialog({ state }: CatalogueImportDialogProps) {
                 Import terminé
               </p>
               <p className="text-sm text-foreground/80">
-                Créés : {result.created} · Réactivés : {result.updated} · Ignorés : {result.skipped}
+                Créées : {result.created} · Mises à jour : {result.updated} · Ignorées : {result.skipped}
               </p>
               {result.errors.length > 0 && (
                 <ul className="text-xs text-destructive space-y-0.5 max-h-32 overflow-auto">

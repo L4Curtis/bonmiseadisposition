@@ -36,25 +36,18 @@ export function FilialeListItem({
         ) : (
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-4">
-              {filiale.logoPath ? (
-                <img
-                  src={`/api/filiales/file/${filiale.logoPath.replace('uploads/', '')}`}
-                  alt={filiale.displayName}
-                  className="h-10 w-20 object-contain rounded border"
-                />
-              ) : (
-                <div className="h-10 w-20 rounded border bg-muted flex items-center justify-center text-xs text-muted-foreground/70">
-                  Pas de logo
-                </div>
-              )}
+              <div className="flex items-center gap-2 text-xs">
+                {filiale.logoPath ? <Badge variant="outline">Logo</Badge> : <span className="text-muted-foreground/70">—</span>}
+                {filiale.stampPath ? <Badge variant="outline">Cachet</Badge> : <span className="text-muted-foreground/70">—</span>}
+              </div>
               <div>
                 <p className="font-medium text-foreground">{filiale.displayName}</p>
                 <p className="text-xs text-muted-foreground">AD: {filiale.name}</p>
-                {filiale.address && <p className="text-xs text-muted-foreground">{filiale.address}</p>}
-                {filiale.siret && <p className="text-xs text-muted-foreground">SIRET: {filiale.siret}</p>}
+                <p className="text-xs text-muted-foreground">{filiale.address || '—'}</p>
+                <p className="text-xs text-muted-foreground">SIRET: {filiale.siret || '—'}</p>
               </div>
-              <Badge variant={filiale.active ? 'success' : 'outline'}>
-                {filiale.active ? 'Active' : 'Inactive'}
+              <Badge variant={filiale.active ? 'success' : 'error'}>
+                {filiale.active ? 'Active' : 'Désactivée'}
               </Badge>
             </div>
             <div className="flex items-center gap-2">

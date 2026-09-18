@@ -20,6 +20,42 @@ export class AppConfigService {
   private cache = new Map<string, CacheEntry>();
   private readonly TTL_MS = 5 * 60 * 1000; // 5 minutes
 
+  // ── Cohérence entre plusieurs instances du backend ────────────────────────
+  // Le cache est en mémoire : une modification enregistrée par une instance
+  // n'invalide que SON cache. Avec plusieurs conteneurs derrière le proxy, les
+  // autres continuaient de servir l'ancienne valeur jusqu'à 5 minutes — d'où
+  // des comportements incohérents d'une requête à l'autre (connexion SSO
+  // renvoyant vers l'ancienne URL une fois sur deux, par exemple).
+  //
+  // Garde-fou : la date de dernière écriture en base fait office de version
+  // partagée. Elle est relue au plus une fois toutes les VERSION_POLL_MS, et
+  // tout changement vide le cache local. Une requête légère toutes les 5
+  // secondes par instance, contre une configuration incohérente pendant
+  // plusieurs minutes.
+  private readonly VERSION_POLL_MS = 5 * 1000;
+  private lastVersionCheck = 0;
+  private knownVersion: number | null = null;
+
+  /** Vide le cache local si la configuration a été modifiée ailleurs. */
+  private async syncWithDatabaseVersion(): Promise<void> {
+    const now = Date.now();
+    if (now - this.lastVersionCheck < this.VERSION_POLL_MS) return;
+    this.lastVersionCheck = now;
+
+    try {
+      const rows = await this.prisma.appConfig.aggregate({ _max: { updatedAt: true } });
+      const version = rows._max.updatedAt ? rows._max.updatedAt.getTime() : 0;
+      if (this.knownVersion !== null && version !== this.knownVersion) {
+        this.cache.clear();
+      }
+      this.knownVersion = version;
+    } catch (err) {
+      // Base momentanément indisponible : on garde le cache en l'état plutôt
+      // que de faire échouer une lecture de configuration.
+      this.logger.warn(`Version de configuration illisible : ${(err as Error).message}`);
+    }
+  }
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly encryption: EncryptionService,
@@ -44,6 +80,7 @@ export class AppConfigService {
   }
 
   async get(category: string, key: string): Promise<string | null> {
+    await this.syncWithDatabaseVersion();
     const ck = this.cacheKey(category, key);
     const cached = this.cache.get(ck);
     if (cached && cached.expiresAt > Date.now()) {
@@ -118,6 +155,11 @@ export class AppConfigService {
   }
 
   invalidateCache(category?: string, key?: string) {
+    // Après une écriture locale, la prochaine lecture doit reprendre la
+    // version de la base : sans cela, l'instance qui vient d'écrire resterait
+    // sur son ancienne référence de version et ignorerait les écritures des
+    // autres instances survenues entre-temps.
+    this.lastVersionCheck = 0;
     if (category && key) {
       this.cache.delete(this.cacheKey(category, key));
     } else if (category) {

@@ -1,19 +1,25 @@
 import { Search, X } from 'lucide-react';
 import { CATEGORIES } from './types';
+import { StatusFilterSelect } from './StatusFilterSelect';
+import type { ItemStatusFilter } from './lib/statusFilter';
 
 interface CatalogueFiltersProps {
   searchInput: string;
   onSearchInputChange: (value: string) => void;
   categoryFilter: string;
   onCategoryFilterChange: (value: string) => void;
+  statusFilter: ItemStatusFilter;
+  onStatusFilterChange: (value: ItemStatusFilter) => void;
   hasActiveFilters: boolean;
   onReset: () => void;
 }
 
 /** Barre de filtres du catalogue : recherche texte (anti-rebond géré par
- *  {@link ../useCatalogueFilters}) et filtre par catégorie. */
+ *  {@link ../useCatalogueFilters}), filtre par catégorie et filtre d'état
+ *  (masque les équipements désactivés par défaut). */
 export function CatalogueFilters({
-  searchInput, onSearchInputChange, categoryFilter, onCategoryFilterChange, hasActiveFilters, onReset,
+  searchInput, onSearchInputChange, categoryFilter, onCategoryFilterChange,
+  statusFilter, onStatusFilterChange, hasActiveFilters, onReset,
 }: CatalogueFiltersProps) {
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -48,6 +54,8 @@ export function CatalogueFilters({
           <option key={key} value={key}>{label}</option>
         ))}
       </select>
+
+      <StatusFilterSelect value={statusFilter} onChange={onStatusFilterChange} label="Filtrer par état" />
 
       {hasActiveFilters && (
         <button

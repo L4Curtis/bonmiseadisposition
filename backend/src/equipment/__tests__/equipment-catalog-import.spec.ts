@@ -151,6 +151,25 @@ describe('importCatalogItems (POST /equipment/catalog/import)', () => {
     expect(prisma.equipmentCatalog.create).toHaveBeenCalledTimes(1);
   });
 
+  it('should treat rows differing only by surrounding whitespace as the same internal duplicate (trimmed before comparison)', async () => {
+    prisma.equipmentCatalog.findMany.mockResolvedValue([]);
+    prisma.equipmentCatalog.create.mockResolvedValue({
+      id: 'cat-new', category: 'pc_portable', brand: 'Lenovo', model: 'ThinkBook 16 G6', active: true,
+    });
+
+    const result = await importCatalogItems(
+      prisma as unknown as PrismaService,
+      [
+        { category: 'pc_portable', brand: 'Lenovo', model: 'ThinkBook 16 G6' },
+        { category: 'pc_portable', brand: '  Lenovo  ', model: '  ThinkBook 16 G6  ' },
+      ],
+      USER_ID,
+    );
+
+    expect(result).toEqual({ created: 1, updated: 0, skipped: 1, errors: [] });
+    expect(prisma.equipmentCatalog.create).toHaveBeenCalledTimes(1);
+  });
+
   it('should reject a row whose catalogItemId-less shape has an oversized brand (MaxLength)', async () => {
     prisma.equipmentCatalog.findMany.mockResolvedValue([]);
 
