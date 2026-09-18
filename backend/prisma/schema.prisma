@@ -122,7 +122,15 @@ model EquipmentCatalog {
   packItems     EquipmentPackItem[]
   bonEquipments BonEquipment[]
 
-  @@unique([category, brand, model])
+  // L'unicité réelle est assurée en base par un index unique fonctionnel,
+  // insensible à la casse et partiel (category, lower(brand), lower(model))
+  // WHERE active — créé par la migration
+  // 20260918120000_catalog_normalize_ci_unique_and_restrict_fk. Le DSL Prisma
+  // ne sait pas exprimer d'expression (lower(...)) ni de clause WHERE dans
+  // @@unique/@@index : cette contrainte n'apparaît donc QUE dans les
+  // migrations, jamais ici. Ne pas rajouter `@@unique([category, brand,
+  // model])` — ce serait une unicité sensible à la casse, redondante et
+  // incohérente avec l'index réel.
   @@map("equipment_catalog")
 }
 
@@ -222,7 +230,12 @@ model BonEquipment {
   bonId             String            @map("bon_id")
   bon               Bon               @relation(fields: [bonId], references: [id], onDelete: Cascade)
   catalogItemId     String?           @map("catalog_item_id")
-  catalogItem       EquipmentCatalog? @relation(fields: [catalogItemId], references: [id])
+  // RESTRICT (et non le SET NULL par défaut d'une relation optionnelle) : un
+  // article de catalogue déjà référencé sur un bon — signé ou non — ne doit
+  // jamais pouvoir être supprimé physiquement en silence (la traçabilité
+  // d'un bon déjà signé serait rompue sans avertissement). La désactivation
+  // logique (`active = false`) reste le seul chemin de retrait du catalogue.
+  catalogItem       EquipmentCatalog? @relation(fields: [catalogItemId], references: [id], onDelete: Restrict)
   customLabel       String?           @map("custom_label")
   serialNumber      String?           @map("serial_number")
   inventoryNumber   String?           @map("inventory_number")

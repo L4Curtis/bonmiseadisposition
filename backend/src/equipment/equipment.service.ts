@@ -1,10 +1,25 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { EquipmentCatalog, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   CreateCatalogItemDto, UpdateCatalogItemDto,
-  CreatePackDto, UpdatePackDto,
+  CreatePackDto, UpdatePackDto, ImportCatalogDto, ImportCatalogResult,
 } from './dto/equipment.dto';
+import { trimOptionalOrUndefined, trimRequired } from './equipment-validation';
+import {
+  recordCatalogItemCreated, recordCatalogItemDisabled, recordCatalogItemUpdate,
+  recordPackCreated, recordPackDisabled, recordPackUpdate,
+} from './equipment-audit';
+import { importCatalogItems } from './equipment-catalog-import';
+
+/** Limite de lignes renvoyées par getSerialHistory — au-delà, `truncated:
+ *  true` signale explicitement que le résultat est partiel plutôt que de
+ *  tronquer silencieusement. */
+const SERIAL_HISTORY_LIMIT = 200;
+
+/** Plafond du nombre de numéros de série vérifiés en une seule fois par
+ *  findSerialConflicts — garde-fou contre une requête IN() démesurée. */
+const SERIAL_CONFLICTS_LIMIT = 50;
 
 @Injectable()
 export class EquipmentService {
@@ -19,31 +34,39 @@ export class EquipmentService {
 
   /**
    * Historique d'un numéro de série : tous les bons où il apparaît, du plus
-   * récent au plus ancien. Répond à « où est le portable SN-1234 ? ».
+   * récent au plus ancien (limité à SERIAL_HISTORY_LIMIT ; `truncated`
+   * indique explicitement si des résultats plus anciens ont été omis).
+   * Répond à « où est le portable SN-1234 ? ».
    */
   async getSerialHistory(serialNumber: string) {
     const query = (serialNumber ?? '').trim();
-    if (!query) return [];
-    const entries = await this.prisma.bonEquipment.findMany({
-      where: { serialNumber: { equals: query, mode: 'insensitive' } },
-      orderBy: { createdAt: 'desc' },
-      take: 50,
-      include: {
-        catalogItem: { select: { brand: true, model: true, category: true } },
-        bon: {
-          select: {
-            id: true,
-            reference: true,
-            status: true,
-            dateMiseDisposition: true,
-            dateRestitution: true,
-            collaborateur: { select: { displayName: true, email: true } },
-            filiale: { select: { displayName: true } },
+    if (!query) return { items: [], truncated: false, total: 0 };
+
+    const where: Prisma.BonEquipmentWhereInput = { serialNumber: { equals: query, mode: 'insensitive' } };
+    const [total, entries] = await Promise.all([
+      this.prisma.bonEquipment.count({ where }),
+      this.prisma.bonEquipment.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: SERIAL_HISTORY_LIMIT,
+        include: {
+          catalogItem: { select: { brand: true, model: true, category: true } },
+          bon: {
+            select: {
+              id: true,
+              reference: true,
+              status: true,
+              dateMiseDisposition: true,
+              dateRestitution: true,
+              collaborateur: { select: { displayName: true, email: true } },
+              filiale: { select: { displayName: true } },
+            },
           },
         },
-      },
-    });
-    return entries.map((e) => ({
+      }),
+    ]);
+
+    const items = entries.map((e) => ({
       equipmentId: e.id,
       serialNumber: e.serialNumber,
       label: e.catalogItem ? `${e.catalogItem.brand} ${e.catalogItem.model}` : e.customLabel,
@@ -51,16 +74,22 @@ export class EquipmentService {
       notReturned: e.notReturned,
       bon: e.bon,
     }));
+
+    return { items, truncated: total > SERIAL_HISTORY_LIMIT, total };
   }
 
   /**
    * Conflits de numéros de série : pour chaque numéro fourni, les bons « en
    * circulation » où il figure déjà sans avoir été rendu. Avertissement non
    * bloquant à la création/édition d'un bon (l'IT confirme en connaissance).
+   * Au plus SERIAL_CONFLICTS_LIMIT numéros distincts sont vérifiés par appel ;
+   * `truncated` signale explicitement si la liste fournie dépassait ce plafond.
    */
   async findSerialConflicts(serials: string[], excludeBonId?: string) {
-    const cleaned = [...new Set(serials.map((s) => s.trim()).filter(Boolean))].slice(0, 50);
-    if (cleaned.length === 0) return [];
+    const distinct = [...new Set(serials.map((s) => s.trim()).filter(Boolean))];
+    const truncated = distinct.length > SERIAL_CONFLICTS_LIMIT;
+    const cleaned = distinct.slice(0, SERIAL_CONFLICTS_LIMIT);
+    if (cleaned.length === 0) return { items: [], truncated: false };
 
     const conflicts = await this.prisma.bonEquipment.findMany({
       where: {
@@ -84,13 +113,15 @@ export class EquipmentService {
       },
     });
 
-    return conflicts.map((c) => ({
+    const items = conflicts.map((c) => ({
       serialNumber: c.serialNumber,
       bonId: c.bon.id,
       bonReference: c.bon.reference,
       bonStatus: c.bon.status,
       collaborateur: c.bon.collaborateur?.displayName ?? '—',
     }));
+
+    return { items, truncated };
   }
 
   // ── Catalogue ──────────────────────────────────────────────
@@ -128,23 +159,41 @@ export class EquipmentService {
     return item;
   }
 
-  async createCatalogItem(dto: CreateCatalogItemDto) {
+  async createCatalogItem(dto: CreateCatalogItemDto, userId: string) {
+    const data = {
+      category: dto.category,
+      brand: trimRequired(dto.brand, 'La marque'),
+      model: trimRequired(dto.model, 'Le modèle'),
+      description: trimOptionalOrUndefined(dto.description),
+    };
+
+    let created: EquipmentCatalog;
     try {
-      return await this.prisma.equipmentCatalog.create({ data: dto });
+      created = await this.prisma.equipmentCatalog.create({ data });
     } catch (error: unknown) {
       this.throwIfDuplicateCatalogItem(error);
     }
+
+    await recordCatalogItemCreated(this.prisma, created, userId);
+    return created;
   }
 
-  async updateCatalogItem(id: string, dto: UpdateCatalogItemDto) {
+  async updateCatalogItem(id: string, dto: UpdateCatalogItemDto, userId: string) {
     const existing = await this.findOneCatalog(id);
+
+    const normalizedDto: UpdateCatalogItemDto = {
+      ...dto,
+      brand: dto.brand !== undefined ? trimRequired(dto.brand, 'La marque') : undefined,
+      model: dto.model !== undefined ? trimRequired(dto.model, 'Le modèle') : undefined,
+      description: trimOptionalOrUndefined(dto.description),
+    };
 
     // brand/model/category identifient l'article sur les bons déjà émis
     // (PDF, preuves signées) : les modifier a posteriori romprait la
     // cohérence entre le document signé et le catalogue. Seuls les articles
     // non référencés par un bon sorti de l'état draft peuvent être modifiés
     // sur ces champs ; description/autres champs restent libres.
-    const changesIdentity = dto.category !== undefined || dto.brand !== undefined || dto.model !== undefined;
+    const changesIdentity = normalizedDto.category !== undefined || normalizedDto.brand !== undefined || normalizedDto.model !== undefined;
     if (changesIdentity) {
       const referencedBySignedBon = await this.prisma.bonEquipment.count({
         where: {
@@ -164,21 +213,36 @@ export class EquipmentService {
     // par la même garde que removeCatalogItem, sinon un simple PUT
     // contournerait la vérification « référencé sur N bons/packs actifs ».
     // La réactivation (false → true, ou active absent du body) reste libre.
-    if (dto.active === false && existing.active !== false) {
+    if (normalizedDto.active === false && existing.active !== false) {
       await this.assertNotReferencedForDeactivation(id);
     }
 
+    let updated: EquipmentCatalog;
     try {
-      return await this.prisma.equipmentCatalog.update({ where: { id }, data: dto });
+      updated = await this.prisma.equipmentCatalog.update({ where: { id }, data: normalizedDto });
     } catch (error: unknown) {
       this.throwIfDuplicateCatalogItem(error);
     }
+
+    await recordCatalogItemUpdate(this.prisma, existing, normalizedDto, userId);
+    return updated;
   }
 
-  async removeCatalogItem(id: string) {
-    await this.findOneCatalog(id);
+  async removeCatalogItem(id: string, userId: string) {
+    const existing = await this.findOneCatalog(id);
     await this.assertNotReferencedForDeactivation(id);
-    return this.prisma.equipmentCatalog.update({ where: { id }, data: { active: false } });
+    const updated = await this.prisma.equipmentCatalog.update({ where: { id }, data: { active: false } });
+    await recordCatalogItemDisabled(this.prisma, existing, userId);
+    return updated;
+  }
+
+  /**
+   * Import en masse (POST /equipment/catalog/import) : voir
+   * equipment-catalog-import.ts pour le détail du contrat et du comportement
+   * (skip / update / create / erreur par ligne, sans jamais interrompre le lot).
+   */
+  async importCatalog(dto: ImportCatalogDto, userId: string): Promise<ImportCatalogResult> {
+    return importCatalogItems(this.prisma, dto.items, userId);
   }
 
   /**
@@ -289,14 +353,19 @@ export class EquipmentService {
     return pack;
   }
 
-  async createPack(dto: CreatePackDto) {
+  async createPack(dto: CreatePackDto, userId: string) {
     const { items, ...packData } = dto;
+    const data = {
+      ...packData,
+      name: trimRequired(dto.name, 'Le nom du pack'),
+      description: trimOptionalOrUndefined(dto.description),
+    };
     if (items && items.length > 0) {
       await this.assertCatalogItemsActive(items.map((item) => item.catalogItemId));
     }
-    return this.prisma.equipmentPack.create({
+    const created = await this.prisma.equipmentPack.create({
       data: {
-        ...packData,
+        ...data,
         items: items
           ? {
               create: items.map((item, index) => ({
@@ -309,17 +378,25 @@ export class EquipmentService {
       },
       include: { items: { include: { catalogItem: true } } },
     });
+
+    await recordPackCreated(this.prisma, created, items, userId);
+    return created;
   }
 
-  async updatePack(id: string, dto: UpdatePackDto) {
-    await this.findOnePack(id);
-    const { items, ...packData } = dto;
+  async updatePack(id: string, dto: UpdatePackDto, userId: string) {
+    const existing = await this.findOnePack(id);
+    const normalizedDto: UpdatePackDto = {
+      ...dto,
+      name: dto.name !== undefined ? trimRequired(dto.name, 'Le nom du pack') : undefined,
+      description: trimOptionalOrUndefined(dto.description),
+    };
+    const { items, ...normalizedPackData } = normalizedDto;
     if (items && items.length > 0) {
       await this.assertCatalogItemsActive(items.map((item) => item.catalogItemId));
     }
 
     // Atomic transaction: delete old items + create new + update pack metadata
-    return this.prisma.$transaction(async (tx) => {
+    const updated = await this.prisma.$transaction(async (tx) => {
       if (items !== undefined) {
         await tx.equipmentPackItem.deleteMany({ where: { packId: id } });
         await tx.equipmentPackItem.createMany({
@@ -334,14 +411,26 @@ export class EquipmentService {
 
       return tx.equipmentPack.update({
         where: { id },
-        data: packData,
+        data: normalizedPackData,
         include: { items: { include: { catalogItem: true } } },
       });
     });
+
+    const existingSnapshot = {
+      id: existing.id,
+      name: existing.name,
+      description: existing.description,
+      active: existing.active,
+      items: existing.items.map((item) => ({ catalogItemId: item.catalogItemId, quantity: item.quantity })),
+    };
+    await recordPackUpdate(this.prisma, existingSnapshot, normalizedDto, userId);
+    return updated;
   }
 
-  async removePack(id: string) {
-    await this.findOnePack(id);
-    return this.prisma.equipmentPack.update({ where: { id }, data: { active: false } });
+  async removePack(id: string, userId: string) {
+    const existing = await this.findOnePack(id);
+    const updated = await this.prisma.equipmentPack.update({ where: { id }, data: { active: false } });
+    await recordPackDisabled(this.prisma, existing, userId);
+    return updated;
   }
 }

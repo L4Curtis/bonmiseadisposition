@@ -4,11 +4,13 @@ import {
 import { EquipmentService } from './equipment.service';
 import {
   CreateCatalogItemDto, UpdateCatalogItemDto,
-  CreatePackDto, UpdatePackDto,
+  CreatePackDto, UpdatePackDto, ImportCatalogDto,
 } from './dto/equipment.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { AuthUser } from '../auth/auth-user.interface';
 
 // Catalogue et packs sont des données IT internes : lecture comme écriture
 // réservées aux rôles admin/technician (les collaborateurs n'en ont pas l'usage)
@@ -61,22 +63,31 @@ export class EquipmentController {
   @Post('catalog')
   @UseGuards(RolesGuard)
   @Roles('admin', 'technician')
-  createCatalogItem(@Body() dto: CreateCatalogItemDto) {
-    return this.equipmentService.createCatalogItem(dto);
+  createCatalogItem(@Body() dto: CreateCatalogItemDto, @CurrentUser() user: AuthUser) {
+    return this.equipmentService.createCatalogItem(dto, user.id);
+  }
+
+  /** POST /equipment/catalog/import — import en masse (max 500 lignes) :
+   *  cf. equipment-catalog-import.ts pour le détail du contrat. */
+  @Post('catalog/import')
+  @UseGuards(RolesGuard)
+  @Roles('admin', 'technician')
+  importCatalog(@Body() dto: ImportCatalogDto, @CurrentUser() user: AuthUser) {
+    return this.equipmentService.importCatalog(dto, user.id);
   }
 
   @Put('catalog/:id')
   @UseGuards(RolesGuard)
   @Roles('admin', 'technician')
-  updateCatalogItem(@Param('id') id: string, @Body() dto: UpdateCatalogItemDto) {
-    return this.equipmentService.updateCatalogItem(id, dto);
+  updateCatalogItem(@Param('id') id: string, @Body() dto: UpdateCatalogItemDto, @CurrentUser() user: AuthUser) {
+    return this.equipmentService.updateCatalogItem(id, dto, user.id);
   }
 
   @Delete('catalog/:id')
   @UseGuards(RolesGuard)
   @Roles('admin', 'technician')
-  removeCatalogItem(@Param('id') id: string) {
-    return this.equipmentService.removeCatalogItem(id);
+  removeCatalogItem(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.equipmentService.removeCatalogItem(id, user.id);
   }
 
   // ── Packs ──────────────────────────────────────────────────
@@ -98,21 +109,21 @@ export class EquipmentController {
   @Post('packs')
   @UseGuards(RolesGuard)
   @Roles('admin', 'technician')
-  createPack(@Body() dto: CreatePackDto) {
-    return this.equipmentService.createPack(dto);
+  createPack(@Body() dto: CreatePackDto, @CurrentUser() user: AuthUser) {
+    return this.equipmentService.createPack(dto, user.id);
   }
 
   @Put('packs/:id')
   @UseGuards(RolesGuard)
   @Roles('admin', 'technician')
-  updatePack(@Param('id') id: string, @Body() dto: UpdatePackDto) {
-    return this.equipmentService.updatePack(id, dto);
+  updatePack(@Param('id') id: string, @Body() dto: UpdatePackDto, @CurrentUser() user: AuthUser) {
+    return this.equipmentService.updatePack(id, dto, user.id);
   }
 
   @Delete('packs/:id')
   @UseGuards(RolesGuard)
   @Roles('admin', 'technician')
-  removePack(@Param('id') id: string) {
-    return this.equipmentService.removePack(id);
+  removePack(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.equipmentService.removePack(id, user.id);
   }
 }
