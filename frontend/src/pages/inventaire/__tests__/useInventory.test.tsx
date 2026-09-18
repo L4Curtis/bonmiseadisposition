@@ -228,4 +228,56 @@ describe('useInventory', () => {
     expect(exportUrl).toContain('sort=dateMiseDisposition');
     expect(exportUrl).toContain('direction=asc');
   });
+
+  it('démarre sur la vue "equipements" par défaut, absente de l\'URL', async () => {
+    mockApiGet();
+    const { result } = renderHook(() => useInventory(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.view).toBe('equipements');
+  });
+
+  it('lit la vue "collaborateurs" depuis l\'URL au montage (persistance au rechargement)', async () => {
+    mockApiGet();
+    function collabWrapper({ children }: { children: ReactNode }) {
+      return <MemoryRouter initialEntries={['/inventaire?vue=collaborateurs']}>{children}</MemoryRouter>;
+    }
+    const { result } = renderHook(() => useInventory(), { wrapper: collabWrapper });
+
+    expect(result.current.view).toBe('collaborateurs');
+  });
+
+  it('setView écrit "vue=collaborateurs" dans l\'URL, remet la page à 1 et arrête d\'interroger la liste par équipement', async () => {
+    mockApiGet();
+    const { result } = renderHook(() => useInventory(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(() => result.current.setPage(2));
+    await waitFor(() => expect(result.current.page).toBe(2));
+
+    const callsBefore = vi.mocked(api.get).mock.calls.filter(([p]) => (p as string).startsWith('/reporting/inventory?')).length;
+
+    act(() => result.current.setView('collaborateurs'));
+
+    await waitFor(() => expect(result.current.page).toBe(1));
+    expect(result.current.view).toBe('collaborateurs');
+
+    await new Promise((r) => setTimeout(r, 10));
+    const callsAfter = vi.mocked(api.get).mock.calls.filter(([p]) => (p as string).startsWith('/reporting/inventory?')).length;
+    expect(callsAfter).toBe(callsBefore);
+  });
+
+  it('conserve les filtres actifs en changeant de vue', async () => {
+    mockApiGet();
+    const { result } = renderHook(() => useInventory(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(() => result.current.setFilialeFilter('f1'));
+    await waitFor(() => expect(result.current.filialeFilter).toBe('f1'));
+
+    act(() => result.current.setView('collaborateurs'));
+
+    expect(result.current.filialeFilter).toBe('f1');
+    expect(result.current.baseFilters.filialeFilter).toBe('f1');
+  });
 });

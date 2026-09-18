@@ -4,6 +4,23 @@ Historique des évolutions notables de l'application. Les entrées les plus réc
 
 ---
 
+## 2026-09-18 — Inventaire : lecture par collaborateur
+
+### Ajouté
+- **Vue « Par collaborateur »** de l'inventaire : une ligne par personne avec son service, sa filiale, le
+  nombre d'équipements détenus, ceux en retard et l'ancienneté du prêt le plus ancien. Un clic déplie le
+  détail de son matériel, chargé à ce moment-là. La vue choisie vit dans l'URL, et les filtres (recherche,
+  filiale, catégorie, situation, retards) s'appliquent aux deux lectures.
+- Nouvelle route `GET /reporting/inventory/by-collaborateur` : mêmes filtres que la liste, tri par nombre
+  d'équipements ou par ancienneté, pagination. Le regroupement réutilise la construction de filtres
+  existante et se fait en mémoire, pour ne pas dupliquer ces conditions en SQL — une duplication de cette
+  logique avait déjà causé un écart entre écrans.
+
+Cas d'usage visés : préparer un départ (tout ce qu'une personne doit rendre), repérer les accumulations,
+faire le point filiale par filiale.
+
+---
+
 ## 2026-09-18 — Configuration, modèles d'emails et inventaire : lisibilité et outils
 
 ### Ajouté

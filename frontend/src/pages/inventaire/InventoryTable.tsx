@@ -16,7 +16,9 @@ const SITUATION_CLASSES: Record<EquipmentSituation, string> = {
   en_litige: 'bg-destructive/10 text-destructive border border-destructive/30',
 };
 
-function TableSkeleton() {
+/** Exportée pour être réutilisée par CollaborateurTable.tsx (même squelette
+ *  générique, indépendant du nombre de colonnes). */
+export function TableSkeleton() {
   return (
     <div className="divide-y divide-border">
       {Array.from({ length: 8 }).map((_, i) => (

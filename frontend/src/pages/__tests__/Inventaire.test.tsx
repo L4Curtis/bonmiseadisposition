@@ -78,9 +78,29 @@ const listResponse = {
   limit: 50,
 };
 
+const collaborateurResponse = {
+  items: [
+    {
+      collaborateurId: 'u1',
+      displayName: 'Jean Dupont',
+      email: 'jean@example.com',
+      department: null,
+      filiale: { id: 'f1', name: 'Paris', displayName: 'Paris' },
+      count: 3,
+      overdueCount: 1,
+      oldestDateMiseDisposition: '2026-01-01T00:00:00.000Z',
+      oldestAgeDays: 260,
+    },
+  ],
+  total: 1,
+  page: 1,
+  limit: 50,
+};
+
 function mockApiGet() {
   vi.mocked(api.get).mockImplementation((path: string) => {
     if (path.startsWith('/reporting/inventory/summary')) return Promise.resolve(summary);
+    if (path.startsWith('/reporting/inventory/by-collaborateur')) return Promise.resolve(collaborateurResponse);
     if (path.startsWith('/reporting/inventory')) return Promise.resolve(listResponse);
     if (path.startsWith('/filiales/active')) return Promise.resolve([]);
     return Promise.resolve(null);
@@ -162,5 +182,62 @@ describe('InventairePage', () => {
     renderWithProviders(<InventairePage />);
 
     expect(await screen.findByText(/Retard \d+ j/)).toBeInTheDocument();
+  });
+
+  it('bascule vers la vue « Par collaborateur » au clic et charge le regroupement', async () => {
+    const { user } = renderWithProviders(<InventairePage />);
+    await screen.findByText('Jean Dupont');
+
+    await user.click(screen.getByRole('tab', { name: 'Par collaborateur' }));
+
+    await waitFor(() => {
+      const lastCall = vi.mocked(api.get).mock.calls
+        .map(([path]) => path as string)
+        .filter((p) => p.startsWith('/reporting/inventory/by-collaborateur'))
+        .at(-1);
+      expect(lastCall).toBeDefined();
+    });
+    expect(screen.getByText('Équipements')).toBeInTheDocument();
+    expect(screen.getByText('En retard')).toBeInTheDocument();
+  });
+
+  it('applique un filtre actif (retard) à la vue collaborateur', async () => {
+    const { user } = renderWithProviders(<InventairePage />);
+    await screen.findByText('Jean Dupont');
+
+    await user.click(screen.getByRole('tab', { name: 'Par collaborateur' }));
+    await waitFor(() => screen.getByText('Équipements'));
+
+    await user.click(screen.getByRole('button', { name: /En retard de restitution/ }));
+
+    await waitFor(() => {
+      const lastCall = vi.mocked(api.get).mock.calls
+        .map(([path]) => path as string)
+        .filter((p) => p.startsWith('/reporting/inventory/by-collaborateur'))
+        .at(-1);
+      expect(lastCall).toContain('overdue=1');
+    });
+  });
+
+  it('conserve la vue "collaborateurs" au rechargement (état vécu dans l\'URL)', async () => {
+    renderWithProviders(<InventairePage />, { route: '/inventaire?vue=collaborateurs' });
+
+    await waitFor(() => {
+      const lastCall = vi.mocked(api.get).mock.calls
+        .map(([path]) => path as string)
+        .filter((p) => p.startsWith('/reporting/inventory/by-collaborateur'))
+        .at(-1);
+      expect(lastCall).toBeDefined();
+    });
+    expect(screen.getByRole('tab', { name: 'Par collaborateur' })).toHaveAttribute('data-state', 'active');
+  });
+
+  it('précise que l\'export CSV reste au détail par équipement quand la vue collaborateur est active', async () => {
+    const { user } = renderWithProviders(<InventairePage />);
+    await screen.findByText('Jean Dupont');
+
+    await user.click(screen.getByRole('tab', { name: 'Par collaborateur' }));
+
+    expect(await screen.findByText(/Export au détail par équipement, filtres actifs\./)).toBeInTheDocument();
   });
 });

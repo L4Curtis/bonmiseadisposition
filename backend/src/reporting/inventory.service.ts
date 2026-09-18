@@ -9,14 +9,24 @@ import {
   parcEquipmentSql,
   situationCaseSql,
 } from '../common/bon-predicates';
-import { InventoryQueryDto, InventorySortField, SortDirection } from './dto/inventory-query.dto';
+import { InventoryQueryDto, InventorySortField, InventoryWhereFilters, SortDirection } from './dto/inventory-query.dto';
+import { InventoryByCollaborateurQueryDto } from './dto/inventory-by-collaborateur-query.dto';
 import { ITEM_SELECT, toInventoryItem } from './inventory-mapper';
 import { buildInventoryCsv } from './inventory-csv';
 import { parisMidnightUtc } from './inventory-dates';
+import {
+  COLLABORATEUR_GROUP_SELECT,
+  groupInventoryByCollaborateur,
+  sortCollaborateurGroups,
+} from './inventory-collaborateur-aggregate';
 
 const DEFAULT_PAGE_LIMIT = 50;
 const MAX_PAGE_LIMIT = 200;
 export const EXPORT_ROW_LIMIT = 10000;
+/** Plafond de lignes chargées pour le regroupement par collaborateur — même
+ *  ordre de grandeur que EXPORT_ROW_LIMIT (le parc en circulation réel compte
+ *  quelques milliers d'équipements), voir inventory-collaborateur-aggregate.ts. */
+export const AGGREGATION_ROW_LIMIT = 10000;
 
 /**
  * Vue « Inventaire du parc en circulation » : liste, résumé agrégé et export
@@ -34,11 +44,14 @@ export const EXPORT_ROW_LIMIT = 10000;
 export class InventoryService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Where partagé par la liste paginée et l'export CSV. Base « en
-   *  circulation » (+ filiale) fournie par le prédicat commun
-   *  `buildParcEquipmentWhere` — les autres filtres restent spécifiques à
-   *  cette vue. `now` est injectable (tests) pour figer le filtre `overdue`. */
-  private buildWhere(filters: InventoryQueryDto, now: Date = new Date()): Prisma.BonEquipmentWhereInput {
+  /** Where partagé par la liste paginée, l'export CSV et le regroupement par
+   *  collaborateur (`getInventoryByCollaborateur`). Base « en circulation »
+   *  (+ filiale) fournie par le prédicat commun `buildParcEquipmentWhere` —
+   *  les autres filtres restent spécifiques à cette vue. `now` est injectable
+   *  (tests) pour figer le filtre `overdue`. Typé sur `InventoryWhereFilters`
+   *  (et non `InventoryQueryDto`) pour rester appelable depuis les deux DTOs
+   *  de query sans dupliquer cette construction. */
+  private buildWhere(filters: InventoryWhereFilters, now: Date = new Date()): Prisma.BonEquipmentWhereInput {
     const and: Prisma.BonEquipmentWhereInput[] = [
       ...(buildParcEquipmentWhere({ filialeId: filters.filialeId }).AND as Prisma.BonEquipmentWhereInput[]),
     ];
@@ -116,6 +129,40 @@ export class InventoryService {
     ]);
 
     return { items: rows.map((r) => toInventoryItem(r)), total, page, limit };
+  }
+
+  /**
+   * GET /reporting/inventory/by-collaborateur — même parc filtré (`buildWhere`,
+   * partagé avec `getInventory`/`getExportCsv`, jamais dupliqué) regroupé par
+   * collaborateur : une ligne par personne avec son nombre d'équipements, son
+   * nombre de retards et l'ancienneté de son prêt le plus ancien.
+   *
+   * Le regroupement se fait en mémoire (`groupInventoryByCollaborateur`) sur
+   * le jeu déjà filtré plutôt qu'en SQL, plafonné à AGGREGATION_ROW_LIMIT
+   * lignes (troncature signalée via `truncated`, jamais silencieuse) — voir
+   * inventory-collaborateur-aggregate.ts pour la justification détaillée.
+   * Pagination et tri (`count`/`oldest`) sont appliqués après regroupement,
+   * sur les collaborateurs (pas sur les équipements).
+   */
+  async getInventoryByCollaborateur(query: InventoryByCollaborateurQueryDto, now: Date = new Date()) {
+    const page = query.page ?? 1;
+    const limit = Math.min(query.limit ?? DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT);
+    const where = this.buildWhere(query, now);
+
+    const rows = await this.prisma.bonEquipment.findMany({
+      where,
+      select: COLLABORATEUR_GROUP_SELECT,
+      take: AGGREGATION_ROW_LIMIT + 1,
+    });
+
+    const truncated = rows.length > AGGREGATION_ROW_LIMIT;
+    const usableRows = truncated ? rows.slice(0, AGGREGATION_ROW_LIMIT) : rows;
+
+    const sorted = sortCollaborateurGroups(groupInventoryByCollaborateur(usableRows, now), query.sort);
+    const total = sorted.length;
+    const items = sorted.slice((page - 1) * limit, (page - 1) * limit + limit);
+
+    return { items, total, page, limit, truncated };
   }
 
   /**

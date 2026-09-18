@@ -73,3 +73,31 @@ export interface InventorySummary {
   bySituation: InventorySituationSummary[];
   overdue: number;
 }
+
+/** Bascule d'affichage de la page Inventaire — état synchronisé dans l'URL
+ *  (paramètre `vue`, cf. useInventory.ts) au même titre que les filtres. */
+export type InventoryView = 'equipements' | 'collaborateurs';
+
+/** Tri de la vue « Par collaborateur » (GET /reporting/inventory/by-collaborateur) —
+ *  `count` (défaut, nombre d'équipements décroissant) ou `oldest` (prêt le
+ *  plus ancien d'abord). */
+export type CollaborateurSort = 'count' | 'oldest';
+
+export interface CollaborateurInventoryItem {
+  collaborateurId: string;
+  displayName: string;
+  email: string | null;
+  department: string | null;
+  filiale: InventoryFiliale | null;
+  count: number;
+  overdueCount: number;
+  oldestDateMiseDisposition: string;
+  oldestAgeDays: number;
+}
+
+export interface CollaborateurInventoryResponse {
+  items: CollaborateurInventoryItem[];
+  total: number;
+  page: number;
+  limit: number;
+}

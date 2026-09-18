@@ -15,16 +15,39 @@ export type SortDirection = (typeof SORT_DIRECTIONS)[number];
 
 /** Accepte les graphies usuelles des booléens en query string : '1', 'true'
  *  (indépendamment de la casse), ou un booléen réel — même convention que
- *  QueryBonsDto.overdue. */
-const toBoolean = ({ value }: { value: unknown }): unknown => {
+ *  QueryBonsDto.overdue. Exportée pour être réutilisée telle quelle par
+ *  InventoryByCollaborateurQueryDto (voir inventory-by-collaborateur-query.dto.ts). */
+export const toBoolean = ({ value }: { value: unknown }): unknown => {
   if (typeof value === 'boolean') return value;
   if (typeof value === 'string') return value === '1' || value.toLowerCase() === 'true';
   return value;
 };
 
+/** Recadre une chaîne de recherche — exportée pour la même raison que `toBoolean`. */
+export const trimSearch = ({ value }: { value: unknown }): unknown =>
+  typeof value === 'string' ? value.trim() : value;
+
+/**
+ * Champs de filtrage communs à `GET /reporting/inventory` et
+ * `GET /reporting/inventory/by-collaborateur` : c'est le contrat implicite de
+ * `InventoryService.buildWhere`, qui n'en lit jamais d'autres. Les deux DTOs
+ * (`InventoryQueryDto` ci-dessous et `InventoryByCollaborateurQueryDto`)
+ * implémentent cette interface, ce qui permet à `buildWhere` de rester
+ * strictement typé sans dépendre d'un DTO en particulier — et donc d'être
+ * appelé sans duplication depuis les deux routes.
+ */
+export interface InventoryWhereFilters {
+  filialeId?: string;
+  category?: EquipmentCategory;
+  collaborateurId?: string;
+  situation?: EquipmentSituation;
+  overdue?: boolean;
+  search?: string;
+}
+
 /** Query DTO commun à la liste paginée et à l'export CSV de l'inventaire du
  *  parc en circulation (mêmes filtres, cf. InventoryService.buildWhere). */
-export class InventoryQueryDto {
+export class InventoryQueryDto implements InventoryWhereFilters {
   @IsOptional()
   @IsUUID()
   filialeId?: string;
@@ -54,7 +77,7 @@ export class InventoryQueryDto {
 
   @IsOptional()
   @IsString()
-  @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value))
+  @Transform(trimSearch)
   @MaxLength(200)
   search?: string;
 

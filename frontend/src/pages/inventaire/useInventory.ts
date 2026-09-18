@@ -4,11 +4,13 @@ import { api } from '@/lib/api';
 import { errorMessage, showActionError } from '@/lib/errors';
 import { toast } from '@/hooks/use-toast';
 import type { Filiale } from '@/types';
+import { buildBaseFilterEntries, PAGE_LIMIT, type InventoryBaseFilters } from './inventoryFilterParams';
 import type {
   EquipmentSituation,
   InventoryItem,
   InventoryListResponse,
   InventorySummary,
+  InventoryView,
   SortDirection,
 } from './types';
 
@@ -22,26 +24,20 @@ function readDirection(value: string | null): '' | SortDirection {
   return value === 'asc' || value === 'desc' ? value : '';
 }
 
-interface InventoryFilterState {
-  filialeFilter: string;
-  categoryFilter: string;
-  situationFilter: string;
-  search: string;
-  overdueFilter: boolean;
+function readView(value: string | null): InventoryView {
+  return value === 'collaborateurs' ? 'collaborateurs' : 'equipements';
+}
+
+interface EquipmentFilterState extends InventoryBaseFilters {
   sortDirection: '' | SortDirection;
 }
 
-/** Couple [clé, valeur] des filtres actifs — partagé par la synchronisation
- *  d'URL, le fetch de la liste paginée et l'export CSV, pour que les trois
- *  restent toujours exactement alignés (cf. exigence « l'export reflète les
- *  filtres actifs »). */
-function buildFilterEntries(f: InventoryFilterState): [string, string][] {
-  const entries: [string, string][] = [];
-  if (f.filialeFilter) entries.push(['filialeId', f.filialeFilter]);
-  if (f.categoryFilter) entries.push(['category', f.categoryFilter]);
-  if (f.situationFilter) entries.push(['situation', f.situationFilter]);
-  if (f.search) entries.push(['search', f.search]);
-  if (f.overdueFilter) entries.push(['overdue', '1']);
+/** Couple [clé, valeur] des filtres actifs de la vue par équipement — partagé
+ *  par la synchronisation d'URL, le fetch de la liste paginée et l'export CSV,
+ *  pour que les trois restent toujours exactement alignés (cf. exigence
+ *  « l'export reflète les filtres actifs, quelle que soit la vue »). */
+function buildFilterEntries(f: EquipmentFilterState): [string, string][] {
+  const entries = buildBaseFilterEntries(f);
   if (f.sortDirection) {
     entries.push(['sort', 'dateMiseDisposition']);
     entries.push(['direction', f.sortDirection]);
@@ -49,17 +45,20 @@ function buildFilterEntries(f: InventoryFilterState): [string, string][] {
   return entries;
 }
 
-const LIMIT = 50;
 const SEARCH_DEBOUNCE_MS = 300;
 
 /**
- * État + chargement de la page Inventaire : résumé (tuiles), liste paginée
- * avec filtres synchronisés dans l'URL (filialeId, category, search, page),
- * et export CSV. Isolé de la présentation pour rester testable indépendamment.
+ * État + chargement de la page Inventaire : résumé (tuiles), bascule de vue
+ * (par équipement / par collaborateur, cf. InventoryViewToggle), liste paginée
+ * par équipement avec filtres synchronisés dans l'URL (filialeId, category,
+ * search, page, vue), et export CSV. La vue « par collaborateur » a son propre
+ * chargement (useCollaborateurInventory) mais partage ces mêmes filtres.
+ * Isolé de la présentation pour rester testable indépendamment.
  */
 export function useInventory() {
   const [searchParams, setSearchParams] = useSearchParams();
 
+  const [view, setViewState] = useState<InventoryView>(() => readView(searchParams.get('vue')));
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(() => {
@@ -95,6 +94,7 @@ export function useInventory() {
   );
   const [exportLoading, setExportLoading] = useState(false);
 
+  const setView = (value: InventoryView) => { setViewState(value); setPage(1); };
   const setFilialeFilter = (value: string) => { setFilialeFilterState(value); setPage(1); };
   const setCategoryFilter = (value: string) => { setCategoryFilterState(value); setPage(1); };
   const setSituationFilter = (value: string) => { setSituationFilterState(readSituation(value)); setPage(1); };
@@ -136,15 +136,20 @@ export function useInventory() {
     return () => clearTimeout(handle);
   }, [searchInput]);
 
-  // ── Chargement de la liste paginée ──────────────────────────────────────────
+  // ── Synchronisation URL (filtres + vue + page) et chargement de la liste par
+  //    équipement — cette dernière uniquement quand la vue active l'exige : la
+  //    vue « par collaborateur » a son propre chargement (useCollaborateurInventory).
   useEffect(() => {
     const filterEntries = buildFilterEntries({
       filialeFilter, categoryFilter, situationFilter, search, overdueFilter, sortDirection,
     });
 
     const urlParams = Object.fromEntries(filterEntries);
+    if (view !== 'equipements') urlParams['vue'] = view;
     if (page > 1) urlParams['page'] = String(page);
     setSearchParams(urlParams, { replace: true });
+
+    if (view !== 'equipements') return;
 
     setLoading(true);
     setLoadError(null);
@@ -153,7 +158,7 @@ export function useInventory() {
     let ignore = false;
     const params = new URLSearchParams(filterEntries);
     params.set('page', String(page));
-    params.set('limit', String(LIMIT));
+    params.set('limit', String(PAGE_LIMIT));
 
     api
       .get<InventoryListResponse>(`/reporting/inventory?${params}`)
@@ -176,7 +181,7 @@ export function useInventory() {
       ignore = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filialeFilter, categoryFilter, situationFilter, search, overdueFilter, sortDirection, page, reloadKey]);
+  }, [filialeFilter, categoryFilter, situationFilter, search, overdueFilter, sortDirection, page, reloadKey, view]);
 
   const handleExport = async () => {
     setExportLoading(true);
@@ -199,12 +204,12 @@ export function useInventory() {
     }
   };
 
-  const totalPages = Math.ceil(total / LIMIT);
   const hasActiveFilters = !!(filialeFilter || categoryFilter || situationFilter || search || overdueFilter);
-  const rangeStart = total === 0 ? 0 : (page - 1) * LIMIT + 1;
-  const rangeEnd = Math.min(page * LIMIT, total);
+  const baseFilters: InventoryBaseFilters = { filialeFilter, categoryFilter, situationFilter, search, overdueFilter };
 
   return {
+    view,
+    setView,
     items,
     total,
     page,
@@ -231,9 +236,7 @@ export function useInventory() {
     resetFilters,
     exportLoading,
     handleExport,
-    totalPages,
     hasActiveFilters,
-    rangeStart,
-    rangeEnd,
+    baseFilters,
   };
 }

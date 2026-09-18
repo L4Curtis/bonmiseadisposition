@@ -2,6 +2,7 @@ import { Controller, Get, Query, Res, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
 import { InventoryService } from './inventory.service';
 import { InventoryQueryDto } from './dto/inventory-query.dto';
+import { InventoryByCollaborateurQueryDto } from './dto/inventory-by-collaborateur-query.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -33,6 +34,22 @@ export class InventoryController {
       res.setHeader('X-Truncated', 'true');
     }
     res.send(csv);
+  }
+
+  /** Vue « une ligne par personne » de l'inventaire — mêmes filtres/rôles que
+   *  la liste par équipement (Direction en lecture). `X-Truncated` (même
+   *  convention que l'export CSV) signale un regroupement tronqué par
+   *  AGGREGATION_ROW_LIMIT, sans altérer le contrat JSON documenté. */
+  @Get('by-collaborateur')
+  async getByCollaborateur(
+    @Query() dto: InventoryByCollaborateurQueryDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { items, total, page, limit, truncated } = await this.inventoryService.getInventoryByCollaborateur(dto);
+    if (truncated) {
+      res.setHeader('X-Truncated', 'true');
+    }
+    return { items, total, page, limit };
   }
 
   @Get()

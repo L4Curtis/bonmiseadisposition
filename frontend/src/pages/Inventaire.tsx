@@ -3,9 +3,13 @@ import { useAuth } from '@/contexts/AuthContext';
 import { isItRole } from '@/lib/roles';
 import { Boxes, Download, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useInventory } from './inventaire/useInventory';
+import { useCollaborateurInventory } from './inventaire/useCollaborateurInventory';
+import { computePaginationInfo } from './inventaire/inventoryFilterParams';
 import { InventorySummaryCards } from './inventaire/InventorySummaryCards';
 import { InventoryFilters } from './inventaire/InventoryFilters';
 import { InventoryTable } from './inventaire/InventoryTable';
+import { CollaborateurTable } from './inventaire/CollaborateurTable';
+import { InventoryViewToggle } from './inventaire/InventoryViewToggle';
 
 export function InventairePage() {
   const { user } = useAuth();
@@ -13,6 +17,8 @@ export function InventairePage() {
   const canLinkToBon = isItRole(user?.role);
 
   const {
+    view,
+    setView,
     items,
     total,
     page,
@@ -39,11 +45,19 @@ export function InventairePage() {
     resetFilters,
     exportLoading,
     handleExport,
-    totalPages,
     hasActiveFilters,
-    rangeStart,
-    rangeEnd,
+    baseFilters,
   } = useInventory();
+
+  const collaborateurs = useCollaborateurInventory({
+    enabled: view === 'collaborateurs',
+    filters: baseFilters,
+    page,
+    setPage,
+  });
+
+  const activeTotal = view === 'equipements' ? total : collaborateurs.total;
+  const { totalPages, rangeStart, rangeEnd } = computePaginationInfo(activeTotal, page);
 
   return (
     <div className="space-y-5">
@@ -57,18 +71,29 @@ export function InventairePage() {
             Équipements actuellement entre les mains des collaborateurs.
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={handleExport} disabled={exportLoading}>
-          {exportLoading ? (
-            <span
-              className="h-3.5 w-3.5 mr-1.5 animate-spin motion-reduce:animate-none rounded-full border-2 border-muted border-t-muted-foreground"
-              role="status"
-              aria-label="Export en cours"
-            />
-          ) : (
-            <Download className="mr-1.5 h-3.5 w-3.5" />
+        <div className="flex flex-col items-end gap-1">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExport}
+            disabled={exportLoading}
+            title="Exporte le détail par équipement, avec les filtres actuellement actifs."
+          >
+            {exportLoading ? (
+              <span
+                className="h-3.5 w-3.5 mr-1.5 animate-spin motion-reduce:animate-none rounded-full border-2 border-muted border-t-muted-foreground"
+                role="status"
+                aria-label="Export en cours"
+              />
+            ) : (
+              <Download className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            Exporter CSV
+          </Button>
+          {view === 'collaborateurs' && (
+            <p className="text-[11px] text-muted-foreground/70">Export au détail par équipement, filtres actifs.</p>
           )}
-          Exporter CSV
-        </Button>
+        </div>
       </div>
 
       <InventorySummaryCards
@@ -80,6 +105,10 @@ export function InventairePage() {
         onSignatureWaitingClick={() => setSituationFilter('en_attente_signature')}
         signatureWaitingActive={situationFilter === 'en_attente_signature'}
       />
+
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <InventoryViewToggle view={view} onChange={setView} />
+      </div>
 
       <InventoryFilters
         searchInput={searchInput}
@@ -99,23 +128,38 @@ export function InventairePage() {
         onReset={resetFilters}
       />
 
-      <InventoryTable
-        items={items}
-        loading={loading}
-        loadError={loadError}
-        onRetry={retry}
-        hasActiveFilters={hasActiveFilters}
-        onResetFilters={resetFilters}
-        canLinkToBon={canLinkToBon}
-        sortDirection={sortDirection}
-        onToggleDateSort={toggleDateSort}
-      />
+      {view === 'equipements' ? (
+        <InventoryTable
+          items={items}
+          loading={loading}
+          loadError={loadError}
+          onRetry={retry}
+          hasActiveFilters={hasActiveFilters}
+          onResetFilters={resetFilters}
+          canLinkToBon={canLinkToBon}
+          sortDirection={sortDirection}
+          onToggleDateSort={toggleDateSort}
+        />
+      ) : (
+        <CollaborateurTable
+          items={collaborateurs.items}
+          loading={collaborateurs.loading}
+          loadError={collaborateurs.error}
+          onRetry={collaborateurs.retry}
+          hasActiveFilters={hasActiveFilters}
+          onResetFilters={resetFilters}
+          canLinkToBon={canLinkToBon}
+          sort={collaborateurs.sort}
+          onSortChange={collaborateurs.setSort}
+          filters={baseFilters}
+        />
+      )}
 
       {/* Pagination */}
-      {total > 0 && (
+      {activeTotal > 0 && (
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
-            {`Affichage ${rangeStart}–${rangeEnd} sur ${total}`}
+            {`Affichage ${rangeStart}–${rangeEnd} sur ${activeTotal}`}
           </p>
 
           {totalPages > 1 && (
