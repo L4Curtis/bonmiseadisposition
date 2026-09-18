@@ -19,6 +19,9 @@ Historique des évolutions notables de l'application. Les entrées les plus réc
 Cas d'usage visés : préparer un départ (tout ce qu'une personne doit rendre), repérer les accumulations,
 faire le point filiale par filiale.
 
+Le regroupement est plafonné à 10 000 équipements côté serveur ; au-delà, la page le dit et invite à
+affiner les filtres, plutôt que de présenter un classement partiel comme s'il était complet.
+
 ---
 
 ## 2026-09-18 — Configuration, modèles d'emails et inventaire : lisibilité et outils
