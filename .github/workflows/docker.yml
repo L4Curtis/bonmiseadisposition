@@ -9,13 +9,35 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
-  # Les tests backend conditionnent le build : un push sur main est auto-déployé
-  # en production (tag :latest + Portainer), il ne doit jamais embarquer une
-  # suite de tests rouge.
-  test:
+  # Les tests backend et frontend conditionnent le build : un push sur main est
+  # auto-déployé en production (tag :latest + Portainer), il ne doit jamais
+  # embarquer une suite de tests rouge, un typage en échec ou un schéma Prisma
+  # en dérive par rapport aux migrations appliquées.
+  backend:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    services:
+      # Base jetable dédiée à la CI (mot de passe fixe « ci », sans rapport avec
+      # la base de dev) : mêmes réglages que docker-compose.dev.yml (nom de
+      # base, utilisateur, fuseau UTC) pour reproduire fidèlement le comportement
+      # des requêtes SQL brutes ($queryRaw) en production.
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: bons_disposition
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: ci
+          TZ: UTC
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U app -d bons_disposition"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://app:ci@localhost:5432/bons_disposition
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -31,17 +53,97 @@ jobs:
         working-directory: ./backend
         run: npm ci
 
-      - name: Run backend tests
+      - name: Valider le schéma Prisma
         working-directory: ./backend
-        run: npm test
+        run: npx prisma validate
+
+      - name: Appliquer les migrations
+        working-directory: ./backend
+        run: npx prisma migrate deploy
+
+      - name: Détection de dérive schema.prisma / migrations
+        working-directory: ./backend
+        # « migrate diff --exit-code » sort en 2 quand schema.prisma diverge des
+        # migrations appliquées (modèle modifié sans migration créée) : on le
+        # distingue d'une vraie erreur de commande pour un message explicite.
+        run: |
+          set +e
+          npx prisma migrate diff \
+            --from-url "$DATABASE_URL" \
+            --to-schema-datamodel prisma/schema.prisma \
+            --exit-code
+          code=$?
+          set -e
+          if [ "$code" -eq 2 ]; then
+            echo "::error::schema.prisma diverge des migrations appliquées. Générez la migration manquante avec « npx prisma migrate dev » avant de pousser sur main." >&2
+            exit 1
+          elif [ "$code" -ne 0 ]; then
+            echo "::error::échec de « prisma migrate diff » (code $code) — voir les logs ci-dessus." >&2
+            exit "$code"
+          fi
 
       - name: Type-check backend
         working-directory: ./backend
         run: npx tsc --noEmit
 
+      - name: Tests backend avec couverture
+        working-directory: ./backend
+        run: npm run test:cov
+
+      - name: Tests SQL contre une vraie base (filet $queryRaw)
+        working-directory: ./backend
+        # Les specs unitaires simulent $queryRaw et ne voient donc jamais les
+        # erreurs que seul Postgres détecte (casts d'enum, GROUP BY, fuseau) :
+        # voir backend/src/__tests__/sql-real-db.spec.ts. Base vide suffisante.
+        run: RUN_DB_TESTS=1 npx jest src/__tests__/sql-real-db.spec.ts
+
+      - name: Audit de sécurité (non bloquant)
+        working-directory: ./backend
+        # Non bloquant : des vulnérabilités « high » subsistent tant que la
+        # montée de version majeure correspondante n'est pas faite. On les
+        # garde visibles dans les logs sans casser la CI.
+        continue-on-error: true
+        run: npm audit --omit=dev --audit-level=high
+
+  frontend:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Type-check frontend
+        working-directory: ./frontend
+        run: npx tsc --noEmit -p tsconfig.app.json
+
+      - name: Tests frontend (Vitest)
+        working-directory: ./frontend
+        run: npx vitest run
+
+      - name: Build frontend (Vite)
+        working-directory: ./frontend
+        run: npx vite build
+
+      - name: Audit de sécurité (non bloquant)
+        working-directory: ./frontend
+        continue-on-error: true
+        run: npm audit --omit=dev --audit-level=high
+
   build-and-push:
     runs-on: ubuntu-latest
-    needs: test
+    needs: [backend, frontend]
     permissions:
       contents: read
       packages: write
