@@ -107,7 +107,57 @@ Mise à jour de l'application : stack `bons-app` → **Pull and redeploy**.
 
 ---
 
-## 4. Sauvegardes
+## 4. Publier une version
+
+Principe : la recette suit `main` automatiquement — chaque push sur `main` publie une image `:main`,
+et la stack de recette (`APP_IMAGE_TAG=main`) la récupère au prochain « Pull and redeploy ». La
+production ne suit aucune branche : elle reste épinglée sur un numéro de version, posé à la main par
+un tag git, jamais publiée par un simple push.
+
+### Procédure
+
+1. Vérifier que la recette (stack sur `APP_IMAGE_TAG=main`) se comporte correctement.
+2. Mettre à jour `CHANGELOG.md` avec les changements de la version.
+3. Poser le tag et le pousser :
+
+   ```bash
+   git tag -a v1.0.0 -m "Description de la version"
+   git push origin v1.0.0
+   ```
+
+4. Attendre que la CI (`.github/workflows/docker.yml`) soit verte sur ce tag : elle publie les images
+   étiquetées `X.Y.Z` et `X.Y`.
+5. Dans Portainer, sur la stack de **production** : changer `APP_IMAGE_TAG` en `1.0.0` (sans le
+   « v ») → Update the stack → **Pull and redeploy**.
+
+### Retour arrière
+
+Remettre la version précédente dans `APP_IMAGE_TAG` de la stack de production → **Pull and
+redeploy**.
+
+⚠️ Une migration Prisma appliquée par la nouvelle version ne se défait pas toute seule. Un retour
+arrière après une migration qui supprime ou renomme une colonne exige une restauration de sauvegarde
+(voir la section « Sauvegardes » ci-dessous).
+
+### Migration des stacks existantes
+
+Les stacks déployées avant cette procédure suivaient `:latest`. À migrer une fois, dans Portainer :
+
+- **Production** : remplacer `latest` par un numéro de version dans `APP_IMAGE_TAG` (ex. la version
+  actuellement en production).
+- **Recette** : remplacer `latest` par `main` dans `APP_IMAGE_TAG`.
+
+### Numérotation
+
+`X.Y.Z` :
+
+- **Z** (correctifs) : correction de bug, sans changement de comportement attendu.
+- **Y** (nouveautés) : ajout rétrocompatible.
+- **X** (rupture) : migration de données, changement d'API ou de comportement incompatible.
+
+---
+
+## 5. Sauvegardes
 
 La base, le volume `data` et `ENCRYPTION_KEY` vont **ensemble** : l'un sans les autres est inexploitable.
 

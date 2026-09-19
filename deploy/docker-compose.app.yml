@@ -5,6 +5,7 @@
 # À déployer APRÈS la stack base de données (deploy/docker-compose.db.yml).
 #
 # Variables (section « Environment variables » de la stack) :
+#   APP_IMAGE_TAG      étiquette de l'image à déployer : un numéro de version en production (ex. 1.0.0), main en recette (voir « Publier une version » dans README.md)
 #   ENCRYPTION_KEY     hexadécimal 32 octets  ⚠️ NE CHANGE JAMAIS (reprendre l'ancienne valeur si reprise de données)
 #   JWT_SECRET         hexadécimal 32 octets  différent d'ENCRYPTION_KEY
 #   APP_DB_PASSWORD    même valeur que dans la stack base de données
@@ -25,7 +26,7 @@ services:
 
   # ── Backend NestJS ───────────────────────────────────────────────────────────
   backend:
-    image: ghcr.io/l4curtis/bonmiseadisposition-backend:latest
+    image: "ghcr.io/l4curtis/bonmiseadisposition-backend:${APP_IMAGE_TAG:?APP_IMAGE_TAG manquant : un numéro de version en production (ex. 1.0.0), main en recette}"
     container_name: bons-backend
     restart: unless-stopped
     environment:
@@ -57,7 +58,7 @@ services:
 
   # ── Frontend React (nginx) — exposé pour le reverse proxy ────────────────────
   frontend:
-    image: ghcr.io/l4curtis/bonmiseadisposition-frontend:latest
+    image: "ghcr.io/l4curtis/bonmiseadisposition-frontend:${APP_IMAGE_TAG:?APP_IMAGE_TAG manquant : un numéro de version en production (ex. 1.0.0), main en recette}"
     container_name: bons-frontend
     restart: unless-stopped
     ports:
