@@ -1,5 +1,4 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppConfigService } from '../config/config.service';
 import { KpiPeriod, buildBuckets, fillSeries } from './kpi-period';
@@ -11,73 +10,34 @@ import {
   ParcReturnOverdueItem,
   SeriesPoint,
 } from './kpi-types';
-import { filialeFilter, inRange, stepInterval, toNumber, ratio, compared, bucketLabel } from './kpi-sql';
+import { toNumber, ratio, compared, bucketLabel } from './kpi-sql';
+import { CATEGORY_LABELS, buildSituationBreakdown } from '../common/bon-predicates';
 import {
-  CATEGORY_LABELS,
-  PARC_BON_STATUSES,
-  buildSituationBreakdown,
-  parcEquipmentSql,
-  situationCaseSql,
-} from '../common/bon-predicates';
-
-interface LoanedTotalsRow {
-  total: bigint;
-  bons: bigint;
-}
-interface CategoryRow {
-  category: string;
-  count: bigint;
-}
-interface FilialeRow {
-  filialeId: string;
-  name: string;
-  count: bigint;
-}
-interface SituationRow {
-  situation: string;
-  count: bigint;
-}
-interface TopModelRow {
-  catalogItemId: string;
-  brand: string;
-  model: string;
-  category: string;
-  count: bigint;
-}
-interface ShareCountsRow {
-  offCatalog: bigint;
-  withSerial: bigint;
-}
-interface SeriesRow {
-  bucket: Date | string;
-  count: bigint;
-}
-interface OverdueAggregateRow {
-  bons: bigint;
-  equipments: bigint;
-  avgDays: unknown;
-  medianDays: unknown;
-}
-interface OverdueTopRow {
-  bonId: string;
-  reference: string;
-  filiale: string;
-  collaborateur: string;
-  dateRestitution: Date | string;
-  daysLate: unknown;
-  equipments: bigint;
-}
-interface NotReturnedFlowRow {
-  declared: bigint;
-  found: bigint;
-}
-interface ClosedShareRow {
-  archived: bigint;
-  withNotReturned: bigint;
-}
-interface OpenNowRow {
-  count: bigint;
-}
+  LoanedTotalsRow,
+  CategoryRow,
+  FilialeRow,
+  SituationRow,
+  TopModelRow,
+  ShareCountsRow,
+  SeriesRow,
+  OverdueAggregateRow,
+  OverdueTopRow,
+  NotReturnedFlowRow,
+  ClosedShareRow,
+  OpenNowRow,
+  loanedTotalsQuery,
+  loanedByCategoryQuery,
+  loanedByFilialeQuery,
+  loanedBySituationQuery,
+  topModelsQuery,
+  shareCountsQuery,
+  loanedSeriesQuery,
+  returnOverdueAggregateQuery,
+  returnOverdueTopQuery,
+  notReturnedFlowsQuery,
+  closedBonsShareQuery,
+  notReturnedOpenNowQuery,
+} from './kpi-parc.queries';
 
 /**
  * `GET /kpi/parc` — parc en circulation (définition élargie, cf.
@@ -86,7 +46,10 @@ interface OpenNowRow {
  * Chaque bloc de la réponse est calculé par une requête SQL dédiée
  * (`Prisma.sql`, jamais de concaténation), exécutées en parallèle. Toutes
  * filtrent sur `filialeFilter('b', filialeId)` et castent les colonnes enum
- * (`b.status`, `ec.category`, `s.type`) en texte — voir kpi-design.md.
+ * (`b.status`, `ec.category`, `s.type`) en texte — voir kpi-design.md. Le
+ * texte des requêtes vit dans `kpi-parc.queries.ts` (fonctions pures) ; ce
+ * fichier orchestre leur exécution en parallèle et construit l'enveloppe de
+ * réponse.
  *
  * `loaned.total` doit toujours égaler `/reporting/inventory/summary.total`
  * (sans filiale) : les deux services partagent `parcEquipmentSql()`.
@@ -117,20 +80,20 @@ export class KpiParcService {
       closedSharePreviousRows,
       openNowRows,
     ] = await Promise.all([
-      this.prisma.$queryRaw<LoanedTotalsRow[]>(this.loanedTotalsQuery(filialeId)),
-      this.prisma.$queryRaw<CategoryRow[]>(this.loanedByCategoryQuery(filialeId)),
-      this.prisma.$queryRaw<FilialeRow[]>(this.loanedByFilialeQuery(filialeId)),
-      this.prisma.$queryRaw<SituationRow[]>(this.loanedBySituationQuery(filialeId)),
-      this.prisma.$queryRaw<TopModelRow[]>(this.topModelsQuery(filialeId)),
-      this.prisma.$queryRaw<ShareCountsRow[]>(this.shareCountsQuery(filialeId)),
-      this.prisma.$queryRaw<SeriesRow[]>(this.loanedSeriesQuery(period, filialeId)),
-      this.prisma.$queryRaw<OverdueAggregateRow[]>(this.returnOverdueAggregateQuery(filialeId)),
-      this.prisma.$queryRaw<OverdueTopRow[]>(this.returnOverdueTopQuery(filialeId)),
-      this.prisma.$queryRaw<NotReturnedFlowRow[]>(this.notReturnedFlowsQuery(currentRange, filialeId)),
-      this.prisma.$queryRaw<NotReturnedFlowRow[]>(this.notReturnedFlowsQuery(period.previous, filialeId)),
-      this.prisma.$queryRaw<ClosedShareRow[]>(this.closedBonsShareQuery(currentRange, filialeId)),
-      this.prisma.$queryRaw<ClosedShareRow[]>(this.closedBonsShareQuery(period.previous, filialeId)),
-      this.prisma.$queryRaw<OpenNowRow[]>(this.notReturnedOpenNowQuery(filialeId)),
+      this.prisma.$queryRaw<LoanedTotalsRow[]>(loanedTotalsQuery(filialeId)),
+      this.prisma.$queryRaw<CategoryRow[]>(loanedByCategoryQuery(filialeId)),
+      this.prisma.$queryRaw<FilialeRow[]>(loanedByFilialeQuery(filialeId)),
+      this.prisma.$queryRaw<SituationRow[]>(loanedBySituationQuery(filialeId)),
+      this.prisma.$queryRaw<TopModelRow[]>(topModelsQuery(filialeId)),
+      this.prisma.$queryRaw<ShareCountsRow[]>(shareCountsQuery(filialeId)),
+      this.prisma.$queryRaw<SeriesRow[]>(loanedSeriesQuery(period, filialeId)),
+      this.prisma.$queryRaw<OverdueAggregateRow[]>(returnOverdueAggregateQuery(filialeId)),
+      this.prisma.$queryRaw<OverdueTopRow[]>(returnOverdueTopQuery(filialeId)),
+      this.prisma.$queryRaw<NotReturnedFlowRow[]>(notReturnedFlowsQuery(currentRange, filialeId)),
+      this.prisma.$queryRaw<NotReturnedFlowRow[]>(notReturnedFlowsQuery(period.previous, filialeId)),
+      this.prisma.$queryRaw<ClosedShareRow[]>(closedBonsShareQuery(currentRange, filialeId)),
+      this.prisma.$queryRaw<ClosedShareRow[]>(closedBonsShareQuery(period.previous, filialeId)),
+      this.prisma.$queryRaw<OpenNowRow[]>(notReturnedOpenNowQuery(filialeId)),
     ]);
 
     const totalEquipments = toNumber(totalsRows[0]?.total);
@@ -212,243 +175,5 @@ export class KpiParcService {
         openNow: toNumber(openNowRows[0]?.count),
       },
     };
-  }
-
-  // ── requêtes ────────────────────────────────────────────────────────────
-
-  /** Total d'équipements en circulation (définition élargie, cf.
-   *  PARC_BON_STATUSES) + nombre de bons distincts concernés. */
-  private loanedTotalsQuery(filialeId?: string): Prisma.Sql {
-    return Prisma.sql`
-      SELECT COUNT(be.id)::bigint AS total, COUNT(DISTINCT b.id)::bigint AS bons
-      FROM bon_equipments be
-      JOIN bons b ON b.id = be.bon_id
-      WHERE ${parcEquipmentSql()}
-      ${filialeFilter('b', filialeId)}
-    `;
-  }
-
-  /** Répartition du parc en circulation par catégorie (COALESCE 'autre' si sans fiche catalogue). */
-  private loanedByCategoryQuery(filialeId?: string): Prisma.Sql {
-    return Prisma.sql`
-      SELECT COALESCE(ec.category::text, 'autre') AS category, COUNT(*)::bigint AS count
-      FROM bon_equipments be
-      JOIN bons b ON b.id = be.bon_id
-      LEFT JOIN equipment_catalog ec ON ec.id = be.catalog_item_id
-      WHERE ${parcEquipmentSql()}
-      ${filialeFilter('b', filialeId)}
-      GROUP BY COALESCE(ec.category::text, 'autre')
-      ORDER BY count DESC
-    `;
-  }
-
-  /** Répartition du parc en circulation par filiale. */
-  private loanedByFilialeQuery(filialeId?: string): Prisma.Sql {
-    return Prisma.sql`
-      SELECT f.id AS "filialeId", f.display_name AS name, COUNT(*)::bigint AS count
-      FROM bon_equipments be
-      JOIN bons b ON b.id = be.bon_id
-      JOIN filiales f ON f.id = b.filiale_id
-      WHERE ${parcEquipmentSql()}
-      ${filialeFilter('b', filialeId)}
-      GROUP BY f.id, f.display_name
-      ORDER BY count DESC
-    `;
-  }
-
-  /** Répartition du parc en circulation par situation (en_attente_signature /
-   *  en_circulation / en_litige) — la somme égale toujours `loaned.total`. */
-  private loanedBySituationQuery(filialeId?: string): Prisma.Sql {
-    return Prisma.sql`
-      SELECT ${situationCaseSql()} AS situation, COUNT(*)::bigint AS count
-      FROM bon_equipments be
-      JOIN bons b ON b.id = be.bon_id
-      WHERE ${parcEquipmentSql()}
-      ${filialeFilter('b', filialeId)}
-      -- GROUP BY 1 (position) et non l'expression répétée : Prisma lie les valeurs
-      -- de chaque expression CASE comme des paramètres distincts, que Postgres
-      -- ne reconnaît alors pas comme identiques (« column b.status must appear in
-      -- the GROUP BY clause »).
-      GROUP BY 1
-    `;
-  }
-
-  /** Top 10 des modèles de catalogue les plus prêtés. */
-  private topModelsQuery(filialeId?: string): Prisma.Sql {
-    return Prisma.sql`
-      SELECT ec.id AS "catalogItemId", ec.brand, ec.model, ec.category::text AS category, COUNT(*)::bigint AS count
-      FROM bon_equipments be
-      JOIN bons b ON b.id = be.bon_id
-      JOIN equipment_catalog ec ON ec.id = be.catalog_item_id
-      WHERE ${parcEquipmentSql()}
-      ${filialeFilter('b', filialeId)}
-      GROUP BY ec.id, ec.brand, ec.model, ec.category
-      ORDER BY count DESC
-      LIMIT 10
-    `;
-  }
-
-  /** Compteurs bruts pour `offCatalogShare` (sans fiche catalogue) et
-   *  `serialCoverage` (numéro de série renseigné) — ratios calculés en JS
-   *  sur `loaned.total` (dénominateur commun). */
-  private shareCountsQuery(filialeId?: string): Prisma.Sql {
-    return Prisma.sql`
-      SELECT
-        COUNT(*) FILTER (WHERE be.catalog_item_id IS NULL)::bigint AS "offCatalog",
-        COUNT(*) FILTER (WHERE btrim(COALESCE(be.serial_number, '')) <> '')::bigint AS "withSerial"
-      FROM bon_equipments be
-      JOIN bons b ON b.id = be.bon_id
-      WHERE ${parcEquipmentSql()}
-      ${filialeFilter('b', filialeId)}
-    `;
-  }
-
-  /** Série historique (estimation) du stock en circulation en fin de bucket :
-   *  `generate_series` aligné sur la granularité + début de prêt en LATERAL
-   *  (`MIN(signed_at)` de la signature mise_disposition, repli
-   *  `date_mise_disposition`) — voir kpi-design.md.
-   *
-   *  Alignée sur la même définition que `loanedTotalsQuery` (PARC_BON_STATUSES,
-   *  audit du 2026-09-18) plutôt que « tout statut sauf cancelled » : sans cet
-   *  alignement, un bon `contested` ou `sent_mise_dispo` apparaissait dans la
-   *  série (statut ≠ cancelled) mais pas dans le total instantané (ancien
-   *  LOANED_BON_STATUSES), faisant diverger le dernier point de la courbe et
-   *  la tuile « total » sans raison métier. Le statut du bon n'étant connu
-   *  qu'à l'instant présent (pas d'historique), un bon aujourd'hui `archived`
-   *  reste compté sur les buckets antérieurs à son archivage effectif
-   *  (`archived_at >= bucketEnd`) — au bucket le plus récent, cette branche est
-   *  fausse pour un bon réellement déjà archivé, ce qui reproduit exactement
-   *  `parcEquipmentSql()`. */
-  private loanedSeriesQuery(period: KpiPeriod, filialeId?: string): Prisma.Sql {
-    const step = stepInterval(period.granularity);
-    // Fin de bucket = minuit Paris du bucket suivant, ramené en timestamp naïf UTC
-    // (même convention que parisStart) pour se comparer aux colonnes Prisma.
-    const bucketEnd = Prisma.sql`((LEAST(bk.d + ${step}, ${period.to}::date + 1)::timestamp AT TIME ZONE 'Europe/Paris') AT TIME ZONE 'UTC')`;
-
-    return Prisma.sql`
-      WITH bk AS (
-        SELECT generate_series(
-          date_trunc(${period.granularity}, ${period.from}::date)::date,
-          ${period.to}::date,
-          ${step}
-        )::date AS d
-      )
-      SELECT bk.d AS bucket, COUNT(be.id)::bigint AS count
-      FROM bk
-      LEFT JOIN (
-        bon_equipments be
-        JOIN bons b ON b.id = be.bon_id
-        LEFT JOIN LATERAL (
-          SELECT MIN(s.signed_at) AS loan_start
-          FROM signatures s
-          WHERE s.bon_id = b.id AND s.type::text = 'mise_disposition' AND s.signed
-        ) ls ON true
-      ) ON COALESCE(ls.loan_start, b.date_mise_disposition::timestamp) < ${bucketEnd}
-        AND (be.returned_at IS NULL OR be.returned_at >= ${bucketEnd})
-        AND be.not_returned = false
-        AND (
-          b.status::text IN (${Prisma.join(PARC_BON_STATUSES)})
-          OR (b.status::text = 'archived' AND b.archived_at >= ${bucketEnd})
-        )
-        ${filialeFilter('b', filialeId)}
-      GROUP BY bk.d
-      ORDER BY bk.d
-    `;
-  }
-
-  /** CTE partagée par `returnOverdueAggregateQuery` et `returnOverdueTopQuery` :
-   *  un bon par ligne, équipements en circulation en retard de restitution
-   *  regroupés (définition élargie, cf. PARC_BON_STATUSES — un bon
-   *  `sent_mise_dispo` ou `contested` dont la date de restitution est dépassée
-   *  compte désormais aussi comme en retard, le matériel étant physiquement
-   *  chez le collaborateur), `days_late` = jours de retard (date civile Paris). */
-  private lateBonsCte(filialeId?: string): Prisma.Sql {
-    return Prisma.sql`
-      SELECT b.id AS bon_id, b.reference, b.date_restitution, b.collaborateur_id, b.filiale_id,
-             (now() AT TIME ZONE 'Europe/Paris')::date - b.date_restitution AS days_late,
-             COUNT(be.id)::bigint AS equipments
-      FROM bon_equipments be
-      JOIN bons b ON b.id = be.bon_id
-      WHERE ${parcEquipmentSql()}
-        AND b.date_restitution IS NOT NULL
-        AND b.date_restitution < (now() AT TIME ZONE 'Europe/Paris')::date
-        ${filialeFilter('b', filialeId)}
-      GROUP BY b.id, b.reference, b.date_restitution, b.collaborateur_id, b.filiale_id
-    `;
-  }
-
-  /** Agrégat des retards de restitution : nombre de bons/équipements, moyenne
-   *  et médiane des jours de retard. */
-  private returnOverdueAggregateQuery(filialeId?: string): Prisma.Sql {
-    return Prisma.sql`
-      WITH late AS (${this.lateBonsCte(filialeId)})
-      SELECT
-        COUNT(*)::bigint AS bons,
-        COALESCE(SUM(equipments), 0)::bigint AS equipments,
-        AVG(days_late)::float8 AS "avgDays",
-        percentile_cont(0.5) WITHIN GROUP (ORDER BY days_late)::float8 AS "medianDays"
-      FROM late
-    `;
-  }
-
-  /** Top 10 des bons en retard de restitution (les plus en retard d'abord),
-   *  avec collaborateur et filiale. */
-  private returnOverdueTopQuery(filialeId?: string): Prisma.Sql {
-    return Prisma.sql`
-      WITH late AS (${this.lateBonsCte(filialeId)})
-      SELECT
-        late.bon_id AS "bonId", late.reference, f.display_name AS filiale, u.display_name AS collaborateur,
-        late.date_restitution AS "dateRestitution", late.days_late AS "daysLate", late.equipments
-      FROM late
-      JOIN users u ON u.id = late.collaborateur_id
-      JOIN filiales f ON f.id = late.filiale_id
-      ORDER BY late.days_late DESC
-      LIMIT 10
-    `;
-  }
-
-  /** Flux « déclaré non rendu » / « retrouvé » (audits) sur une période
-   *  donnée — appelée une fois pour la période courante et une fois pour la
-   *  précédente. */
-  private notReturnedFlowsQuery(range: { from: string; to: string }, filialeId?: string): Prisma.Sql {
-    return Prisma.sql`
-      SELECT
-        -- declare_not_returned / mark_found sont toujours journalisés ; les variantes
-        -- _partial sont des marqueurs supplémentaires, non comptées une seconde fois.
-        COUNT(*) FILTER (WHERE a.action = 'declare_not_returned')::bigint AS declared,
-        COUNT(*) FILTER (WHERE a.action = 'mark_found')::bigint AS found
-      FROM audit_logs a
-      JOIN bons b ON b.id = a.bon_id
-      WHERE ${inRange(Prisma.sql`a.created_at`, range)}
-      ${filialeFilter('b', filialeId)}
-    `;
-  }
-
-  /** Part des bons archivés sur la période ayant au moins un équipement non
-   *  rendu — appelée pour la période courante et la précédente. */
-  private closedBonsShareQuery(range: { from: string; to: string }, filialeId?: string): Prisma.Sql {
-    return Prisma.sql`
-      SELECT
-        COUNT(*)::bigint AS archived,
-        COUNT(*) FILTER (
-          WHERE EXISTS (SELECT 1 FROM bon_equipments be WHERE be.bon_id = b.id AND be.not_returned = true)
-        )::bigint AS "withNotReturned"
-      FROM bons b
-      WHERE ${inRange(Prisma.sql`b.archived_at`, range)}
-      ${filialeFilter('b', filialeId)}
-    `;
-  }
-
-  /** État instantané : équipements déclarés non rendus sur un bon encore actif
-   *  (ni archivé ni annulé). */
-  private notReturnedOpenNowQuery(filialeId?: string): Prisma.Sql {
-    return Prisma.sql`
-      SELECT COUNT(*)::bigint AS count
-      FROM bon_equipments be
-      JOIN bons b ON b.id = be.bon_id
-      WHERE be.not_returned = true
-        AND b.status::text NOT IN ('archived', 'cancelled')
-        ${filialeFilter('b', filialeId)}
-    `;
   }
 }

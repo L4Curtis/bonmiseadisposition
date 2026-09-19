@@ -397,6 +397,29 @@ describe('AuthService', () => {
     it('should not detect non-revoked token', () => {
       expect(service.isTokenRevoked('never-revoked-token')).toBe(false);
     });
+
+    it(
+      "la purge opportuniste déclenchée au-delà de 10000 jetons journalise son échec au lieu de " +
+        'produire une promesse rejetée non gérée (cf. fix 057737c)',
+      async () => {
+        prisma.revokedToken.deleteMany.mockRejectedValue(new Error('Base indisponible'));
+        const logger = (service as unknown as { logger: { warn: jest.Mock } }).logger;
+        const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => undefined);
+
+        // Remplit le cache mémoire au-delà du seuil (10000) pour déclencher le
+        // chemin onOverCapacity() de revokeTokenImpl (token-revocation.ts).
+        for (let i = 0; i < 10001; i++) {
+          service.revokeToken(`jeton-${i}`);
+        }
+
+        // Laisse la microtask du .catch() de la purge s'exécuter.
+        await new Promise((resolve) => setImmediate(resolve));
+
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining('Purge des jetons révoqués en échec'),
+        );
+      },
+    );
   });
 
   // ─── ensureDefaultAdmin ──────────────────────────────────────────────────────

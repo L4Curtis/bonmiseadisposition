@@ -10,8 +10,6 @@ import {
   Res,
   Req,
   UseGuards,
-  ForbiddenException,
-  BadRequestException,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Response, Request } from 'express';
@@ -31,13 +29,14 @@ import {
   CloseUnilateralDto,
 } from './dto/actions.dto';
 import { SignItDto } from '../signature/dto/sign.dto';
-import { PdfSnapshotType } from '../common/types';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth-user.interface';
-import { isItRole } from '../common/roles';
+import { verifyCollaboratorAccess as verifyCollaboratorAccessImpl } from './bons-access';
+import { assertValidPdfQuery, resolveBonPdf } from './bons-pdf-lookup';
+import { computeMissingPdfSnapshotTypes } from './bons-missing-snapshots';
 
 @Controller('bons')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -245,24 +244,7 @@ export class BonsController {
       this.prisma.pdfSnapshot.findMany({ where: { bonId: id }, select: { type: true } }),
     ]);
     const existingTypes = new Set(existingSnapshots.map((s) => s.type as string));
-
-    const expectedTypes = new Set<string>();
-    for (const sig of signedSignatures) {
-      if (sig.type === 'mise_disposition') expectedTypes.add('signature_collab_mise_disposition');
-      else if (sig.type === 'restitution') expectedTypes.add('signature_collab_restitution');
-      else if (sig.type === 'pv_cloture') expectedTypes.add('cloture_equipements_manquants');
-      else if (sig.type === 'it_cachet') {
-        // pdfType est renseigné par le flux récent (signItCachet) ; pour un
-        // enregistrement plus ancien sans pdfType, on déduit depuis le statut
-        // courant du bon (même heuristique que signItCachet).
-        const isRestitution =
-          sig.pdfType === 'restitution' ||
-          (sig.pdfType == null && ['sent_restitution', 'partially_returned', 'archived'].includes(bon.status));
-        expectedTypes.add(isRestitution ? 'signature_it_restitution' : 'signature_it_mise_disposition');
-      }
-    }
-
-    const missing = [...expectedTypes].filter((type) => !existingTypes.has(type));
+    const missing = computeMissingPdfSnapshotTypes(signedSignatures, existingTypes, bon.status);
     return { missing };
   }
 
@@ -276,57 +258,14 @@ export class BonsController {
     @Query('stage') stage?: string,
   ) {
     await this.verifyCollaboratorAccess(id, user);
-    // Validate enum-typed query params explicitly (a raw cast used to surface
-    // as a Prisma validation error → HTTP 500 instead of 400)
-    if (!['mise_disposition', 'restitution'].includes(type)) {
-      throw new BadRequestException(`Type de PDF inconnu : ${type}`);
-    }
-    const validStages = Object.values(PdfSnapshotType) as string[];
-    if (stage && !validStages.includes(stage)) {
-      throw new BadRequestException(`Étape de snapshot inconnue : ${stage}`);
-    }
+    assertValidPdfQuery(type, stage);
     const bon = await this.bonsService.findOne(id);
 
-    // If specific stage requested, serve from PdfSnapshot table
-    if (stage) {
-      const pdfSnapshot = await this.prisma.pdfSnapshot.findUnique({
-        where: { bonId_type: { bonId: bon.id, type: stage as PdfSnapshotType } },
-      });
-      if (pdfSnapshot) {
-        res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `attachment; filename="${pdfSnapshot.filename}"`);
-        return res.send(Buffer.from(pdfSnapshot.data));
-      }
-    }
-
-    // Default: serve best available snapshot
-    const snapshotType: PdfSnapshotType = type === 'restitution'
-      ? 'signature_collab_restitution'
-      : 'signature_collab_mise_disposition';
-    const pdfSnapshot = await this.prisma.pdfSnapshot.findUnique({
-      where: { bonId_type: { bonId: bon.id, type: snapshotType } },
-    });
-
-    if (pdfSnapshot) {
+    const resolved = await resolveBonPdf(this.prisma, bon, type, stage);
+    if (resolved) {
       res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename="${pdfSnapshot.filename}"`);
-      return res.send(Buffer.from(pdfSnapshot.data));
-    }
-
-    // Fallback: query legacy snapshot columns directly (not in BON_SELECT)
-    const legacyBon = await this.prisma.bon.findUnique({
-      where: { id: bon.id },
-      select: { pdfMiseDispoSnapshot: true, pdfRestitutionSnapshot: true },
-    });
-    const legacySnapshot =
-      type === 'restitution'
-        ? legacyBon?.pdfRestitutionSnapshot
-        : legacyBon?.pdfMiseDispoSnapshot;
-
-    if (legacySnapshot) {
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename="bon-${bon.reference}.pdf"`);
-      return res.send(Buffer.from(legacySnapshot));
+      res.setHeader('Content-Disposition', `attachment; filename="${resolved.filename}"`);
+      return res.send(resolved.data);
     }
 
     // Generate on-the-fly. BON_SELECT no longer exposes signatureImagePath, so
@@ -343,23 +282,9 @@ export class BonsController {
 
   /** Verify access: collaborators see only their own bons. Admins and
    *  technicians have cross-filiale access (modèle « IT centrale »,
-   *  décision produit 2026-06-11). */
+   *  décision produit 2026-06-11). Implémentation dans bons-access.ts. */
   private async verifyCollaboratorAccess(bonId: string, user: AuthUser): Promise<void> {
-    if (!user) {
-      throw new ForbiddenException('Accès refusé');
-    }
-    if (isItRole(user.role)) return;
-
-    const bon = await this.prisma.bon.findUnique({
-      where: { id: bonId },
-      select: { collaborateurId: true },
-    });
-    // Unknown bon: let the handler's own lookup produce its 404
-    if (!bon) return;
-
-    if (bon.collaborateurId !== user.id) {
-      throw new ForbiddenException('Accès refusé à ce bon');
-    }
+    return verifyCollaboratorAccessImpl(this.prisma, bonId, user);
   }
 
   /** POST /bons/:id/close-unilateral — clôture sans signature du collaborateur
