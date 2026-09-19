@@ -3,15 +3,7 @@
  * Verifies that all user-supplied data is HTML-escaped before embedding in emails.
  */
 
-// Replicate escapeHtml from notification.service.ts
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
+import { escapeHtml } from '../messages/escape-html';
 
 interface TestEquipment {
   order: number;

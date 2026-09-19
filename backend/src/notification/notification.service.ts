@@ -36,6 +36,7 @@ import {
   buildMarkFoundNotice,
   buildUnilateralCloseNotice,
 } from './messages/system-notice-emails';
+import { sendTokenSignatureRequest, sendTemplatedNotification, sendPrebuiltNotice } from './senders/notification-senders';
 import { runDailyReminders as runDailyRemindersJob, DailyRemindersOutcome } from './reminders/daily-reminders';
 import { runRestitutionDueReminders as runRestitutionDueRemindersJob, RestitutionDueRemindersOutcome } from './reminders/restitution-due-reminders';
 import { JobTrackerService } from '../monitoring/job-tracker.service';
@@ -119,89 +120,44 @@ export class NotificationService {
   // ─── Email Templates ────────────────────────────────────────────────────────
 
   async sendMiseDispositionRequest(bon: NotificationBon, token: string): Promise<void> {
-    const recipientEmail = bon.collaborateurEmail;
-    if (!recipientEmail) {
-      await blockIfEmailMissing(this.prisma, this.logger, bon.id, recipientEmail, 'mise_dispo_request');
-      return;
-    }
-    const appUrl = await this.getAppUrl();
-    if (await blockIfAppUrlMissing(this.prisma, this.logger, appUrl, bon.id, recipientEmail, 'mise_dispo_request')) {
-      return;
-    }
-
-    const { vars, subject } = buildMiseDispositionRequestMessage(bon, `${appUrl}/signer/${token}`);
-    const html = await this.templatesService.renderTemplate('mise_disposition_request', vars);
-    const result = await this.sendEmail(recipientEmail, subject, html);
-
-    await logNotificationResult(this.prisma, {
-      bonId: bon.id,
-      recipientEmail,
+    return sendTokenSignatureRequest(this.senderDeps(), {
+      bon,
+      token,
       type: 'mise_dispo_request',
-      result,
+      templateId: 'mise_disposition_request',
+      buildMessage: buildMiseDispositionRequestMessage,
     });
   }
 
   async sendRestitutionRequest(bon: NotificationBon, token: string): Promise<void> {
-    const recipientEmail = bon.collaborateurEmail;
-    if (!recipientEmail) {
-      await blockIfEmailMissing(this.prisma, this.logger, bon.id, recipientEmail, 'restitution_request');
-      return;
-    }
-    const appUrl = await this.getAppUrl();
-    if (await blockIfAppUrlMissing(this.prisma, this.logger, appUrl, bon.id, recipientEmail, 'restitution_request')) {
-      return;
-    }
-
-    const { vars, subject } = buildRestitutionRequestMessage(bon, `${appUrl}/signer/${token}`);
-    const html = await this.templatesService.renderTemplate('restitution_request', vars);
-    const result = await this.sendEmail(recipientEmail, subject, html);
-
-    await logNotificationResult(this.prisma, {
-      bonId: bon.id,
-      recipientEmail,
+    return sendTokenSignatureRequest(this.senderDeps(), {
+      bon,
+      token,
       type: 'restitution_request',
-      result,
+      templateId: 'restitution_request',
+      buildMessage: buildRestitutionRequestMessage,
     });
   }
 
   async sendSignatureConfirmation(bon: NotificationBon, type: ConfirmationType): Promise<void> {
-    const recipientEmail = bon.collaborateurEmail;
-    if (!recipientEmail) {
-      await blockIfEmailMissing(this.prisma, this.logger, bon.id, recipientEmail, 'confirmation');
-      return;
-    }
     const { templateId, vars, subject } = buildConfirmationMessage(bon, type);
-    const html = await this.templatesService.renderTemplate(templateId, vars);
-    const result = await this.sendEmail(recipientEmail, subject, html);
-
-    await logNotificationResult(this.prisma, {
+    return sendTemplatedNotification(this.senderDeps(), {
       bonId: bon.id,
-      recipientEmail,
+      recipientEmail: bon.collaborateurEmail,
       type: 'confirmation',
-      result,
+      templateId,
+      vars,
+      subject,
     });
   }
 
   async sendPvClotureRequest(bon: NotificationBon, token: string): Promise<void> {
-    const recipientEmail = bon.collaborateurEmail;
-    if (!recipientEmail) {
-      await blockIfEmailMissing(this.prisma, this.logger, bon.id, recipientEmail, 'pv_cloture_request');
-      return;
-    }
-    const appUrl = await this.getAppUrl();
-    if (await blockIfAppUrlMissing(this.prisma, this.logger, appUrl, bon.id, recipientEmail, 'pv_cloture_request')) {
-      return;
-    }
-
-    const { vars, subject } = buildPvClotureRequestMessage(bon, `${appUrl}/signer/${token}`);
-    const html = await this.templatesService.renderTemplate('pv_cloture_request', vars);
-    const result = await this.sendEmail(recipientEmail, subject, html);
-
-    await logNotificationResult(this.prisma, {
-      bonId: bon.id,
-      recipientEmail,
+    return sendTokenSignatureRequest(this.senderDeps(), {
+      bon,
+      token,
       type: 'pv_cloture_request',
-      result,
+      templateId: 'pv_cloture_request',
+      buildMessage: buildPvClotureRequestMessage,
     });
   }
 
@@ -289,76 +245,63 @@ export class NotificationService {
     // Une contestation reste possible sans adresse email : seul l'accusé de
     // réception par email est alors ignoré (le collaborateur a signé/contesté
     // en présentiel, il n'y a pas d'email à confirmer).
-    const recipientEmail = collaborateur.email;
-    if (!recipientEmail) {
-      await blockIfEmailMissing(this.prisma, this.logger, bon.id, recipientEmail, 'contestation_resolution');
-      return;
-    }
     const { templateId, vars, subject } = buildContestationResolutionMessage(bon, action, resolutionMessage);
-    const html = await this.templatesService.renderTemplate(templateId, vars);
-    const result = await this.sendEmail(recipientEmail, subject, html);
-
-    await logNotificationResult(this.prisma, {
+    return sendTemplatedNotification(this.senderDeps(), {
       bonId: bon.id,
-      recipientEmail,
+      recipientEmail: collaborateur.email,
       type: 'contestation_resolution',
-      result,
+      templateId,
+      vars,
+      subject,
     });
   }
 
   // ─── Cancel / MarkFound ──────────────────────────────────────────────────────
 
   async sendCancellationNotice(bon: NotificationBon): Promise<void> {
-    const recipientEmail = bon.collaborateurEmail;
-    if (!recipientEmail) {
-      await blockIfEmailMissing(this.prisma, this.logger, bon.id, recipientEmail, 'cancellation');
-      return;
-    }
     const { html, subject } = buildCancellationNotice(bon);
-    const result = await this.sendEmail(recipientEmail, subject, html);
-
-    await logNotificationResult(this.prisma, {
+    return sendPrebuiltNotice(this.senderDeps(), {
       bonId: bon.id,
-      recipientEmail,
+      recipientEmail: bon.collaborateurEmail,
       type: 'cancellation',
-      result,
+      html,
+      subject,
     });
   }
 
   async sendMarkFoundNotice(bon: NotificationBon, equipmentIds: string[]): Promise<void> {
-    const recipientEmail = bon.collaborateurEmail;
-    if (!recipientEmail) {
-      await blockIfEmailMissing(this.prisma, this.logger, bon.id, recipientEmail, 'mark_found');
-      return;
-    }
     const { html, subject } = buildMarkFoundNotice(bon, equipmentIds);
-    const result = await this.sendEmail(recipientEmail, subject, html);
-
-    await logNotificationResult(this.prisma, {
+    return sendPrebuiltNotice(this.senderDeps(), {
       bonId: bon.id,
-      recipientEmail,
+      recipientEmail: bon.collaborateurEmail,
       type: 'mark_found',
-      result,
+      html,
+      subject,
     });
   }
 
   // ─── Clôture unilatérale ─────────────────────────────────────────────────────
 
   async sendUnilateralCloseNotice(bon: NotificationBon, reason: string, newStatus: string): Promise<void> {
-    const recipientEmail = bon.collaborateurEmail;
-    if (!recipientEmail) {
-      await blockIfEmailMissing(this.prisma, this.logger, bon.id, recipientEmail, 'unilateral_closure');
-      return;
-    }
     const { html, subject } = buildUnilateralCloseNotice(bon, reason, newStatus);
-    const result = await this.sendEmail(recipientEmail, subject, html);
-
-    await logNotificationResult(this.prisma, {
+    return sendPrebuiltNotice(this.senderDeps(), {
       bonId: bon.id,
-      recipientEmail,
+      recipientEmail: bon.collaborateurEmail,
       type: 'unilateral_closure',
-      result,
+      html,
+      subject,
     });
+  }
+
+  /** Dépendances explicites passées aux fonctions pures de ./senders. */
+  private senderDeps() {
+    return {
+      prisma: this.prisma,
+      logger: this.logger,
+      templatesService: this.templatesService,
+      sendEmail: (to: string, subject: string, html: string) => this.sendEmail(to, subject, html),
+      getAppUrl: () => this.getAppUrl(),
+    };
   }
 
   // ─── Cron: Rappels quotidiens ────────────────────────────────────────────────

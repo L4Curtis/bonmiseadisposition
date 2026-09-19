@@ -1,27 +1,18 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { Prisma } from '@prisma/client';
-import * as fs from 'fs';
-import { unlink } from 'fs/promises';
-import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppConfigService } from '../config/config.service';
 import { AttachmentsService } from '../attachments/attachments.service';
 import { JobTrackerService, JobOutcome } from '../monitoring/job-tracker.service';
 import { JOB_KEYS } from '../monitoring/job-registry';
+import { anonymizeBon as anonymizeBonPure } from './anonymize-bon';
+import { purgeOldAttachments as purgeOldAttachmentsPure } from './purge-old-attachments';
+import { purgeExpiredTokens as purgeExpiredTokensPure, purgeOldAuditLogs as purgeOldAuditLogsPure } from './purge-technical';
+import { computeRetentionStats, RetentionStats } from './retention-stats';
 
 const DEFAULT_ANONYMIZE_MONTHS = 60; // 5 ans par défaut — plancher légal RGPD
 const ANONYMIZE_MONTHS_FLOOR = 60; // Plancher légal : aucune config ne peut descendre en dessous
 const DEFAULT_ATTACHMENT_MONTHS = 24; // Purge indépendante des pièces jointes (défaut raisonnable, non légalement fixé)
-const SIGNATURES_DIR = path.join(process.cwd(), 'data', 'signatures');
-// Chemin de stockage des pièces jointes — recopié depuis AttachmentsService
-// (UPLOADS_DIR y est privé, non exporté). À synchroniser si ce chemin change.
-const ATTACHMENTS_DIR = path.join(process.cwd(), 'data', 'attachments');
-const ANONYMIZED_EMAIL = 'anonymise@rgpd.local';
-// Clés JSON pouvant contenir des PII dans AuditLog.details, retirées à l'anonymisation
-// — 'message' : bon_contested stocke message.substring(0,200) (texte libre du collaborateur)
-// — 'reason' : declare_not_returned / bon_closed_unilateral stockent un motif libre
-const AUDIT_DETAILS_PII_KEYS = ['filename', 'titulaireEmail', 'signerEmail', 'email', 'message', 'reason'];
 const DRY_RUN_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24h
 
 export interface RetentionResult {
@@ -33,20 +24,6 @@ export interface RetentionResult {
   oldAttachmentsPurged: number;
   cutoff: string;
   dryRun: boolean;
-}
-
-/** Retire du JSON `details` d'un AuditLog les clés pouvant porter des PII. */
-function sanitizeAuditDetails(details: Prisma.JsonValue): Prisma.JsonValue {
-  if (details === null || typeof details !== 'object' || Array.isArray(details)) return details;
-  let changed = false;
-  const clone: Record<string, Prisma.JsonValue> = { ...(details as Record<string, Prisma.JsonValue>) };
-  for (const key of AUDIT_DETAILS_PII_KEYS) {
-    if (key in clone) {
-      delete clone[key];
-      changed = true;
-    }
-  }
-  return changed ? clone : details;
 }
 
 /**
@@ -238,197 +215,13 @@ export class RetentionService {
     };
   }
 
-  /**
-   * Anonymise un bon : purge PII + détruit les preuves (PDF, archives, signatures).
-   *
-   * Volontairement CONSERVÉ (valeur statistique / registre légal) : la
-   * référence du bon, ses dates (mise à disposition, restitution, création,
-   * mise à jour), les équipements (BonEquipment — modèles/catalogue), et la
-   * filiale. Le compte "créateur" (createdById) n'est pas touché : il
-   * identifie un membre du service IT, pas le collaborateur sujet du bon.
-   */
   private async anonymizeBon(bonId: string, triggeredByEmail?: string): Promise<number> {
-    // 1. Fichiers de signature chiffrés sur disque
-    const sigs = await this.prisma.signature.findMany({
-      where: { bonId, signatureImagePath: { not: null } },
-      select: { signatureImagePath: true },
-    });
-    for (const s of sigs) {
-      if (!s.signatureImagePath) continue;
-      const basename = path.basename(s.signatureImagePath);
-      const full = path.join(SIGNATURES_DIR, basename);
-      if (full.startsWith(SIGNATURES_DIR) && fs.existsSync(full)) {
-        await unlink(full).catch((err) =>
-          this.logger.warn(
-            `Fichier signature non supprimé (${basename}) lors de l'anonymisation du bon ${bonId}: ${(err as Error).message}`,
-          ),
-        );
-      }
-    }
-
-    // 2. Pièces jointes (fichiers + lignes)
-    const attachmentsPurged = await this.attachments.purgeForBon(bonId);
-
-    // 3. Transaction : purge PII + preuves en base, marque anonymisé
-    await this.prisma.$transaction(async (tx) => {
-      const currentBon = await tx.bon.findUnique({
-        where: { id: bonId },
-        select: { collaborateurId: true, collaborateurEmail: true },
-      });
-      const oldEmailLower = currentBon?.collaborateurEmail?.toLowerCase();
-      const oldCollaborateurId = currentBon?.collaborateurId;
-
-      // Compte technique "anonymisé" — upsert : créé une seule fois, réutilisé
-      // ensuite pour tous les bons anonymisés (idempotent, pas de course entre
-      // deux runs qui tenteraient chacun de le créer).
-      const anonymUser = await tx.user.upsert({
-        where: { email: ANONYMIZED_EMAIL },
-        update: {},
-        create: {
-          email: ANONYMIZED_EMAIL,
-          samAccountName: 'anonymise_rgpd',
-          displayName: 'Collaborateur anonymisé',
-          role: 'collaborator',
-          isLocalAccount: true,
-          active: false,
-          passwordHash: null,
-        },
-      });
-
-      // Réassigne aussi les FK userId (pas seulement les champs texte email) :
-      // Contestation et AuditLog sont chargés avec `include: user` ailleurs
-      // dans l'app — sans ça, le nom/email réel du collaborateur réapparaîtrait
-      // via la jointure malgré l'anonymisation des colonnes texte.
-      if (oldCollaborateurId) {
-        await tx.contestation.updateMany({
-          where: { bonId, userId: oldCollaborateurId },
-          data: { userId: anonymUser.id },
-        });
-        await tx.auditLog.updateMany({
-          where: { bonId, userId: oldCollaborateurId },
-          data: { userId: anonymUser.id },
-        });
-      }
-
-      await tx.signature.updateMany({
-        where: { bonId },
-        data: {
-          signerEmail: null,
-          signerIp: null,
-          signerUserAgent: null,
-          signatureImagePath: null,
-          // Les sceaux HMAC et jetons d'horodatage n'ont plus de sens une fois
-          // les champs probants qu'ils couvrent (email, IP…) effacés
-          seal: null,
-          sealedAt: null,
-          tsToken: null,
-        },
-      });
-      // Preuves binaires (contiennent noms/emails/signatures) — durée légale expirée
-      await tx.pdfSnapshot.deleteMany({ where: { bonId } });
-      await tx.proofArchive.deleteMany({ where: { bonId } });
-
-      await tx.notificationLog.updateMany({
-        where: { bonId },
-        data: { recipientEmail: ANONYMIZED_EMAIL },
-      });
-
-      await tx.contestation.updateMany({ where: { bonId }, data: { message: '[anonymisé]' } });
-      await tx.smbExport.updateMany({ where: { bonId }, data: { filename: 'anonymise.pdf' } });
-
-      // Journaux d'audit liés au bon : IP/UA systématiquement purgés ; l'email
-      // n'est réécrit que s'il correspond au collaborateur (jamais un agent IT
-      // ayant agi sur le bon), et les clés JSON pouvant porter des PII sont
-      // retirées de `details`.
-      const auditLogs = await tx.auditLog.findMany({
-        where: { bonId },
-        select: { id: true, userEmail: true, details: true },
-      });
-      for (const log of auditLogs) {
-        const matchesCollaborateur =
-          !!log.userEmail && !!oldEmailLower && log.userEmail.toLowerCase() === oldEmailLower;
-        const sanitizedDetails = sanitizeAuditDetails(log.details);
-        await tx.auditLog.update({
-          where: { id: log.id },
-          data: {
-            userEmail: matchesCollaborateur ? ANONYMIZED_EMAIL : log.userEmail,
-            ipAddress: null,
-            userAgent: null,
-            details: sanitizedDetails === null ? Prisma.JsonNull : (sanitizedDetails as Prisma.InputJsonValue),
-          },
-        });
-      }
-
-      // Anonymise les champs personnels du bon (conserve réf/dates/statut/équipements/filiale)
-      await tx.bon.update({
-        where: { id: bonId },
-        data: {
-          collaborateurId: anonymUser.id,
-          collaborateurEmail: ANONYMIZED_EMAIL,
-          notes: null,
-          pdfMiseDispoSnapshot: null,
-          pdfRestitutionSnapshot: null,
-          anonymizedAt: new Date(),
-        },
-      });
-
-      await tx.auditLog.create({
-        data: {
-          bonId,
-          userEmail: triggeredByEmail ?? null,
-          action: 'bon_anonymized',
-          details: { reason: 'retention_rgpd' },
-        },
-      });
-    });
-
-    return attachmentsPurged;
+    return anonymizeBonPure({ prisma: this.prisma, attachments: this.attachments, logger: this.logger }, bonId, triggeredByEmail);
   }
 
-  /**
-   * Purge complémentaire (retention.attachment_months) : supprime les pièces
-   * jointes des bons clôturés/annulés au-delà de N mois, indépendamment de
-   * l'anonymisation complète du bon (délai plus long, cf. plancher légal).
-   */
+  /** Purge complémentaire (retention.attachment_months), voir purge-old-attachments.ts. */
   async purgeOldAttachments(cutoff: Date): Promise<number> {
-    const targets = await this.prisma.attachment.findMany({
-      where: { bon: { status: { in: ['archived', 'cancelled'] }, updatedAt: { lt: cutoff } } },
-      select: { id: true, storedPath: true },
-    });
-
-    let count = 0;
-    for (const att of targets) {
-      try {
-        const basename = path.basename(att.storedPath);
-        const fullPath = path.join(ATTACHMENTS_DIR, basename);
-        if (fullPath.startsWith(ATTACHMENTS_DIR)) {
-          try {
-            await unlink(fullPath);
-          } catch (err) {
-            if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-              this.logger.warn(
-                `Fichier pièce jointe non supprimé (${basename}) lors de la purge rétention: ${(err as Error).message}`,
-              );
-            }
-          }
-        }
-        await this.prisma.attachment.delete({ where: { id: att.id } });
-        count++;
-      } catch (err) {
-        this.logger.error(`Échec purge pièce jointe ${att.id}: ${(err as Error).message}`);
-      }
-    }
-
-    if (count > 0) {
-      await this.prisma.auditLog.create({
-        data: { action: 'attachments_purged', details: { count } },
-      });
-      this.logger.log(
-        `Purge pièces jointes anciennes : ${count} fichier(s) supprimé(s) (cutoff ${cutoff.toISOString().slice(0, 10)})`,
-      );
-    }
-
-    return count;
+    return purgeOldAttachmentsPure({ prisma: this.prisma, logger: this.logger }, cutoff);
   }
 
   /** Cron hebdomadaire (dimanche 03h, heure de Paris) — anonymisation si la rétention est activée. */
@@ -467,19 +260,7 @@ export class RetentionService {
   async purgeExpiredTokens(): Promise<number> {
     const daysStr = await this.config.get('retention', 'expired_tokens_days');
     const days = parseInt(daysStr || '30', 10);
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - days);
-
-    const result = await this.prisma.signature.deleteMany({
-      where: { signed: false, tokenExpiresAt: { lt: cutoff } },
-    });
-
-    if (result.count > 0) {
-      this.logger.log(
-        `Purge tokens expirés : ${result.count} signature(s) non signée(s) supprimée(s) (expirées avant ${cutoff.toISOString()})`,
-      );
-    }
-    return result.count;
+    return purgeExpiredTokensPure(this.prisma, this.logger, days);
   }
 
   /**
@@ -489,19 +270,7 @@ export class RetentionService {
   async purgeOldAuditLogs(): Promise<number> {
     const yearsStr = await this.config.get('retention', 'audit_logs_years');
     const years = parseInt(yearsStr || '5', 10);
-    const cutoff = new Date();
-    cutoff.setFullYear(cutoff.getFullYear() - years);
-
-    const result = await this.prisma.auditLog.deleteMany({
-      where: { createdAt: { lt: cutoff } },
-    });
-
-    if (result.count > 0) {
-      this.logger.log(
-        `Purge audit logs : ${result.count} entrée(s) supprimée(s) (antérieures au ${cutoff.toISOString()})`,
-      );
-    }
-    return result.count;
+    return purgeOldAuditLogsPure(this.prisma, this.logger, years);
   }
 
   /** Exécute les deux purges techniques et retourne les compteurs. */
@@ -514,7 +283,7 @@ export class RetentionService {
   }
 
   /** Statistiques de rétention technique pour le dashboard admin. */
-  async getRetentionStats() {
+  async getRetentionStats(): Promise<RetentionStats> {
     const daysStr = await this.config.get('retention', 'expired_tokens_days');
     const yearsStr = await this.config.get('retention', 'audit_logs_years');
     const enabled = await this.config.get('retention', 'enabled');
@@ -531,22 +300,14 @@ export class RetentionService {
     const attachmentMonths = await this.getMonths('attachment_months', DEFAULT_ATTACHMENT_MONTHS);
     const attachmentCutoff = this.cutoffDate(attachmentMonths);
 
-    const [expiredTokenCount, oldAuditCount, totalAuditCount, totalSignatureCount, oldAttachmentCount] =
-      await Promise.all([
-        this.prisma.signature.count({
-          where: { signed: false, tokenExpiresAt: { lt: tokenCutoff } },
-        }),
-        this.prisma.auditLog.count({ where: { createdAt: { lt: auditCutoff } } }),
-        this.prisma.auditLog.count(),
-        this.prisma.signature.count(),
-        this.countOldAttachments(attachmentCutoff),
-      ]);
-
-    return {
+    return computeRetentionStats(this.prisma, (c) => this.countOldAttachments(c), {
       enabled: enabled === 'true',
-      config: { expiredTokensDays: days, auditLogsYears: years, attachmentMonths },
-      purgeable: { expiredTokens: expiredTokenCount, oldAuditLogs: oldAuditCount, oldAttachments: oldAttachmentCount },
-      totals: { auditLogs: totalAuditCount, signatures: totalSignatureCount },
-    };
+      expiredTokensDays: days,
+      auditLogsYears: years,
+      attachmentMonths,
+      tokenCutoff,
+      auditCutoff,
+      attachmentCutoff,
+    });
   }
 }
