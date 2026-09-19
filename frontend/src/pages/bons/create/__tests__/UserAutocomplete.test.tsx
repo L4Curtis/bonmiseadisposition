@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { UserAutocomplete } from '../UserAutocomplete';
+import { resetActiveFilialesForTests } from '@/hooks/use-active-filiales';
 
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>();
@@ -25,6 +26,7 @@ import { api } from '@/lib/api';
 describe('UserAutocomplete — création d\'un collaborateur manuel', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    resetActiveFilialesForTests();
     vi.mocked(api.get).mockImplementation((path: string) => {
       if (path.startsWith('/users/search')) return Promise.resolve([]);
       if (path.startsWith('/filiales/active')) return Promise.resolve([]);
@@ -101,6 +103,7 @@ describe('UserAutocomplete — création d\'un collaborateur manuel', () => {
 describe('UserAutocomplete — affichage d\'un email absent', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    resetActiveFilialesForTests();
   });
 
   it('affiche « — » pour un résultat de recherche sans email', async () => {
@@ -123,6 +126,7 @@ describe('UserAutocomplete — affichage d\'un email absent', () => {
 describe('UserAutocomplete — le dialogue ne soumet pas le formulaire parent', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    resetActiveFilialesForTests();
     vi.mocked(api.get).mockImplementation((path: string) => {
       if (path.startsWith('/users/search')) return Promise.resolve([]);
       if (path.startsWith('/filiales/active')) return Promise.resolve([]);

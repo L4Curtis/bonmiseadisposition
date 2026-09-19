@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
+import { resetActiveFilialesForTests } from '@/hooks/use-active-filiales';
 import { FilialesPage } from '../Filiales';
 
 vi.mock('@/lib/api', async (importOriginal) => {
@@ -53,6 +54,7 @@ const filiale = {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  resetActiveFilialesForTests();
   mockRole = 'admin';
   vi.mocked(api.get).mockResolvedValue([filiale]);
 });

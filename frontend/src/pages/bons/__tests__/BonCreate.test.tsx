@@ -6,6 +6,7 @@ vi.setConfig({ testTimeout: 20000 });
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/render';
+import { resetActiveFilialesForTests } from '@/hooks/use-active-filiales';
 import { CatalogSearch, UserAutocomplete, BonCreatePage } from '../BonCreate';
 
 vi.mock('@/lib/api', async (importOriginal) => {
@@ -78,6 +79,7 @@ describe('CatalogSearch — ne doit jamais soumettre le formulaire englobant', (
 describe('UserAutocomplete — ne doit jamais soumettre le formulaire englobant', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetActiveFilialesForTests();
   });
 
   it('cliquer un résultat collaborateur le sélectionne sans déclencher onSubmit', async () => {
@@ -126,6 +128,7 @@ describe('BonCreatePage — validation avant envoi', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    resetActiveFilialesForTests();
     vi.mocked(api.get).mockImplementation((path: string) => {
       if (path.startsWith('/filiales/active')) return Promise.resolve([filiale]);
       if (path.startsWith('/equipment/catalog')) return Promise.resolve([]);

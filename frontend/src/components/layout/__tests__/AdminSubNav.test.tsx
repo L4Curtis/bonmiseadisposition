@@ -12,12 +12,17 @@ vi.mock('@/lib/api', async (importOriginal) => {
 });
 
 import { api } from '@/lib/api';
+import { resetConfigHealthForTests } from '@/hooks/use-config-health';
 
 const configSection = getSubNavForPath('/admin/configuration/general')!;
 const templatesSection = getSubNavForPath('/admin/templates/email')!;
 
 beforeEach(() => {
   vi.resetAllMocks();
+  // Le hook use-config-health mutualise l'état entre tous les composants
+  // montés via un store de module : sans ce reset, un test hériterait des
+  // données (ou de l'erreur) laissées par le test précédent.
+  resetConfigHealthForTests();
 });
 
 describe('AdminSubNav', () => {
@@ -62,6 +67,8 @@ describe('AdminSubNav', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByRole('link', { name: /Général/ })).toBeInTheDocument();
+    // findBy (plutôt que getBy) attend que le rejet de la requête partagée soit
+    // pris en compte, pour ne pas laisser de mise à jour d'état hors act().
+    expect(await screen.findByRole('link', { name: /Général/ })).toBeInTheDocument();
   });
 });

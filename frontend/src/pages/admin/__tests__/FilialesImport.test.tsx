@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
+import { resetActiveFilialesForTests } from '@/hooks/use-active-filiales';
 import { FilialesPage } from '../Filiales';
 
 vi.mock('@/lib/api', async (importOriginal) => {
@@ -40,6 +41,7 @@ const filiale = {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  resetActiveFilialesForTests();
   vi.mocked(api.get).mockResolvedValue([filiale]);
 });
 
@@ -93,7 +95,11 @@ describe('Import CSV des filiales', () => {
     }));
 
     expect(await screen.findByText('Créées : 1 · Mises à jour : 1 · Ignorées : 0')).toBeInTheDocument();
-    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+    // 1) chargement initial de /filiales, 2) rechargement après import
+    // (onImported), 3) invalidateActiveFiliales (/filiales/active) déclenché
+    // par l'import — la nouvelle filiale doit apparaître sans délai dans les
+    // formulaires qui affichent la liste active.
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(3));
   });
 
   it('rejette les lignes invalides (nom manquant, valeur active invalide) avant tout appel API', async () => {

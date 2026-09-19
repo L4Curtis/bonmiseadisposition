@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import { getActiveFiliales } from '@/hooks/use-active-filiales';
 import type { Filiale } from '@/types';
 import type { CatalogItem, Pack } from './types';
 
@@ -16,7 +17,9 @@ export function useBonCreateReferenceData() {
   useEffect(() => {
     setInitError(false);
     Promise.all([
-      api.get<Filiale[]>('/filiales/active'),
+      // Mutualisé/mis en cache 60 s via useActiveFiliales — partagé avec les
+      // autres formulaires/filtres qui affichent la même liste.
+      getActiveFiliales(),
       api.get<CatalogItem[]>('/equipment/catalog').then((d) =>
         Array.isArray(d) ? d : []
       ),

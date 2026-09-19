@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
+import { resetActiveFilialesForTests } from '@/hooks/use-active-filiales';
 import { InventairePage } from '../Inventaire';
 
 vi.mock('@/lib/api', async (importOriginal) => {
@@ -109,6 +110,7 @@ function mockApiGet() {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  resetActiveFilialesForTests();
   mockRole = 'technician';
   mockApiGet();
 });

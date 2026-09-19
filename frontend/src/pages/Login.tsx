@@ -7,6 +7,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { loginSchema, validate } from '@/lib/validation';
+import { isSafeReturnTo } from '@/lib/safe-return-to';
 
 const ERROR_MESSAGES: Record<string, string> = {
   entra_config_missing: "La configuration Microsoft Entra ID n'est pas encore configurée.",
@@ -14,23 +15,6 @@ const ERROR_MESSAGES: Record<string, string> = {
   invalid_state: 'Erreur de sécurité lors de la connexion. Veuillez réessayer.',
   access_denied: 'Accès refusé par Microsoft.',
 };
-
-// Comparaison d'origine plutôt qu'un simple test de préfixe "/" : une regex
-// du type /^\/[^/]/ laisse passer des payloads comme "/\evil.com",
-// "/%09/evil.com" ou "/%0a/evil.com" que le navigateur normalise en URL
-// absolue vers un autre host au moment de l'assignation à
-// window.location.href (open redirect). `new URL` applique la même
-// normalisation AVANT la comparaison d'origine, donc ces vecteurs sont
-// rejetés. Dupliquée dans SignaturePage.tsx : pas de lib/** partagée dans le
-// périmètre de ce lot (lib/** appartient à un autre lot).
-function isSafeReturnTo(v: string): boolean {
-  try {
-    const u = new URL(v, window.location.origin);
-    return u.origin === window.location.origin && v.startsWith('/');
-  } catch {
-    return false;
-  }
-}
 
 export function LoginPage() {
   const [searchParams] = useSearchParams();
@@ -84,9 +68,8 @@ export function LoginPage() {
       if (res.ok) {
         const data = await res.json();
         if (data.mustChangePassword) {
-          // ChangePassword.tsx est hors périmètre de ce lot : il devra lire
-          // `returnTo` et y rediriger une fois le mot de passe changé, sinon
-          // ce paramètre est actuellement ignoré côté cible.
+          // ChangePassword lit ce même paramètre et y redirige une fois le
+          // mot de passe changé (cf. pages/ChangePassword.tsx).
           window.location.href = safeReturnTo
             ? `/change-password?forced=true&returnTo=${encodeURIComponent(safeReturnTo)}`
             : '/change-password?forced=true';

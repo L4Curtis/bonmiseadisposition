@@ -1,7 +1,5 @@
-import { useEffect, useState } from 'react';
-import { api } from '@/lib/api';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import type { Filiale } from '@/types';
+import { useActiveFiliales } from '@/hooks/use-active-filiales';
 
 const ALL_VALUE = 'all';
 
@@ -11,13 +9,14 @@ export interface FilialeFilterProps {
   className?: string;
 }
 
-/** Filtre filiale global du tableau de bord — `GET /filiales/active`. */
+/** Filtre filiale global du tableau de bord — `GET /filiales/active`,
+ *  mutualisé et mis en cache via `useActiveFiliales` (partagé avec les autres
+ *  filtres/formulaires du même nom). */
 export function FilialeFilter({ value, onChange, className }: FilialeFilterProps) {
-  const [filiales, setFiliales] = useState<Filiale[]>([]);
-
-  useEffect(() => {
-    api.get<Filiale[]>('/filiales/active').then(setFiliales).catch(() => setFiliales([]));
-  }, []);
+  const { filiales, error } = useActiveFiliales();
+  // Une erreur vide l'affichage (comportement historique de ce composant),
+  // contrairement à d'autres appelants qui gardent la dernière liste connue.
+  const options = error ? [] : filiales;
 
   return (
     <Select value={value ?? ALL_VALUE} onValueChange={(next) => onChange(next === ALL_VALUE ? null : next)}>
@@ -26,7 +25,7 @@ export function FilialeFilter({ value, onChange, className }: FilialeFilterProps
       </SelectTrigger>
       <SelectContent>
         <SelectItem value={ALL_VALUE}>Toutes les filiales</SelectItem>
-        {filiales.map((f) => (
+        {options.map((f) => (
           <SelectItem key={f.id} value={f.id}>{f.displayName}</SelectItem>
         ))}
       </SelectContent>

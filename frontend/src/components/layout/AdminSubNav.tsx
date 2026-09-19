@@ -1,12 +1,12 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
-import { useEffect, useState, type ElementType } from 'react';
+import type { ElementType } from 'react';
 import {
   Settings, Server, Shield, Mail, Bell, Key, HardDrive, Activity,
   FileText, Clock, ShieldCheck,
 } from 'lucide-react';
-import { api } from '@/lib/api';
-import { CONFIG_HEALTH_STATE_LABELS, type ConfigHealthState } from '@/pages/admin/configuration/ConfigHealthCard';
+import { CONFIG_HEALTH_STATE_LABELS } from '@/pages/admin/configuration/ConfigHealthCard';
+import { useConfigHealth, type ConfigHealthState } from '@/hooks/use-config-health';
 
 type SubNavItem = {
   to: string;
@@ -70,28 +70,16 @@ function healthKeyForItem(to: string): string {
 }
 
 /** Pastille d'état de configuration (couleur = jeton du thème, jamais de
- *  couleur de palette) — chargée une fois pour la sous-navigation
- *  Configuration, afin de repérer d'un coup d'œil ce qui reste à faire. */
+ *  couleur de palette) — état partagé avec ConfigHealthCard via
+ *  `useConfigHealth` (une seule requête même si les deux sont montés en même
+ *  temps sur la page Général), afin de repérer d'un coup d'œil ce qui reste à
+ *  faire. Erreur silencieuse : une pastille purement indicative (droits,
+ *  réseau) ne doit pas empêcher l'affichage du menu lui-même. */
 function useConfigHealthByKey(enabled: boolean): Record<string, ConfigHealthState> {
-  const [byKey, setByKey] = useState<Record<string, ConfigHealthState>>({});
+  const { sections } = useConfigHealth(enabled);
 
-  useEffect(() => {
-    if (!enabled) return;
-    let cancelled = false;
-    api.get<{ sections: { key: string; state: ConfigHealthState }[] }>('/admin/config/health')
-      .then((data) => {
-        if (cancelled) return;
-        const next: Record<string, ConfigHealthState> = {};
-        for (const s of data.sections) next[s.key] = s.state;
-        setByKey(next);
-      })
-      .catch(() => {
-        // Pastille purement indicative : une erreur silencieuse (droits,
-        // réseau) ne doit pas empêcher l'affichage du menu lui-même.
-      });
-    return () => { cancelled = true; };
-  }, [enabled]);
-
+  const byKey: Record<string, ConfigHealthState> = {};
+  for (const s of sections ?? []) byKey[s.key] = s.state;
   return byKey;
 }
 

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { useFiliales } from '../useFiliales';
+import { resetActiveFilialesForTests } from '@/hooks/use-active-filiales';
 
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>();
@@ -32,6 +33,7 @@ const filiale = {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  resetActiveFilialesForTests();
   vi.mocked(api.get).mockResolvedValue([filiale]);
 });
 
@@ -64,7 +66,11 @@ describe('useFiliales', () => {
     expect(ok).toBe(true);
     expect(api.post).toHaveBeenCalledWith('/filiales', { name: 'Nouvelle', displayName: 'Nouvelle SAS' });
     expect(result.current.creating).toBe(false);
-    expect(api.get).toHaveBeenCalledTimes(2);
+    // 1) chargement initial, 2) rechargement après création (fetchFiliales),
+    // 3) invalidateActiveFiliales (/filiales/active) déclenché par create() —
+    // la nouvelle filiale doit apparaître sans délai dans les formulaires qui
+    // affichent la liste active.
+    expect(api.get).toHaveBeenCalledTimes(3);
   });
 
   it('create() retourne false et garde le formulaire ouvert en cas d’erreur', async () => {

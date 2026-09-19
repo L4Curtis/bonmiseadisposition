@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { lazy, Suspense, useEffect, useMemo } from 'react';
 import { FADE_IN } from '@/components/dashboard/stagger';
 import { useNavigate } from 'react-router-dom';
 import { CalendarDays, Plus } from 'lucide-react';
@@ -6,13 +6,20 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/contexts/AuthContext';
 import { isItRole } from '@/lib/roles';
+import { DashboardTabSkeleton } from '@/components/dashboard/DashboardTabSkeleton';
 import { usePeriodParams } from './use-period-params';
 import { PeriodSelector } from './PeriodSelector';
 import { FilialeFilter } from './FilialeFilter';
 import { TodayTab } from './tabs/TodayTab';
-import { ParcTab } from './tabs/ParcTab';
-import { DelaisTab } from './tabs/DelaisTab';
-import { IncidentsTab } from './tabs/IncidentsTab';
+
+// Parc, Délais et Incidents embarquent Recharts (~141 kB gzip à eux trois) :
+// chargés paresseusement, pour que l'onglet « Aujourd'hui » (sans graphique,
+// et actif par défaut pour l'IT) ne paie jamais ce poids. Voir aussi
+// App.direction.test.tsx, qui précharge ces modules en `beforeAll` pour éviter
+// un lazy() suspendu en jsdom.
+const ParcTab = lazy(() => import('./tabs/ParcTab').then((m) => ({ default: m.ParcTab })));
+const DelaisTab = lazy(() => import('./tabs/DelaisTab').then((m) => ({ default: m.DelaisTab })));
+const IncidentsTab = lazy(() => import('./tabs/IncidentsTab').then((m) => ({ default: m.IncidentsTab })));
 
 interface DashboardTabDef {
   id: string;
@@ -97,9 +104,13 @@ export function DashboardPage() {
               fondu au lieu d'apparaître brutalement. */}
           <div key={activeTabId} className={FADE_IN}>
             {activeTabId === 'today' && <TodayTab />}
-            {activeTabId === 'parc' && <ParcTab />}
-            {activeTabId === 'delais' && <DelaisTab />}
-            {activeTabId === 'incidents' && <IncidentsTab />}
+            {activeTabId !== 'today' && (
+              <Suspense fallback={<DashboardTabSkeleton />}>
+                {activeTabId === 'parc' && <ParcTab />}
+                {activeTabId === 'delais' && <DelaisTab />}
+                {activeTabId === 'incidents' && <IncidentsTab />}
+              </Suspense>
+            )}
           </div>
         </TabsContent>
       </Tabs>

@@ -1,21 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api } from '@/lib/api';
-import { errorMessage } from '@/lib/errors';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CheckCircle2, AlertTriangle, XCircle, MinusCircle, ChevronRight } from 'lucide-react';
+import { useConfigHealth, type ConfigHealthState, type ConfigHealthSection } from '@/hooks/use-config-health';
 
-export type ConfigHealthState = 'configure' | 'incomplet' | 'desactive' | 'non_configure';
-
-export interface ConfigHealthSection {
-  key: string;
-  label: string;
-  state: ConfigHealthState;
-  detail: string;
-  updatedAt: string | null;
-}
+export type { ConfigHealthState, ConfigHealthSection };
 
 /** Libellés d'état partagés avec les pastilles du menu latéral (AdminSubNav)
  *  — une seule source de vérité pour le texte associé à chaque état. */
@@ -45,20 +35,7 @@ function formatUpdatedAt(value: string | null): string {
  * coup d'œil ce qui reste à faire sans ouvrir chaque rubrique une à une.
  */
 export function ConfigHealthCard() {
-  const [sections, setSections] = useState<ConfigHealthSection[] | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  const load = useCallback(() => {
-    setLoading(true);
-    setLoadError(null);
-    api.get<{ sections: ConfigHealthSection[] }>('/admin/config/health')
-      .then((data) => setSections(data.sections))
-      .catch((e: unknown) => setLoadError(errorMessage(e, "Erreur lors du chargement de l'état de la configuration")))
-      .finally(() => setLoading(false));
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
+  const { sections, loading, error: loadError, reload: load } = useConfigHealth();
 
   return (
     <Card>

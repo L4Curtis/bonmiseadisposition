@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { api } from '@/lib/api';
 import { errorMessage } from '@/lib/errors';
+import { getActiveFiliales } from '@/hooks/use-active-filiales';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -66,7 +67,9 @@ export function ManualUserDialog({ open, onOpenChange, editUser, onSaved }: Manu
       setFilialeId('');
     }
     setError('');
-    api.get<Filiale[]>('/filiales/active').then(setFiliales).catch(() => setFiliales([]));
+    // Mutualisé/mis en cache 60 s via useActiveFiliales : ré-ouvrir le
+    // dialogue plusieurs fois de suite ne redemande pas la liste à chaque fois.
+    getActiveFiliales().then(setFiliales).catch(() => setFiliales([]));
   }, [open, editUser]);
 
   const handleSubmit = async (e: FormEvent) => {

@@ -3,6 +3,7 @@ import type { ReactElement, ReactNode } from 'react';
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import { screen } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
+import { resetActiveFilialesForTests } from '@/hooks/use-active-filiales';
 import App from '../../App';
 
 // jsdom n'implémente pas window.matchMedia (utilisé par ThemeProvider, monté
@@ -119,12 +120,20 @@ function adminUser(): MockUser {
 // du module (onglets KPI + Recharts) peut dépasser 15 s quand toute la suite
 // tourne en parallèle, et le test échouait alors sur un écran encore suspendu.
 // Préchargé une fois ici, le import() de lazy() se résout depuis le cache.
+// Les onglets Parc/Délais/Incidents sont eux-mêmes chargés en différé DEPUIS
+// DashboardPage (Recharts, cf. lot B2) : mêmes précautions.
 beforeAll(async () => {
-  await import('@/pages/dashboard/DashboardPage');
+  await Promise.all([
+    import('@/pages/dashboard/DashboardPage'),
+    import('@/pages/dashboard/tabs/ParcTab'),
+    import('@/pages/dashboard/tabs/DelaisTab'),
+    import('@/pages/dashboard/tabs/IncidentsTab'),
+  ]);
 }, 120000);
 
 beforeEach(() => {
   vi.resetAllMocks();
+  resetActiveFilialesForTests();
   localStorage.clear();
   vi.mocked(api.get).mockImplementation((path: string) => {
     if (path.startsWith('/bons/stats')) {

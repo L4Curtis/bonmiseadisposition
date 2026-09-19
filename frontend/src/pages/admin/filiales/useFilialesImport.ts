@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api } from '@/lib/api';
 import { errorMessage } from '@/lib/errors';
 import { toast } from '@/hooks/use-toast';
+import { invalidateActiveFiliales } from '@/hooks/use-active-filiales';
 import { FILIALE_IMPORT_MAX_ROWS, parseFilialesCsv, readFileAsText } from './lib/csv';
 import type { FilialeCsvRowError, ParsedFilialeRow } from './lib/csv';
 import type { FilialeImportSummary } from './types';
@@ -78,6 +79,7 @@ export function useFilialesImport(onImported: () => Promise<void>): UseFilialesI
       toast({ title: 'Import des filiales terminé', variant: 'success' });
       if (response.created > 0 || response.updated > 0) {
         await onImported();
+        invalidateActiveFiliales();
       }
     } catch (e: unknown) {
       setSubmitError(errorMessage(e, "Erreur lors de l'import des filiales"));

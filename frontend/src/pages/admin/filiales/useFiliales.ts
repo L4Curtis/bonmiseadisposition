@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { errorMessage, showActionError } from '@/lib/errors';
 import { toast } from '@/hooks/use-toast';
+import { invalidateActiveFiliales } from '@/hooks/use-active-filiales';
 import type { Filiale } from '@/types';
 
 /** Chargement + actions CRUD (création, mise à jour, suppression, upload logo/cachet) des filiales. */
@@ -33,6 +34,9 @@ export function useFiliales() {
       toast({ title: 'Filiale créée', variant: 'success' });
       setCreating(false);
       await fetchFiliales();
+      // La nouvelle filiale doit apparaître sans délai dans les formulaires et
+      // filtres qui affichent /filiales/active (cache 60 s sinon).
+      invalidateActiveFiliales();
       return true;
     } catch (e: unknown) {
       showActionError(e, 'Erreur lors de la création');
@@ -46,6 +50,9 @@ export function useFiliales() {
       toast({ title: 'Filiale mise à jour', variant: 'success' });
       setEditingId(null);
       await fetchFiliales();
+      // Couvre aussi l'activation/désactivation, qui passe par ce même appel
+      // (champ `active` du formulaire d'édition).
+      invalidateActiveFiliales();
       return true;
     } catch (e: unknown) {
       showActionError(e, 'Erreur lors de la mise à jour');
@@ -58,6 +65,7 @@ export function useFiliales() {
     try {
       await api.delete(`/filiales/${deleteTarget.id}`);
       toast({ title: 'Filiale supprimée', variant: 'success' });
+      invalidateActiveFiliales();
     } catch (e: unknown) {
       showActionError(e, 'Erreur lors de la suppression');
     } finally {

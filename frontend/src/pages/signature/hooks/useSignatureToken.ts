@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { errorMessage } from '@/lib/errors';
-import { isSafeReturnTo } from '../lib/safeReturnTo';
+import { isSafeReturnTo } from '@/lib/safe-return-to';
 import type { SignatureResponse } from '../types';
 import type { User } from '@/types';
 

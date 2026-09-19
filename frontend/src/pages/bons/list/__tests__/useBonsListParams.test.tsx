@@ -4,6 +4,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { useBonsListParams } from '../useBonsListParams';
 import { IN_PROGRESS_EXCLUDE, IN_PROGRESS_OPTION_VALUE, WAITING_ALL_STATUS } from '../statusFilterOptions';
+import { resetActiveFilialesForTests } from '@/hooks/use-active-filiales';
 
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>();
@@ -30,6 +31,7 @@ function wrapper({ children }: { children: ReactNode }) {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  resetActiveFilialesForTests();
   vi.mocked(api.get).mockImplementation((path: string) => {
     if (path.startsWith('/filiales/active')) return Promise.resolve([]);
     if (path.startsWith('/bons?')) return Promise.resolve({ bons: [], total: 0 });

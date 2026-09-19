@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
+import { resetActiveFilialesForTests } from '@/hooks/use-active-filiales';
 import { DashboardPage } from '../DashboardPage';
 
 vi.mock('@/lib/api', async (importOriginal) => {
@@ -45,6 +46,7 @@ vi.mock('@/contexts/AuthContext', () => ({
 
 beforeEach(() => {
   vi.resetAllMocks();
+  resetActiveFilialesForTests();
   mockRole = 'admin';
   vi.mocked(api.get).mockImplementation((path: string) => {
     if (path.startsWith('/bons/stats')) {

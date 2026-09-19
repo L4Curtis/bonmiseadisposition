@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/hooks/use-toast';
+import { refreshConfigHealth } from '@/hooks/use-config-health';
 import { CheckCircle, XCircle, Loader2, Check } from 'lucide-react';
 
 const SECRET_MASK = '••••••••';
@@ -198,6 +199,11 @@ export function ConfigSection({
       }
       await api.put(`/admin/config/${category}`, toSave);
       toast({ title: 'Configuration enregistrée', variant: 'success' });
+      // L'enregistrement peut changer l'état de santé de cette rubrique (et de
+      // « Monitoring SMB », qui reprend l'état de « smb ») : la carte de
+      // synthèse et les pastilles du menu déjà montées se mettent à jour sans
+      // attendre un remontage.
+      refreshConfigHealth();
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (e: unknown) {

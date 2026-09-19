@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { api } from '@/lib/api';
 import { errorMessage, showActionError } from '@/lib/errors';
 import { toast } from '@/hooks/use-toast';
-import type { Filiale } from '@/types';
+import { useActiveFiliales } from '@/hooks/use-active-filiales';
 import { buildBaseFilterEntries, PAGE_LIMIT, type InventoryBaseFilters } from './inventoryFilterParams';
 import type {
   EquipmentSituation,
@@ -79,7 +79,9 @@ export function useInventory() {
       .then(setSummary)
       .catch((e: unknown) => setSummaryError(errorMessage(e, 'Impossible de charger le résumé du parc')));
   }, []);
-  const [filiales, setFiliales] = useState<Filiale[]>([]);
+  // Erreur avalée (comportement historique) : en cas d'échec, la liste reste
+  // simplement vide plutôt que d'afficher un message dédié à ce filtre.
+  const { filiales } = useActiveFiliales();
 
   const [filialeFilter, setFilialeFilterState] = useState(searchParams.get('filialeId') ?? '');
   const [categoryFilter, setCategoryFilterState] = useState(searchParams.get('category') ?? '');
@@ -120,9 +122,11 @@ export function useInventory() {
 
   const retry = () => setReloadKey((k) => k + 1);
 
-  // ── Référentiels (filiales, résumé/tuiles + options de catégorie) ──────────
+  // ── Référentiel résumé/tuiles ──────────────────────────────────────────────
+  // Les filiales actives sont chargées séparément par useActiveFiliales
+  // (mutualisées avec les autres filtres/formulaires du même nom) : retry()
+  // ne les recharge donc plus explicitement, le cache 60 s suffit.
   useEffect(() => {
-    api.get<Filiale[]>('/filiales/active').then(setFiliales).catch(() => {});
     loadSummary();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reloadKey]);

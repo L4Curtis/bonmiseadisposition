@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { api } from '@/lib/api';
 import { errorMessage, showActionError } from '@/lib/errors';
 import { toast } from '@/hooks/use-toast';
-import type { Filiale } from '@/types';
+import { useActiveFiliales } from '@/hooks/use-active-filiales';
 import type { Bon } from './types';
 import { IN_PROGRESS_EXCLUDE, IN_PROGRESS_OPTION_VALUE } from './statusFilterOptions';
 
@@ -21,7 +21,9 @@ export function useBonsListParams() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [filiales, setFiliales] = useState<Filiale[]>([]);
+  // Erreur avalée (comportement historique) : en cas d'échec, la liste reste
+  // simplement vide plutôt que d'afficher un message dédié à ce filtre.
+  const { filiales } = useActiveFiliales();
 
   const [search, setSearch] = useState(searchParams.get('search') ?? '');
   const [statusFilter, setStatusFilter] = useState(searchParams.get('status') ?? '');
@@ -83,10 +85,6 @@ export function useBonsListParams() {
       setExportLoading(false);
     }
   };
-
-  useEffect(() => {
-    api.get<Filiale[]>('/filiales/active').then(setFiliales).catch(() => {});
-  }, []);
 
   // Resynchronise l'état depuis l'URL quand ?search= change SANS remontage
   // (cas : recherche globale Ctrl+K du header alors qu'on est déjà sur /bons —

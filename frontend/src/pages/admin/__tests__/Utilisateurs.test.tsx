@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/render';
+import { resetActiveFilialesForTests } from '@/hooks/use-active-filiales';
 import { UtilisateursPage } from '../Utilisateurs';
 
 vi.mock('@/lib/api', async (importOriginal) => {
@@ -92,6 +93,7 @@ const manualUser = {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  resetActiveFilialesForTests();
   mockRole = 'admin';
   vi.mocked(api.get).mockImplementation((path: string) => {
     if (path.startsWith('/users?')) return Promise.resolve({ users, total: users.length, page: 1, limit: 25 });

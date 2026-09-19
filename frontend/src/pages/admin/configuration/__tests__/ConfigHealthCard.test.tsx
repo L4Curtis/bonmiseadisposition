@@ -21,6 +21,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
 });
 
 import { api } from '@/lib/api';
+import { resetConfigHealthForTests } from '@/hooks/use-config-health';
 
 const sections: ConfigHealthSection[] = [
   { key: 'general', label: 'Général', state: 'configure', detail: "URL publique de l'application configurée.", updatedAt: '2026-02-01T00:00:00Z' },
@@ -31,6 +32,10 @@ const sections: ConfigHealthSection[] = [
 
 beforeEach(() => {
   vi.resetAllMocks();
+  // Le hook use-config-health mutualise l'état entre tous les composants
+  // montés via un store de module : sans ce reset, un test hériterait des
+  // données (ou de l'erreur) laissées par le test précédent.
+  resetConfigHealthForTests();
 });
 
 describe('ConfigHealthCard', () => {

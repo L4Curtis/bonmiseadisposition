@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Lock, CheckCircle2, XCircle, Eye, EyeOff } from 'lucide-react';
 import { changePasswordSchema, validate } from '@/lib/validation';
+import { isSafeReturnTo } from '@/lib/safe-return-to';
 
 const PASSWORD_RULES = [
   { regex: /.{12,}/, label: '12 caractères minimum' },
@@ -14,6 +15,12 @@ const PASSWORD_RULES = [
 export function ChangePasswordPage() {
   const [searchParams] = useSearchParams();
   const forced = searchParams.get('forced') === 'true';
+  // Page cible voulue par l'utilisateur avant la redirection forcée depuis
+  // Login (ex. lien profond) — reprise après succès si elle est sûre, sinon
+  // comportement historique (retour à l'accueil).
+  const rawReturnTo = searchParams.get('returnTo');
+  const safeReturnTo = rawReturnTo && isSafeReturnTo(rawReturnTo) ? rawReturnTo : null;
+  const destination = safeReturnTo ?? '/';
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -49,7 +56,7 @@ export function ChangePasswordPage() {
       });
       if (res.ok) {
         setSuccess(true);
-        setTimeout(() => { window.location.href = '/'; }, 2000);
+        setTimeout(() => { window.location.href = destination; }, 2000);
       } else {
         const data = await res.json().catch(() => ({}));
         setError(data.message || 'Erreur lors du changement de mot de passe');
