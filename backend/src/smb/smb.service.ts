@@ -6,6 +6,8 @@ import * as path from 'path';
 import { AppConfigService } from '../config/config.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SmbBon } from '../common/types';
+import { JobTrackerService, JobOutcome } from '../monitoring/job-tracker.service';
+import { JOB_KEYS } from '../monitoring/job-registry';
 
 export interface SmbExportResult {
   success: boolean;
@@ -33,6 +35,7 @@ export class SmbService {
   constructor(
     private readonly configService: AppConfigService,
     private readonly prisma: PrismaService,
+    private readonly jobTracker: JobTrackerService,
   ) {}
 
   /**
@@ -312,36 +315,38 @@ export class SmbService {
   @Cron('0 */6 * * *', { timeZone: 'Europe/Paris' })
   async cronRetryFailedExports(): Promise<void> {
     try {
-      const enabled = await this.configService.get('smb', 'enabled');
-      if (enabled !== 'true') return;
+      await this.jobTracker.track<void>(JOB_KEYS.SMB_RETRY, async (): Promise<void | JobOutcome> => {
+        const enabled = await this.configService.get('smb', 'enabled');
+        if (enabled !== 'true') return 'skipped';
 
-      // Requalify exports stuck in 'pending' (process died between record
-      // creation and status update) so they enter the retry loop
-      const requalified = await this.prisma.smbExport.updateMany({
-        where: {
-          status: 'pending',
-          createdAt: { lt: new Date(Date.now() - 60 * 60 * 1000) },
-        },
-        data: { status: 'failed', errorMessage: 'Export interrompu (statut pending expiré)' },
+        // Requalify exports stuck in 'pending' (process died between record
+        // creation and status update) so they enter the retry loop
+        const requalified = await this.prisma.smbExport.updateMany({
+          where: {
+            status: 'pending',
+            createdAt: { lt: new Date(Date.now() - 60 * 60 * 1000) },
+          },
+          data: { status: 'failed', errorMessage: 'Export interrompu (statut pending expiré)' },
+        });
+        if (requalified.count > 0) {
+          this.logger.warn(`Cron SMB: ${requalified.count} export(s) bloqué(s) en 'pending' requalifié(s) en 'failed'`);
+        }
+
+        const failedCount = await this.prisma.smbExport.count({
+          where: { status: 'failed', retryCount: { lt: MAX_RETRIES } },
+        });
+
+        if (failedCount === 0) return;
+
+        this.logger.log(`Cron SMB retry: ${failedCount} exports échoués à réessayer`);
+        const result = await this.retryAllFailed();
+        this.logger.log(`Cron SMB retry terminé: ${result.succeeded} réussis, ${result.failed} échoués sur ${result.retried}`);
+
+        // Alert admin if failures persist
+        if (result.failed > 0) {
+          await this.alertAdminIfNeeded();
+        }
       });
-      if (requalified.count > 0) {
-        this.logger.warn(`Cron SMB: ${requalified.count} export(s) bloqué(s) en 'pending' requalifié(s) en 'failed'`);
-      }
-
-      const failedCount = await this.prisma.smbExport.count({
-        where: { status: 'failed', retryCount: { lt: MAX_RETRIES } },
-      });
-
-      if (failedCount === 0) return;
-
-      this.logger.log(`Cron SMB retry: ${failedCount} exports échoués à réessayer`);
-      const result = await this.retryAllFailed();
-      this.logger.log(`Cron SMB retry terminé: ${result.succeeded} réussis, ${result.failed} échoués sur ${result.retried}`);
-
-      // Alert admin if failures persist
-      if (result.failed > 0) {
-        await this.alertAdminIfNeeded();
-      }
     } catch (err) {
       // The cron package does not catch rejected promises — never let this
       // escape as an unhandledRejection

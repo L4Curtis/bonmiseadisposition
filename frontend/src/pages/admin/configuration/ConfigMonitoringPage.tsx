@@ -7,6 +7,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/hooks/use-toast';
 import { CheckCircle, Loader2, RefreshCw, AlertTriangle, HardDrive } from 'lucide-react';
 import { FailedEmailsCard } from '@/components/admin/FailedEmailsCard';
+import { ScheduledJobsCard } from './ScheduledJobsCard';
 
 interface SmbStatus {
   enabled: boolean;
@@ -87,6 +88,7 @@ export function ConfigMonitoringPage() {
   if (loading) {
     return (
       <div className="space-y-5">
+        <ScheduledJobsCard />
         <Card>
           <CardHeader><CardTitle>Monitoring export SMB</CardTitle></CardHeader>
           <CardContent><Skeleton className="h-20 w-full" /></CardContent>
@@ -99,6 +101,7 @@ export function ConfigMonitoringPage() {
   if (!status || !status.enabled) {
     return (
       <div className="space-y-5">
+        <ScheduledJobsCard />
         <Card>
           <CardHeader><CardTitle className="flex items-center gap-2"><HardDrive className="h-4 w-4" /> Monitoring export SMB</CardTitle></CardHeader>
           <CardContent>
@@ -116,6 +119,7 @@ export function ConfigMonitoringPage() {
 
   return (
     <div className="space-y-5">
+      <ScheduledJobsCard />
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">

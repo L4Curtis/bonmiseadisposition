@@ -13,6 +13,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth-user.interface';
 import { AppConfigService } from '../config/config.service';
 import { SmbService } from '../smb/smb.service';
+import { MonitoringService } from '../monitoring/monitoring.service';
 
 const MIN_NOTIFICATION_FAILURES_WINDOW_DAYS = 1;
 const MAX_NOTIFICATION_FAILURES_WINDOW_DAYS = 365;
@@ -75,6 +76,7 @@ export class AdminController {
     private readonly smbService: SmbService,
     private readonly notificationFailuresService: NotificationFailuresService,
     private readonly ssoDiagnosticService: SsoDiagnosticService,
+    private readonly monitoringService: MonitoringService,
   ) {}
 
   // Catégories réservées aux admins (infos sensibles ou impact réglementaire)
@@ -91,6 +93,14 @@ export class AdminController {
       ? Math.min(MAX_NOTIFICATION_FAILURES_WINDOW_DAYS, Math.max(MIN_NOTIFICATION_FAILURES_WINDOW_DAYS, parsed))
       : DEFAULT_NOTIFICATION_FAILURES_WINDOW_DAYS;
     return this.notificationFailuresService.getFailedNotifications(windowDays);
+  }
+
+  /** GET /admin/status — version/commit déployés, disponibilité de la base et
+   *  dernier passage de chaque tâche planifiée (lot A5, supervision). */
+  @Get('status')
+  @Roles('admin')
+  async getStatus() {
+    return this.monitoringService.getAdminStatus();
   }
 
   /** GET /admin/sso/diagnostic — dernières connexions SSO et rôle attribué.

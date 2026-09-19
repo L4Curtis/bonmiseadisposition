@@ -191,6 +191,13 @@ export function createMockPrismaService(): MockPrismaService {
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
 
+    // ── ScheduledJobRun (suivi des tâches planifiées — lot A5) ──────────────────
+    scheduledJobRun: {
+      findMany: jest.fn().mockResolvedValue([]),
+      findUnique: jest.fn().mockResolvedValue(null),
+      upsert: jest.fn().mockResolvedValue({}),
+    },
+
     // ── Prisma Client utilities ────────────────────────────────────────────────
     $transaction: jest.fn().mockImplementation(
       (cbOrArray: ((tx: typeof mockPrisma) => Promise<unknown>) | Promise<unknown>[]) => {

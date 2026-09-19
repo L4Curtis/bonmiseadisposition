@@ -5,6 +5,9 @@ import { Prisma } from '@prisma/client';
 import { AppConfigService } from '../config/config.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { normalizeEmail } from '../auth/utils/normalize-email.util';
+import { JobTrackerService, JobOutcome } from '../monitoring/job-tracker.service';
+import { JOB_KEYS } from '../monitoring/job-registry';
+import { translateLdapConnectionError } from './ldap-errors';
 
 interface LdapUser {
   sAMAccountName: string;
@@ -51,6 +54,7 @@ export class LdapService {
   constructor(
     private readonly configService: AppConfigService,
     private readonly prisma: PrismaService,
+    private readonly jobTracker: JobTrackerService,
   ) {}
 
   async testConnection(): Promise<{ success: boolean; message: string }> {
@@ -60,7 +64,11 @@ export class LdapService {
       await this.bindClient(client);
       return { success: true, message: 'Connexion LDAP réussie' };
     } catch (err: unknown) {
-      return { success: false, message: err instanceof Error ? err.message : 'Erreur de connexion LDAP' };
+      // Le détail technique brut (code TLS Node, message ldapjs...) reste dans
+      // les journaux serveur ; l'admin ne voit que le message traduit
+      // (translateLdapConnectionError), actionnable sans connaissance TLS.
+      this.logger.warn(`Test de connexion LDAP en échec : ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
+      return { success: false, message: translateLdapConnectionError(err) };
     } finally {
       // Also on bind failure — otherwise each failed test leaks a TCP connection
       client?.destroy();
@@ -77,18 +85,37 @@ export class LdapService {
   async scheduledSync() {
     try {
       const ldapEnabled = await this.configService.get('ldap', 'enabled');
-      if (ldapEnabled === 'false') return;
       const url = await this.configService.get('ldap', 'url');
-      if (!url) return;
+      const isDisabled = ldapEnabled === 'false' || !url;
 
-      const rawInterval = await this.configService.get('ldap', 'sync_interval_hours');
-      const intervalHours = rawInterval ? parseInt(rawInterval, 10) : 6;
-      if (Number.isFinite(intervalHours) && intervalHours > 6 && this.syncStatus.lastSync) {
-        const hoursSinceLast = (Date.now() - this.syncStatus.lastSync.getTime()) / (60 * 60 * 1000);
-        if (hoursSinceLast < intervalHours - 0.5) return;
+      if (!isDisabled) {
+        const rawInterval = await this.configService.get('ldap', 'sync_interval_hours');
+        const intervalHours = rawInterval ? parseInt(rawInterval, 10) : 6;
+        if (Number.isFinite(intervalHours) && intervalHours > 6 && this.syncStatus.lastSync) {
+          const hoursSinceLast = (Date.now() - this.syncStatus.lastSync.getTime()) / (60 * 60 * 1000);
+          if (hoursSinceLast < intervalHours - 0.5) {
+            // Report volontaire (ldap.sync_interval_hours > 6h configuré par
+            // l'admin) : un fonctionnement NORMAL, pas une désactivation —
+            // sorti AVANT track() pour ne rien enregistrer. Un "skipped" ici
+            // ferait afficher "Désactivée" côté admin alors que LDAP est
+            // actif. MonitoringService recalcule le seuil "en retard" à
+            // partir de ce même intervalle configuré (cf. monitoring.service.ts).
+            return;
+          }
+        }
       }
 
-      await this.syncUsers();
+      await this.jobTracker.track<void>(JOB_KEYS.LDAP_SYNC, async (): Promise<void | JobOutcome> => {
+        if (isDisabled) return 'skipped';
+
+        await this.syncUsers();
+        // syncUsers() avale ses propres erreurs (this.syncStatus reflète le
+        // résultat réel — cf. getSyncStatus()) sans jamais rejeter : sans ce
+        // contrôle, le suivi enregistrerait "success" même en cas d'échec.
+        if (this.syncStatus.lastSyncSuccess === false) {
+          throw new Error(this.syncStatus.lastSyncError ?? 'Synchronisation LDAP en échec');
+        }
+      });
     } catch (err) {
       // The cron package does not catch rejected promises — never let this
       // escape as an unhandledRejection
@@ -187,17 +214,21 @@ export class LdapService {
 
       this.logger.log(`LDAP sync complete: ${users.length} users processed (${skipped} ignoré(s))`);
     } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : String(err);
+      // Détail technique brut dans les journaux serveur uniquement ;
+      // lastSyncError (affiché tel quel côté UI, cf. commentaire ci-dessus)
+      // reçoit le message traduit par translateLdapConnectionError.
+      const technicalDetail = err instanceof Error ? (err.stack ?? err.message) : String(err);
+      const userMessage = translateLdapConnectionError(err);
       this.syncStatus = {
         lastSync: new Date(),
         lastSyncSuccess: false,
         lastSyncCount: null,
-        lastSyncError: errMsg,
+        lastSyncError: userMessage,
         lastSyncSkipped: null,
         lastSyncAborted: false,
         lastSyncWarning: null,
       };
-      this.logger.error(`LDAP sync failed: ${errMsg}`);
+      this.logger.error(`LDAP sync failed: ${technicalDetail}`);
     } finally {
       client?.destroy();
       this.syncInProgress = false;
@@ -268,11 +299,33 @@ export class LdapService {
 
     const useSsl = await this.configService.get('ldap', 'use_ssl');
 
+    // C'est le schéma de l'URL qui détermine RÉELLEMENT si la connexion est
+    // chiffrée : ldapjs ouvre un socket TLS ou en clair selon `ldaps://` vs
+    // `ldap://`, quoi que dise `use_ssl` — `use_ssl` ne fait qu'ajouter des
+    // tlsOptions explicites. `ldaps://` implique donc toujours TLS ici.
+    const isLdapsUrl = /^ldaps:\/\//i.test(url);
+
+    // Incohérence dangereuse : l'admin croit avoir activé le chiffrement
+    // (use_ssl=true) mais l'URL est restée en ldap:// (texte clair) — la
+    // connexion ne serait PAS chiffrée malgré ce que la configuration laisse
+    // penser. Comportement sûr retenu (décision LOT A6, cf. rapport) : refuser
+    // de démarrer plutôt que de laisser croire à une connexion chiffrée qui ne
+    // l'est pas. L'inverse (use_ssl=false avec une URL ldaps://) n'est pas une
+    // incohérence dangereuse : l'URL suffit à chiffrer, tlsOptions ci-dessous
+    // s'applique quand même.
+    if (useSsl === 'true' && !isLdapsUrl) {
+      throw new Error(
+        "Configuration LDAP incohérente : SSL/TLS est activé mais l'URL LDAP ne commence pas par « ldaps:// ». " +
+        'Utilisez une URL de la forme ldaps://<FQDN du contrôleur de domaine>:636.',
+      );
+    }
+
     const client = ldap.createClient({
       url,
-      // Always validate the LDAPS certificate: a NODE_ENV-dependent bypass left
-      // staging/recette environments open to MITM on the bind credentials
-      tlsOptions: useSsl === 'true' ? { rejectUnauthorized: true } : undefined,
+      // Vérification du certificat TOUJOURS active dès que la connexion est
+      // chiffrée (jamais rejectUnauthorized: false) : un bypass conditionnel
+      // avait exposé le bind LDAP à une attaque MITM sur staging/recette.
+      tlsOptions: isLdapsUrl ? { rejectUnauthorized: true } : undefined,
       timeout: 10000,
       connectTimeout: 10000,
     });
@@ -294,7 +347,11 @@ export class LdapService {
 
     return new Promise((resolve, reject) => {
       client.bind(bindDn, bindPassword, (err) => {
-        if (err) reject(new Error(`LDAP bind failed: ${err.message}`));
+        // L'erreur brute (TLS, réseau ou protocolaire LDAP) est transmise
+        // telle quelle, sans l'envelopper dans un nouveau Error : elle porte
+        // les codes (`err.code`, `err.name`) dont translateLdapConnectionError
+        // a besoin pour produire un message actionnable côté appelant.
+        if (err) reject(err);
         else resolve();
       });
     });

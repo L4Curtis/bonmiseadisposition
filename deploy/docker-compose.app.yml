@@ -38,15 +38,23 @@ services:
       DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:-}
       NODE_ENV: production
       FRONTEND_URL: ${FRONTEND_URL:?FRONTEND_URL manquant}
+      # LDAPS avec CA interne : décommenter avec le volume ci-dessous, puis
+      # redéployer. Voir deploy/README.md, section « LDAPS ».
+      # NODE_EXTRA_CA_CERTS: /certs/ca-interne.crt
     volumes:
       - data:/app/data
       # Export SMB des PDF : décommenter avec le volume smb_export plus bas, puis
       # Admin → Configuration → Export SMB : chemin = /mnt/export
       # - smb_export:/mnt/export
+      # CA interne pour LDAPS (contrôleur de domaine dont le certificat est
+      # signé par une CA interne) : déposer le certificat PEM sur l'hôte, puis
+      # décommenter cette ligne ET NODE_EXTRA_CA_CERTS ci-dessus. Voir
+      # deploy/README.md, section « LDAPS ».
+      # - /opt/bons/certs/ca-interne.crt:/certs/ca-interne.crt:ro
     networks:
       - internal
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:4000/api/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4000/api/health/ready || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5

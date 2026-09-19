@@ -172,6 +172,18 @@ export function createMockPdfTemplatesService() {
   };
 }
 
+// ── JobTrackerService (lot A5, supervision) ─────────────────────────────────
+// Pass-through par défaut : exécute simplement `fn()` sans écrire en base, si
+// bien que le comportement des tâches planifiées testées via ce mock reste
+// strictement identique à avant le branchement du suivi (mêmes résolutions,
+// mêmes rejets propagés à l'appelant).
+
+export function createMockJobTrackerService() {
+  return {
+    track: jest.fn((_job: string, fn: () => Promise<unknown>) => fn()),
+  };
+}
+
 // ── TemplatesService ─────────────────────────────────────────────────────────
 
 export function createMockTemplatesService() {

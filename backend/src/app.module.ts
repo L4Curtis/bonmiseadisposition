@@ -20,6 +20,7 @@ import { AttachmentsModule } from './attachments/attachments.module';
 import { RetentionModule } from './retention/retention.module';
 import { ReportingModule } from './reporting/reporting.module';
 import { KpiModule } from './kpi/kpi.module';
+import { MonitoringModule } from './monitoring/monitoring.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -49,6 +50,7 @@ import { HealthController } from './health.controller';
     RetentionModule,
     ReportingModule,
     KpiModule,
+    MonitoringModule,
   ],
   controllers: [HealthController],
   providers: [

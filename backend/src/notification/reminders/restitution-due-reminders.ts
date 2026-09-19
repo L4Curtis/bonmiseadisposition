@@ -62,7 +62,12 @@ export interface RestitutionDueRemindersDeps {
   sendReminder: (bon: NotificationBon) => Promise<boolean>;
 }
 
-export async function runRestitutionDueReminders(deps: RestitutionDueRemindersDeps): Promise<void> {
+/** Résultat renvoyé au suivi des tâches planifiées (backend/src/monitoring) :
+ *  'skipped' quand la tâche est sortie tôt sans rien envoyer (fonctionnalité
+ *  désactivée, SMTP non configuré) — tout le reste compte comme un succès. */
+export type RestitutionDueRemindersOutcome = 'skipped' | void;
+
+export async function runRestitutionDueReminders(deps: RestitutionDueRemindersDeps): Promise<RestitutionDueRemindersOutcome> {
   const { configService, prisma, logger, getTransporter, sendReminder } = deps;
   logger.log('Cron rappel restitution démarré');
 
@@ -70,7 +75,7 @@ export async function runRestitutionDueReminders(deps: RestitutionDueRemindersDe
   const beforeDays = parseNonNegativeInt(rawDays, 7);
   if (beforeDays === 0) {
     logger.log('Rappel de restitution désactivé par configuration (restitution_before_days = 0)');
-    return;
+    return 'skipped';
   }
 
   // Même garde que les rappels quotidiens : pas de requête ni de log
@@ -78,7 +83,7 @@ export async function runRestitutionDueReminders(deps: RestitutionDueRemindersDe
   const transporter = await getTransporter();
   if (!transporter) {
     logger.warn('Cron rappel restitution : SMTP non configuré, aucun rappel envoyé');
-    return;
+    return 'skipped';
   }
 
   const { start, end } = getRestitutionWindow(beforeDays);

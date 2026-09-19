@@ -1,7 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { RetentionService } from '../retention.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
-import { createMockConfigService } from '../../common/__tests__/helpers/mock-services';
+import { createMockConfigService, createMockJobTrackerService } from '../../common/__tests__/helpers/mock-services';
 
 jest.mock('fs', () => ({ existsSync: jest.fn().mockReturnValue(false) }));
 jest.mock('fs/promises', () => ({ unlink: jest.fn().mockResolvedValue(undefined) }));
@@ -13,19 +13,24 @@ describe('RetentionService', () => {
   let prisma: ReturnType<typeof createMockPrismaService>;
   let config: ReturnType<typeof createMockConfigService>;
   let attachments: { purgeForBon: jest.Mock };
+  let jobTracker: ReturnType<typeof createMockJobTrackerService>;
   let service: RetentionService;
 
   beforeEach(() => {
     prisma = createMockPrismaService();
     config = createMockConfigService();
     attachments = { purgeForBon: jest.fn().mockResolvedValue(2) };
-    service = new RetentionService(prisma as never, config as never, attachments as never);
+    jobTracker = createMockJobTrackerService();
+    service = new RetentionService(prisma as never, config as never, attachments as never, jobTracker as never);
 
     // Modèles utilisés par anonymizeBon / purgeOldAttachments non présents (ou
     // sans défaut) dans le mock Prisma partagé — complétés ici localement.
     (prisma.auditLog as unknown as { findMany: jest.Mock }).findMany = jest.fn().mockResolvedValue([]);
     (prisma.auditLog as unknown as { update: jest.Mock }).update = jest.fn().mockResolvedValue({});
     (prisma.auditLog as unknown as { updateMany: jest.Mock }).updateMany = jest
+      .fn()
+      .mockResolvedValue({ count: 0 });
+    (prisma.auditLog as unknown as { deleteMany: jest.Mock }).deleteMany = jest
       .fn()
       .mockResolvedValue({ count: 0 });
     (prisma.notificationLog as unknown as { updateMany: jest.Mock }).updateMany = jest
@@ -387,6 +392,48 @@ describe('RetentionService', () => {
 
       expect(stats.config.attachmentMonths).toBe(18);
       expect(stats.purgeable.oldAttachments).toBe(7);
+    });
+  });
+
+  // ─── cronRetention (branchement du suivi — lot A5) ─────────────────────────
+
+  describe('cronRetention', () => {
+    it('signale "skipped" au suivi quand la rétention est désactivée, sans exécuter run()', async () => {
+      config.set('retention', 'enabled', 'false');
+      const runSpy = jest.spyOn(service, 'run');
+
+      await service.cronRetention();
+
+      expect(jobTracker.track).toHaveBeenCalledWith('retention', expect.any(Function));
+      await expect(jobTracker.track.mock.results[0].value).resolves.toBe('skipped');
+      expect(runSpy).not.toHaveBeenCalled();
+    });
+
+    it('exécute run() en mode cron et ne signale rien de particulier (succès) quand la rétention est activée', async () => {
+      config.set('retention', 'enabled', 'true');
+      const runSpy = jest.spyOn(service, 'run').mockResolvedValue({
+        eligible: 0,
+        anonymized: 0,
+        attachmentsPurged: 0,
+        oldAttachmentsPurged: 0,
+        cutoff: new Date().toISOString(),
+        dryRun: false,
+      });
+
+      await service.cronRetention();
+
+      expect(runSpy).toHaveBeenCalledWith(false, undefined, 'cron');
+      await expect(jobTracker.track.mock.results[0].value).resolves.toBeUndefined();
+    });
+
+    it("propage l'échec de run() au suivi", async () => {
+      config.set('retention', 'enabled', 'true');
+      jest.spyOn(service, 'run').mockRejectedValue(new Error('DB indisponible'));
+
+      await service.cronRetention();
+
+      const outcome = jobTracker.track.mock.results[0].value as Promise<unknown>;
+      await expect(outcome).rejects.toThrow('DB indisponible');
     });
   });
 });

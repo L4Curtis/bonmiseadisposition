@@ -152,7 +152,7 @@ confiance : `CF-Connecting-IP` → `X-Real-IP` → connexion directe).
 1. Ouvrir `https://bons.exemple.local`
 2. Connexion locale : `admin@local` / mot de passe temporaire (voir ci-dessous)
 3. **Changer le mot de passe immédiatement** (obligatoire au premier login)
-4. **Admin → Configuration** : renseigner LDAP, Entra ID, SMTP — **et obligatoirement `smtp.from` et `general.app_url`** (voir [Configuration obligatoire après déploiement](#configuration-obligatoire-après-déploiement))
+4. **Admin → Configuration** : renseigner LDAP, Entra ID, SMTP — **et obligatoirement `smtp.from` et `general.app_url`** (voir [Configuration obligatoire après déploiement](#configuration-obligatoire-après-déploiement)) ; contrôleur de domaine exigeant LDAP signing / channel binding → voir [deploy/README.md, section « LDAPS »](deploy/README.md#ldaps)
 5. **Admin → Filiales** : créer les filiales
 6. **Admin → Sync LDAP** : lancer la première synchronisation
 

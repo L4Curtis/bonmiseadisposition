@@ -105,6 +105,38 @@ obligatoire. Puis Configuration → Général (URL de l'application), SMTP, LDAP
 
 Mise à jour de l'application : stack `bons-app` → **Pull and redeploy**.
 
+### LDAPS
+
+Si le contrôleur de domaine exige une connexion signée (LDAP signing / channel binding — courant
+en environnement durci), la connexion LDAP doit passer en LDAPS (port 636) plutôt qu'en LDAP en
+clair (port 389). Le certificat du contrôleur est en général signé par la CA racine interne du
+domaine, que Node ne connaît pas par défaut : sans configuration, la connexion échoue avec une
+erreur TLS peu lisible (voir le tableau ci-dessous).
+
+Procédure :
+
+1. Exporter la CA racine interne en PEM (Base64) depuis un poste du domaine : `mmc` → Certificats
+   → Autorités de certification racines de confiance → clic droit sur la CA racine → Toutes les
+   tâches → Exporter → format **Base-64 encodé X.509 (.CER)**.
+2. Déposer ce fichier sur l'hôte de la machine application (ex. `/opt/bons/certs/ca-interne.crt`).
+3. Dans `docker-compose.app.yml`, décommenter le volume et `NODE_EXTRA_CA_CERTS` du service
+   `backend` (bloc « CA interne pour LDAPS »).
+4. Portainer → Stack `bons-app` → Update the stack → **Pull and redeploy**.
+5. Admin → Configuration → Active Directory : URL `ldaps://<FQDN du contrôleur de domaine>:636`,
+   puis **Tester la connexion LDAP**.
+
+| Message affiché | Remède |
+|------------------|--------|
+| CA interne inconnue / NODE_EXTRA_CA_CERTS | Certificat de la CA racine non déposé, ou `NODE_EXTRA_CA_CERTS` non défini — reprendre les étapes 1 à 3. |
+| Le nom ne correspond pas au certificat — utiliser le FQDN | L'URL utilise une IP ou un nom court : reprendre le nom complet (FQDN) du contrôleur tel qu'il figure dans son certificat. |
+| Certificat expiré | Certificat du contrôleur de domaine à renouveler côté Active Directory. |
+| Le contrôleur exige une connexion signée : passer en ldaps:// | L'URL est restée en `ldap://` (port 389) alors que le contrôleur impose LDAP signing / channel binding : basculer en `ldaps://<FQDN>:636`. |
+| Connexion impossible (port fermé / pare-feu) | Le port 636 n'est pas joignable depuis la machine application : vérifier le pare-feu réseau et local. |
+
+⚠️ La vérification du certificat reste toujours active (`rejectUnauthorized` jamais désactivé) :
+ces messages signalent une vraie anomalie de certificat, jamais une case à décocher pour la
+contourner.
+
 ---
 
 ## 4. Publier une version

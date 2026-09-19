@@ -4,7 +4,8 @@ import { LdapService } from '../ldap.service';
 import { AppConfigService } from '../../config/config.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
-import { createMockConfigService } from '../../common/__tests__/helpers/mock-services';
+import { createMockConfigService, createMockJobTrackerService } from '../../common/__tests__/helpers/mock-services';
+import { JobTrackerService } from '../../monitoring/job-tracker.service';
 
 // Accès aux méthodes privées d'upsert/désactivation pour les tester isolément
 // sans simuler tout le flux LDAP (bind + search par événements).
@@ -35,12 +36,14 @@ describe('LdapService', () => {
   let service: LdapService;
   let configService: ReturnType<typeof createMockConfigService>;
   let prisma: ReturnType<typeof createMockPrismaService>;
+  let jobTracker: ReturnType<typeof createMockJobTrackerService>;
 
   beforeEach(async () => {
     jest.clearAllMocks();
 
     prisma = createMockPrismaService();
     configService = createMockConfigService();
+    jobTracker = createMockJobTrackerService();
 
     // Default LDAP config
     configService.set('ldap', 'enabled', 'true');
@@ -56,10 +59,77 @@ describe('LdapService', () => {
         LdapService,
         { provide: PrismaService, useValue: prisma },
         { provide: AppConfigService, useValue: configService },
+        { provide: JobTrackerService, useValue: jobTracker },
       ],
     }).compile();
 
     service = module.get<LdapService>(LdapService);
+  });
+
+  // ─── scheduledSync (branchement du suivi — lot A5) ─────────────────────────
+
+  describe('scheduledSync', () => {
+    it('signale "skipped" au suivi quand LDAP est désactivé, sans lancer de sync', async () => {
+      configService.set('ldap', 'enabled', 'false');
+      const syncUsersSpy = jest.spyOn(service, 'syncUsers');
+
+      await service.scheduledSync();
+
+      expect(jobTracker.track).toHaveBeenCalledWith('ldap-sync', expect.any(Function));
+      await expect(jobTracker.track.mock.results[0].value).resolves.toBe('skipped');
+      expect(syncUsersSpy).not.toHaveBeenCalled();
+    });
+
+    it('signale "skipped" au suivi quand aucune URL LDAP n\'est configurée', async () => {
+      configService.set('ldap', 'url', '');
+
+      await service.scheduledSync();
+
+      await expect(jobTracker.track.mock.results[0].value).resolves.toBe('skipped');
+    });
+
+    it("n'appelle PAS le suivi quand le passage est reporté par un intervalle admin > 6h (report normal, pas une désactivation)", async () => {
+      configService.set('ldap', 'sync_interval_hours', '24');
+      // Dernière sync il y a 2h : bien en-deçà des ~23h30 requis avant le
+      // prochain passage utile pour un intervalle de 24h.
+      (service as unknown as { syncStatus: { lastSync: Date } }).syncStatus = {
+        lastSync: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      } as never;
+      const syncUsersSpy = jest.spyOn(service, 'syncUsers');
+
+      await service.scheduledSync();
+
+      expect(jobTracker.track).not.toHaveBeenCalled();
+      expect(syncUsersSpy).not.toHaveBeenCalled();
+    });
+
+    it('ne signale pas "skipped" et propage l\'échec au suivi quand la sync échoue', async () => {
+      jest.spyOn(service, 'syncUsers').mockImplementation(async () => {
+        // Reproduit le comportement réel de syncUsers() : elle avale ses
+        // erreurs et se contente de mettre à jour syncStatus (jamais de rejet).
+        (service as unknown as { syncStatus: { lastSyncSuccess: boolean; lastSyncError: string } }).syncStatus = {
+          lastSyncSuccess: false,
+          lastSyncError: 'LDAP bind failed: invalid credentials',
+        };
+      });
+
+      await service.scheduledSync();
+
+      const outcome = jobTracker.track.mock.results[0].value as Promise<unknown>;
+      await expect(outcome).rejects.toThrow('LDAP bind failed: invalid credentials');
+    });
+
+    it('ne signale rien de particulier (succès) quand la sync réussit', async () => {
+      jest.spyOn(service, 'syncUsers').mockImplementation(async () => {
+        (service as unknown as { syncStatus: { lastSyncSuccess: boolean } }).syncStatus = {
+          lastSyncSuccess: true,
+        } as never;
+      });
+
+      await service.scheduledSync();
+
+      await expect(jobTracker.track.mock.results[0].value).resolves.toBeUndefined();
+    });
   });
 
   // ─── validateLdapFilter ────────────────────────────────────────────────────
@@ -120,6 +190,25 @@ describe('LdapService', () => {
         message: expect.stringContaining('Connection refused'),
       });
     });
+
+    // ─── traduction des erreurs TLS/LDAP (LOT A6 — LDAPS) ───────────────────
+
+    it('translates an untrusted-CA TLS error into an actionable French message, hiding the raw detail', async () => {
+      configService.set('ldap', 'url', 'ldaps://peduzzi-ad01.peduzzi.local:636');
+      configService.set('ldap', 'use_ssl', 'true');
+      const tlsError = Object.assign(new Error('unable to verify the first certificate'), {
+        code: 'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+      });
+      mockClient.bind.mockImplementation(
+        (_dn: string, _pw: string, cb: (err: Error | null) => void) => cb(tlsError),
+      );
+
+      const result = await service.testConnection();
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('NODE_EXTRA_CA_CERTS');
+      expect(result.message).not.toContain('unable to verify the first certificate');
+    });
   });
 
   // ─── syncUsers ─────────────────────────────────────────────────────────────
@@ -156,6 +245,49 @@ describe('LdapService', () => {
         'dc=test,dc=local',
         expect.objectContaining({ paged: { pageSize: 500 } }),
         expect.any(Function),
+      );
+    });
+  });
+
+  // ─── cohérence use_ssl / schéma de l'URL (LOT A6 — LDAPS) ───────────────────
+
+  describe('createClient — cohérence use_ssl / URL', () => {
+    it('refuse de se connecter quand use_ssl=true mais que l\'URL est restée en ldap:// (texte clair)', async () => {
+      configService.set('ldap', 'url', 'ldap://dc.test.local');
+      configService.set('ldap', 'use_ssl', 'true');
+
+      const result = await service.testConnection();
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('ldaps://');
+      expect(ldapMock.createClient).not.toHaveBeenCalled();
+    });
+
+    it("applique des tlsOptions sûrs (rejectUnauthorized: true) dès que l'URL est ldaps://, même si use_ssl=false", async () => {
+      configService.set('ldap', 'url', 'ldaps://peduzzi-ad01.peduzzi.local:636');
+      configService.set('ldap', 'use_ssl', 'false');
+      mockClient.bind.mockImplementation(
+        (_dn: string, _pw: string, cb: (err: Error | null) => void) => cb(null),
+      );
+
+      await service.testConnection();
+
+      expect(ldapMock.createClient).toHaveBeenCalledWith(
+        expect.objectContaining({ tlsOptions: { rejectUnauthorized: true } }),
+      );
+    });
+
+    it("n'ajoute pas de tlsOptions sur une URL ldap:// cohérente (use_ssl=false)", async () => {
+      configService.set('ldap', 'url', 'ldap://dc.test.local');
+      configService.set('ldap', 'use_ssl', 'false');
+      mockClient.bind.mockImplementation(
+        (_dn: string, _pw: string, cb: (err: Error | null) => void) => cb(null),
+      );
+
+      await service.testConnection();
+
+      expect(ldapMock.createClient).toHaveBeenCalledWith(
+        expect.objectContaining({ tlsOptions: undefined }),
       );
     });
   });

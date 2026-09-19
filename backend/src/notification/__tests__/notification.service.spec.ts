@@ -5,7 +5,8 @@ import { AppConfigService } from '../../config/config.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TemplatesService } from '../../templates/templates.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
-import { createMockConfigService, createMockTemplatesService } from '../../common/__tests__/helpers/mock-services';
+import { createMockConfigService, createMockTemplatesService, createMockJobTrackerService } from '../../common/__tests__/helpers/mock-services';
+import { JobTrackerService } from '../../monitoring/job-tracker.service';
 import { activeBon, sentMiseDispoBon, partiallyReturnedBon } from '../../common/__tests__/fixtures/bon.fixtures';
 import { NotificationBon } from '../../common/types';
 
@@ -21,6 +22,7 @@ describe('NotificationService', () => {
   let prisma: ReturnType<typeof createMockPrismaService>;
   let configService: ReturnType<typeof createMockConfigService>;
   let templatesService: ReturnType<typeof createMockTemplatesService>;
+  let jobTracker: ReturnType<typeof createMockJobTrackerService>;
 
   const mockSendMail = jest.fn().mockResolvedValue({ messageId: 'msg-001' });
 
@@ -30,6 +32,7 @@ describe('NotificationService', () => {
     prisma = createMockPrismaService();
     configService = createMockConfigService();
     templatesService = createMockTemplatesService();
+    jobTracker = createMockJobTrackerService();
 
     // Default SMTP config
     configService.set('smtp', 'host', 'smtp.test.local');
@@ -50,6 +53,7 @@ describe('NotificationService', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: AppConfigService, useValue: configService },
         { provide: TemplatesService, useValue: templatesService },
+        { provide: JobTrackerService, useValue: jobTracker },
       ],
     }).compile();
 
@@ -542,6 +546,8 @@ describe('NotificationService', () => {
 
       expect(prisma.bon.findMany).not.toHaveBeenCalled();
       expect(mockSendMail).not.toHaveBeenCalled();
+      expect(jobTracker.track).toHaveBeenCalledWith('signature-reminders', expect.any(Function));
+      await expect(jobTracker.track.mock.results[0].value).resolves.toBe('skipped');
     });
 
     it('should skip entirely when SMTP is not configured (no token regenerated, no failed log created)', async () => {
@@ -557,6 +563,16 @@ describe('NotificationService', () => {
       expect(prisma.signature.create).not.toHaveBeenCalled();
       expect(mockSendMail).not.toHaveBeenCalled();
       expect(prisma.notificationLog.create).not.toHaveBeenCalled();
+      await expect(jobTracker.track.mock.results[0].value).resolves.toBe('skipped');
+    });
+
+    it('signale un succès (pas "skipped") au suivi quand les rappels sont traités', async () => {
+      configService.set('rappels', 'enabled', 'true');
+      asMock(prisma.bon.findMany).mockResolvedValue([]);
+
+      await service.sendDailyReminders();
+
+      await expect(jobTracker.track.mock.results[0].value).resolves.toBeUndefined();
     });
 
     it('should regenerate an expired token instead of sending a dead link', async () => {
@@ -785,6 +801,8 @@ describe('NotificationService', () => {
 
       expect(prisma.bon.findMany).not.toHaveBeenCalled();
       expect(mockSendMail).not.toHaveBeenCalled();
+      expect(jobTracker.track).toHaveBeenCalledWith('restitution-reminder', expect.any(Function));
+      await expect(jobTracker.track.mock.results[0].value).resolves.toBe('skipped');
     });
 
     it('does nothing when SMTP is not configured', async () => {
@@ -800,6 +818,15 @@ describe('NotificationService', () => {
       expect(prisma.bon.findMany).not.toHaveBeenCalled();
       expect(mockSendMail).not.toHaveBeenCalled();
       expect(prisma.notificationLog.create).not.toHaveBeenCalled();
+      await expect(jobTracker.track.mock.results[0].value).resolves.toBe('skipped');
+    });
+
+    it('signale un succès (pas "skipped") au suivi quand la fonctionnalité est active', async () => {
+      asMock(prisma.bon.findMany).mockResolvedValue([]);
+
+      await service.runRestitutionDueReminders();
+
+      await expect(jobTracker.track.mock.results[0].value).resolves.toBeUndefined();
     });
 
     it('queries eligible bons with the status/date-window/idempotence/equipment filters (default 7 days)', async () => {

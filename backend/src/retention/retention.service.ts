@@ -7,6 +7,8 @@ import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppConfigService } from '../config/config.service';
 import { AttachmentsService } from '../attachments/attachments.service';
+import { JobTrackerService, JobOutcome } from '../monitoring/job-tracker.service';
+import { JOB_KEYS } from '../monitoring/job-registry';
 
 const DEFAULT_ANONYMIZE_MONTHS = 60; // 5 ans par défaut — plancher légal RGPD
 const ANONYMIZE_MONTHS_FLOOR = 60; // Plancher légal : aucune config ne peut descendre en dessous
@@ -64,6 +66,7 @@ export class RetentionService {
     private readonly prisma: PrismaService,
     private readonly config: AppConfigService,
     private readonly attachments: AttachmentsService,
+    private readonly jobTracker: JobTrackerService,
   ) {}
 
   /**
@@ -432,19 +435,21 @@ export class RetentionService {
   @Cron('0 3 * * 0', { timeZone: 'Europe/Paris' })
   async cronRetention(): Promise<void> {
     try {
-      const enabled = await this.config.get('retention', 'enabled');
-      if (enabled !== 'true') return;
-      this.logger.log('Cron rétention RGPD : démarrage');
-      const result = await this.run(false, undefined, 'cron');
-      this.logger.log(
-        `Cron rétention RGPD terminé : ${result.anonymized}/${result.eligible} anonymisé(s), ` +
-        `${result.oldAttachmentsPurged} pièce(s) jointe(s) ancienne(s) purgée(s)`,
-      );
-      // Nettoyage technique complémentaire : les tokens abandonnés sont déjà
-      // purgés par run() ci-dessus (inclus dans l'audit retention_run) — il ne
-      // reste que les vieux journaux d'audit, hors périmètre de cet audit.
-      const oldAuditLogs = await this.purgeOldAuditLogs();
-      this.logger.log(`Purge technique complémentaire : ${oldAuditLogs} log(s) d'audit`);
+      await this.jobTracker.track<void>(JOB_KEYS.RETENTION, async (): Promise<void | JobOutcome> => {
+        const enabled = await this.config.get('retention', 'enabled');
+        if (enabled !== 'true') return 'skipped';
+        this.logger.log('Cron rétention RGPD : démarrage');
+        const result = await this.run(false, undefined, 'cron');
+        this.logger.log(
+          `Cron rétention RGPD terminé : ${result.anonymized}/${result.eligible} anonymisé(s), ` +
+          `${result.oldAttachmentsPurged} pièce(s) jointe(s) ancienne(s) purgée(s)`,
+        );
+        // Nettoyage technique complémentaire : les tokens abandonnés sont déjà
+        // purgés par run() ci-dessus (inclus dans l'audit retention_run) — il ne
+        // reste que les vieux journaux d'audit, hors périmètre de cet audit.
+        const oldAuditLogs = await this.purgeOldAuditLogs();
+        this.logger.log(`Purge technique complémentaire : ${oldAuditLogs} log(s) d'audit`);
+      });
     } catch (err) {
       this.logger.error(`Cron rétention RGPD en échec: ${(err as Error).stack ?? err}`);
     }

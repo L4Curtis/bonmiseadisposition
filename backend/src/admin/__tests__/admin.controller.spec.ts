@@ -6,6 +6,7 @@ import { AppConfigService } from '../../config/config.service';
 import { SmbService } from '../../smb/smb.service';
 import { NotificationFailuresService } from '../notification-failures.service';
 import { SsoDiagnosticService } from '../sso-diagnostic.service';
+import { MonitoringService } from '../../monitoring/monitoring.service';
 import { createMockConfigService, createMockSmbService } from '../../common/__tests__/helpers/mock-services';
 import { AuthUser } from '../../auth/auth-user.interface';
 
@@ -22,6 +23,7 @@ describe('AdminController', () => {
   let configService: ReturnType<typeof createMockConfigService>;
   let smbService: ReturnType<typeof createMockSmbService>;
   let notificationFailuresService: { getFailedNotifications: jest.Mock };
+  let monitoringService: { getAdminStatus: jest.Mock };
 
   const adminUser: AuthUser = {
     id: 'admin-1',
@@ -54,6 +56,11 @@ describe('AdminController', () => {
     notificationFailuresService = {
       getFailedNotifications: jest.fn().mockResolvedValue({ count: 0, windowDays: 30, items: [] }),
     };
+    monitoringService = {
+      getAdminStatus: jest.fn().mockResolvedValue({
+        version: 'dev', commit: 'dev', uptimeSeconds: 0, database: 'ok', jobs: [],
+      }),
+    };
 
     controller = new AdminController(
       adminService as unknown as AdminService,
@@ -62,7 +69,25 @@ describe('AdminController', () => {
       smbService as unknown as SmbService,
       notificationFailuresService as unknown as NotificationFailuresService,
       { getRecent: jest.fn().mockResolvedValue([]) } as unknown as SsoDiagnosticService,
+      monitoringService as unknown as MonitoringService,
     );
+  });
+
+  // ─── status (lot A5, supervision) ───────────────────────────────────────────
+
+  describe('getStatus', () => {
+    it('délègue à MonitoringService.getAdminStatus() et renvoie son résultat tel quel', async () => {
+      const status = {
+        version: '1.2.3', commit: 'abc1234', uptimeSeconds: 42, database: 'ok' as const,
+        jobs: [{ job: 'ldap-sync', label: 'Synchronisation LDAP', schedule: 'toutes les 6 h', lastStartedAt: null, lastFinishedAt: null, lastStatus: null, lastError: null, lastDurationMs: null, late: false }],
+      };
+      monitoringService.getAdminStatus.mockResolvedValue(status);
+
+      const result = await controller.getStatus();
+
+      expect(monitoringService.getAdminStatus).toHaveBeenCalled();
+      expect(result).toEqual(status);
+    });
   });
 
   // ─── setConfig — rappels.signature_overdue_days ───────────────────────────────

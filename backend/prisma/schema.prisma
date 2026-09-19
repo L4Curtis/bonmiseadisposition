@@ -509,3 +509,26 @@ model RevokedToken {
   @@index([expiresAt])
   @@map("revoked_tokens")
 }
+
+enum ScheduledJobStatus {
+  success
+  error
+  skipped
+}
+
+// Suivi de la dernière exécution de chaque tâche planifiée (@Cron) — un seul
+// enregistrement par tâche (clé "job"), réécrit à chaque exécution. Alimente
+// GET /api/admin/status (lot A5, supervision). lastError ne contient jamais
+// de secret ni de donnée personnelle : le message d'erreur seul, tronqué à
+// 500 caractères par l'enregistreur applicatif (backend/src/monitoring).
+model ScheduledJobRun {
+  job            String              @id
+  lastStartedAt  DateTime?           @map("last_started_at")
+  lastFinishedAt DateTime?           @map("last_finished_at")
+  lastStatus     ScheduledJobStatus? @map("last_status")
+  lastError      String?             @map("last_error")
+  lastDurationMs Int?                @map("last_duration_ms")
+  updatedAt      DateTime            @updatedAt @map("updated_at")
+
+  @@map("scheduled_job_runs")
+}

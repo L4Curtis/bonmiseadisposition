@@ -4,8 +4,9 @@ import * as fs from 'fs';
 import { SmbService } from '../smb.service';
 import { AppConfigService } from '../../config/config.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { createMockConfigService } from '../../common/__tests__/helpers/mock-services';
+import { createMockConfigService, createMockJobTrackerService } from '../../common/__tests__/helpers/mock-services';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
+import { JobTrackerService } from '../../monitoring/job-tracker.service';
 
 jest.mock('fs/promises');
 jest.mock('fs');
@@ -14,6 +15,7 @@ describe('SmbService', () => {
   let service: SmbService;
   let configService: ReturnType<typeof createMockConfigService>;
   let prisma: ReturnType<typeof createMockPrismaService>;
+  let jobTracker: ReturnType<typeof createMockJobTrackerService>;
 
   const mockBon = {
     id: 'bon-1',
@@ -27,12 +29,14 @@ describe('SmbService', () => {
     jest.clearAllMocks();
     configService = createMockConfigService();
     prisma = createMockPrismaService();
+    jobTracker = createMockJobTrackerService();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SmbService,
         { provide: AppConfigService, useValue: configService },
         { provide: PrismaService, useValue: prisma },
+        { provide: JobTrackerService, useValue: jobTracker },
       ],
     }).compile();
 
@@ -435,6 +439,15 @@ describe('SmbService', () => {
       expect(prisma.smbExport.count).not.toHaveBeenCalled();
     });
 
+    it('signale "skipped" au suivi quand SMB est désactivé', async () => {
+      configService.get.mockResolvedValue(null);
+
+      await service.cronRetryFailedExports();
+
+      expect(jobTracker.track).toHaveBeenCalledWith('smb-retry', expect.any(Function));
+      await expect(jobTracker.track.mock.results[0].value).resolves.toBe('skipped');
+    });
+
     it('should do nothing when no failed exports', async () => {
       configService.get.mockResolvedValue('true');
       prisma.smbExport.count.mockResolvedValue(0);
@@ -442,6 +455,26 @@ describe('SmbService', () => {
       await service.cronRetryFailedExports();
 
       expect(prisma.smbExport.findMany).not.toHaveBeenCalled();
+    });
+
+    it('ne signale pas "skipped" (succès) quand SMB est activé, même sans export en échec', async () => {
+      configService.get.mockResolvedValue('true');
+      prisma.smbExport.count.mockResolvedValue(0);
+      prisma.smbExport.updateMany.mockResolvedValue({ count: 0 });
+
+      await service.cronRetryFailedExports();
+
+      await expect(jobTracker.track.mock.results[0].value).resolves.toBeUndefined();
+    });
+
+    it("propage l'échec au suivi quand le retry lève une exception", async () => {
+      configService.get.mockResolvedValue('true');
+      prisma.smbExport.updateMany.mockRejectedValue(new Error('DB indisponible'));
+
+      await service.cronRetryFailedExports();
+
+      const outcome = jobTracker.track.mock.results[0].value as Promise<unknown>;
+      await expect(outcome).rejects.toThrow('DB indisponible');
     });
   });
 

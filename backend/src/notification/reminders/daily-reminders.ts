@@ -71,14 +71,20 @@ export interface DailyRemindersDeps {
   sendEmail: (to: string, subject: string, html: string) => Promise<SendEmailResult>;
 }
 
-export async function runDailyReminders(deps: DailyRemindersDeps): Promise<void> {
+/** Résultat renvoyé au suivi des tâches planifiées (backend/src/monitoring) :
+ *  'skipped' quand la tâche est sortie tôt sans rien envoyer (désactivée en
+ *  configuration, SMTP non configuré) — tout le reste (y compris void, une
+ *  fois les bons éligibles traités) compte comme un succès. */
+export type DailyRemindersOutcome = 'skipped' | void;
+
+export async function runDailyReminders(deps: DailyRemindersDeps): Promise<DailyRemindersOutcome> {
   const { configService, prisma, templatesService, logger, getAppUrl, getTransporter, sendEmail } = deps;
   logger.log('Cron rappels démarré');
 
   const remindersEnabled = await configService.get('rappels', 'enabled');
   if (remindersEnabled === 'false') {
     logger.log('Rappels désactivés par configuration');
-    return;
+    return 'skipped';
   }
 
   // Aucune régénération de token ni requête inutile si le SMTP n'est pas
@@ -87,7 +93,7 @@ export async function runDailyReminders(deps: DailyRemindersDeps): Promise<void>
   const transporter = await getTransporter();
   if (!transporter) {
     logger.warn('Cron rappels : SMTP non configuré, aucun rappel envoyé');
-    return;
+    return 'skipped';
   }
 
   const delays = [

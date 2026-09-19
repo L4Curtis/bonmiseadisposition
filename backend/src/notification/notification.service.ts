@@ -36,8 +36,10 @@ import {
   buildMarkFoundNotice,
   buildUnilateralCloseNotice,
 } from './messages/system-notice-emails';
-import { runDailyReminders as runDailyRemindersJob } from './reminders/daily-reminders';
-import { runRestitutionDueReminders as runRestitutionDueRemindersJob } from './reminders/restitution-due-reminders';
+import { runDailyReminders as runDailyRemindersJob, DailyRemindersOutcome } from './reminders/daily-reminders';
+import { runRestitutionDueReminders as runRestitutionDueRemindersJob, RestitutionDueRemindersOutcome } from './reminders/restitution-due-reminders';
+import { JobTrackerService } from '../monitoring/job-tracker.service';
+import { JOB_KEYS } from '../monitoring/job-registry';
 
 export type { SendEmailResult } from './notification-log';
 
@@ -52,6 +54,7 @@ export class NotificationService {
     private readonly configService: AppConfigService,
     private readonly prisma: PrismaService,
     private readonly templatesService: TemplatesService,
+    private readonly jobTracker: JobTrackerService,
   ) {}
 
   // ─── Transport ──────────────────────────────────────────────────────────────
@@ -363,7 +366,7 @@ export class NotificationService {
   @Cron('0 9 * * 1-5', { timeZone: 'Europe/Paris' }) // Lundi–Vendredi à 9h (heure de Paris)
   async sendDailyReminders(): Promise<void> {
     try {
-      await this.runDailyReminders();
+      await this.jobTracker.track(JOB_KEYS.SIGNATURE_REMINDERS, () => this.runDailyReminders());
     } catch (err) {
       // The cron package does not catch rejected promises — never let this
       // escape as an unhandledRejection
@@ -371,7 +374,7 @@ export class NotificationService {
     }
   }
 
-  private async runDailyReminders(): Promise<void> {
+  private async runDailyReminders(): Promise<DailyRemindersOutcome> {
     return runDailyRemindersJob({
       configService: this.configService,
       prisma: this.prisma,
@@ -388,13 +391,15 @@ export class NotificationService {
   @Cron('0 9 * * *', { name: 'restitution-due-reminder', timeZone: 'Europe/Paris' }) // Tous les jours à 9h (heure de Paris)
   async runRestitutionDueReminders(): Promise<void> {
     try {
-      await runRestitutionDueRemindersJob({
-        configService: this.configService,
-        prisma: this.prisma,
-        logger: this.logger,
-        getTransporter: () => this.getTransporter(),
-        sendReminder: (bon) => this.sendRestitutionDueReminder(bon),
-      });
+      await this.jobTracker.track<RestitutionDueRemindersOutcome>(JOB_KEYS.RESTITUTION_REMINDER, () =>
+        runRestitutionDueRemindersJob({
+          configService: this.configService,
+          prisma: this.prisma,
+          logger: this.logger,
+          getTransporter: () => this.getTransporter(),
+          sendReminder: (bon) => this.sendRestitutionDueReminder(bon),
+        }),
+      );
     } catch (err) {
       // Le package cron ne rattrape pas les promesses rejetées — ne jamais
       // laisser fuir ceci en unhandledRejection.
