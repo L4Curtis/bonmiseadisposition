@@ -2,6 +2,7 @@ version: '3.8'
 services:
   db:
     image: postgres:16-alpine
+    restart: unless-stopped
     ports:
       # Loopback uniquement : la base de dev (mot de passe faible) ne doit pas
       # être joignable depuis le LAN du poste de travail
@@ -19,6 +20,17 @@ services:
       # n'existe pas et Postgres journalise un FATAL toutes les 10 s.
       test: ["CMD-SHELL", "pg_isready -U app -d bons_disposition"]
       interval: 10s
+
+  mailpit:
+    # Faux serveur SMTP à interface web : capture tous les emails de dev sans
+    # jamais les livrer réellement — plus aucun risque d'envoi accidentel vers
+    # une vraie boîte depuis un poste de développement.
+    image: axllent/mailpit
+    restart: unless-stopped
+    ports:
+      # Loopback uniquement, comme la base de dev
+      - "127.0.0.1:1025:1025" # SMTP
+      - "127.0.0.1:8025:8025" # Interface web
 
 volumes:
   pgdata_dev:

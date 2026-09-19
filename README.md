@@ -500,16 +500,82 @@ cp .env.example .env                     # variables pour docker compose (POSTGR
 cp backend/.env.example backend/.env     # variables lues par le backend en dev local
 # renseigner ENCRYPTION_KEY, JWT_SECRET, POSTGRES_PASSWORD dans les deux fichiers
 
-docker compose up db -d            # base PostgreSQL uniquement
+docker compose -f docker-compose.dev.yml up -d    # PostgreSQL + Mailpit, en loopback uniquement
 
 cd backend && npm install && npm run start:dev    # :4000
 cd frontend && npm install && npm run dev         # :5173
 ```
 
-> `docker compose up` (sans argument) démarre la stack complète construite localement
-> (db + backend + frontend) : le frontend est alors exposé sur le port **3000** (voir
-> `docker-compose.yml`), à ne pas confondre avec le port `5173` de `npm run dev` (Vite) ou le
-> port `5147` de la stack de production.
+> `docker compose up` (sans argument, et sans `-f`) démarre la stack complète construite
+> localement (db + backend + frontend) à partir de `docker-compose.yml` : le frontend est
+> alors exposé sur le port **3000**, à ne pas confondre avec le port `5173` de `npm run dev`
+> (Vite) ou le port `5147` de la stack de production. Pour le développement au quotidien
+> (backend/frontend lancés sur le poste, hors Docker), c'est `docker-compose.dev.yml`
+> ci-dessus qu'il faut utiliser : il ne démarre que la base et Mailpit, tous deux publiés
+> uniquement sur `127.0.0.1`.
+
+### Emails de dev : Mailpit
+
+`docker-compose.dev.yml` démarre aussi **Mailpit**, un faux serveur SMTP à interface web :
+tous les emails envoyés par le backend en dev (signature, rappels, restitution, test d'envoi
+de modèle…) y arrivent, et **rien ne part jamais réellement**. Interface web :
+[http://localhost:8025](http://localhost:8025).
+
+Pour que le backend lui envoie ses emails, configurez le SMTP dans Admin → Configuration →
+SMTP avec `host=localhost`, `port=1025`, `secure` décoché, sans utilisateur ni mot de passe
+(Mailpit n'exige aucune authentification), et un expéditeur (`smtp.from`) au format valide,
+par exemple `bons-dev@localhost.test`. La commande d'assainissement ci-dessous applique
+automatiquement ces réglages.
+
+### Assainir les secrets d'une base de dev existante
+
+Une base de dev ne doit **jamais** contenir de secrets qui fonctionnent réellement contre la
+production (identifiants SMTP Office 365, secrets Entra/Graph, mot de passe de liaison LDAP,
+mot de passe SMB…) : ils y finissent parfois par erreur (copie de la config de prod pour
+tester, restauration d'une sauvegarde…), et un test malheureux peut alors agir pour de vrai
+(email envoyé depuis la vraie boîte de la société, tentative de connexion LDAP/SMB réelle).
+
+```bash
+cd backend
+node --env-file=.env scripts/dev-scrub-secrets.js
+```
+
+`--env-file` est nécessaire : le garde-fou lit `DATABASE_URL` avant toute connexion, donc avant
+que Prisma ne charge `.env` lui-même. Sans cette option, le script refuse de tourner.
+
+Le script :
+- **refuse de s'exécuter** si `NODE_ENV=production` ou si l'hôte de `DATABASE_URL` n'est pas
+  `localhost`/`127.0.0.1`/`::1` — garde-fou testé indépendamment
+  (`src/__tests__/dev-scrub-secrets.spec.ts`) ;
+- **supprime** les secrets réels de la table de configuration (`smtp.password`, `smtp.user`,
+  `entra.client_secret`, `ldap.bind_password`, `smb.password`) ;
+- **désactive** LDAP et l'export SMB (`ldap.enabled` / `smb.enabled`), qui ne peuvent plus
+  fonctionner sans ces secrets — l'authentification locale (`admin@local`) n'est pas touchée ;
+- **repointe le SMTP vers Mailpit** (host/port/secure/from ci-dessus) ;
+- n'affiche jamais aucune valeur, uniquement les clés modifiées ou supprimées, et est
+  rejouable sans effet une fois passé (idempotent).
+
+### Recréer la base de dev depuis les migrations
+
+À utiliser si la base de dev locale a dérivé (schéma incohérent, données de test à jeter, ou
+pour repartir d'un état garanti identique au dépôt). **Toutes les données locales sont
+perdues** (bons, collaborateurs, pièces jointes, configuration) : irréversible sans sauvegarde
+préalable.
+
+```bash
+docker compose -f docker-compose.dev.yml down -v   # supprime aussi le volume pgdata_dev
+docker compose -f docker-compose.dev.yml up -d
+
+cd backend
+npm run prisma:migrate                              # prisma migrate deploy : uniquement les migrations du dépôt
+node scripts/reset-admin-password.js 'MotDePasseTemporaire!2026'
+```
+
+> À titre d'exemple concret de dérive : la base de dev de ce poste a longtemps porté 4
+> migrations `20260331_*` absentes de `backend/prisma/migrations` (vestige d'un chantier
+> abandonné), visibles avec `npx prisma migrate diff --from-migrations prisma/migrations
+> --to-url "$DATABASE_URL" --script` depuis `backend/`. Recréer la base comme ci-dessus
+> supprime cet écart : seules les migrations versionnées dans le dépôt sont rejouées.
 
 ## Tests
 
