@@ -23,7 +23,11 @@ describe('isSafeSmbExportPath', () => {
     expect(isSafeSmbExportPath('/etc/passwd')).toBe(false);
   });
 
-  it('rejects a Windows system directory regardless of case (cas limite)', () => {
+  // Symétrique du test précédent : hors Windows (CI et production Linux),
+  // path.resolve() lit "C:\Windows" comme un chemin RELATIF (préfixé du
+  // répertoire courant), qui n'est donc pas un dossier système. Ce test n'a
+  // de sens que là où ces lettres de lecteur existent.
+  (process.platform === 'win32' ? it : it.skip)('rejects a Windows system directory regardless of case (cas limite)', () => {
     expect(isSafeSmbExportPath('C:\\Windows\\System32')).toBe(false);
     expect(isSafeSmbExportPath('c:\\program files\\App')).toBe(false);
   });
