@@ -9,6 +9,21 @@ describe('getNextBonStatus (pure)', () => {
     expect(getNextBonStatus('sent_restitution', 'restitution')).toBe('archived');
   });
 
+  // Trouvé par les tests de bout en bout : l'ordre « je déclare la perte, PUIS
+  // je fais signer la restitution du reste » archivait le bon sans jamais
+  // émettre le procès-verbal qui acte le matériel non rendu.
+  it('should hold on partially_returned when an equipment is already declared not returned, so the PV can be issued', () => {
+    expect(getNextBonStatus('sent_restitution', 'restitution', undefined, true)).toBe('partially_returned');
+  });
+
+  it('should still archive a restitution when nothing is declared not returned', () => {
+    expect(getNextBonStatus('sent_restitution', 'restitution', undefined, false)).toBe('archived');
+  });
+
+  it('should not change the PV transition when an equipment is not returned (the PV is precisely what archives it)', () => {
+    expect(getNextBonStatus('partially_returned', 'pv_cloture', undefined, true)).toBe('archived');
+  });
+
   it('should keep partially_returned for a partial restitution', () => {
     expect(getNextBonStatus('partially_returned', 'restitution')).toBe('partially_returned');
   });

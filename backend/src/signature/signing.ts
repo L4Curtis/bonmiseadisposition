@@ -124,8 +124,13 @@ export async function sign(
       throw new BadRequestException('Ce bon est clôturé, annulé ou contesté et ne peut plus être signé');
     }
 
-    // Compute the transition from the FRESH status, not the pre-transaction one
-    const txNewStatus = getNextBonStatus(freshSig.bon.status, sig.type, deps.logger);
+    // Compute the transition from the FRESH status, not the pre-transaction one.
+    // Le compte des équipements non rendus est lu DANS la transaction : une
+    // déclaration concurrente ne doit pas être ignorée par la transition.
+    const notReturnedCount = await tx.bonEquipment.count({
+      where: { bonId: sig.bon.id, notReturned: true },
+    });
+    const txNewStatus = getNextBonStatus(freshSig.bon.status, sig.type, deps.logger, notReturnedCount > 0);
 
     // Scellement probant : HMAC des champs au moment exact de la signature.
     const signedAt = new Date();

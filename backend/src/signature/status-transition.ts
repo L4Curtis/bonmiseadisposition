@@ -16,6 +16,7 @@ export function getNextBonStatus(
   currentStatus: string,
   signatureType: string,
   logger?: StatusTransitionLogger,
+  hasNotReturnedEquipment = false,
 ): BonStatus | string {
   // Validate transitions: only advance from expected states
   const validTransitions: Record<string, { from: string[]; to: string }> = {
@@ -26,6 +27,15 @@ export function getNextBonStatus(
 
   const transition = validTransitions[signatureType];
   if (transition && transition.from.includes(currentStatus)) {
+    // Un équipement déjà déclaré non rendu doit donner lieu à un PV avant
+    // l'archivage : c'est le document qui acte la perte. Sans ce garde-fou,
+    // l'ordre « je déclare la perte, PUIS je fais signer le reste » archivait
+    // le bon directement (le PV n'est déclenché qu'en partially_returned,
+    // cf. hook dans signing.ts), et la signature IT enregistrée pour ce PV
+    // restait orpheline. Trouvé par les tests de bout en bout.
+    if (signatureType === 'restitution' && transition.to === 'archived' && hasNotReturnedEquipment) {
+      return 'partially_returned';
+    }
     return transition.to;
   }
 
