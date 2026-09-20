@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { BonStatus } from '../../common/types';
 import { assertPngDataUrl } from '../../common/signature-data-url';
+import { isDeliverableEmail, undeliverableEmailMessage } from '../../common/email';
 import { BON_SELECT, findBonOrThrow } from '../queries/bon-where';
 import { BonsWorkflowContext, assertNoPendingRestitutionSignature } from './bon-context';
 import { emitPvClotureIfDue } from './bon-cloture';
@@ -20,6 +21,14 @@ export async function initiateRestitution(
 
   if (!returnedEquipmentIds?.length) {
     throw new BadRequestException('Sélectionnez au moins un équipement à restituer');
+  }
+  // Même exigence qu'à l'envoi (bon-send.ts) : cette voie envoie un lien de
+  // signature par email. Sans adresse délivrable, le bon basculerait en
+  // attente d'une signature que personne ne peut demander — impasse
+  // silencieuse. Le présentiel (initiateInPersonSignature) n'exige aucune
+  // adresse : c'est ce que propose le message.
+  if (!isDeliverableEmail(bon.collaborateurEmail)) {
+    throw new BadRequestException(undeliverableEmailMessage(bon.collaborateurEmail));
   }
   const ids = [...new Set(returnedEquipmentIds)];
 

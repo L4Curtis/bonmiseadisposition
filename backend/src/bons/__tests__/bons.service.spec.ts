@@ -797,6 +797,21 @@ describe('BonsService', () => {
   describe('initiateRestitution', () => {
     const initiatedById = 'user-tech-001';
 
+    // Trouvé par les tests de bout en bout : cette voie envoie un lien de
+    // signature par email. Sans adresse délivrable, le bon basculait en
+    // attente d'une signature impossible à demander, sans le moindre message.
+    it('should refuse to initiate an email restitution when the address is not deliverable and suggest the in-person path', async () => {
+      const bon = { ...activeBon(), collaborateurEmail: 'admin@local' };
+      prisma.bon.findUnique.mockResolvedValue(bon);
+
+      await expect(
+        service.initiateRestitution(bon.id, initiatedById, ['equip-001']),
+      ).rejects.toThrow(/signature présentielle/);
+      expect(prisma.bonEquipment.updateMany).not.toHaveBeenCalled();
+      expect(prisma.bon.updateMany).not.toHaveBeenCalled();
+      expect(signatureService.generateToken).not.toHaveBeenCalled();
+    });
+
     it('should initiate restitution on active bon', async () => {
       const bon = activeBon();
       prisma.bon.findUnique.mockResolvedValue(bon);
