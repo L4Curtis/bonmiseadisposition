@@ -1,0 +1,84 @@
+# Environnement E2E jetable : construit l'application depuis les sources
+# (mêmes Dockerfiles que la production) et l'isole complètement de
+# l'environnement de dev du poste (autres ports, autre nom de projet, pas de
+# volume nommé persistant).
+#
+# Lancement (toujours avec -p pour ne jamais entrer en collision avec le
+# projet compose de dev) :
+#   docker compose -p bmad-e2e -f e2e/docker-compose.e2e.yml up -d --build
+# Arrêt et suppression complète (y compris les données) :
+#   docker compose -p bmad-e2e -f e2e/docker-compose.e2e.yml down -v
+#
+# Secrets : ENCRYPTION_KEY/JWT_SECRET ci-dessous sont des valeurs FACTICES,
+# générées pour cet environnement jetable uniquement (openssl rand -hex 32) —
+# jamais réutilisées ailleurs, sans conséquence si elles fuitent.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: bons_disposition_e2e
+      POSTGRES_USER: e2e
+      POSTGRES_PASSWORD: e2e_test_only
+      # Fuseau explicite : aligné sur le comportement réel des requêtes SQL
+      # brutes ($queryRaw) — ne pas modifier (voir docker-compose.dev.yml).
+      TZ: UTC
+    # Pas de volume nommé : la base disparaît avec `down -v` (et même sans,
+    # au prochain `down`) — chaque exécution repart d'un schéma vierge.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U e2e -d bons_disposition_e2e"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  mailpit:
+    # Faux serveur SMTP à interface HTTP : capture les emails envoyés par le
+    # backend pendant les tests, consultables via son API HTTP (utilisée par
+    # les tests Playwright pour vérifier les envois) sans jamais rien livrer
+    # réellement.
+    image: axllent/mailpit
+    ports:
+      # Seul port publié sur l'hôte pour mailpit (l'UI/API HTTP) — le SMTP
+      # (1025) reste interne, le backend le joint via le nom de service.
+      - "127.0.0.1:8026:8025"
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql://e2e:e2e_test_only@db:5432/bons_disposition_e2e
+      # Valeurs factices générées pour ce seul environnement jetable — voir
+      # l'en-tête de ce fichier.
+      ENCRYPTION_KEY: "0d2c9f0f35c04ed48f32826ddfffc1925256f671204fda41cae4be2ee130bb66"
+      JWT_SECRET: "0fcf4cd361b47184ba4f237cf04683a6069ec827ea028cefa1fa97377d3ed058"
+      # NODE_ENV volontairement différent de "production" : les cookies de
+      # session seraient posés avec Secure=true, que le navigateur refuse sur
+      # le HTTP simple utilisé ici (pas de TLS en E2E).
+      NODE_ENV: test
+      # URL PUBLIÉE sur l'hôte (celle que Playwright ouvre dans le
+      # navigateur) : elle est intégrée telle quelle dans les liens de
+      # signature envoyés par email — donc jamais le nom de service Docker.
+      FRONTEND_URL: "http://localhost:8081"
+      DEFAULT_ADMIN_PASSWORD: "E2eInitial#2026"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4000/api/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      # Port hôte choisi pour ne pas entrer en collision avec le frontend de
+      # dev (5173) ni avec un autre service local.
+      - "127.0.0.1:8081:8080"

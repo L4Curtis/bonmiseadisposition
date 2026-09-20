@@ -1,5 +1,11 @@
 # ─── Production — images pré-buildées depuis ghcr.io ────────────────────────
 #
+# ⚠️ Cette stack tout-en-un suit l'étiquette `latest`, désormais un simple alias
+#    de la branche main (donc de la recette). Pour une installation neuve, ou
+#    pour épingler la production sur un numéro de version, utiliser les deux
+#    stacks de deploy/ (application et base séparées) : voir deploy/README.md,
+#    section « Publier une version ».
+#
 # Portainer → Stacks → Add Stack → Repository → docker-compose.prod.yml
 #
 # Variables à renseigner (dans Portainer ou .env) :

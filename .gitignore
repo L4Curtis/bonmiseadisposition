@@ -26,6 +26,8 @@ yarn-error.log*
 
 # Testing
 coverage/
+# Playwright : navigateurs installés localement (le reste est couvert par e2e/.gitignore)
+e2e/playwright/
 
 # Uploads & data
 uploads/

@@ -143,9 +143,73 @@ jobs:
         continue-on-error: true
         run: npm audit --omit=dev --audit-level=high
 
+  # Tests de bout en bout (Playwright) contre l'application construite depuis
+  # les sources (mêmes Dockerfiles que build-and-push, voir e2e/README ci-
+  # dessous) : la régression « cachet IT refusé sur un brouillon » n'avait été
+  # vue que par un scénario navigateur écrit hors du dépôt — voir
+  # docs/testing-guide.md (section E2E).
+  e2e:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+
+      - name: Installer les dépendances E2E
+        working-directory: ./e2e
+        run: npm ci
+
+      - name: Installer Chromium (Playwright)
+        working-directory: ./e2e
+        run: npx playwright install --with-deps chromium
+
+      - name: Démarrer la compose E2E (build depuis les sources)
+        working-directory: ./e2e
+        run: docker compose -p bmad-e2e -f docker-compose.e2e.yml up -d --build
+
+      - name: Attendre /api/health/ready
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8081/api/health/ready > /dev/null 2>&1; then
+              echo "Backend prêt (/api/health/ready)."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::/api/health/ready n'a jamais répondu 200 après 120s" >&2
+          docker compose -p bmad-e2e -f e2e/docker-compose.e2e.yml logs --no-color
+          exit 1
+
+      - name: Amorcer les données E2E
+        run: bash e2e/seed/seed.sh bmad-e2e
+
+      - name: Lancer les tests Playwright (Chromium)
+        working-directory: ./e2e
+        run: npx playwright test
+
+      - name: Publier le rapport Playwright (en cas d'échec)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: e2e/playwright-report/
+          retention-days: 7
+
+      - name: Arrêter et supprimer la compose E2E
+        if: always()
+        run: docker compose -p bmad-e2e -f e2e/docker-compose.e2e.yml down -v
+
   build-and-push:
     runs-on: ubuntu-latest
-    needs: [backend, frontend]
+    needs: [backend, frontend, e2e]
     permissions:
       contents: read
       packages: write

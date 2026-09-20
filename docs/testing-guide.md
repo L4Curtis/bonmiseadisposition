@@ -12,7 +12,7 @@
 4. [Objectifs de couverture](#4-objectifs-de-couverture)
 5. [Tests existants](#5-tests-existants)
 6. [Priorites de test](#6-priorites-de-test)
-7. [Tests E2E (futur)](#7-tests-e2e-futur)
+7. [Tests E2E](#7-tests-e2e)
 
 ---
 
@@ -24,13 +24,15 @@ Le projet suit une approche de test en trois couches :
 |--------|-------|-------|--------|
 | **Tests unitaires** | Jest + @nestjs/testing | Services, utilitaires, validation | Actif |
 | **Tests d'integration** | Jest + base reelle (Docker) | Endpoints API avec PostgreSQL | Futur |
-| **Tests E2E** | Playwright + Docker Compose | Parcours utilisateur complets | Futur |
+| **Tests E2E** | Playwright + Docker Compose | Parcours utilisateur complets | Actif (`e2e/`) |
 
 ### Principes
 
 - Les **tests unitaires** mockent toutes les dependances externes (BDD, SMTP, LDAP, SMB).
 - Les **tests d'integration** utiliseront une base PostgreSQL ephemere via Docker.
-- Les **tests E2E** couvriront les flux critiques : creation de bon, envoi, signature, archivage.
+- Les **tests E2E** couvrent les flux critiques : creation de bon, cachet IT, envoi par email,
+  signature (email et presentielle), restitution, non-rendu et PV de cloture, inventaire. Voir
+  section 7.
 - Objectif global : **80% de couverture** sur le backend.
 
 ---
@@ -265,7 +267,7 @@ $transaction: jest.fn(),
 | Service | Pourquoi mocker | Methodes principales |
 |---------|----------------|---------------------|
 | **NotificationService** (SMTP) | Pas de serveur mail en test | `sendBonNotification`, `sendContestationNotification` |
-| **LdapService** | Pas d'Active Directory en test | `searchUsers`, `syncUser` |
+| **LdapService** | Pas d'Active Directory en test | `ldap-search.ts`, `ldap-user-upsert.ts` |
 | **SmbService** | Pas de partage reseau en test | `uploadPdf`, `fileExists` |
 | **PdfService** (pdfkit) | Lent et produit des binaires | `generateMiseDisposition`, `generateRestitution` |
 
@@ -718,140 +720,79 @@ Pour chaque service, verifier :
 
 ---
 
-## 7. Tests E2E (futur)
+## 7. Tests E2E
 
-> Scope futur. Architecture cible documentee ci-dessous.
+Suite Playwright dans `e2e/`, exécutée à chaque push par le job `e2e` de la CI. Elle joue l'application
+réellement construite depuis les sources (mêmes Dockerfiles qu'en production), contre une base et un serveur
+d'emails jetables.
 
-### 7.1 Stack cible
+Ces tests existent parce qu'une suite unitaire ne les remplace pas : la régression « cachet IT refusé sur un
+brouillon », qui rendait tout envoi impossible depuis l'interface, n'a été vue que par un parcours navigateur.
 
-| Element | Choix |
-|---------|-------|
-| Framework | Playwright |
-| Infra | Docker Compose (app + PostgreSQL + mailpit) |
-| Seed | Script de seed avec fixtures |
-| CI | GitHub Actions avec service containers |
+### 7.1 Ce qui est couvert
 
-### 7.2 Architecture Docker Compose pour les tests
+| Fichier | Parcours |
+|---------|----------|
+| `tests/auth.setup.ts` | Connexion locale de l'administrateur, changement de mot de passe imposé, session réutilisée par les autres tests |
+| `tests/02-envoi-email.spec.ts` | Création d'un bon, cachet IT, envoi : l'email de demande de signature arrive avec son lien |
+| `tests/03-presentiel-signature.spec.ts` | Signature en présentiel jusqu'au bon actif et au PDF disponible |
+| `tests/04-sans-adresse.spec.ts` | Collaborateur sans adresse : envoi par email refusé avec la bonne explication, présentiel possible |
+| `tests/05-restitution-non-rendu.spec.ts` | Restitution partielle, équipement déclaré non rendu, PV de clôture, archivage |
+| `tests/06-inventaire-par-collaborateur.spec.ts` | Vue « Par collaborateur » de l'inventaire : la personne apparaît avec son matériel |
 
-```yaml
-# docker-compose.test.yml
-services:
-  db-test:
-    image: postgres:16
-    environment:
-      POSTGRES_DB: bons_test
-      POSTGRES_USER: test
-      POSTGRES_PASSWORD: test
-    ports:
-      - "5433:5432"
+### 7.2 Lancer la suite en local
 
-  mailpit:
-    image: axllent/mailpit
-    ports:
-      - "8025:8025"   # UI
-      - "1025:1025"   # SMTP
+Docker est nécessaire. L'environnement est isolé de celui de développement : projet Compose `bmad-e2e`,
+ports 8081 (application) et 8026 (Mailpit), base éphémère. Rien n'est écrit dans la base de développement.
 
-  backend-test:
-    build: ./backend
-    environment:
-      DATABASE_URL: postgresql://test:test@db-test:5432/bons_test
-      SMTP_HOST: mailpit
-      SMTP_PORT: 1025
-    depends_on:
-      - db-test
-      - mailpit
+```bash
+# 1. Construire et démarrer
+docker compose -p bmad-e2e -f e2e/docker-compose.e2e.yml up -d --build
 
-  frontend-test:
-    build: ./frontend
-    depends_on:
-      - backend-test
+# 2. Attendre que l'application réponde
+curl -fsS http://localhost:8081/api/health/ready
+
+# 3. Amorcer les données (idempotent : rejouable sans redémarrer)
+bash e2e/seed/seed.sh bmad-e2e
+
+# 4. Dépendances et navigateur (une seule fois)
+cd e2e && npm ci && npx playwright install chromium
+
+# 5. Lancer
+npx playwright test          # toute la suite
+npx playwright test 05       # un seul fichier
+npx playwright test --headed # en voyant le navigateur
+
+# 6. Nettoyer (conteneurs et volumes)
+docker compose -p bmad-e2e -f e2e/docker-compose.e2e.yml down -v
 ```
 
-### 7.3 Seed de la base de test
+L'amorçage (`e2e/seed/seed.sql`) crée une filiale active, un collaborateur avec adresse, un collaborateur
+sans adresse et un article de catalogue. Les tests créent ensuite leurs propres données.
 
-```typescript
-// backend/prisma/seed-test.ts
-import { PrismaClient } from '@prisma/client';
-import * as bcrypt from 'bcryptjs';
+### 7.3 Écrire un test
 
-const prisma = new PrismaClient();
+- Un test crée ce dont il a besoin (helpers de `tests/helpers/`) : aucun test ne dépend de ce qu'un autre a
+  laissé derrière lui.
+- Sélecteurs par rôle, libellé ou texte visible, jamais par classe CSS. Attention aux libellés inclus les uns
+  dans les autres : « Nom » correspond aussi à « Prénom », d'où `exact: true`.
+- Aucune attente fixe. Pour un email, `waitForEmailTo` (helper Mailpit) interroge la boîte jusqu'à réception,
+  avec un délai maximal généreux : l'envoi SMTP réel prend parfois quelques secondes sur une machine chargée.
+- La suite s'exécute en série (`workers: 1`) : tous les tests partagent la même boîte Mailpit et la même
+  session administrateur. C'est volontaire, et sans coût réel vu la taille de la suite.
 
-async function seedTest() {
-  // Creer la filiale de test
-  const filiale = await prisma.filiale.create({
-    data: {
-      name: 'test-filiale',
-      displayName: 'Filiale Test',
-      address: '1 rue du Test',
-      siret: '00000000000000',
-    },
-  });
+Pièges déjà rencontrés, traités dans les helpers : le canevas de signature doit être ramené dans la fenêtre
+avant de dessiner (`page.mouse` ne fait pas défiler, contrairement à `click`) ; l'attente d'URL d'un bon
+utilise un identifiant strict, sinon `/bons/new` correspond aussi ; le formulaire de création démarre avec une
+ligne d'équipement vide, donc on vise toujours la dernière ligne ajoutée ; le mot de passe de `admin@local` ne
+peut être changé qu'une fois, la connexion de la session gère les deux cas.
 
-  // Creer les utilisateurs de test
-  const adminHash = await bcrypt.hash('TestAdmin123!', 12);
-  await prisma.user.create({
-    data: {
-      samAccountName: 'admin.e2e',
-      displayName: 'Admin E2E',
-      email: 'admin.e2e@test.local',
-      role: 'admin',
-      isItStaff: true,
-      passwordHash: adminHash,
-      filialeId: filiale.id,
-    },
-  });
+### 7.4 Lire un échec en CI
 
-  // ... autres utilisateurs et donnees
-}
-
-seedTest()
-  .then(() => prisma.$disconnect())
-  .catch((e) => { console.error(e); process.exit(1); });
-```
-
-### 7.4 Parcours critiques a tester
-
-| N | Parcours | Etapes |
-|---|----------|--------|
-| 1 | **Creation et envoi d'un bon** | Login admin, creer bon, ajouter equipements, envoyer |
-| 2 | **Signature mise a disposition** | Ouvrir le lien de signature, dessiner la signature, valider |
-| 3 | **Cycle complet** | Creer, envoyer, signer mise a dispo, signer restitution, archiver |
-| 4 | **Contestation** | Login collaborateur, contester un bon actif, admin resout |
-| 5 | **Restitution partielle** | Marquer certains equipements non restitues, generer le PV |
-| 6 | **Gestion du catalogue** | Ajouter un equipement au catalogue, creer un bon avec |
-
-### 7.5 Exemple de test Playwright
-
-```typescript
-import { test, expect } from '@playwright/test';
-
-test.describe('Bon lifecycle', () => {
-  test.beforeEach(async ({ page }) => {
-    // Login as admin
-    await page.goto('/login');
-    await page.fill('[name="username"]', 'admin.e2e');
-    await page.fill('[name="password"]', 'TestAdmin123!');
-    await page.click('button[type="submit"]');
-    await expect(page).toHaveURL('/dashboard');
-  });
-
-  test('should create, send, and archive a bon', async ({ page }) => {
-    // Creer un bon
-    await page.click('text=Nouveau bon');
-    await page.selectOption('[name="filialeId"]', { label: 'Filiale Test' });
-    // ... remplir le formulaire
-    await page.click('text=Enregistrer');
-
-    // Verifier la creation
-    await expect(page.locator('.bon-status')).toHaveText('Brouillon');
-
-    // Envoyer
-    await page.click('text=Envoyer pour signature');
-    await expect(page.locator('.bon-status')).toHaveText('En attente signature');
-  });
-});
-```
-
+Le job `e2e` publie `playwright-report` en artefact quand il échoue. Il contient, pour chaque test rouge, la
+capture d'écran, la vidéo et la trace (`npx playwright show-trace <fichier>` rejoue le parcours pas à pas).
+Les journaux des conteneurs sont affichés dans le job lui-même : ils permettent de distinguer un vrai défaut
+de l'application d'un test instable.
 ---
 
 ## Annexe : Carte des dependances des services

@@ -153,7 +153,7 @@ là où elles ont changé depuis.
 | H-04 | Haute | Audit logs restreints à `@Roles('admin')` | `audit.controller.ts` |
 | H-05 | Haute | Templates PATCH/DELETE/POST restreints à `@Roles('admin')` | `templates.controller.ts` |
 | H-06 | Haute | CSRF middleware `X-Requested-With` sur POST/PUT/PATCH/DELETE | `main.ts`, `api.ts` |
-| H-07 | Haute | SMB path validation `isSafeExportPath()` | `smb.service.ts` |
+| H-07 | Haute | SMB path validation `isSafeSmbExportPath()` | `smb/smb-path-safety.ts` |
 | M-01 | Moyenne | Brute-force persisté en DB via `AuditLog` (survit aux redémarrages) | `auth.service.ts` |
 | M-02 | Moyenne | `passwordHash` exclu de toutes les réponses API users | `users.service.ts` |
 | M-03 | Moyenne | Open redirect : `/^\/[^/]/` (bloque `//evil.com`) | `auth.controller.ts` |
@@ -235,7 +235,7 @@ const allowedMime = /^image\/(jpeg|png|gif|webp)$/;
 
 ### 6. Le SMB path est validé avant écriture
 ```typescript
-if (!this.isSafeExportPath(smbPath)) return;
+if (!isSafeSmbExportPath(smbPath)) return;   // smb/smb-path-safety.ts
 ```
 
 ### 7. Les logs d'audit sont réservés à `@Roles('admin')`

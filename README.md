@@ -6,12 +6,20 @@ Application web interne de gestion des bons de mise à disposition et de restitu
 
 ## CI/CD — Images Docker automatiques
 
-À chaque push sur `main`, GitHub Actions build et publie automatiquement les images sur GitHub Container Registry :
+Avant toute image, GitHub Actions vérifie le backend (typage, tests avec couverture, migrations rejouées
+sur un vrai PostgreSQL, détection d'un schéma modifié sans migration, requêtes SQL exécutées pour de bon),
+le frontend (typage, tests, build) et les parcours de bout en bout (Playwright sur l'application construite).
 
-```
-ghcr.io/l4curtis/bonmiseadisposition-backend:latest
-ghcr.io/l4curtis/bonmiseadisposition-frontend:latest
-```
+Les images ne sont publiées qu'ensuite, et l'étiquette dit d'où elles viennent :
+
+| Déclencheur | Étiquettes publiées | Usage |
+|-------------|---------------------|-------|
+| push sur `main` | `main`, `<sha>`, `latest` | recette |
+| tag `vX.Y.Z` | `X.Y.Z`, `X.Y` | production |
+
+La production est épinglée sur un numéro de version : elle ne bouge que lorsqu'on le décide, en posant un tag.
+`latest` reste publié comme alias de `main` le temps de migrer les stacks existantes.
+Procédure complète : [deploy/README.md, « Publier une version »](deploy/README.md).
 
 > Statut : [![Build](https://github.com/L4Curtis/bonmiseadisposition/actions/workflows/docker.yml/badge.svg)](https://github.com/L4Curtis/bonmiseadisposition/actions/workflows/docker.yml)
 

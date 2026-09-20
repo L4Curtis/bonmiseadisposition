@@ -29,7 +29,7 @@ BonDeMiseADisposition/
 ├── .env.example                        # Template variables d'environnement (prod)
 ├── .gitignore                          # Exclusions Git
 ├── docker-compose.yml                  # Stack complete dev (build local)
-├── docker-compose.dev.yml              # PostgreSQL seul (dev local sans Docker)
+├── docker-compose.dev.yml              # PostgreSQL et Mailpit (dev local, backend/frontend hors Docker)
 ├── docker-compose.prod.yml             # Stack prod (images GHCR pre-buildees)
 ├── deploy/                            # Déploiement sur deux machines : docker-compose.app.yml (front + back),
 │                                      # docker-compose.db.yml (PostgreSQL dédié, TLS, pg_hba), README pas à pas
@@ -50,6 +50,17 @@ BonDeMiseADisposition/
 │   ├── testing-guide.md                # Guide de tests backend (Jest) et frontend (Vitest)
 │   └── phase-legal-compliance.md       # Document de travail conformite legale (non implemente)
 │
+├── e2e/                                 # Tests de bout en bout (Playwright), lancés en CI (voir job `e2e`)
+│   ├── docker-compose.e2e.yml           # Stack construite depuis les sources (mêmes Dockerfiles que la prod)
+│   ├── playwright.config.ts             # Chromium seul, `workers: 1` (boîte Mailpit et base partagées)
+│   ├── seed/
+│   │   ├── seed.sh                      # Amorce les données E2E dans la stack compose démarrée
+│   │   └── seed.sql
+│   └── tests/
+│       ├── auth.setup.ts                # Session admin réutilisée par les specs (storageState)
+│       ├── 02-envoi-email.spec.ts … 06-inventaire-par-collaborateur.spec.ts
+│       └── helpers/                     # bon-create, canvas, collaborateur, env, ids, it-cachet, mailpit (waitForEmailTo), signer
+│
 ├── backend/
 │   ├── Dockerfile                      # Multi-stage : build TS → prod Node.js (non-root)
 │   ├── package.json                    # Dependances NestJS, Prisma, PDFKit, nodemailer
@@ -61,7 +72,7 @@ BonDeMiseADisposition/
 │   ├── scripts/demo-data.sql             # jeu de démonstration (filiales, catalogue, 140 bons) — instances de test
 │   ├── scripts/demo-data-a-coller.txt    # même contenu, prêt à coller dans une console web
 ├── prisma/
-│   │   ├── schema.prisma               # 13 modeles, 6 enums (voir detail ci-dessous)
+│   │   ├── schema.prisma               # 18 modeles, 11 enums (voir detail ci-dessous)
 │   │   └── migrations/
 │   │       ├── 20260318120219_init/                            # Schema initial complet
 │   │       ├── 20260318130634_add_local_auth/                  # Auth locale (password_hash)
@@ -73,12 +84,14 @@ BonDeMiseADisposition/
 │   │       ├── 20260319153614_avenant_equipement_retrouve/     # Avenant equipement retrouve
 │   │       ├── ... (voir CHANGELOG.md pour les migrations de la mise a jour 2026-09-16)
 │   │       ├── 20260916110000_user_role_direction/              # ALTER TYPE UserRole ADD VALUE 'direction' (seule dans sa migration)
-│   │       └── 20260916110100_kpi_indexes/                      # 9 index CREATE INDEX IF NOT EXISTS pour les agregats KPI
+│   │       ├── 20260916110100_kpi_indexes/                      # 9 index CREATE INDEX IF NOT EXISTS pour les agregats KPI
+│   │       ├── ... (voir CHANGELOG.md pour les migrations des lots 2026-09-18/19)
+│   │       └── 20260919100000_scheduled_job_runs/                # Table scheduled_job_runs + enum ScheduledJobStatus
 │   │
 │   └── src/
 │       ├── main.ts                     # Bootstrap NestJS : CORS, Helmet, ValidationPipe, port 4000
 │       ├── app.module.ts               # Module racine : imports tous modules, ThrottlerGuard global
-│       ├── health.controller.ts        # GET /api/health (healthcheck Docker)
+│       ├── health.controller.ts        # GET /api/health (healthcheck Docker) et /api/health/ready (sonde DB réelle, utilisée par l'E2E CI)
 │       │
 │       ├── filters/
 │       │   └── all-exceptions.filter.ts # Filtre global : masque stack traces en prod
@@ -96,31 +109,44 @@ BonDeMiseADisposition/
 │       │   ├── auth.module.ts          # Module auth (JWT + Passport)
 │       │   ├── auth.controller.ts      # Login SSO, callback, refresh, logout, local-login
 │       │   ├── auth.service.ts         # Façade : délègue aux modules ci-dessous (méthodes publiques inchangées)
+│       │   ├── auth-user.interface.ts  # Forme de l'utilisateur authentifié injectée par @CurrentUser()
 │       │   ├── role-mapping.ts         # resolveRoleFromGroups : groupes Entra → rôle (écrasé à chaque connexion SSO)
 │       │   ├── entra-sso.ts            # URL de connexion et callback MSAL
+│       │   ├── sso-diagnostic.ts       # recordSsoRoleDiagnostic : trace la revendication de groupes à chaque login SSO (relu par admin/sso-diagnostic.service.ts)
 │       │   ├── local-login.ts          # Connexion locale bcryptjs + anti brute force
+│       │   ├── password-policy.ts      # Règles de complexité (12+ car., spécial, max 128)
 │       │   ├── session-tokens.ts       # JWT d'accès et de rafraîchissement
 │       │   ├── token-revocation.ts     # Révocation des jetons (mémoire + base)
 │       │   ├── change-password.ts, password-strength.ts, admin-provisioning.ts, exceptions.ts
-│       │   ├── jwt.strategy.ts         # Strategie Passport-JWT (extraction cookie)
-│       │   ├── jwt-auth.guard.ts       # Guard JWT global
-│       │   ├── roles.guard.ts          # Guard RBAC (admin/technician/collaborator)
-│       │   ├── roles.decorator.ts      # @Roles() decorateur de metadata
-│       │   ├── current-user.decorator.ts # @CurrentUser() injecte l'utilisateur courant
-│       │   ├── login.dto.ts            # DTO login local (email + password)
-│       │   └── change-password.dto.ts  # DTO changement mdp (current + new)
+│       │   ├── guards/                 # jwt-auth.guard, roles.guard (RBAC), user-throttler.guard
+│       │   ├── decorators/             # roles.decorator (@Roles), current-user.decorator (@CurrentUser)
+│       │   ├── strategies/             # jwt.strategy (Passport-JWT, extraction cookie)
+│       │   ├── utils/                  # normalize-email.util
+│       │   └── dto/                    # local-login.dto (email + password), change-password.dto (current + new)
 │       │
 │       ├── admin/
 │       │   ├── admin.module.ts         # Module administration
-│       │   ├── admin.controller.ts     # Config CRUD, tests LDAP/SMTP/Entra/SMB, sync LDAP
+│       │   ├── admin.controller.ts     # Config CRUD, tests LDAP/SMTP/Entra/SMB, sync LDAP, status, config/health, sso/diagnostic, rôle utilisateur
 │       │   ├── admin.service.ts        # Bulk config, test transports, purge LDAP
-│       │   ├── admin.dto.ts            # DTOs config sections
-│       │   ├── templates.controller.ts # CRUD templates email (GET/PATCH/DELETE/:id, export, import)
+│       │   ├── config-health.ts        # GET config/health : état par rubrique (configuré/incomplet/désactivé/non configuré), aucun secret
+│       │   ├── notification-failures.service.ts # GET notifications/failed : emails non délivrés (migré de l'ancien Reporting)
+│       │   ├── sso-diagnostic.service.ts # GET sso/diagnostic : relit les diagnostics écrits par auth/sso-diagnostic.ts
+│       │   ├── dto/
+│       │   │   ├── change-user-role.dto.ts
+│       │   │   └── config.dto.ts
+│       │   ├── templates.controller.ts # CRUD templates email (GET/PATCH/DELETE/:id, export, import, POST :id/test)
 │       │   └── pdf-templates.controller.ts # CRUD templates PDF (7 endpoints, rate limit preview)
 │       │
 │       ├── ldap/
 │       │   ├── ldap.module.ts          # Module LDAP
-│       │   └── ldap.service.ts         # Sync AD (cron 6h), upsert users, match filiales
+│       │   ├── ldap.service.ts         # Façade : sync AD (cron 6h), upsert users, match filiales
+│       │   ├── ldap-connection.ts      # Options de connexion ldapjs depuis l'URL + use_ssl (fonction pure)
+│       │   ├── ldap-search.ts          # Recherche paginée côté serveur des utilisateurs LDAP
+│       │   ├── ldap-entry-parser.ts    # parseLdapSearchEntry : `entry.attributes` (pas `entry.object`) → LdapUser
+│       │   ├── ldap-user-upsert.ts     # Upsert users + normalisation email + rattachement filiale
+│       │   ├── ldap-deactivation.ts    # Garde-fou anti désactivation massive (ratio + seuil absolu)
+│       │   ├── ldap-filter-validator.ts # Validation structurelle du filtre LDAP saisi en config
+│       │   └── ldap-errors.ts          # Traduction des erreurs de connexion LDAP/LDAPS en messages FR actionnables
 │       │
 │       ├── users/
 │       │   ├── users.module.ts         # Module utilisateurs
@@ -133,27 +159,35 @@ BonDeMiseADisposition/
 │       │   ├── filiales.service.ts     # Gestion filiales avec cleanup fichiers
 │       │   └── filiales.dto.ts         # DTOs creation/update filiale
 │       │
-│       ├── equipment/
-│       │   ├── equipment.module.ts     # Module equipements
+│       ├── equipment/                  # Réservé admin/technician (lecture et écriture) — donnée IT interne
+│       │   ├── equipment.module.ts     # Module équipements
 │       │   ├── equipment.controller.ts # CRUD catalogue + packs + import CSV en masse
+│       │   ├── equipment-catalog.ts    # CRUD catalogue (fonctions pures, `prisma` explicite)
+│       │   ├── equipment-packs.ts      # CRUD packs (fonctions pures, `prisma` explicite)
+│       │   ├── equipment-serial.ts     # Historique et conflits de numéros de série
 │       │   ├── equipment-catalog-import.ts # Import en masse (créés / réactivés / ignorés / erreurs)
 │       │   ├── equipment-audit.ts      # Traces d'audit des mutations catalogue et packs
 │       │   ├── equipment-validation.ts # Nettoyage des libellés (trim, refus des valeurs vides)
-│       │   ├── equipment.service.ts    # Catalogue (11 categories) + packs pre-configures
-│       │   └── equipment.dto.ts        # DTOs catalogue item + pack
+│       │   ├── equipment.service.ts    # Façade fine : délègue à equipment-catalog/-packs/-serial
+│       │   └── dto/
+│       │       ├── equipment.dto.ts    # DTOs catalogue item + pack
+│       │       └── transforms.ts
 │       │
 │       ├── bons/
-│       │   ├── bons.module.ts          # Module bons (coeur metier)
-│       │   ├── bons.controller.ts      # CRUD bons, send, restitution, PV, mark-found, sign-it
+│       │   ├── bons.module.ts          # Module bons (cœur métier)
+│       │   ├── bons.controller.ts      # 20+ routes : CRUD bons, send, restitution, PV, mark-found, sign-it
 │       │   ├── bons.service.ts         # Façade (jeton BONS_SERVICE) : délègue aux modules ci-dessous
 │       │   ├── bons.tokens.ts          # BONS_SERVICE : casse le cycle d'import avec signature/ (ModuleRef)
 │       │   ├── bon-mappers.ts          # Réponses du portail collaborateur (tokens exposés filtrés)
+│       │   ├── bons-access.ts          # verifyCollaboratorAccess : IT = accès transverse, collaborateur = ses bons uniquement
+│       │   ├── bons-pdf-lookup.ts      # GET /:id/pdf : validation query + résolution du snapshot stocké (étape > type par défaut > legacy)
+│       │   ├── bons-missing-snapshots.ts # GET /:id/pdf-snapshots/missing : types attendus (signature signée) mais absents
 │       │   ├── queries/                # bon-where (filtres de liste), bon-stats (tuiles Aujourd'hui)
 │       │   ├── export/                 # bon-csv : export CSV (limite, colonnes, échappement commun)
 │       │   ├── validation/             # bon-validators : filiale, catalogue, numéros de série, envoyable
 │       │   └── workflow/               # bon-context (dépendances explicites), bon-crud, bon-send (email + présentiel),
 │       │                               # bon-restitution (restitution, non rendu), bon-mark-found, bon-cloture (PV, clôture unilatérale), bon-resend
-│       │   └── bons.dto.ts             # DTOs creation/update bon + equipements
+│       │   └── bons.dto.ts             # DTOs création/update bon + équipements
 │       │
 │       ├── signature/
 │       │   ├── signature.module.ts     # Module signatures electroniques
@@ -168,14 +202,19 @@ BonDeMiseADisposition/
 │       │   └── signature.dto.ts        # DTOs signature (dataUrl, mention lu et approuve)
 │       │
 │       ├── pdf/
-│       │   ├── pdf.module.ts           # Module generation PDF
+│       │   ├── pdf.module.ts           # Module génération PDF
 │       │   ├── pdf.service.ts          # Façade PDFKit : données, template, hash, stockage (mise_dispo, restitution, PV, avenant)
 │       │   ├── render/                 # layout, header, parties, equipment-table, signatures, certificate, footer
 │       │   ├── snapshot-regeneration.ts # Régénération des snapshots manquants
-│       │   ├── pdf-template-config.ts  # Interfaces config + defaults + PREVIEW_BON + deepMerge + substituteVars
+│       │   ├── pdf-template-config.ts  # Façade fine : ré-exporte les modules ci-dessous, chemin/exports inchangés
+│       │   ├── pdf-template-types.ts   # Interfaces de config (couleurs, polices, marges, en-tête, etc.)
+│       │   ├── pdf-template-defaults.ts # Config par défaut (palette de marque « Livio 2026 »)
+│       │   ├── pdf-template-definitions.ts # Définitions de templates + variables `{{...}}` disponibles par section
+│       │   ├── pdf-template-utils.ts   # deepMergeConfig (defaut + custom, clés connues uniquement)
+│       │   ├── pdf-template-preview.ts # PREVIEW_BON : données fictives pour la génération d'aperçu
 │       │   ├── pdf-templates.service.ts # CRUD config PDF : getAll, getConfig, update, reset, export/import
 │       │   ├── pdf-admin.controller.ts # POST /admin/pdf/regenerate-missing (admin)
-│       │   ├── fonts/                  # DejaVu Sans (regular+bold) embarquee — rendu Unicode complet
+│       │   ├── fonts/                  # DejaVu Sans (regular+bold) embarquée — rendu Unicode complet
 │       │   └── dto/
 │       │       └── update-pdf-template.dto.ts # Validation nested (couleurs hex, tailles, marges, textes)
 │       │
@@ -194,13 +233,19 @@ BonDeMiseADisposition/
 │       │   ├── notification-log.ts     # Journal des envois (sent/failed, troncature des erreurs)
 │       │   ├── transport/              # smtp-transport : configuration et cache du transporteur
 │       │   ├── messages/               # Variables et contenus par type d'email (échappement HTML)
+│       │   ├── senders/                # notification-senders : les trois formes d'envoi (lien signé, modèle, message prêt)
 │       │   └── reminders/              # daily-reminders (rappels de signature), restitution-due-reminders
 │       │
 │       ├── smb/
-│       │   ├── __tests__/
-│       │   │   └── smb.service.spec.ts # 20 tests: export, tracking, retry, cron, sanitize
+│       │   ├── __tests__/              # smb.service + modules extraits (chemins, nom de fichier, écriture)
 │       │   ├── smb.module.ts           # Module export partage reseau (imports PrismaModule)
-│       │   └── smb.service.ts          # Export PDF vers UNC/montage, tracking DB, retry cron, monitoring
+│       │   ├── smb.service.ts          # Façade : export PDF vers UNC/montage, suivi en base, relance (cron 6 h)
+│       │   ├── smb.types.ts            # SmbExportResult, SmbStatus (évite un cycle façade ↔ relance)
+│       │   ├── smb-path-safety.ts      # isSafeSmbExportPath : refus des dossiers système et de la traversée
+│       │   ├── smb-filename.ts         # sanitizeSmbName : nom de fichier sûr (accents, noms réservés Windows)
+│       │   ├── smb-export-writer.ts    # Écriture du PDF dans l'arborescence année/bon
+│       │   ├── smb-status.ts           # Compteurs de suivi et liste des exports en échec
+│       │   └── smb-retry.ts            # Relance des exports en échec
 │       │
 │       ├── audit/
 │       │   ├── audit.module.ts         # Module journal d'audit
@@ -218,30 +263,42 @@ BonDeMiseADisposition/
 │       │   └── attachments.service.ts  # Stockage chiffre, purge (retention.attachment_months)
 │       │
 │       ├── retention/
-│       │   ├── retention.module.ts     # Module retention RGPD
+│       │   ├── retention.module.ts     # Module rétention RGPD
+│       │   ├── retention.controller.ts # GET admin/retention/preview|stats, POST run|purge (admin) — aperçu, dry-run, purge technique
 │       │   └── retention.service.ts    # Anonymisation (plancher 60 mois, dry-run), purge tokens/audit/PJ
 │       │
 │       ├── kpi/                        # Module Tableau de bord KPI (admin, technician, direction)
 │       │   ├── kpi.module.ts           # Enregistre le controller + les 3 services + le cache
 │       │   ├── kpi.controller.ts       # GET /kpi/parc | /kpi/delais | /kpi/incidents
-│       │   ├── kpi-period.ts           # resolvePeriod, periode precedente, granularite, buckets/fillSeries
-│       │   ├── kpi-sql.ts              # Fragments Prisma.sql : bornes Paris en UTC naif, filtre filiale, bucketExpr
-│       │   ├── kpi-cache.service.ts    # Cache mémoire TTL 60 s, dedoublonnage des promesses en vol, max 200 cles
-│       │   ├── kpi-types.ts            # Types de reponse (sections par onglet)
-│       │   ├── kpi-parc.service.ts     # Parc prete, retards de restitution, non rendus
-│       │   ├── kpi-delais.service.ts   # Volumes, delais creation->envoi->signature, attente
-│       │   │   └── delais/             # kpi-delais.service : requetes SQL (delais-queries.ts) + mappers (delais-mappers.ts)
-│       │   ├── kpi-incidents.service.ts # Non rendus, PV, clotures, contestations, rappels, emails en echec
+│       │   ├── kpi-period.ts           # resolvePeriod, période précédente, granularité, buckets/fillSeries
+│       │   ├── kpi-sql.ts              # Fragments Prisma.sql : bornes Paris en UTC naïf, filtre filiale, bucketExpr
+│       │   ├── kpi-cache.service.ts    # Cache mémoire TTL 60 s, dédoublonnage des promesses en vol, max 200 clés
+│       │   ├── kpi-types.ts            # Types de réponse (sections par onglet)
+│       │   ├── kpi-parc.service.ts     # Parc prêté, retards de restitution, non rendus
+│       │   ├── kpi-parc.queries.ts     # Requêtes SQL brutes extraites de kpi-parc.service (Prisma.sql, casts, GROUP BY)
+│       │   ├── kpi-delais.service.ts   # Volumes, délais création->envoi->signature, attente
+│       │   │   └── delais/             # kpi-delais.service : requêtes SQL (delais-queries.ts) + mappers (delais-mappers.ts)
+│       │   ├── kpi-incidents.service.ts # Non rendus, PV, clôtures, contestations, rappels, emails en échec
 │       │   ├── dto/
 │       │   │   └── kpi-query.dto.ts    # from?, to? (AAAA-MM-JJ), filialeId? (UUID)
 │       │   └── __tests__/              # kpi-period, kpi-sql, kpi-cache.service, kpi.controller, 1 spec par service KPI
 │       │
-│       └── reporting/                  # Reduit a l'inventaire (reporting.service/controller supprimes, lot 5)
-│           ├── reporting.module.ts     # Module inventaire — ne declare plus que InventoryController/InventoryService
-│           ├── inventory.controller.ts # GET /reporting/inventory, /summary, /export (admin, technician, direction)
-│           ├── inventory.service.ts    # Parc prete : equipements non retournes des bons actifs/en cours
-│           └── dto/
-│               └── inventory-query.dto.ts # Filtres (filiale, categorie, collaborateur, recherche, pagination, tri)
+│       ├── reporting/                  # Réduit à l'inventaire (reporting.service/controller supprimés, lot 5)
+│       │   ├── reporting.module.ts     # Module inventaire — ne déclare plus que InventoryController/InventoryService
+│       │   ├── inventory.controller.ts # GET /reporting/inventory, /summary, /by-collaborateur, /export (admin, technician, direction)
+│       │   ├── inventory.service.ts    # Parc prêt : équipements non retournés des bons actifs/en cours
+│       │   └── dto/
+│       │       ├── inventory-query.dto.ts # Filtres (filiale, catégorie, collaborateur, recherche, pagination, tri)
+│       │       └── inventory-by-collaborateur-query.dto.ts # Filtres pour la vue « une ligne par personne »
+│       │
+│       └── monitoring/                 # Module supervision (@Global, lot A5) — nouveau
+│           ├── monitoring.module.ts    # @Global : JobTrackerService + MonitoringService exposés sans import croisé
+│           ├── monitoring.service.ts   # getAdminStatus() : version/commit, disponibilité DB, dernier passage des tâches planifiées
+│           ├── job-tracker.service.ts  # track(job, fn) : journalise début/fin/statut/durée dans ScheduledJobRun, avale ses propres erreurs
+│           ├── job-registry.ts         # Registre des tâches planifiées suivies (clé, libellé FR, fréquence, seuil d'alerte)
+│           ├── job-late.util.ts        # isJobLate() : détecte un retard par rapport à la fréquence attendue
+│           ├── database-check.util.ts  # checkDatabase() : SELECT 1 borné 2 s, utilisé par /health/ready et /admin/status
+│           └── __tests__/
 │
 └── frontend/
     ├── Dockerfile                      # Multi-stage : build Vite → Nginx Alpine (non-root)
@@ -266,15 +323,20 @@ BonDeMiseADisposition/
         │
         ├── hooks/
         │   ├── use-api-resource.ts             # loading/error/reload + anti-course ; path=null désactive l'appel
+        │   ├── use-active-filiales.ts           # Liste des filiales actives partagée (cache 60 s, useSyncExternalStore, invalidation croisée)
+        │   ├── use-config-health.ts             # État de santé config par rubrique (ConfigHealthCard) : configuré/incomplet/désactivé/non configuré
         │   ├── use-open-contestations-count.ts # Badge Sidebar : IT seulement, au plus 1 appel/30 s, silencieux en erreur
         │   ├── use-signature-canvas.ts          # Canvas HTML5 natif de signature
         │   ├── use-toast.ts                     # Notifications toast (file d'attente, 3 s)
-        │   └── use-unsaved-changes.ts           # Confirmation avant de quitter un formulaire modifie
+        │   └── use-unsaved-changes.ts           # Confirmation avant de quitter un formulaire modifié
         │
         ├── lib/
         │   ├── api.ts                  # Client HTTP : fetch + auto-refresh JWT 401
         │   ├── utils.ts                # cn() : clsx + tailwind-merge
         │   ├── labels.ts               # Libellés FR partagés (dont ROLE_LABELS avec « Direction »)
+        │   ├── roles.ts                # IT_ROLES, isItRole() — miroir d'affichage de backend/src/common/roles.ts (jamais un contrôle d'accès)
+        │   ├── email.ts                # isDeliverableEmail() — miroir de backend/src/common/email.ts (ex. admin@local non joignable)
+        │   ├── safe-return-to.ts       # safeReturnTo() : returnTo sûr par comparaison d'origine (anti open-redirect), utilisé par Login/ChangePassword/SignaturePage
         │   ├── kpi-format.ts           # Formats FR partagés par les tuiles/graphiques KPI (formatNumber, formatPercent…)
         │   ├── kpi-period.ts           # Presets de période (7j/30j/90j/12 mois), todayInParis, calculs en Date.UTC
         │   ├── bon-helpers.ts          # Aides communes bons (labels de statut, etc.)
@@ -297,6 +359,9 @@ BonDeMiseADisposition/
         │   │   ├── StatCard.tsx          # Tuile unique (remplace les anciennes copies) : delta vs période précédente, format, tone, onClick
         │   │   ├── BreakdownBars.tsx     # Barres de répartition (catégorie, filiale, statut, motifs…)
         │   │   ├── ChartCard.tsx         # Cadre graphique : titre, skeleton, vide, erreur + Réessayer
+        │   │   ├── DashboardTabSkeleton.tsx # Squelette affiché par <Suspense> pendant le chargement du chunk d'un onglet (Parc/Délais/Incidents, lazy car Recharts)
+        │   │   ├── EmptyPeriodNotice.tsx # Rien sur la période : message + bouton pour élargir à 12 mois
+        │   │   ├── stagger.ts           # Classes Tailwind d'entrée décalée (motion-safe:), écrites en toutes lettres
         │   │   └── charts/
         │   │       ├── chart-theme.ts    # useChartTheme() : couleurs --chart-1..5 lues via getComputedStyle
         │   │       ├── TimeSeriesChart.tsx # Courbes temporelles (Recharts)
@@ -324,8 +389,8 @@ BonDeMiseADisposition/
             ├── Login.tsx               # SSO Entra ID + fallback auth locale
             ├── ChangePassword.tsx       # Changement mdp (12 car, majuscule, chiffre, special)
             ├── Unauthorized.tsx         # Page 403
-            ├── Inventaire.tsx           # Parc prete : filtres, tableau pagine, tuiles resume, export CSV (references de bon non cliquables pour direction)
-            ├── inventaire/              # useInventory, InventoryFilters, InventoryTable, InventorySummaryCards
+            ├── Inventaire.tsx           # Parc prete : filtres, tableau pagine, tuiles resume, export CSV (references de bon non cliquables pour direction) ; bascule Équipement/Collaborateur (InventoryViewToggle)
+            ├── inventaire/              # useInventory, InventoryFilters, InventoryTable, InventorySummaryCards ; vue par collaborateur : useCollaborateurInventory, useCollaborateurDetail, CollaborateurTable, dateMetrics, isOverdue
             ├── PortailCollaborateur.tsx  # Vue collab : a signer, actifs, contestes, historique
             ├── portail/                 # useMesBons, sections (à signer, actifs, contestés, historique), lib/bonsFilters
             │
@@ -359,26 +424,35 @@ BonDeMiseADisposition/
             │
             └── admin/
                 ├── AdminLayout.tsx      # Sous-nav admin avec routing
-                ├── Configuration.tsx    # Config : General, LDAP, SMTP, Entra (dont Groupe Direction), Rappels (dont seuil de retard de signature), Tokens
-                ├── LdapSync.tsx         # Sync LDAP : statut, declenchement manuel, purge
-                ├── Filiales.tsx         # CRUD filiales + upload logo/cachet (+ filiales/)
+                ├── configuration/       # `Configuration.tsx` monolithique supprimé (2026-09-19) — 10 routes indépendantes sous /admin/configuration/*, chacune lazy-loaded depuis App.tsx
+                │   ├── ConfigGeneralPage.tsx    # Général (dont ConfigHealthCard)
+                │   ├── ConfigHealthCard.tsx     # État de santé par rubrique (GET config/health)
+                │   ├── ConfigLdapPage.tsx
+                │   ├── ConfigEntraPage.tsx      # dont Groupe Direction, SsoDiagnosticCard
+                │   ├── SsoDiagnosticCard.tsx    # Dernières connexions SSO et rôle attribué (GET sso/diagnostic)
+                │   ├── ConfigSmtpPage.tsx       # avec tests d'envoi
+                │   ├── ConfigRappelsPage.tsx    # dont seuil de retard de signature
+                │   ├── ConfigTokensPage.tsx
+                │   ├── ConfigSmbPage.tsx
+                │   ├── ConfigTimestampPage.tsx
+                │   ├── ConfigRetentionPage.tsx  # Aperçu, dry-run, purge (admin/retention/*)
+                │   ├── ConfigMonitoringPage.tsx # dont ScheduledJobsCard
+                │   └── ScheduledJobsCard.tsx    # Dernier passage de chaque tâche planifiée (GET /admin/status), bouton relance manuelle
+                ├── LdapSync.tsx         # Sync LDAP : statut, déclenchement manuel, purge — route `/admin/ldap-sync` (`/admin/ldap` redirige)
+                ├── Filiales.tsx         # CRUD filiales + upload logo/cachet + import/export CSV (+ filiales/)
                 ├── Utilisateurs.tsx     # Annuaire utilisateurs (recherche) + sélecteur de rôle (admin, incl. Direction), désactivé sur sa propre ligne et note SSO pour un compte non local
                 ├── Contestations.tsx    # Gestion contestations (open/review/resolve) (+ contestations/)
                 ├── AuditLogs.tsx        # Journal d'audit filtrable (+ audit-logs/)
-                ├── Catalogue.tsx        # Catalogue et packs (+ catalogue/ : hook, tableau, formulaires, lib testée)
-                ├── Templates.tsx        # Gestion templates email (edit/apercu/reset/export/import) (+ email-templates/)
-                ├── PdfTemplates.tsx     # Gestion templates PDF (4 types, couleurs/polices/marges/textes, preview PDF) (+ pdf-templates/)
-                └── detail/
-                    ├── Configuration.tsx # (alias)
-                    ├── LdapSync.tsx     # (alias)
-                    └── Filiales.tsx     # (alias)
+                ├── Catalogue.tsx        # Catalogue et packs + import/export CSV (+ catalogue/ : hook, tableau, formulaires, lib testée)
+                ├── Templates.tsx        # Gestion templates email (edit/apercu/reset/export/import/test d'envoi) — route `/admin/templates/email` (+ email-templates/)
+                └── PdfTemplates.tsx     # Gestion templates PDF (4 types, couleurs/polices/marges/textes, preview PDF) — route `/admin/templates/pdf` (+ pdf-templates/)
 ```
 
 ---
 
 ## Base de donnees (Prisma)
 
-### Modeles (17)
+### Modeles (18)
 
 | Modele | Role | Champs cles |
 |--------|------|-------------|
@@ -399,6 +473,7 @@ BonDeMiseADisposition/
 | **NotificationLog** | Suivi envoi emails | recipientEmail, type, status, reminderNumber |
 | **AuditLog** | Journal d'activite | action, details (JSON), ipAddress |
 | **RevokedToken** | Liste de revocation des refresh tokens (persistante) | tokenHash, expiresAt |
+| **ScheduledJobRun** | Dernier passage de chaque tâche planifiée (supervision, lot A5) | job (clé), lastStartedAt, lastFinishedAt, lastStatus, lastError, lastDurationMs |
 
 ### Enums
 
@@ -413,6 +488,7 @@ BonDeMiseADisposition/
 | **ContestationStatus** | open, in_review, resolved, rejected |
 | **NotificationType** | mise_dispo_request, restitution_request, pv_cloture_request, reminder, confirmation, contestation_alert, contestation_resolution, cancellation, mark_found, unilateral_closure, restitution_due_reminder |
 | **NotificationStatus** | sent, failed, bounced |
+| **ScheduledJobStatus** | success, error, skipped |
 
 ---
 
@@ -436,6 +512,9 @@ BonDeMiseADisposition/
 
 | Methode | Route | Roles | Description |
 |---------|-------|-------|-------------|
+| GET | `/status` | admin | Version/commit déployés, disponibilité DB, dernier passage de chaque tâche planifiée (lot A5) |
+| GET | `/sso/diagnostic?limit=` | admin | Dernières connexions SSO et rôle attribué (diagnostic groupes Entra) |
+| GET | `/config/health` | admin | État par rubrique config (configuré/incomplet/désactivé/non configuré), aucun secret — déclaré avant `config/:category` |
 | GET | `/config/:category` | admin, tech | Lire config (secrets masques) |
 | PUT | `/config/:category` | admin | Modifier config par categorie |
 | POST | `/config/test/ldap` | admin | Tester connexion LDAP |
@@ -454,17 +533,27 @@ BonDeMiseADisposition/
 | GET | `/notifications/failed?days=30` | admin | Emails non delivres (fenetre en jours, defaut/max configurables) — migre depuis l'ancien module Reporting ; declare avant `config/:category` |
 | POST | `/pdf/regenerate-missing` | admin | Regenere les PdfSnapshot manquants pour les signatures deja signees (route `admin/pdf`, controleur dedie) |
 
+### Rétention (`/api/admin/retention`)
+
+| Methode | Route | Roles | Description |
+|---------|-------|-------|-------------|
+| GET | `/preview` | admin | Aperçu : nombre de bons éligibles à l'anonymisation, sans rien modifier |
+| POST | `/run` | admin | Déclenche l'anonymisation (`{ dryRun: true }` pour simuler) |
+| GET | `/stats` | admin | Statistiques de rétention technique (tokens expirés, vieux logs d'audit) |
+| POST | `/purge` | admin | Purge technique (tokens de signature expirés + vieux logs d'audit) |
+
 ### Templates Email (`/api/admin/email-templates`)
 
 | Methode | Route | Roles | Description |
 |---------|-------|-------|-------------|
 | GET | `/` | admin, tech | Liste des 9 templates (nom, categorie, variables, modifie) |
 | GET | `/export` | admin, tech | Exporter tous les templates en JSON |
-| POST | `/import` | admin, tech | Importer templates depuis JSON |
+| POST | `/import` | admin | Importer templates depuis JSON |
 | GET | `/:id/html` | admin, tech | HTML courant + HTML defaut + variables |
 | GET | `/:id/preview` | admin, tech | Apercu rendu avec donnees exemples |
-| PATCH | `/:id` | admin, tech | Sauvegarder template personnalise |
-| DELETE | `/:id` | admin, tech | Reinitialiser template au defaut |
+| PATCH | `/:id` | admin | Sauvegarder template personnalise |
+| DELETE | `/:id` | admin | Reinitialiser template au defaut |
+| POST | `/:id/test` | admin | Envoie un email de test (variables d'exemple) sans créer ni modifier de bon |
 
 ### Templates PDF (`/api/admin/pdf-templates`)
 
@@ -492,9 +581,12 @@ BonDeMiseADisposition/
 |---------|-------|-------|-------------|
 | GET | `/` | auth | Toutes les filiales |
 | GET | `/active` | auth | Filiales actives uniquement |
-| GET | `/:id` | auth | Detail filiale |
+| GET | `/export?images=1` | admin | Export CSV (BOM UTF-8, séparateur `;`, images en base64 si `images=1`) |
+| GET | `/import/template` | admin | Modèle CSV à importer (en-têtes + exemples commentés) |
+| GET | `/:id` | auth | Détail filiale |
 | GET | `/file/:filename` | auth | Servir logo/cachet (protection path traversal) |
-| POST | `/` | admin, tech | Creer filiale |
+| POST | `/` | admin, tech | Créer filiale |
+| POST | `/import` | admin | Import CSV en masse (max 200 lignes) |
 | PUT | `/:id` | admin, tech | Modifier filiale |
 | PATCH | `/:id/logo` | admin, tech | Upload logo (max 5MB, JPG/PNG/GIF/SVG/WebP) |
 | PATCH | `/:id/stamp` | admin, tech | Upload cachet |
@@ -502,21 +594,27 @@ BonDeMiseADisposition/
 
 ### Equipment (`/api/equipment`)
 
+> Contrôleur entier réservé à `admin`/`technician` (données IT internes, les collaborateurs n'en
+> ont pas l'usage) — aucune route n'est ouverte aux autres rôles authentifiés.
+
 | Methode | Route | Roles | Description |
 |---------|-------|-------|-------------|
-| GET | `/catalog` | auth | Liste catalogue complet |
-| GET | `/catalog/active` | auth | Catalogue actif uniquement |
-| GET | `/catalog/search?q=` | auth | Recherche catalogue (max 20) |
-| GET | `/catalog/:id` | auth | Detail item catalogue |
-| POST | `/catalog` | admin, tech | Creer item |
+| GET | `/serial-history?q=` | admin, tech | Tous les bons où un n° de série apparaît (limite 200, `truncated`) |
+| GET | `/serial-conflicts?serials=&excludeBonId=` | admin, tech | N° déjà en circulation sur un autre bon (max 50) |
+| GET | `/catalog` | admin, tech | Liste catalogue complet |
+| GET | `/catalog/active` | admin, tech | Catalogue actif uniquement |
+| GET | `/catalog/search?q=` | admin, tech | Recherche catalogue (max 20) |
+| GET | `/catalog/:id` | admin, tech | Détail item catalogue |
+| POST | `/catalog` | admin, tech | Créer item |
+| POST | `/catalog/import` | admin, tech | Import CSV en masse (max 500 lignes) |
 | PUT | `/catalog/:id` | admin, tech | Modifier item |
-| DELETE | `/catalog/:id` | admin, tech | Desactiver item (soft delete) |
-| GET | `/packs` | auth | Liste packs |
-| GET | `/packs/active` | auth | Packs actifs |
-| GET | `/packs/:id` | auth | Detail pack avec items |
-| POST | `/packs` | admin, tech | Creer pack |
+| DELETE | `/catalog/:id` | admin, tech | Désactiver item (soft delete) |
+| GET | `/packs` | admin, tech | Liste packs |
+| GET | `/packs/active` | admin, tech | Packs actifs |
+| GET | `/packs/:id` | admin, tech | Détail pack avec items |
+| POST | `/packs` | admin, tech | Créer pack |
 | PUT | `/packs/:id` | admin, tech | Modifier pack (remplace items) |
-| DELETE | `/packs/:id` | admin, tech | Desactiver pack |
+| DELETE | `/packs/:id` | admin, tech | Désactiver pack |
 
 ### Bons (`/api/bons`) — Module principal
 
@@ -581,6 +679,7 @@ BonDeMiseADisposition/
 |---------|-------|-------|-------------|
 | GET | `/` | admin, tech, direction | Equipements actuellement chez un collaborateur (bons `active`, `sent_restitution`, `partially_returned`, equipement non retourne). Filtres `filialeId`, `category`, `collaborateurId`, `search`, pagination `page`/`limit`, tri `sort` |
 | GET | `/summary` | admin, tech, direction | Comptes agreges par categorie et par filiale |
+| GET | `/by-collaborateur` | admin, tech, direction | Vue « une ligne par personne » ; troncature signalée par `X-Truncated` ET le champ `truncated` (le front ne lit pas les en-têtes) |
 | GET | `/export` | admin, tech, direction | Export CSV (mêmes filtres), en-tete `X-Truncated` si le resultat depasse la limite |
 
 ### KPI — Tableau de bord (`/api/kpi`)
@@ -613,25 +712,25 @@ La sidebar est organisee en **3 sections principales** :
 - **Contestations** → `/admin/contestations` (Litige collaborateur, badge = contestations ouvertes)
 
 #### Référentiel
-- **Collaborateurs** → `/admin/utilisateurs` (Annuaire recherche + gestion des roles pour admin)
+- **Collaborateurs** → `/admin/utilisateurs` (Annuaire recherche + gestion des rôles pour admin)
 - **Filiales** → `/admin/filiales` (CRUD + logo/cachet)
-- **Équipements** → `/admin/catalogue` (Catalogue 11 categories + packs)
-- **Inventaire** → `/inventaire` (Parc prete : filtres, export CSV)
+- **Équipements** → `/admin/catalogue` (Catalogue 11 catégories + packs)
+- **Inventaire** → `/inventaire` (Parc prêt : filtres, export CSV)
 
 #### Système (administrateur uniquement)
-- **Modèles d'emails** → `/admin/templates/email` (CRUD templates + apercu + export/import)
+- **Modèles d'emails** → `/admin/templates/email` (CRUD templates + aperçu + export/import)
 - **Modèles PDF** → `/admin/templates/pdf` (Config couleurs/polices/marges/textes + preview PDF)
-- **Active Directory** → `/admin/ldap-sync` (Sync AD, statut, declenchement manuel)
+- **Active Directory** → `/admin/ldap-sync` (Sync AD, statut, déclenchement manuel)
 - **Journal d'audit** → `/admin/audit` (Filtres email/action/dates)
-- **Configuration** → `/admin/configuration` (LDAP, SMTP, Entra ID dont Groupe Direction, rappels dont seuil de retard, tokens)
+- **Configuration** → `/admin/configuration` (10 sous-pages : général, LDAP, SMTP, Entra ID dont Groupe Direction, rappels dont seuil de retard, tokens, SMB, horodatage, rétention, monitoring)
 
 ### Structure Direction (lecture seule)
 
 Une seule section **Pilotage** :
-- **Tableau de bord** → `/dashboard` (arrivee sur l'onglet Parc, pas d'onglet Aujourd'hui, pas de bouton « Nouveau bon »)
-- **Inventaire** → `/inventaire` (references de bon non cliquables)
+- **Tableau de bord** → `/dashboard` (arrivée sur l'onglet Parc, pas d'onglet Aujourd'hui, pas de bouton « Nouveau bon »)
+- **Inventaire** → `/inventaire` (références de bon non cliquables)
 
-Pas de recherche globale (Header), pas d'acces aux bons individuels ni a l'admin.
+Pas de recherche globale (Header), pas d'accès aux bons individuels ni à l'admin.
 
 ### Structure Collaborateur (isItStaff = false)
 
@@ -669,24 +768,24 @@ type NavGroup = {
 | `/login` | LoginPage | — (public) | SSO Entra ID + auth locale |
 | `/change-password` | ChangePasswordPage | auth | Changement mdp obligatoire |
 | `/unauthorized` | UnauthorizedPage | auth | Page 403 |
-| `/signer/:token` | SignaturePage | **public** | Signature electronique (canvas) |
+| `/signer/:token` | SignaturePage | **public** | Signature électronique (canvas) |
 | `/` | redirect | auth | → /dashboard (vue non-collaborateur) ou /mes-bons (vue collaborateur) |
-| `/dashboard` | DashboardPage | admin, tech, direction | Tableau de bord a onglets (Aujourd'hui*, Parc, Delais, Incidents) ; periode et filiale dans l'URL ; *Aujourd'hui masque pour direction, qui arrive sur Parc |
-| `/inventaire` | InventairePage | admin, tech, direction | Parc prete : filtres, tableau pagine, export CSV (references non cliquables pour direction) |
+| `/dashboard` | DashboardPage | admin, tech, direction | Tableau de bord à onglets (Aujourd'hui*, Parc, Délais, Incidents) ; période et filiale dans l'URL ; *Aujourd'hui masqué pour direction, qui arrive sur Parc |
+| `/inventaire` | InventairePage | admin, tech, direction | Parc prêt : filtres, tableau paginé, export CSV (références non cliquables pour direction) |
 | `/mes-bons` | PortailCollaborateur | tous | Bons du collaborateur |
 | `/bons` | BonsListPage | admin, tech | Liste + filtres + export CSV |
-| `/bons/new` | BonCreatePage | admin, tech | Creation bon |
-| `/bons/:id` | BonDetailPage | admin, tech | Detail + actions signatures |
-| `/admin` | AdminLayout | admin, tech | Section administration |
-| `/admin/configuration` | ConfigurationPage | admin, tech | Config systeme (6 sections) |
-| `/admin/ldap` | LdapSyncPage | admin, tech | Sync LDAP |
+| `/bons/new` | BonCreatePage | admin, tech | Création bon |
+| `/bons/:id` | BonDetailPage | admin, tech | Détail + actions signatures |
+| `/admin` | AdminLayout | admin, tech | Section administration (redirige vers `/admin/contestations`) |
+| `/admin/configuration/*` | Config\*Page (10 routes) | **admin** | general (défaut), ldap, entra, smtp, rappels, tokens, smb, timestamp, retention, monitoring — chaque section une page lazy-loaded indépendante |
+| `/admin/ldap-sync` | LdapSyncPage | **admin** | Sync LDAP (`/admin/ldap` redirige ici) |
 | `/admin/filiales` | FilialesPage | admin, tech | Gestion filiales |
 | `/admin/utilisateurs` | UtilisateursPage | admin, tech | Annuaire utilisateurs |
-| `/admin/audit` | AuditLogsPage | admin, tech | Journal d'audit |
+| `/admin/audit` | AuditLogsPage | **admin** | Journal d'audit |
 | `/admin/contestations` | ContestationsPage | admin, tech | Contestations |
-| `/admin/reports` | redirect | admin, tech | → `/dashboard?tab=parc` — ancienne page Reporting, fusionnee dans le tableau de bord (lot 5) |
-| `/admin/email-templates` | TemplatesPage | admin | Gestion templates email (edit/apercu/reset/export/import) |
-| `/admin/pdf-templates` | PdfTemplatesPage | admin | Gestion templates PDF (couleurs/polices/marges/textes/preview) |
+| `/admin/reports` | redirect | admin, tech | → `/dashboard?tab=parc` — ancienne page Reporting, fusionnée dans le tableau de bord (lot 5) |
+| `/admin/templates/email` | TemplatesPage | **admin** | Gestion templates email (edit/apercu/reset/export/import/test d'envoi) — `/admin/email-templates` redirige ici |
+| `/admin/templates/pdf` | PdfTemplatesPage | **admin** | Gestion templates PDF (couleurs/polices/marges/textes/preview) — `/admin/pdf-templates` redirige ici |
 
 ---
 
@@ -871,9 +970,9 @@ Voir [CHANGELOG.md](CHANGELOG.md) pour la liste complete des corrections de cett
 
 ### 3 configurations
 
-| Fichier | Usage | Services | Port expose |
+| Fichier | Usage | Services | Port exposé |
 |---------|-------|----------|-------------|
-| `docker-compose.dev.yml` | Dev local (backend/frontend sur host) | db seul | 5432 |
+| `docker-compose.dev.yml` | Dev local (backend/frontend sur host) | db + mailpit | 5432 (db), 1025/8025 (mailpit) |
 | `docker-compose.yml` | Dev complet (build local) | db + backend + frontend | 3000 |
 | `docker-compose.prod.yml` | Production (images GHCR) | db + backend + frontend | 5147 |
 

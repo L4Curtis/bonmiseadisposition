@@ -1,10 +1,31 @@
 # Phases de Conformité Légale — Bons de Mise à Disposition
 
-**Mise à jour** : 31 mars 2026
+**Mise à jour** : 31 mars 2026 — requalifié le 19 septembre 2026
 **Auteur** : Analyse technique
-**Statut** : Implémentation complète (Phases A, B, C)
+**Statut** : Proposition non implémentée (Phases A, B, C1-C3) — seule la Phase C4 (rétention) existe en production
 
 ---
+
+> ## Avertissement — ce document décrit une proposition, pas l'existant
+>
+> Vérification faite dans le code le 19 septembre 2026 (`backend/prisma/schema.prisma`, `backend/src`) :
+>
+> - **Seule la Phase C4 — Service de rétention des données — est implémentée.** Voir
+>   `backend/src/retention/retention.service.ts` (purge des jetons de signature expirés, purge des journaux
+>   d'audit, statistiques, tâche planifiée du dimanche 3h) et `backend/src/retention/retention.controller.ts`.
+> - **Tout le reste (Phase A, Phase B, Phase C1-C3) n'existe pas dans le code.** N'existent ni dans
+>   `schema.prisma` ni ailleurs dans `backend/src` ou `frontend/src` : les champs `estimatedValue`,
+>   `returnCondition`, `purchaseDate`, `insurancePolicyNo`, `conditionsVersion` ; le modèle `EquipmentPhoto` et
+>   l'enum `PhotoType` ; le module `backend/src/equipment-photos/` ; le fichier
+>   `docs/politique-signature-electronique.md` ; les migrations `20260331085823_add_legal_compliance_fields`,
+>   `20260331115207_add_equipment_photos` et `20260331125002_add_purchase_date_and_insurance_policy`. Ces trois
+>   migrations ont existé dans une base de développement mais n'ont jamais été committées dans ce dépôt.
+> - Les fichiers cités plus bas comme `pdf-template-config.ts`, `admin.controller.ts`, `bon.dto.ts` ou
+>   `signature.service.ts` existent bel et bien, mais **sans** les champs, sections ou endpoints décrits ici
+>   (`legalClauses`, `insurance`, `conditions`, etc.).
+> - Le contenu ci-dessous est conservé intégralement **à titre de proposition de conception** — schéma de
+>   données, endpoints et écrans envisagés — et non comme un compte-rendu de l'existant. Les extraits de code,
+>   numéros de ligne et chemins de fichiers sont des **cibles**, pas des citations du code actuel.
 
 ## Table des matières
 
@@ -20,21 +41,24 @@
 
 ## Vue d'ensemble
 
-Les phases A, B et C mettent en œuvre les recommandations de conformité juridique et assurance pour l'application de gestion des bons de mise à disposition. Elles répondent aux lacunes identifiées dans l'analyse juridique initiale :
+Les phases A, B et C **proposent** de mettre en œuvre les recommandations de conformité juridique et assurance
+pour l'application de gestion des bons de mise à disposition, en réponse aux lacunes identifiées dans l'analyse
+juridique initiale. Sur les trois, seule une partie de la Phase C est codée à ce jour :
 
-- **Phase A** : Conditions générales, clauses de responsabilité, mentions légales, versioning des conditions
-- **Phase B** : Capture photos des équipements (remise, retour, constat)
-- **Phase C** : Données complémentaires (dates d'achat, numéros de police, service de rétention)
+- **Phase A** *(proposition, non implémentée)* : Conditions générales, clauses de responsabilité, mentions légales, versioning des conditions
+- **Phase B** *(proposition, non implémentée)* : Capture photos des équipements (remise, retour, constat)
+- **Phase C1-C3** *(proposition, non implémentée)* : Dates d'achat, numéros de police, documentation de la politique de signature
+- **Phase C4** *(implémentée)* : Service de rétention des données
 
 ---
 
-## Phase A — Conformité légale (Clauses & Conditions)
+## Phase A — Conformité légale (Clauses & Conditions) *(proposition, non implémentée)*
 
 ### A1 — Affichage des conditions sur la page de signature
 
 **Objectif** : Garantir que le collaborateur a lu et accepté les conditions avant signature.
 
-**Implémentation** :
+**Implémentation proposée** :
 
 | Composant | Fichier | Modification |
 |-----------|---------|--------------|
@@ -75,7 +99,7 @@ useEffect(() => {
 
 **Objectif** : Permettre à l'administrateur de personnaliser les conditions générales par filiale ou globalement.
 
-**Implémentation** :
+**Implémentation proposée** :
 
 | Composant | Fichier | Modification |
 |-----------|---------|--------------|
@@ -109,7 +133,7 @@ conditions: ['mise_disposition_text', 'restitution_text', 'pv_cloture_text', 've
 
 **Objectif** : Inclure les conditions dans le PDF signé pour que le document soit auto-porteur.
 
-**Implémentation** :
+**Implémentation proposée** :
 
 | Composant | Fichier | Modification |
 |-----------|---------|--------------|
@@ -206,7 +230,7 @@ const res = await fetch(`/api/signature/${token}/sign`, {
 });
 ```
 
-**Vérification** : Champ visible dans la table `Signature` pour auditer quelles conditions ont été acceptées.
+**Vérification prévue** (une fois implémenté) : champ visible dans la table `Signature` pour auditer quelles conditions ont été acceptées.
 
 ---
 
@@ -381,7 +405,7 @@ En cas de sinistre, déclarer immédiatement auprès du service informatique.
 
 ---
 
-## Phase B — Photos d'équipements
+## Phase B — Photos d'équipements *(proposition, non implémentée)*
 
 ### B1 — Table EquipmentPhoto (Base de données)
 
@@ -543,7 +567,7 @@ const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
 
 **Objectif** : Documenter l'état du matériel au retour avec des photos.
 
-**Implémentation** (`frontend/src/pages/bons/detail/` — Restitution modal) :
+**Implémentation proposée** (`frontend/src/pages/bons/detail/` — Restitution modal) :
 - Au moment de l'initiation de restitution, proposer d'ajouter des photos
 - Type : `retour`
 - Caption optionnelle : "Écran endommagé", "Clavier collant", etc.
@@ -561,7 +585,7 @@ const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
 
 **Objectif** : Optionnel — Permettre au collaborateur de photographier les équipements à la réception.
 
-**Implémentation** (`frontend/src/pages/signature/SignaturePage.tsx`) :
+**Implémentation proposée** (`frontend/src/pages/signature/SignaturePage.tsx`) :
 - Après le bloc des conditions, afficher optionnellement : "Ajouter des photos de l'état actuel des équipements"
 - Bouton "Photographier" pour chaque équipement (optionnel)
 - Composant `EquipmentPhotos` avec `defaultType="remise"` et `canUpload=true`
@@ -600,7 +624,7 @@ const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
 
 **Objectif** : Inclure des miniatures des photos dans le PDF signé pour preuve complète.
 
-**Implémentation** (`backend/src/pdf/pdf.service.ts`) :
+**Implémentation proposée** (`backend/src/pdf/pdf.service.ts`) :
 - Récupérer les photos du bon via `EquipmentPhotosService`
 - Déchiffrer les fichiers image
 - Insérer les miniatures (200x150px) dans le PDF
@@ -612,7 +636,7 @@ const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
 
 ## Phase C — Améliorations complémentaires
 
-### C1 — purchaseDate (Date d'achat)
+### C1 — purchaseDate (Date d'achat) *(proposition, non implémentée)*
 
 **Objectif** : Tracer la date d'achat pour calculer l'amortissement et la valeur résiduelle.
 
@@ -649,7 +673,7 @@ interface EquipmentLine {
 
 ---
 
-### C2 — insurancePolicyNo par filiale
+### C2 — insurancePolicyNo par filiale *(proposition, non implémentée)*
 
 **Objectif** : Configurer le numéro de police d'assurance par filiale.
 
@@ -678,7 +702,7 @@ ALTER TABLE "filiales" ADD COLUMN "insurance_policy_no" TEXT;
 
 ---
 
-### C3 — Politique de signature électronique (documentation)
+### C3 — Politique de signature électronique (documentation) *(proposition, non implémentée)*
 
 **Objectif** : Documenter le procédé technique et juridique de signature électronique.
 
@@ -705,7 +729,7 @@ ALTER TABLE "filiales" ADD COLUMN "insurance_policy_no" TEXT;
 
 ---
 
-### C4 — Service de rétention des données
+### C4 — Service de rétention des données *(implémentée)*
 
 **Objectif** : Implémenter la purge automatique des données expirées selon la politique de conservation.
 
@@ -759,7 +783,10 @@ async runScheduledPurge() {
 
 ## Migrations de base de données
 
-Trois migrations SQL pour implémenter les phases A, B, C :
+Trois migrations SQL **proposées** pour implémenter les phases A, B, C. **Elles n'existent pas dans
+`backend/prisma/migrations/` de ce dépôt.** Une base de développement les avait déjà appliquées par le passé,
+mais elles n'ont jamais été committées ; il faudra les recréer (et les valider sur une base réelle) avant tout
+développement des phases A, B ou C1-C3 :
 
 ### Migration 1 : 20260331085823_add_legal_compliance_fields
 
@@ -798,7 +825,7 @@ ALTER TABLE "bon_equipments" ADD COLUMN "purchase_date" TIMESTAMP(3);
 ALTER TABLE "filiales" ADD COLUMN "insurance_policy_no" TEXT;
 ```
 
-**Application des migrations** :
+**Application des migrations** (une fois recréées) :
 ```bash
 cd backend
 npx prisma migrate deploy
@@ -807,6 +834,9 @@ npx prisma migrate deploy
 ---
 
 ## Points de vérification
+
+*Liste de contrôle pour une future implémentation. Aucun de ces points n'est aujourd'hui vérifiable : les
+fonctionnalités décrites (A, B, C1-C3) n'existent pas dans le code, à l'exception de C4 (rétention).*
 
 ### A1 — Conditions affichées
 
@@ -973,37 +1003,42 @@ npx prisma migrate deploy
 
 ## Fichiers clés (chemins absolus)
 
+Sauf mention contraire, les chemins ci-dessous sont des **cibles proposées** : le fichier peut déjà exister
+(pour un autre usage) mais sans les champs, sections ou endpoints décrits dans ce document.
+
 ### Base de données
-- `C:\Users\clemieux\Claude\BonDeMiseADisposition\backend\prisma\schema.prisma`
-- `C:\Users\clemieux\Claude\BonDeMiseADisposition\backend\prisma\migrations\20260331085823_add_legal_compliance_fields\migration.sql`
-- `C:\Users\clemieux\Claude\BonDeMiseADisposition\backend\prisma\migrations\20260331115207_add_equipment_photos\migration.sql`
-- `C:\Users\clemieux\Claude\BonDeMiseADisposition\backend\prisma\migrations\20260331125002_add_purchase_date_and_insurance_policy\migration.sql`
+- `C:\Users\clemieux\Claude\BonDeMiseADisposition\backend\prisma\schema.prisma` (existe, sans les champs/modèles cités)
+- `C:\Users\clemieux\Claude\BonDeMiseADisposition\backend\prisma\migrations\20260331085823_add_legal_compliance_fields\migration.sql` (n'existe pas dans ce dépôt)
+- `C:\Users\clemieux\Claude\BonDeMiseADisposition\backend\prisma\migrations\20260331115207_add_equipment_photos\migration.sql` (n'existe pas dans ce dépôt)
+- `C:\Users\clemieux\Claude\BonDeMiseADisposition\backend\prisma\migrations\20260331125002_add_purchase_date_and_insurance_policy\migration.sql` (n'existe pas dans ce dépôt)
 
-### Phase A
-- `C:\Users\clemieux\Claude\BonDeMiseADisposition\frontend\src\pages\signature\SignaturePage.tsx`
-- `C:\Users\clemieux\Claude\BonDeMiseADisposition\frontend\src\pages\admin\configuration\ConfigConditionsPage.tsx`
-- `C:\Users\clemieux\Claude\BonDeMiseADisposition\backend\src\pdf\pdf-template-config.ts`
-- `C:\Users\clemieux\Claude\BonDeMiseADisposition\backend\src\pdf\pdf.service.ts`
-- `C:\Users\clemieux\Claude\BonDeMiseADisposition\backend\src\signature\signature.service.ts`
-- `C:\Users\clemieux\Claude\BonDeMiseADisposition\backend\src\admin\admin.controller.ts`
-- `C:\Users\clemieux\Claude\BonDeMiseADisposition\frontend\src\pages\bons\BonCreate.tsx`
-- `C:\Users\clemieux\Claude\BonDeMiseADisposition\frontend\src\pages\bons\detail\RestitutionModal.tsx`
+### Phase A *(proposition, non implémentée)*
+- `C:\Users\clemieux\Claude\BonDeMiseADisposition\frontend\src\pages\signature\SignaturePage.tsx` (existe, sans le bloc conditions)
+- `C:\Users\clemieux\Claude\BonDeMiseADisposition\frontend\src\pages\admin\configuration\ConfigConditionsPage.tsx` (n'existe pas)
+- `C:\Users\clemieux\Claude\BonDeMiseADisposition\backend\src\pdf\pdf-template-config.ts` (existe, sans `legalClauses` ni `insurance`)
+- `C:\Users\clemieux\Claude\BonDeMiseADisposition\backend\src\pdf\pdf.service.ts` (existe, sans ce rendu)
+- `C:\Users\clemieux\Claude\BonDeMiseADisposition\backend\src\signature\signature.service.ts` (existe, sans `conditionsVersion`)
+- `C:\Users\clemieux\Claude\BonDeMiseADisposition\backend\src\admin\admin.controller.ts` (existe, sans la catégorie `conditions`)
+- `C:\Users\clemieux\Claude\BonDeMiseADisposition\frontend\src\pages\bons\BonCreate.tsx` (existe, sans `estimatedValue`/`purchaseDate`)
+- `C:\Users\clemieux\Claude\BonDeMiseADisposition\frontend\src\pages\bons\detail\RestitutionModal.tsx` (existe, sans `returnCondition`)
 
-### Phase B
-- `C:\Users\clemieux\Claude\BonDeMiseADisposition\backend\src\equipment-photos\equipment-photos.service.ts`
-- `C:\Users\clemieux\Claude\BonDeMiseADisposition\backend\src\equipment-photos\equipment-photos.controller.ts`
-- `C:\Users\clemieux\Claude\BonDeMiseADisposition\frontend\src\pages\bons\detail\EquipmentPhotos.tsx`
+### Phase B *(proposition, non implémentée)*
+- `C:\Users\clemieux\Claude\BonDeMiseADisposition\backend\src\equipment-photos\equipment-photos.service.ts` (n'existe pas)
+- `C:\Users\clemieux\Claude\BonDeMiseADisposition\backend\src\equipment-photos\equipment-photos.controller.ts` (n'existe pas)
+- `C:\Users\clemieux\Claude\BonDeMiseADisposition\frontend\src\pages\bons\detail\EquipmentPhotos.tsx` (n'existe pas)
 
-### Phase C
-- `C:\Users\clemieux\Claude\BonDeMiseADisposition\backend\src\retention\retention.service.ts`
-- `C:\Users\clemieux\Claude\BonDeMiseADisposition\backend\src\bons\dto\bon.dto.ts`
-- `C:\Users\clemieux\Claude\BonDeMiseADisposition\docs\politique-signature-electronique.md`
+### Phase C1-C3 *(proposition, non implémentée)*
+- `C:\Users\clemieux\Claude\BonDeMiseADisposition\backend\src\bons\dto\bon.dto.ts` (existe, sans `purchaseDate`/`returnCondition`/`estimatedValue`)
+- `C:\Users\clemieux\Claude\BonDeMiseADisposition\docs\politique-signature-electronique.md` (n'existe pas)
+
+### Phase C4 *(implémentée)*
+- `C:\Users\clemieux\Claude\BonDeMiseADisposition\backend\src\retention\retention.service.ts` (existe, avec la logique décrite)
 
 ### Documentation
 - `C:\Users\clemieux\Claude\BonDeMiseADisposition\docs\phase-legal-compliance.md` (ce fichier)
 
 ---
 
-**Mise à jour finale** : 31 mars 2026
-**Prochaine révision** : après validation juridique et assurance
-**État** : Prêt pour validation externe
+**Mise à jour finale** : 31 mars 2026 — requalifié le 19 septembre 2026 (voir l'avertissement en tête de document)
+**Prochaine révision** : décision de lancement (lot D5 du plan produit), puis validation juridique et assurance
+**État** : Proposition non implémentée, sauf la Phase C4 (rétention) qui est en production

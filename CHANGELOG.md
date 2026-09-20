@@ -4,6 +4,70 @@ Historique des évolutions notables de l'application. Les entrées les plus réc
 
 ---
 
+## 2026-09-20 — Avant l'ouverture de la production : garde-fous, supervision, dette
+
+Chantier de fiabilisation mené avant de remplir la production. Chaque point répond à un risque constaté,
+pas à une envie de propreté.
+
+### Mise en production
+- **La production ne suit plus la branche.** Jusqu'ici, tout push sur `main` partait en production via
+  l'étiquette `latest`, sans passer par la recette. Désormais la recette suit `main`, et la production est
+  épinglée sur un numéro de version (`APP_IMAGE_TAG`) publié en posant un tag `vX.Y.Z`. Retour arrière =
+  remettre la version précédente. Procédure et limites (les migrations ne se défont pas) dans
+  `deploy/README.md`.
+- **Rien ne sort sans être testé.** La CI vérifiait seulement le backend, sans couverture, alors que l'image
+  du frontend partait quand même en production : ses 471 tests ne tournaient jamais. Elle lance maintenant
+  le typage et les tests des deux côtés, rejoue les migrations sur un vrai PostgreSQL, exécute les requêtes
+  SQL brutes pour de bon, détecte un schéma modifié sans migration, applique le seuil de couverture, et joue
+  les parcours de bout en bout.
+
+### Ajouté
+- **Tests de bout en bout** (`e2e/`, Playwright) : création d'un bon, cachet IT, envoi et réception de
+  l'email, signature en présentiel, refus d'envoi à un collaborateur sans adresse, déclaration de matériel
+  non rendu, PV de clôture, clôture sans signature, inventaire par collaborateur. Ils tournent contre
+  l'application réellement construite depuis les sources, avec une base et un serveur d'emails jetables,
+  et conditionnent la publication des images. Une régression bloquante (cachet IT refusé sur un brouillon)
+  n'avait été vue que par un parcours navigateur — et ces tests ont trouvé deux défauts de plus dès leur
+  écriture (voir Corrigé).
+- **Supervision** : `/api/health/ready` vérifie que la base répond et renvoie 503 sinon — c'est l'adresse à
+  donner à la sonde Zabbix, et le healthcheck Docker l'utilise. Admin → Configuration → Monitoring affiche
+  désormais l'état des tâches planifiées (synchro LDAP, rappels, rétention, relance des exports) : dernier
+  passage, durée, erreur éventuelle, retard, avec la version et le commit déployés.
+- **LDAPS prêt** : l'application accepte une connexion chiffrée vers un contrôleur de domaine signé par la
+  CA interne (certificat de la CA à monter, `NODE_EXTRA_CA_CERTS`), et traduit les erreurs TLS en messages
+  actionnables au lieu d'un code technique.
+
+### Sécurité
+- Correctifs de dépendances sans changement de version majeure (postcss, nanoid, multer, fflate, msal-node).
+  Ce qui reste exige des montées majeures (NestJS, react-router, nodemailer), planifiées.
+- **Secrets de production retirés de l'environnement de développement** : la base locale contenait les vrais
+  identifiants de la boîte Office 365, et un email de test en était réellement parti. `docker-compose.dev.yml`
+  démarre maintenant Mailpit (tous les emails de dev y arrivent, aucun ne sort) et
+  `backend/scripts/dev-scrub-secrets.js` efface ces secrets, en refusant de s'exécuter ailleurs qu'en local.
+- Images en Node 22 : Node 20 n'est plus maintenu depuis avril 2026.
+
+### Corrigé
+- **Restitution par email vers une adresse inutilisable** : l'envoi d'une mise à disposition vérifiait
+  l'adresse du collaborateur, l'initiation d'une restitution non. Pour un compte créé à la main, sans
+  adresse, le bon basculait en attente d'une signature que personne ne pouvait demander, sans le moindre
+  message. Le refus renvoie maintenant vers la signature présentielle, comme à l'envoi.
+- **Archivage d'un bon sans son procès-verbal** : quand le matériel perdu était déclaré *avant* de faire
+  signer la restitution du reste, la signature archivait le bon sans émettre le PV d'équipements non
+  restitués — le document qui acte la perte — et la signature IT enregistrée pour ce PV restait orpheline.
+  Un tel bon reste désormais en restitution partielle, le PV est émis, et l'archivage a lieu à sa signature
+  ou par clôture sans signature.
+
+### Modifié
+- **Interface plus légère** : les graphiques du tableau de bord ne sont chargés qu'à l'ouverture d'un onglet
+  qui en contient — l'onglet « Aujourd'hui » passe de 132 kB à 5 kB compressés.
+- L'état de la configuration et la liste des filiales ne sont plus demandés plusieurs fois par page.
+- Après un changement de mot de passe imposé, l'utilisateur revient sur la page qu'il avait demandée.
+- **Fichiers volumineux découpés** (ldap, rétention, export SMB, notifications, indicateurs du parc,
+  catalogue, modèles PDF, contrôleur des bons) : mêmes routes, mêmes requêtes, mêmes messages — vérifié par
+  deux relectures ancien/nouveau, fonction par fonction.
+
+---
+
 ## 2026-09-18 — Inventaire : lecture par collaborateur
 
 ### Ajouté
