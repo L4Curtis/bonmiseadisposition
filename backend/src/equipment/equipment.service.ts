@@ -5,25 +5,32 @@ import {
   CreatePackDto, UpdatePackDto, ImportCatalogDto, ImportCatalogResult,
 } from './dto/equipment.dto';
 import { importCatalogItems } from './equipment-catalog-import';
-import { getSerialHistory, findSerialConflicts } from './equipment-serial';
+import { getEquipmentHistory, findSerialConflicts } from './equipment-serial';
+import { buildEquipmentHistoryCsv } from './equipment-history-csv';
 import * as catalog from './equipment-catalog';
 import * as packs from './equipment-packs';
 
 /**
  * Façade fine : chaque méthode publique délègue à un module de fonctions
- * pures dédié — `equipment-serial.ts` (numéros de série), `equipment-
- * catalog.ts` (CRUD catalogue) et `equipment-packs.ts` (CRUD packs), qui
- * reçoivent explicitement `prisma`. Aucun changement de comportement,
- * uniquement une répartition de l'implémentation.
+ * pures dédié — `equipment-serial.ts` (historique matériel par n° de série
+ * ou d'inventaire, conflits de série), `equipment-history-csv.ts` (export
+ * CSV de cet historique), `equipment-catalog.ts` (CRUD catalogue) et
+ * `equipment-packs.ts` (CRUD packs), qui reçoivent explicitement `prisma`.
  */
 @Injectable()
 export class EquipmentService {
   constructor(private readonly prisma: PrismaService) {}
 
-  // ── Numéros de série ───────────────────────────────────────
+  // ── Historique matériel (n° de série ou n° d'inventaire) ────
 
-  getSerialHistory(serialNumber: string) {
-    return getSerialHistory(this.prisma, serialNumber);
+  getEquipmentHistory(reference: string) {
+    return getEquipmentHistory(this.prisma, reference);
+  }
+
+  /** Export CSV de l'historique (A4) — mêmes entrées que getEquipmentHistory. */
+  async getEquipmentHistoryCsv(reference: string) {
+    const { items, truncated } = await this.getEquipmentHistory(reference);
+    return { csv: buildEquipmentHistoryCsv(items), truncated };
   }
 
   findSerialConflicts(serials: string[], excludeBonId?: string) {

@@ -5,14 +5,15 @@ import { buildSearchClauses, buildBonWhere, findBonOrThrow } from '../bon-where'
 import { BonStatus } from '../../../common/types';
 
 describe('buildSearchClauses', () => {
-  it('returns the 4 OR clauses (reference, collaborateur name/email, serial number)', () => {
+  it('returns the 5 OR clauses (reference, collaborateur name/email, serial number, inventory number)', () => {
     const clauses = buildSearchClauses('BON-2026');
 
-    expect(clauses).toHaveLength(4);
+    expect(clauses).toHaveLength(5);
     expect(clauses).toEqual(
       expect.arrayContaining([
         { reference: { contains: 'BON-2026', mode: 'insensitive' } },
         { equipments: { some: { serialNumber: { contains: 'BON-2026', mode: 'insensitive' } } } },
+        { equipments: { some: { inventoryNumber: { contains: 'BON-2026', mode: 'insensitive' } } } },
       ]),
     );
   });
@@ -38,7 +39,7 @@ describe('buildBonWhere', () => {
 
   it('sets the OR search clauses when search is provided', () => {
     const where = buildBonWhere({ search: 'SN-1234' });
-    expect(where.OR).toHaveLength(4);
+    expect(where.OR).toHaveLength(5);
   });
 
   it('wraps buildOverdueSignatureWhere in AND when overdue is requested', () => {

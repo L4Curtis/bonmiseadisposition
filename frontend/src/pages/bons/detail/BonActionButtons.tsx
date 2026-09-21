@@ -1,3 +1,4 @@
+import { useNavigate } from 'react-router';
 import { Button } from '@/components/ui/button';
 import {
   Download,
@@ -11,6 +12,7 @@ import {
   PackageCheck,
   FileX,
   Stamp,
+  Copy,
 } from 'lucide-react';
 import type { BonDetailData } from './types';
 
@@ -74,6 +76,8 @@ export function BonActionButtons({
   onCloseUnilateral,
   onCancel,
 }: BonActionButtonsProps) {
+  const navigate = useNavigate();
+
   return (
     <div className="flex flex-wrap items-center gap-2">
       {/* Bouton PDF principal */}
@@ -88,6 +92,20 @@ export function BonActionButtons({
           : <Download className="h-3.5 w-3.5" />}
         PDF
       </Button>
+
+      {/* Repartir de ce bon : le cas courant du kit standard remis à chaque
+          arrivée. Le formulaire ne reprend que les articles — ni collaborateur,
+          ni dates, ni numéros de série (propres à un exemplaire). */}
+      {isItStaff && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => navigate(`/bons/new?duplicateFrom=${bon.id}`)}
+          title="Créer un nouveau bon avec les mêmes équipements"
+        >
+          <Copy className="h-3.5 w-3.5" /> Dupliquer
+        </Button>
+      )}
 
       {isDraft && (
         <>

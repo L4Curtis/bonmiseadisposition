@@ -152,10 +152,28 @@ export function InventoryTable({
                       </div>
                     </td>
                     <td className="px-4 py-3.5 text-muted-foreground hidden sm:table-cell">
-                      {it.serialNumber || '—'}
+                      {it.serialNumber ? (
+                        <Link
+                          to={`/materiel/${encodeURIComponent(it.serialNumber)}`}
+                          className="font-mono hover:text-foreground hover:underline decoration-dotted underline-offset-2 transition-colors"
+                          title={`Historique du matériel ${it.serialNumber}`}
+                          aria-label={`Historique du matériel ${it.serialNumber}`}
+                        >
+                          {it.serialNumber}
+                        </Link>
+                      ) : '—'}
                     </td>
                     <td className="px-4 py-3.5 text-muted-foreground hidden lg:table-cell">
-                      {it.inventoryNumber || '—'}
+                      {it.inventoryNumber ? (
+                        <Link
+                          to={`/materiel/${encodeURIComponent(it.inventoryNumber)}`}
+                          className="font-mono hover:text-foreground hover:underline decoration-dotted underline-offset-2 transition-colors"
+                          title={`Historique du matériel ${it.inventoryNumber}`}
+                          aria-label={`Historique du matériel ${it.inventoryNumber}`}
+                        >
+                          {it.inventoryNumber}
+                        </Link>
+                      ) : '—'}
                     </td>
                     <td className="px-4 py-3.5">
                       <div className="font-medium text-foreground leading-tight">{it.collaborateur.displayName}</div>

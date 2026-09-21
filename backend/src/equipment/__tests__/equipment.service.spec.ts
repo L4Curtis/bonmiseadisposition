@@ -70,6 +70,7 @@ describe('EquipmentService', () => {
     return {
       id: 'be-001',
       serialNumber: 'SN-1234',
+      inventoryNumber: null,
       catalogItem: { brand: 'Lenovo', model: 'ThinkBook 16 G6', category: 'pc_portable' },
       customLabel: null,
       returnedAt: null,
@@ -512,24 +513,29 @@ describe('EquipmentService', () => {
     });
   });
 
-  // ─── numeros de serie : trim + comparaison insensible a la casse + troncature
+  // ─── historique matériel : n° de série OU n° d'inventaire, trim + casse + troncature
 
-  describe('serial number matching', () => {
-    it('should trim the query before searching serial history', async () => {
+  describe('equipment history (serial number OR inventory number)', () => {
+    it('should trim the query before searching equipment history', async () => {
       prisma.bonEquipment.count.mockResolvedValue(0);
       prisma.bonEquipment.findMany.mockResolvedValue([]);
 
-      await service.getSerialHistory('  SN-1234  ');
+      await service.getEquipmentHistory('  SN-1234  ');
 
       expect(prisma.bonEquipment.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { serialNumber: { equals: 'SN-1234', mode: 'insensitive' } },
+          where: {
+            OR: [
+              { serialNumber: { equals: 'SN-1234', mode: 'insensitive' } },
+              { inventoryNumber: { equals: 'SN-1234', mode: 'insensitive' } },
+            ],
+          },
         }),
       );
     });
 
-    it('should return an empty envelope for a blank serial history query without hitting the DB', async () => {
-      const result = await service.getSerialHistory('   ');
+    it('should return an empty envelope for a blank query without hitting the DB', async () => {
+      const result = await service.getEquipmentHistory('   ');
 
       expect(result).toEqual({ items: [], truncated: false, total: 0 });
       expect(prisma.bonEquipment.findMany).not.toHaveBeenCalled();
@@ -540,7 +546,7 @@ describe('EquipmentService', () => {
       prisma.bonEquipment.count.mockResolvedValue(1);
       prisma.bonEquipment.findMany.mockResolvedValue([serialEntryFixture()]);
 
-      const result = await service.getSerialHistory('SN-1234');
+      const result = await service.getEquipmentHistory('SN-1234');
 
       expect(result.truncated).toBe(false);
       expect(result.total).toBe(1);
@@ -554,10 +560,34 @@ describe('EquipmentService', () => {
       prisma.bonEquipment.count.mockResolvedValue(250);
       prisma.bonEquipment.findMany.mockResolvedValue([serialEntryFixture()]);
 
-      const result = await service.getSerialHistory('SN-1234');
+      const result = await service.getEquipmentHistory('SN-1234');
 
       expect(result.truncated).toBe(true);
       expect(result.total).toBe(250);
+    });
+
+    it('should match and return a bon equipment found only by its inventory number', async () => {
+      prisma.bonEquipment.count.mockResolvedValue(1);
+      prisma.bonEquipment.findMany.mockResolvedValue([
+        serialEntryFixture({ serialNumber: null, inventoryNumber: 'INV-5678' }),
+      ]);
+
+      const result = await service.getEquipmentHistory('INV-5678');
+
+      expect(result.items[0]).toEqual(
+        expect.objectContaining({ serialNumber: null, inventoryNumber: 'INV-5678' }),
+      );
+    });
+
+    it('should build the CSV export from the same history and pass through truncated', async () => {
+      prisma.bonEquipment.count.mockResolvedValue(1);
+      prisma.bonEquipment.findMany.mockResolvedValue([serialEntryFixture()]);
+
+      const { csv, truncated } = await service.getEquipmentHistoryCsv('SN-1234');
+
+      expect(truncated).toBe(false);
+      expect(csv).toContain('BON-0001');
+      expect(csv).toContain('SN-1234');
     });
 
     it('should trim serials and drop blank entries before checking conflicts', async () => {

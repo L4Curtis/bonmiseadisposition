@@ -27,8 +27,8 @@ describe('GlobalSearch — équipement associé à une correspondance par n° de
           status: 'active',
           collaborateur: { displayName: 'Jean Dupont', email: 'jean@livio.fr' },
           equipments: [
-            { id: 'e1', serialNumber: 'SN-999888', customLabel: null, catalogItem: { brand: 'Dell', model: 'Latitude 5420' } },
-            { id: 'e2', serialNumber: 'SN-000111', customLabel: null, catalogItem: null },
+            { id: 'e1', serialNumber: 'SN-999888', inventoryNumber: null, customLabel: null, catalogItem: { brand: 'Dell', model: 'Latitude 5420' } },
+            { id: 'e2', serialNumber: 'SN-000111', inventoryNumber: null, customLabel: null, catalogItem: null },
           ],
         },
       ],
@@ -41,6 +41,29 @@ describe('GlobalSearch — équipement associé à une correspondance par n° de
     expect(screen.getByText('SN-999888')).toBeInTheDocument();
   });
 
+  it('affiche l\'équipement et son n° d\'inventaire quand la saisie correspond à un n° d\'inventaire', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.get).mockResolvedValue({
+      bons: [
+        {
+          id: 'b1',
+          reference: 'BDM-2026-001',
+          status: 'active',
+          collaborateur: { displayName: 'Jean Dupont', email: 'jean@livio.fr' },
+          equipments: [
+            { id: 'e1', serialNumber: 'SN-999888', inventoryNumber: 'INV-4242', customLabel: null, catalogItem: { brand: 'Dell', model: 'Latitude 5420' } },
+          ],
+        },
+      ],
+    });
+
+    renderWithProviders(<GlobalSearch />);
+    await user.type(screen.getByLabelText('Recherche globale'), 'INV-4242');
+
+    expect(await screen.findByText('Dell Latitude 5420')).toBeInTheDocument();
+    expect(screen.getByText('INV-4242')).toBeInTheDocument();
+  });
+
   it('n\'affiche aucun équipement quand la correspondance vient de la référence/du collaborateur', async () => {
     const user = userEvent.setup();
     vi.mocked(api.get).mockResolvedValue({
@@ -51,7 +74,7 @@ describe('GlobalSearch — équipement associé à une correspondance par n° de
           status: 'active',
           collaborateur: { displayName: 'Jean Dupont', email: 'jean@livio.fr' },
           equipments: [
-            { id: 'e1', serialNumber: 'SN-999888', customLabel: null, catalogItem: { brand: 'Dell', model: 'Latitude 5420' } },
+            { id: 'e1', serialNumber: 'SN-999888', inventoryNumber: null, customLabel: null, catalogItem: { brand: 'Dell', model: 'Latitude 5420' } },
           ],
         },
       ],

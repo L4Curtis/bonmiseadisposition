@@ -6,10 +6,12 @@ import { BON_STATUS_LABELS, type BonStatus } from '@/types';
 
 /** Équipement d'un bon tel que renvoyé par GET /bons (BON_SELECT_SHAPE côté
  *  backend — voir backend/src/common/types.ts) : c'est ce qui permet, quand
- *  la recherche correspond à un n° de série, d'afficher l'équipement visé. */
+ *  la recherche correspond à un n° de série OU un n° d'inventaire (lot L1,
+ *  les deux comptent autant l'un que l'autre), d'afficher l'équipement visé. */
 interface SearchHitEquipment {
   id: string;
   serialNumber: string | null;
+  inventoryNumber: string | null;
   customLabel: string | null;
   catalogItem: { brand: string; model: string } | null;
 }
@@ -26,11 +28,21 @@ function equipmentHitLabel(eq: SearchHitEquipment): string {
   return eq.catalogItem ? `${eq.catalogItem.brand} ${eq.catalogItem.model}` : eq.customLabel || 'Équipement';
 }
 
-/** Équipement du bon dont le n° de série correspond à la saisie — `undefined`
- *  si la correspondance vient de la référence ou du collaborateur. */
+/** Équipement du bon dont le n° de série OU le n° d'inventaire correspond à
+ *  la saisie — `undefined` si la correspondance vient de la référence ou du
+ *  collaborateur. */
 function findMatchingEquipment(hit: SearchHit, query: string): SearchHitEquipment | undefined {
   const q = query.toLowerCase();
-  return hit.equipments?.find((eq) => eq.serialNumber?.toLowerCase().includes(q));
+  return hit.equipments?.find(
+    (eq) => eq.serialNumber?.toLowerCase().includes(q) || eq.inventoryNumber?.toLowerCase().includes(q),
+  );
+}
+
+/** Le n° (série ou inventaire) qui a effectivement matché — affiché à côté du
+ *  libellé de l'équipement, à ne pas confondre avec l'autre n°, non affiché. */
+function matchedReference(eq: SearchHitEquipment, query: string): string {
+  const q = query.toLowerCase();
+  return eq.serialNumber?.toLowerCase().includes(q) ? eq.serialNumber : (eq.inventoryNumber ?? '');
 }
 
 /** Recherche globale Ctrl+K : typeahead → saut direct à un bon, ou liste filtrée. */
@@ -118,7 +130,7 @@ export function GlobalSearch() {
         onChange={(e) => setValue(e.target.value)}
         onFocus={() => { if (results.length) setOpen(true); }}
         onKeyDown={onKeyDown}
-        placeholder="Rechercher un bon, un collaborateur, un n° de série…"
+        placeholder="Rechercher un bon, un collaborateur, un n° de série ou d'inventaire…"
         aria-label="Recherche globale"
         className="h-8 w-72 lg:w-96 rounded-lg border border-border/70 bg-muted/40 pl-9 pr-12 text-[13px] text-foreground placeholder:text-muted-foreground/60 outline-none transition-all duration-150 focus:w-[28rem] focus:bg-card focus:border-primary/50 focus:ring-2 focus:ring-primary/15"
       />
@@ -154,7 +166,7 @@ export function GlobalSearch() {
                         {b.collaborateur.displayName}
                         {matchedEquipment && (
                           <span className="ml-2 truncate text-xs text-muted-foreground">
-                            · <span>{equipmentHitLabel(matchedEquipment)}</span> — <span className="font-mono">{matchedEquipment.serialNumber}</span>
+                            · <span>{equipmentHitLabel(matchedEquipment)}</span> — <span className="font-mono">{matchedReference(matchedEquipment, value.trim())}</span>
                           </span>
                         )}
                       </span>

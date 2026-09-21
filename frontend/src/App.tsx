@@ -22,6 +22,7 @@ const ContestationsPage = lazy(() => import('@/pages/admin/Contestations').then(
 const TemplatesPage = lazy(() => import('@/pages/admin/Templates').then(m => ({ default: m.TemplatesPage })));
 const PdfTemplatesPage = lazy(() => import('@/pages/admin/PdfTemplates').then(m => ({ default: m.PdfTemplatesPage })));
 const InventairePage = lazy(() => import('@/pages/Inventaire').then(m => ({ default: m.InventairePage })));
+const MaterielHistoryPage = lazy(() => import('@/pages/materiel/MaterielHistoryPage').then(m => ({ default: m.MaterielHistoryPage })));
 const BonsListPage = lazy(() => import('@/pages/bons/BonsList').then(m => ({ default: m.BonsListPage })));
 const BonCreatePage = lazy(() => import('@/pages/bons/BonCreate').then(m => ({ default: m.BonCreatePage })));
 const BonDetailPage = lazy(() => import('@/pages/bons/BonDetail').then(m => ({ default: m.BonDetailPage })));
@@ -112,6 +113,15 @@ function AppRoutes() {
         <Route path="inventaire" element={
           <ProtectedRoute requiredRoles={['admin', 'technician', 'direction']}>
             <InventairePage />
+          </ProtectedRoute>
+        } />
+
+        {/* Historique d'un matériel (lot L1) : n° de série ou d'inventaire,
+            encodé — accès IT ; direction en lecture (mêmes rôles que l'inventaire,
+            sans lien vers les bons dans la page elle-même). */}
+        <Route path="materiel/:reference" element={
+          <ProtectedRoute requiredRoles={['admin', 'technician', 'direction']}>
+            <MaterielHistoryPage />
           </ProtectedRoute>
         } />
 

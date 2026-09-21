@@ -68,6 +68,18 @@ describe('InventoryTable', () => {
     );
   });
 
+  it('rend le n° de série et le n° d’inventaire cliquables vers la page /materiel/:reference', () => {
+    renderWithProviders(
+      <InventoryTable {...baseProps} items={[makeItem({ serialNumber: 'SN-777', inventoryNumber: 'INV-888' })]} />,
+    );
+
+    const serialLink = screen.getByRole('link', { name: /Historique du matériel SN-777/i });
+    expect(serialLink).toHaveAttribute('href', '/materiel/SN-777');
+
+    const inventoryLink = screen.getByRole('link', { name: /Historique du matériel INV-888/i });
+    expect(inventoryLink).toHaveAttribute('href', '/materiel/INV-888');
+  });
+
   it('met en évidence une ligne en retard avec le nombre de jours de retard, pas une ligne à jour', () => {
     const overdueItem = makeItem({ equipmentId: 'e-late', dateRestitution: '2020-01-01T00:00:00.000Z' });
     const onTimeItem = makeItem({ equipmentId: 'e-ontime', dateRestitution: '2999-01-01T00:00:00.000Z' });

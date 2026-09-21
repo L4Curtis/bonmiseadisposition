@@ -17,13 +17,16 @@ export interface BonListFilters {
   overdue?: boolean;
 }
 
-/** Recherche libre : référence, nom/email du collaborateur, ou n° de série d'un équipement. */
+/** Recherche libre : référence, nom/email du collaborateur, ou n° de série /
+ *  n° d'inventaire d'un équipement (les deux comptent autant l'un que
+ *  l'autre — lot L1, cf. GlobalSearch côté front). */
 export function buildSearchClauses(search: string): Prisma.BonWhereInput[] {
   return [
     { reference: { contains: search, mode: 'insensitive' } },
     { collaborateur: { displayName: { contains: search, mode: 'insensitive' } } },
     { collaborateur: { email: { contains: search, mode: 'insensitive' } } },
     { equipments: { some: { serialNumber: { contains: search, mode: 'insensitive' } } } },
+    { equipments: { some: { inventoryNumber: { contains: search, mode: 'insensitive' } } } },
   ];
 }
 

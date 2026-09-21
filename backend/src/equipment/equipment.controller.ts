@@ -1,6 +1,7 @@
 import {
-  Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards,
+  Controller, Get, Post, Put, Delete, Body, Param, Query, Res, UseGuards,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { EquipmentService } from './equipment.service';
 import {
   CreateCatalogItemDto, UpdateCatalogItemDto,
@@ -20,12 +21,39 @@ import { AuthUser } from '../auth/auth-user.interface';
 export class EquipmentController {
   constructor(private readonly equipmentService: EquipmentService) {}
 
-  // ── Numéros de série ───────────────────────────────────────
+  // ── Historique matériel (n° de série ou n° d'inventaire) ────
 
-  /** GET /equipment/serial-history?q=SN-1234 — tous les bons où ce n° apparaît */
+  /** GET /equipment/history?q=SN-1234 — tous les bons où ce matériel apparaît,
+   *  identifié par son n° de série OU son n° d'inventaire (lot L1 — alimente
+   *  la page /materiel/:reference). Ouvert à la direction, en lecture, comme
+   *  l'inventaire (elle n'a en revanche aucun lien vers les bons côté front). */
+  @Get('history')
+  @Roles('admin', 'technician', 'direction')
+  equipmentHistory(@Query('q') q: string) {
+    return this.equipmentService.getEquipmentHistory(q || '');
+  }
+
+  /** GET /equipment/history/export?q=SN-1234 — export CSV de cet historique (A4). */
+  @Get('history/export')
+  @Roles('admin', 'technician', 'direction')
+  async exportEquipmentHistory(@Query('q') q: string, @Res() res: Response) {
+    const { csv, truncated } = await this.equipmentService.getEquipmentHistoryCsv(q || '');
+    const filename = `historique-materiel-${new Date().toISOString().slice(0, 10)}.csv`;
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    if (truncated) {
+      res.setHeader('X-Truncated', 'true');
+    }
+    res.send(csv);
+  }
+
+  /** GET /equipment/serial-history?q=SN-1234 — ancienne route, conservée pour
+   *  compatibilité : le lot L1 l'a remplacée par /equipment/history, qui
+   *  reconnaît aussi le n° d'inventaire (rôles inchangés : admin/technicien
+   *  uniquement, hérités du contrôleur). */
   @Get('serial-history')
   serialHistory(@Query('q') q: string) {
-    return this.equipmentService.getSerialHistory(q || '');
+    return this.equipmentService.getEquipmentHistory(q || '');
   }
 
   /** GET /equipment/serial-conflicts?serials=a,b&excludeBonId=… — n° déjà en

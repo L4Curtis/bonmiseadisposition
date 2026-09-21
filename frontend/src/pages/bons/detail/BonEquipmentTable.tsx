@@ -1,20 +1,20 @@
-import { useState } from 'react';
+import { Link } from 'react-router';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { CheckCircle2, Clock, XCircle } from 'lucide-react';
 import type { EquipmentItem } from './types';
 import { equipmentLabel } from './types';
-import { SerialHistoryModal } from './SerialHistoryModal';
 
 export interface BonEquipmentTableProps {
   readonly equipments: readonly EquipmentItem[];
   readonly showEquipmentStatus: boolean;
-  /** Id du bon affiché — marqué « bon actuel » dans l'historique des n° de série. */
+  /** Accepté mais plus utilisé depuis le lot L1 : l'historique d'un matériel
+   *  est désormais une page dédiée (/materiel/:reference), sans notion de
+   *  « bon actuel » à mettre en évidence. Conservé pour ne pas casser
+   *  BonDetail.tsx (hors périmètre de ce lot), qui continue de le passer. */
   readonly bonId?: string;
 }
 
-export function BonEquipmentTable({ equipments, showEquipmentStatus, bonId }: BonEquipmentTableProps) {
-  const [historySerial, setHistorySerial] = useState<string | null>(null);
-
+export function BonEquipmentTable({ equipments, showEquipmentStatus }: BonEquipmentTableProps) {
   return (
     <Card>
       <CardHeader>
@@ -44,20 +44,31 @@ export function BonEquipmentTable({ equipments, showEquipmentStatus, bonId }: Bo
                   <td className="px-4 py-2.5 font-medium">{equipmentLabel(eq)}</td>
                   <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">
                     {eq.serialNumber ? (
-                      <button
-                        type="button"
-                        className="underline decoration-dotted underline-offset-2 hover:text-foreground transition-colors"
-                        title="Voir l'historique de ce numéro de série"
-                        onClick={() => setHistorySerial(eq.serialNumber!)}
+                      <Link
+                        to={`/materiel/${encodeURIComponent(eq.serialNumber)}`}
+                        className="hover:text-foreground hover:underline decoration-dotted underline-offset-2 transition-colors"
+                        title={`Historique du matériel ${eq.serialNumber}`}
+                        aria-label={`Historique du matériel ${eq.serialNumber}`}
                       >
                         {eq.serialNumber}
-                      </button>
+                      </Link>
                     ) : (
                       <span className="text-muted-foreground/40">—</span>
                     )}
                   </td>
                   <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">
-                    {eq.inventoryNumber || <span className="text-muted-foreground/40">—</span>}
+                    {eq.inventoryNumber ? (
+                      <Link
+                        to={`/materiel/${encodeURIComponent(eq.inventoryNumber)}`}
+                        className="hover:text-foreground hover:underline decoration-dotted underline-offset-2 transition-colors"
+                        title={`Historique du matériel ${eq.inventoryNumber}`}
+                        aria-label={`Historique du matériel ${eq.inventoryNumber}`}
+                      >
+                        {eq.inventoryNumber}
+                      </Link>
+                    ) : (
+                      <span className="text-muted-foreground/40">—</span>
+                    )}
                   </td>
                   <td className="px-4 py-2.5 text-muted-foreground text-xs">{eq.notes || ''}</td>
                   {showEquipmentStatus && (
@@ -83,10 +94,6 @@ export function BonEquipmentTable({ equipments, showEquipmentStatus, bonId }: Bo
           </table>
         )}
       </CardContent>
-
-      {historySerial && (
-        <SerialHistoryModal serialNumber={historySerial} currentBonId={bonId} onClose={() => setHistorySerial(null)} />
-      )}
     </Card>
   );
 }

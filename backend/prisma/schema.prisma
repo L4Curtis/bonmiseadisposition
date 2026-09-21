@@ -266,6 +266,9 @@ model BonEquipment {
   @@index([bonId])
   @@index([catalogItemId])
   @@index([serialNumber])
+  // Recherche d'un matériel par son numéro d'inventaire (page /materiel et
+  // recherche globale) : même usage que le numéro de série, même index.
+  @@index([inventoryNumber])
   // KPI (tableau de bord) : équipements rendus sur une période.
   @@index([returnedAt])
   @@map("bon_equipments")

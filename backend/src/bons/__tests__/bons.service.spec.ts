@@ -315,16 +315,20 @@ describe('BonsService', () => {
       });
     });
 
-    it('should also match equipment serial numbers in free search', async () => {
+    it('should also match equipment serial and inventory numbers in free search', async () => {
       await service.findAll({ search: 'SN-1234' });
 
       const findManyCall = prisma.bon.findMany.mock.calls[0][0] as {
         where: { OR?: unknown[] };
       };
-      expect(findManyCall.where.OR).toHaveLength(4);
+      // Référence, nom, email, numéro de série, numéro d'inventaire : ce
+      // dernier a été ajouté avec la fiche matériel, un numéro d'inventaire
+      // devant se chercher comme un numéro de série.
+      expect(findManyCall.where.OR).toHaveLength(5);
       expect(findManyCall.where.OR).toEqual(
         expect.arrayContaining([
           { equipments: { some: { serialNumber: { contains: 'SN-1234', mode: 'insensitive' } } } },
+          { equipments: { some: { inventoryNumber: { contains: 'SN-1234', mode: 'insensitive' } } } },
         ]),
       );
     });
@@ -345,7 +349,7 @@ describe('BonsService', () => {
         where: { OR?: unknown[] };
       };
       expect(findManyCall.where.OR).toBeDefined();
-      expect(findManyCall.where.OR).toHaveLength(4);
+      expect(findManyCall.where.OR).toHaveLength(5);
     });
 
     it('should apply the overdue filter (LOT A2)', async () => {

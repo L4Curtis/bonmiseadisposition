@@ -1,10 +1,10 @@
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
-/** Limite de lignes renvoyées par getSerialHistory — au-delà, `truncated:
+/** Limite de lignes renvoyées par getEquipmentHistory — au-delà, `truncated:
  *  true` signale explicitement que le résultat est partiel plutôt que de
  *  tronquer silencieusement. */
-const SERIAL_HISTORY_LIMIT = 200;
+const EQUIPMENT_HISTORY_LIMIT = 200;
 
 /** Plafond du nombre de numéros de série vérifiés en une seule fois par
  *  findSerialConflicts — garde-fou contre une requête IN() démesurée. */
@@ -16,22 +16,30 @@ const ACTIVE_BON_STATUSES = [
 ] as const;
 
 /**
- * Historique d'un numéro de série : tous les bons où il apparaît, du plus
- * récent au plus ancien (limité à SERIAL_HISTORY_LIMIT ; `truncated`
+ * Historique d'un matériel : tous les bons où il apparaît, identifié par son
+ * numéro de série OU son numéro d'inventaire (l'un ou l'autre suffit — les
+ * deux comptent autant l'un que l'autre pour retrouver un équipement), du
+ * plus récent au plus ancien (limité à EQUIPMENT_HISTORY_LIMIT ; `truncated`
  * indique explicitement si des résultats plus anciens ont été omis).
- * Répond à « où est le portable SN-1234 ? ».
+ * Répond à « où est le portable SN-1234 ? » comme à « où est le matériel
+ * INV-5678 ? ». Alimente la page `/materiel/:reference`.
  */
-export async function getSerialHistory(prisma: PrismaService, serialNumber: string) {
-  const query = (serialNumber ?? '').trim();
+export async function getEquipmentHistory(prisma: PrismaService, reference: string) {
+  const query = (reference ?? '').trim();
   if (!query) return { items: [], truncated: false, total: 0 };
 
-  const where: Prisma.BonEquipmentWhereInput = { serialNumber: { equals: query, mode: 'insensitive' } };
+  const where: Prisma.BonEquipmentWhereInput = {
+    OR: [
+      { serialNumber: { equals: query, mode: 'insensitive' } },
+      { inventoryNumber: { equals: query, mode: 'insensitive' } },
+    ],
+  };
   const [total, entries] = await Promise.all([
     prisma.bonEquipment.count({ where }),
     prisma.bonEquipment.findMany({
       where,
       orderBy: { createdAt: 'desc' },
-      take: SERIAL_HISTORY_LIMIT,
+      take: EQUIPMENT_HISTORY_LIMIT,
       include: {
         catalogItem: { select: { brand: true, model: true, category: true } },
         bon: {
@@ -52,13 +60,14 @@ export async function getSerialHistory(prisma: PrismaService, serialNumber: stri
   const items = entries.map((e) => ({
     equipmentId: e.id,
     serialNumber: e.serialNumber,
+    inventoryNumber: e.inventoryNumber,
     label: e.catalogItem ? `${e.catalogItem.brand} ${e.catalogItem.model}` : e.customLabel,
     returnedAt: e.returnedAt,
     notReturned: e.notReturned,
     bon: e.bon,
   }));
 
-  return { items, truncated: total > SERIAL_HISTORY_LIMIT, total };
+  return { items, truncated: total > EQUIPMENT_HISTORY_LIMIT, total };
 }
 
 /**
