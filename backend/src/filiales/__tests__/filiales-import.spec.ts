@@ -8,12 +8,19 @@ jest.mock('fs/promises', () => ({
   writeFile: jest.fn().mockResolvedValue(undefined),
   unlink: jest.fn().mockResolvedValue(undefined),
 }));
-jest.mock('uuid', () => ({ v4: jest.fn() }));
+// filiales-image.ts nomme ses fichiers via crypto.randomUUID() (le paquet
+// uuid a été retiré du projet — voir chore(deps) « retirer uuid au profit de
+// crypto.randomUUID »). Ce mock ciblait encore l'ancien paquet ; il n'avait
+// plus aucun effet sur le nom réellement généré.
+jest.mock('node:crypto', () => ({
+  ...jest.requireActual('node:crypto'),
+  randomUUID: jest.fn(),
+}));
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fsp = require('fs/promises') as { writeFile: jest.Mock; unlink: jest.Mock };
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { v4: uuidv4 } = require('uuid') as { v4: jest.Mock };
+const { randomUUID } = require('node:crypto') as { randomUUID: jest.Mock };
 
 const USER_ID = 'user-001';
 
@@ -39,8 +46,8 @@ describe('importFilialeItems (POST /filiales/import)', () => {
   beforeEach(() => {
     prisma = createMockPrismaService() as unknown as MockPrisma;
     let counter = 0;
-    uuidv4.mockReset();
-    uuidv4.mockImplementation(() => `uuid-${++counter}`);
+    randomUUID.mockReset();
+    randomUUID.mockImplementation(() => `uuid-${++counter}`);
     fsp.writeFile.mockClear();
     fsp.unlink.mockClear();
   });
@@ -205,7 +212,7 @@ describe('importFilialeItems (POST /filiales/import)', () => {
     expect(fsp.writeFile).toHaveBeenCalledTimes(1);
     const createCall = prisma.filiale.create.mock.calls[0][0].data;
     expect(createCall.logoPath).toBe('uploads/uuid-1.png');
-    // Le nom de fichier vient de uuid(), jamais d'un nom fourni par l'appelant
+    // Le nom de fichier vient de randomUUID(), jamais d'un nom fourni par l'appelant
     expect(createCall.logoPath).not.toContain('data:');
   });
 
