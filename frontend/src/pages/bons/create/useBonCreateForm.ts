@@ -7,7 +7,7 @@ import { runBonValidation } from './lib/validation';
 import { buildBonPayload } from './lib/payload';
 import { duplicateLine, distributeSerialsFromLine, findDuplicateSerialIds, splitPastedSerials } from './lib/equipmentLines';
 import { newLine } from './types';
-import type { CatalogItem, EditableBon, EquipmentLine, Pack, SerialConflict, UserResult } from './types';
+import type { CatalogItem, EditableBon, EquipmentLine, Pack, SerialConflict, SerialConflictsResponse, UserResult } from './types';
 
 /** État du formulaire de création/édition d'un bon, sa validation et sa
  *  soumission. Regroupe aussi le chargement des données de référence et,
@@ -225,9 +225,9 @@ export function useBonCreateForm() {
         try {
           const params = new URLSearchParams({ serials: serials.join(',') });
           if (isEditing) params.set('excludeBonId', editBonId!);
-          const conflicts = await api.get<SerialConflict[]>(`/equipment/serial-conflicts?${params}`);
-          if (conflicts.length > 0) {
-            setSerialConflicts(conflicts);
+          const { items } = await api.get<SerialConflictsResponse>(`/equipment/serial-conflicts?${params}`);
+          if (items.length > 0) {
+            setSerialConflicts(items);
             return;
           }
         } catch { /* la vérification de doublons ne doit pas bloquer la création */ }

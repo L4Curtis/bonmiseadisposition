@@ -39,6 +39,14 @@ export interface SerialConflict {
   collaborateur: string;
 }
 
+/** Réponse de GET /equipment/serial-conflicts. Le backend renvoie une
+ *  ENVELOPPE, pas un tableau : `truncated` signale que la recherche a été
+ *  plafonnée (50 numéros). Lire `items`, et non la réponse elle-même. */
+export interface SerialConflictsResponse {
+  items: SerialConflict[];
+  truncated: boolean;
+}
+
 /** Shape minimale du bon chargé en mode édition. */
 export interface EditableBon {
   id: string;

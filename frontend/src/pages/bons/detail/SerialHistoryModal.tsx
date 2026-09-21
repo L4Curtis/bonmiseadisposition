@@ -30,6 +30,15 @@ interface SerialHistoryEntry {
   };
 }
 
+/** Réponse de GET /equipment/serial-history. Le backend renvoie une ENVELOPPE,
+ *  pas un tableau : `truncated` signale que l'historique dépasse la limite de
+ *  200 bons, et `total` donne le compte réel. Lire `items`. */
+interface SerialHistoryResponse {
+  items: SerialHistoryEntry[];
+  truncated: boolean;
+  total: number;
+}
+
 interface SerialHistoryModalProps {
   readonly serialNumber: string;
   /** Bon depuis lequel la modale est ouverte — marqué « bon actuel », non navigable. */
@@ -40,14 +49,16 @@ interface SerialHistoryModalProps {
 /** Historique d'un numéro de série : tous les bons où il apparaît. */
 export function SerialHistoryModal({ serialNumber, currentBonId, onClose }: SerialHistoryModalProps) {
   const navigate = useNavigate();
-  const [entries, setEntries] = useState<SerialHistoryEntry[] | null>(null);
+  const [history, setHistory] = useState<SerialHistoryResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.get<SerialHistoryEntry[]>(`/equipment/serial-history?q=${encodeURIComponent(serialNumber)}`)
-      .then(setEntries)
+    api.get<SerialHistoryResponse>(`/equipment/serial-history?q=${encodeURIComponent(serialNumber)}`)
+      .then(setHistory)
       .catch((e: unknown) => setError(e instanceof Error && e.message ? e.message : 'Erreur de chargement'));
   }, [serialNumber]);
+
+  const entries = history?.items ?? null;
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -74,6 +85,12 @@ export function SerialHistoryModal({ serialNumber, currentBonId, onClose }: Seri
             Aucun autre bon ne référence ce numéro de série.
           </p>
         ) : (
+          <>
+          {history?.truncated && (
+            <p className="text-xs text-muted-foreground/80 pb-1">
+              {`Les ${entries?.length ?? 0} bons les plus récents, sur ${history.total}.`}
+            </p>
+          )}
           <ul className="divide-y divide-border max-h-80 overflow-y-auto">
             {entries.map((entry) => {
               const isCurrent = entry.bon.id === currentBonId;
@@ -110,6 +127,7 @@ export function SerialHistoryModal({ serialNumber, currentBonId, onClose }: Seri
               );
             })}
           </ul>
+          </>
         )}
       </DialogContent>
     </Dialog>

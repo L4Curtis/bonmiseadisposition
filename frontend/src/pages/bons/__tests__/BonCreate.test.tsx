@@ -136,7 +136,10 @@ describe('BonCreatePage — validation avant envoi', () => {
       if (path.startsWith('/users/search')) {
         return Promise.resolve([{ id: 'u1', displayName: 'Jean Dupont', email: 'jean@livio.fr' }]);
       }
-      if (path.startsWith('/equipment/serial-conflicts')) return Promise.resolve([]);
+      // Forme RÉELLE de la réponse (enveloppe, pas un tableau) : un mock qui
+      // renvoyait `[]` laissait passer un bug où l'avertissement de doublon
+      // ne se déclenchait jamais (conflicts.length sur un objet = undefined).
+      if (path.startsWith('/equipment/serial-conflicts')) return Promise.resolve({ items: [], truncated: false });
       return Promise.reject(new Error(`GET non mocké dans ce test : ${path}`));
     });
   });
@@ -179,6 +182,55 @@ describe('BonCreatePage — validation avant envoi', () => {
     await user.click(screen.getByRole('button', { name: /créer le bon/i }));
 
     expect(await screen.findByText(/Numéro de série en double/i)).toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  // Régression : GET /equipment/serial-conflicts renvoie une ENVELOPPE
+  // ({ items, truncated }), pas un tableau. Le formulaire lisait
+  // `conflicts.length` sur cet objet — soit `undefined` — donc l'avertissement
+  // ne s'est jamais affiché depuis l'ajout de l'enveloppe, sans la moindre
+  // erreur. Le mock de ce fichier renvoyait lui aussi un tableau, ce qui a
+  // masqué le défaut : il suit désormais la forme réelle de l'API.
+  it("affiche l'avertissement quand un numéro de série est déjà en circulation, sans appeler POST /bons", async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path.startsWith('/filiales/active')) return Promise.resolve([{ id: 'f1', name: 'Siège', displayName: 'Siège' }]);
+      if (path.startsWith('/equipment/catalog')) return Promise.resolve([]);
+      if (path.startsWith('/equipment/packs')) return Promise.resolve([]);
+      if (path.startsWith('/users/search')) {
+        return Promise.resolve([{ id: 'u1', displayName: 'Jean Dupont', email: 'jean@livio.fr' }]);
+      }
+      if (path.startsWith('/equipment/serial-conflicts')) {
+        return Promise.resolve({
+          items: [{
+            serialNumber: 'SN-123',
+            bonId: 'b-autre',
+            bonReference: 'BON-2026-0042',
+            bonStatus: 'active',
+            collaborateur: 'Marie Martin',
+          }],
+          truncated: false,
+        });
+      }
+      return Promise.reject(new Error(`GET non mocké dans ce test : ${path}`));
+    });
+
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const { container } = renderWithProviders(<BonCreatePage />);
+
+    await user.type(screen.getByPlaceholderText('Rechercher un collaborateur...'), 'Jean');
+    await user.click(await screen.findByText('Jean Dupont'));
+    await user.click(screen.getByText('Sélectionner une filiale...'));
+    await user.click(await screen.findByRole('option', { name: 'Siège' }));
+    const dateInput = container.querySelector('input[type="date"]') as HTMLInputElement;
+    fireEvent.change(dateInput, { target: { value: '2026-01-01' } });
+
+    await user.type(screen.getAllByPlaceholderText('Libellé personnalisé')[0], 'Laptop A');
+    await user.type(screen.getAllByPlaceholderText('SN-XXXXX')[0], 'SN-123');
+
+    await user.click(screen.getByRole('button', { name: /créer le bon/i }));
+
+    expect(await screen.findByText(/déjà en circulation sur un autre bon/i)).toBeInTheDocument();
+    expect(await screen.findByText(/BON-2026-0042/)).toBeInTheDocument();
     expect(api.post).not.toHaveBeenCalled();
   });
 
