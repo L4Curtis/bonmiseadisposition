@@ -1,8 +1,15 @@
 import { cn } from '@/lib/utils';
 
-function Skeleton({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+interface SkeletonProps extends React.HTMLAttributes<HTMLElement> {
+  /** Élément rendu. `span` quand le squelette remplace du texte à l'intérieur
+   *  d'un paragraphe : un `div` dans un `p` est un balisage invalide, que le
+   *  navigateur corrige en fermant le `p` — React le signale à juste titre. */
+  readonly as?: 'div' | 'span';
+}
+
+function Skeleton({ className, as: Tag = 'div', ...props }: SkeletonProps) {
   return (
-    <div
+    <Tag
       className={cn(
         // Shimmer balayé plutôt que pulse — la vague respecte prefers-reduced-motion
         'relative overflow-hidden rounded-md bg-muted',

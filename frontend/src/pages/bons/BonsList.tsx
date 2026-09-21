@@ -49,7 +49,7 @@ export function BonsListPage() {
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             {loading ? (
-              <Skeleton className="h-4 w-16 inline-block" />
+              <Skeleton as="span" className="h-4 w-16 inline-block" />
             ) : (
               <>{total} bon{total !== 1 ? 's' : ''}</>
             )}
