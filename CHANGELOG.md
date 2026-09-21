@@ -4,6 +4,38 @@ Historique des évolutions notables de l'application. Les entrées les plus réc
 
 ---
 
+## 2026-09-21 — Dépendances : plus aucune vulnérabilité connue
+
+Montées de version majeures, une par lot, chacune validée par les tests, le démarrage réel du binaire
+compilé et les parcours de bout en bout.
+
+### Sécurité
+- **NestJS 10 → 12** : ferme les trois vulnérabilités hautes du backend (`qs`, `file-type` et la copie de
+  `multer` qu'il embarquait).
+- **nodemailer 8 → 10** : ferme le contournement de `disableFileAccess` par l'option `raw`.
+- **@azure/msal-node 2 → 6** et **`uuid` retiré** au profit de `crypto.randomUUID` (Node 22) : la version
+  corrigée d'`uuid` est en ESM pur, inutilisable depuis un backend CommonJS, et le paquet ne servait qu'à
+  nommer deux fichiers.
+- **react-router 6 → 7** : la ligne 6 n'a jamais reçu le correctif de l'open redirect. Migration mécanique
+  (le paquet `react-router-dom` fusionne dans `react-router`), les garde-fous applicatifs restent en place.
+
+`npm audit --omit=dev` : backend 12 → 0, frontend 5 → 0.
+
+### Corrigé
+- **Démarrage de l'application avec NestJS 12** : `JwtAuthGuard` héritait d'un `@Optional()` qui ne l'est
+  plus depuis la version 11. Sans constructeur explicite, une dépendance que personne ne fournit devenait
+  obligatoire et l'application entière refusait de démarrer. Détecté par le démarrage du binaire compilé,
+  pas par les tests unitaires.
+
+### Dette assumée
+- Les paquets NestJS 12 sont livrés en ESM, la suite Jest reste en CommonJS : une transformation Babel les
+  convertit pour les tests, et un fichier interne utilisant `import.meta.url` y est remplacé par une
+  doublure. La production, elle, charge le vrai fichier. À solder le jour où la suite passera en ESM.
+- `@nestjs/schematics` reste en version 11 : sa version 12 exige TypeScript 6. C'est un outil de génération
+  de code, jamais exécuté en production ni en CI.
+
+---
+
 ## 2026-09-20 — Avant l'ouverture de la production : garde-fous, supervision, dette
 
 Chantier de fiabilisation mené avant de remplir la production. Chaque point répond à un risque constaté,
