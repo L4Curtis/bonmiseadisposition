@@ -28,12 +28,17 @@ export type FieldDef = {
   max?: number;
 };
 
-function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+function Toggle({ checked, onChange, id, label }: { checked: boolean; onChange: (v: boolean) => void; id?: string; label?: string }) {
   return (
     <button
       type="button"
+      id={id}
       role="switch"
       aria-checked={checked}
+      // Nom accessible : sans lui, un lecteur d'écran annonce « bouton » sans
+      // dire lequel, et la commande vocale ne peut pas le viser. Le libellé
+      // visible est un <Label> voisin, que rien ne reliait au bouton.
+      aria-label={label}
       onClick={() => onChange(!checked)}
       className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
         checked ? 'bg-primary' : 'bg-muted-foreground/30'
@@ -265,10 +270,12 @@ export function ConfigSection({
             {toggleFields.map((f) => (
               <div key={f.key} className="flex items-center gap-3">
                 <Toggle
+                  id={f.key}
+                  label={f.label}
                   checked={values[f.key] === 'true'}
                   onChange={(v) => setValues((prev) => ({ ...prev, [f.key]: v ? 'true' : 'false' }))}
                 />
-                <Label className="cursor-pointer select-none">{f.label}</Label>
+                <Label htmlFor={f.key} className="cursor-pointer select-none">{f.label}</Label>
               </div>
             ))}
           </div>

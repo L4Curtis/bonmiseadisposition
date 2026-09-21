@@ -10,7 +10,7 @@ export interface WaitingStepsTableProps {
  *  moyenne et nombre en retard (mis en évidence en rouge). */
 export function WaitingStepsTable({ steps }: WaitingStepsTableProps) {
   return (
-    <table className="w-full text-sm">
+    <table className="w-full text-sm" aria-label="Bons en attente par étape de workflow">
       <thead>
         <tr className="border-b border-border text-left text-xs font-medium text-muted-foreground/70">
           <th scope="col" className="py-2 pr-2">Étape</th>

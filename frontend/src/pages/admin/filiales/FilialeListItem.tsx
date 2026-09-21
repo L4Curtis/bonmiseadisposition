@@ -53,11 +53,21 @@ export function FilialeListItem({
             <div className="flex items-center gap-2">
               <FileUploadButton label="Logo" onUpload={(file) => onUpload('logo', file)} />
               <FileUploadButton label="Cachet IT" onUpload={(file) => onUpload('stamp', file)} />
-              <Button variant="outline" size="sm" onClick={onStartEdit}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onStartEdit}
+                aria-label={`Modifier la filiale ${filiale.displayName}`}
+              >
                 <Pencil className="h-3 w-3" />
               </Button>
               {isAdmin && (
-                <Button variant="outline" size="sm" onClick={onDelete}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onDelete}
+                  aria-label={`Supprimer la filiale ${filiale.displayName}`}
+                >
                   <Trash2 className="h-3 w-3 text-destructive" />
                 </Button>
               )}

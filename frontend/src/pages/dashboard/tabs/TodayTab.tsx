@@ -15,6 +15,8 @@ import { formatDate } from '@/lib/utils';
 import { isWaitingStatus, type SignatureSummary } from '@/lib/bon-helpers';
 import type { BonStatus } from '@/types';
 import type { CollaborateurInventoryResponse } from '@/pages/inventaire/types';
+import { ActionableTasksCard } from './today/ActionableTasksCard';
+import { ScheduledJobsAlert } from './today/ScheduledJobsAlert';
 
 const DEFAULT_OVERDUE_THRESHOLD_DAYS = 7;
 
@@ -164,8 +166,16 @@ export function TodayTab() {
 
   return (
     <div className="space-y-6">
-      {/* ── KPI cards ── */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {/* ── Tâches planifiées en échec (lot E3) — invisible si tout va bien ── */}
+      <ScheduledJobsAlert />
+
+      {/* ── KPI cards ──
+          lg:grid-cols-4 (et non 3) : sept tuiles en 3 colonnes laissent la
+          dernière orpheline sur sa propre ligne (3 + 3 + 1). En 4 colonnes,
+          6 ou 7 tuiles se répartissent en 4 + 2 ou 4 + 3 — jamais de ligne à
+          un seul élément, même principe que les tuiles « Volumes » de
+          l'onglet Délais (DelaisTab, 4 colonnes). */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {statsLoading ? (
           Array.from({ length: 6 }).map((_, i) => <StatCardSkeleton key={i} />)
         ) : statsError ? (
@@ -180,6 +190,9 @@ export function TodayTab() {
           })
         )}
       </div>
+
+      {/* ── À traiter aujourd'hui (lot E1) : du compteur à l'action ── */}
+      <ActionableTasksCard />
 
       {/* ── Bottom grid ── */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">

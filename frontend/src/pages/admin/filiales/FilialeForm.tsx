@@ -25,6 +25,10 @@ export function FilialeForm({
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
+  // Identifiant stable par instance de formulaire (une par filiale éditée à la
+  // fois) : `htmlFor`/`id` lient le libellé au contrôle, seul moyen fiable de
+  // donner un nom accessible à un bouton bascule sans texte visible.
+  const activeToggleId = filiale ? `filiale-active-${filiale.id}` : undefined;
 
   const handleSave = async () => {
     if (!form.name.trim() || !form.displayName.trim()) {
@@ -92,8 +96,8 @@ export function FilialeForm({
       </div>
       {filiale && (
         <div className="flex items-center gap-3">
-          <Toggle checked={form.active} onChange={(v) => setForm((f) => ({ ...f, active: v }))} />
-          <Label className="cursor-pointer select-none" onClick={() => setForm((f) => ({ ...f, active: !f.active }))}>
+          <Toggle id={activeToggleId} checked={form.active} onChange={(v) => setForm((f) => ({ ...f, active: v }))} />
+          <Label htmlFor={activeToggleId} className="cursor-pointer select-none">
             Active
           </Label>
         </div>

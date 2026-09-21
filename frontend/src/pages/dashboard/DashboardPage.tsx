@@ -64,7 +64,9 @@ export function DashboardPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h2 className="text-[26px] font-bold leading-tight tracking-tight text-foreground">Tableau de bord</h2>
+          {/* Lot F1 : premier (et unique) titre de la page — repère de
+              structure pour un lecteur d'écran, comme sur Bons/Inventaire/Filiales. */}
+          <h1 className="text-[26px] font-bold leading-tight tracking-tight text-foreground">Tableau de bord</h1>
           <p className="mt-1 text-sm text-muted-foreground">Vue d&apos;ensemble de l&apos;activité du parc</p>
         </div>
         <div className="flex items-center gap-3">

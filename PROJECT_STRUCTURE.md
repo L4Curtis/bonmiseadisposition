@@ -352,7 +352,7 @@ BonDeMiseADisposition/
         │   ├── layout/
         │   │   ├── Layout.tsx          # Shell : sidebar + header + <Outlet/>
         │   │   ├── Header.tsx          # Barre sup (façade) : recherche globale masquée pour direction
-        │   │   ├── header/             # GlobalSearch, ChangePasswordDialog, UserMenu
+        │   │   ├── header/             # GlobalSearch (n° de série ET d'inventaire reconnus), ChangePasswordDialog, UserMenu
         │   │   └── Sidebar.tsx         # Nav gauche par vue UX : technicien/administrateur (Opérations/Référentiel/Système), direction (Pilotage : Tableau de bord, Inventaire), collaborateur (Mes bons)
         │   │
         │   ├── dashboard/               # Composants partagés par le tableau de bord KPI
@@ -389,8 +389,9 @@ BonDeMiseADisposition/
             ├── Login.tsx               # SSO Entra ID + fallback auth locale
             ├── ChangePassword.tsx       # Changement mdp (12 car, majuscule, chiffre, special)
             ├── Unauthorized.tsx         # Page 403
-            ├── Inventaire.tsx           # Parc prete : filtres, tableau pagine, tuiles resume, export CSV (references de bon non cliquables pour direction) ; bascule Équipement/Collaborateur (InventoryViewToggle)
-            ├── inventaire/              # useInventory, InventoryFilters, InventoryTable, InventorySummaryCards ; vue par collaborateur : useCollaborateurInventory, useCollaborateurDetail, CollaborateurTable, dateMetrics, isOverdue
+            ├── Inventaire.tsx           # Parc prete : filtres, tableau pagine, tuiles resume, export CSV (references de bon non cliquables pour direction) ; bascule Équipement/Collaborateur (InventoryViewToggle) ; n° de série/inventaire cliquables vers /materiel/:reference
+            ├── inventaire/              # useInventory, InventoryFilters, InventoryTable (n° série/inventaire cliquables), InventorySummaryCards ; vue par collaborateur : useCollaborateurInventory, useCollaborateurDetail, CollaborateurTable, dateMetrics, isOverdue
+            ├── materiel/                # Lot L1 — MaterielHistoryPage (/materiel/:reference) : historique d'un matériel (n° série OU inventaire), état actuel, suite des détenteurs, export CSV ; useMaterielHistory, MaterielHistoryHeader, MaterielHistoryList, types (remplace l'ancienne SerialHistoryModal)
             ├── PortailCollaborateur.tsx  # Vue collab : a signer, actifs, contestes, historique
             ├── portail/                 # useMesBons, sections (à signer, actifs, contestés, historique), lib/bonsFilters
             │
@@ -594,12 +595,15 @@ BonDeMiseADisposition/
 
 ### Equipment (`/api/equipment`)
 
-> Contrôleur entier réservé à `admin`/`technician` (données IT internes, les collaborateurs n'en
-> ont pas l'usage) — aucune route n'est ouverte aux autres rôles authentifiés.
+> Contrôleur réservé à `admin`/`technician` (données IT internes) — exception lot L1 : `/history` et
+> `/history/export` sont aussi ouvertes à `direction`, en lecture seule, pour alimenter la page
+> `/materiel/:reference` (même règle que l'inventaire, sans lien vers les bons côté front).
 
 | Methode | Route | Roles | Description |
 |---------|-------|-------|-------------|
-| GET | `/serial-history?q=` | admin, tech | Tous les bons où un n° de série apparaît (limite 200, `truncated`) |
+| GET | `/history?q=` | admin, tech, direction | Historique d'un matériel — n° de série OU n° d'inventaire, les deux comptant autant l'un que l'autre (limite 200, `truncated`) ; alimente `/materiel/:reference` |
+| GET | `/history/export?q=` | admin, tech, direction | Export CSV de cet historique |
+| GET | `/serial-history?q=` | admin, tech | **Déprécié** — alias de compatibilité de `/history`, conservé après le lot L1 |
 | GET | `/serial-conflicts?serials=&excludeBonId=` | admin, tech | N° déjà en circulation sur un autre bon (max 50) |
 | GET | `/catalog` | admin, tech | Liste catalogue complet |
 | GET | `/catalog/active` | admin, tech | Catalogue actif uniquement |
@@ -730,7 +734,9 @@ Une seule section **Pilotage** :
 - **Tableau de bord** → `/dashboard` (arrivée sur l'onglet Parc, pas d'onglet Aujourd'hui, pas de bouton « Nouveau bon »)
 - **Inventaire** → `/inventaire` (références de bon non cliquables)
 
-Pas de recherche globale (Header), pas d'accès aux bons individuels ni à l'admin.
+Pas de recherche globale (Header), pas d'accès aux bons individuels ni à l'admin. Exception lot L1 :
+`/materiel/:reference` reste accessible (atteint depuis un n° de série/inventaire de l'inventaire), sans
+lien vers les bons dans cette page.
 
 ### Structure Collaborateur (isItStaff = false)
 
@@ -772,6 +778,7 @@ type NavGroup = {
 | `/` | redirect | auth | → /dashboard (vue non-collaborateur) ou /mes-bons (vue collaborateur) |
 | `/dashboard` | DashboardPage | admin, tech, direction | Tableau de bord à onglets (Aujourd'hui*, Parc, Délais, Incidents) ; période et filiale dans l'URL ; *Aujourd'hui masqué pour direction, qui arrive sur Parc |
 | `/inventaire` | InventairePage | admin, tech, direction | Parc prêt : filtres, tableau paginé, export CSV (références non cliquables pour direction) |
+| `/materiel/:reference` | MaterielHistoryPage | admin, tech, direction | Historique d'un matériel (n° série ou inventaire) : état actuel, détenteurs successifs, export CSV — direction sans lien vers les bons |
 | `/mes-bons` | PortailCollaborateur | tous | Bons du collaborateur |
 | `/bons` | BonsListPage | admin, tech | Liste + filtres + export CSV |
 | `/bons/new` | BonCreatePage | admin, tech | Création bon |

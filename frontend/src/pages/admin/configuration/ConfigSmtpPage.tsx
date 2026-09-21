@@ -3,24 +3,28 @@ import { ConfigSection, SmtpTestButton, type TestResult } from '@/components/adm
 
 export function ConfigSmtpPage() {
   return (
-    <ConfigSection
-      title="Email / SMTP"
-      category="smtp"
-      fields={[
-        { key: 'secure', label: 'TLS/SSL', toggle: true },
-        { key: 'host', label: 'Serveur SMTP', placeholder: 'smtp.entreprise.local' },
-        { key: 'port', label: 'Port', placeholder: '587' },
-        { key: 'user', label: 'Utilisateur SMTP', placeholder: 'notifications@entreprise.local' },
-        { key: 'password', label: 'Mot de passe SMTP', type: 'password', encrypted: true },
-        { key: 'from', label: 'Adresse From', placeholder: 'IT <noreply@entreprise.local>' },
-      ]}
-      footer={
-        <SmtpTestButton
-          onTest={(email) =>
-            api.post<TestResult>('/admin/config/test/smtp', { testEmail: email })
-          }
-        />
-      }
-    />
+    <>
+      {/* Lot F1 : titre de page caché, cf. ConfigLdapPage. */}
+      <h1 className="sr-only">Configuration — Email / SMTP</h1>
+      <ConfigSection
+        title="Email / SMTP"
+        category="smtp"
+        fields={[
+          { key: 'secure', label: 'TLS/SSL', toggle: true },
+          { key: 'host', label: 'Serveur SMTP', placeholder: 'smtp.entreprise.local' },
+          { key: 'port', label: 'Port', placeholder: '587' },
+          { key: 'user', label: 'Utilisateur SMTP', placeholder: 'notifications@entreprise.local' },
+          { key: 'password', label: 'Mot de passe SMTP', type: 'password', encrypted: true },
+          { key: 'from', label: 'Adresse From', placeholder: 'IT <noreply@entreprise.local>' },
+        ]}
+        footer={
+          <SmtpTestButton
+            onTest={(email) =>
+              api.post<TestResult>('/admin/config/test/smtp', { testEmail: email })
+            }
+          />
+        }
+      />
+    </>
   );
 }

@@ -66,8 +66,12 @@ describe('FilialesPage', () => {
     expect(await screen.findByText('Fresse GDO SAS')).toBeInTheDocument();
     expect(screen.getByText('AD: Fresse GDO')).toBeInTheDocument();
     expect(screen.getByText('Active')).toBeInTheDocument();
-    // Admin : bouton éditer (crayon) + bouton supprimer (poubelle), tous deux sans libellé texte.
-    expect(screen.getAllByRole('button', { name: '' })).toHaveLength(2);
+    // Admin : modification ET suppression. Les boutons n'ont qu'une icône, mais
+    // portent un nom accessible qui dit l'action ET sur quoi elle porte — sans
+    // lui, un lecteur d'écran annonce « bouton » et la commande vocale ne peut
+    // pas les viser. Viser ce nom, et non l'absence de nom.
+    expect(screen.getByRole('button', { name: 'Modifier la filiale Fresse GDO SAS' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Supprimer la filiale Fresse GDO SAS' })).toBeInTheDocument();
   });
 
   it("masque la suppression pour un rôle non-admin (technicien)", async () => {
@@ -75,8 +79,9 @@ describe('FilialesPage', () => {
     renderWithProviders(<FilialesPage />);
 
     await screen.findByText('Fresse GDO SAS');
-    // Seul le bouton d'édition (crayon) doit rester, pas de bouton suppression.
-    expect(screen.getAllByRole('button', { name: '' })).toHaveLength(1);
+    // Seule la modification doit rester, pas de suppression.
+    expect(screen.getByRole('button', { name: 'Modifier la filiale Fresse GDO SAS' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Supprimer la filiale Fresse GDO SAS' })).not.toBeInTheDocument();
   });
 
   it('masque par defaut les filiales desactivees et permet de les afficher via un controle explicite', async () => {

@@ -8,6 +8,8 @@ import { SsoDiagnosticCard } from "./SsoDiagnosticCard";
 export function ConfigEntraPage() {
   return (
     <div className="space-y-5">
+      {/* Lot F1 : titre de page caché, cf. ConfigLdapPage. */}
+      <h1 className="sr-only">Configuration — Entra ID (SSO)</h1>
       <ConfigSection
         title="Microsoft Entra ID (SSO)"
         category="entra"

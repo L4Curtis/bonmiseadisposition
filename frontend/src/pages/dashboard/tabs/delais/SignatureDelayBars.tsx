@@ -25,7 +25,7 @@ export function SignatureDelayBars({ sendToSignature }: SignatureDelayBarsProps)
   return (
     <div className="space-y-4">
       <HorizontalBars data={bars} height={160} valueFormatter={formatHours} />
-      <table className="w-full text-xs">
+      <table className="w-full text-xs" aria-label="Délai d'envoi à la signature par type de bon">
         <thead>
           <tr className="border-b border-border text-left text-muted-foreground/70">
             <th scope="col" className="py-1.5 pr-2 font-medium">Type</th>

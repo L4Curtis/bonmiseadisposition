@@ -107,7 +107,13 @@ export function ScheduledJobsCard() {
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle>Tâches planifiées</CardTitle>
-          <Button variant="ghost" size="sm" onClick={load} disabled={loading}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={load}
+            disabled={loading}
+            aria-label="Actualiser les tâches planifiées"
+          >
             <RefreshCw className="h-3 w-3" />
           </Button>
         </div>

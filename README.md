@@ -426,6 +426,13 @@ chargé à ce moment-là. Les filtres (recherche, filiale, catégorie, situation
 deux vues, et la vue choisie est portée par l'URL (`?vue=collaborateurs`) : un lien partagé rouvre le
 même écran.
 
+Le numéro de série et le numéro d'inventaire d'un équipement sont cliquables (fiche du bon comme
+inventaire) et ouvrent `/materiel/:reference` : historique complet du matériel (état actuel, suite des
+détenteurs du plus récent au plus ancien, export CSV), identique quel que soit lequel des deux numéros
+a servi à le retrouver — ils comptent désormais l'un autant que l'autre, y compris dans la recherche
+globale (Ctrl+K). Accès IT (admin, technicien) ; la direction peut consulter, sans lien vers les bons
+(même règle que la liste ci-dessous).
+
 Côté API : `GET /reporting/inventory/by-collaborateur` accepte les mêmes filtres que la liste, plus
 `sort=count|oldest` et la pagination. Le regroupement est fait en mémoire, volontairement, pour
 réutiliser la construction des filtres de la liste plutôt que de la dupliquer en SQL ; il est donc

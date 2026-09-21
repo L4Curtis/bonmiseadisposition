@@ -85,9 +85,14 @@ export function ConfigMonitoringPage() {
     }
   };
 
+  // Lot F1 : titre de page caché — présent dans les trois branches de rendu
+  // (chargement / SMB désactivé / contenu), c'est le même titre pour la page.
+  const pageTitle = <h1 className="sr-only">Configuration — Monitoring SMB</h1>;
+
   if (loading) {
     return (
       <div className="space-y-5">
+        {pageTitle}
         <ScheduledJobsCard />
         <Card>
           <CardHeader><CardTitle>Monitoring export SMB</CardTitle></CardHeader>
@@ -101,6 +106,7 @@ export function ConfigMonitoringPage() {
   if (!status || !status.enabled) {
     return (
       <div className="space-y-5">
+        {pageTitle}
         <ScheduledJobsCard />
         <Card>
           <CardHeader><CardTitle className="flex items-center gap-2"><HardDrive className="h-4 w-4" /> Monitoring export SMB</CardTitle></CardHeader>
@@ -119,6 +125,7 @@ export function ConfigMonitoringPage() {
 
   return (
     <div className="space-y-5">
+      {pageTitle}
       <ScheduledJobsCard />
       <Card>
         <CardHeader>
@@ -126,7 +133,7 @@ export function ConfigMonitoringPage() {
             <CardTitle className="flex items-center gap-2">
               <HardDrive className="h-4 w-4" /> Monitoring export SMB
             </CardTitle>
-            <Button variant="ghost" size="sm" onClick={load}>
+            <Button variant="ghost" size="sm" onClick={load} aria-label="Actualiser le statut de l'export SMB">
               <RefreshCw className="h-3 w-3" />
             </Button>
           </div>
@@ -166,7 +173,7 @@ export function ConfigMonitoringPage() {
                 </Button>
               </div>
               <div className="border rounded-lg overflow-hidden">
-                <table className="w-full text-sm">
+                <table className="w-full text-sm" aria-label="Exports SMB échoués">
                   <thead className="bg-muted/50">
                     <tr>
                       <th className="text-left px-3 py-2 font-medium">Bon</th>
@@ -192,6 +199,7 @@ export function ConfigMonitoringPage() {
                             onClick={() => retryOne(exp.id)}
                             disabled={retrying === exp.id}
                             className="h-7 px-2"
+                            aria-label={`Réessayer l'export ${exp.filename}`}
                           >
                             {retrying === exp.id
                               ? <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none" />

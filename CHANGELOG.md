@@ -4,6 +4,86 @@ Historique des évolutions notables de l'application. Les entrées les plus réc
 
 ---
 
+## 2026-09-21 — Créer un bon : moins de friction à chaque saisie
+
+La tâche la plus répétitive de l'équipe IT — chaque amélioration s'y paie autant de fois qu'il y a de bons créés.
+
+### Ajouté
+- **Filiale pré-remplie depuis le collaborateur** : dès qu'un collaborateur choisi dans l'autocomplétion a une
+  filiale connue de l'annuaire, elle est désormais présélectionnée — sans jamais écraser un choix déjà fait à
+  la main, qui reste modifiable ensuite. Sans filiale connue (compte d'annuaire incomplet, collaborateur créé
+  manuellement sans filiale précisée), rien ne change.
+- **Date de mise à disposition pré-remplie à aujourd'hui** : renseignée dans l'immense majorité des bons, elle
+  n'a plus besoin d'être saisie ou cliquée à chaque création (le raccourci « Aujourd'hui » reste disponible
+  pour y revenir). Reste vide en modification d'un brouillon existant, où elle vient du bon lui-même.
+- **Doublon de numéro de série signalé dès la saisie** : l'avertissement « déjà en circulation sur un autre
+  bon » n'arrivait qu'à la soumission, après avoir rempli tout le formulaire. Il apparaît désormais sur la
+  ligne concernée dès la sortie du champ N° Série, sans bloquer la saisie ni multiplier les appels réseau —
+  l'IT garde la main pour passer outre en connaissance de cause, comme aujourd'hui à l'envoi.
+- **Repartir d'un bon existant** : bouton dans la section Équipements pour reprendre les articles d'un bon déjà
+  saisi (le cas du kit standard remis à chaque arrivée), sans reprendre le collaborateur, les dates ni les
+  numéros de série/inventaire, propres à chaque exemplaire.
+- **Saisie au lecteur de code-barres** : dans le champ N° Série d'une ligne, la touche Entrée valide la ligne et
+  place le curseur dans le N° Série de la ligne suivante (même article, prête pour le prochain scan) — de quoi
+  enchaîner plusieurs exemplaires identiques sans lâcher le lecteur ni jamais soumettre le formulaire par
+  accident.
+- **Brouillon conservé** : la saisie en cours d'un nouveau bon est désormais sauvegardée dans le navigateur et
+  restaurée à la réouverture de la page (fermeture accidentelle, session expirée), avec un bandeau discret et
+  un moyen de repartir de zéro. Effacée dès que le bon est créé.
+
+---
+
+## 2026-09-21 — Tableau de bord orienté action, et accessibilité
+
+### Ajouté
+- **Bloc « À traiter aujourd'hui »** sur l'onglet « Aujourd'hui » du tableau de bord : les sept compteurs
+  disaient combien, jamais quoi faire. Le nouveau bloc liste le travail réel — brouillons jamais envoyés (les
+  plus anciens d'abord), signatures en attente au-delà du seuil configuré (avec proposition de relance) et
+  bons actifs dont la restitution prévue est dépassée (avec proposition d'initier la restitution) — chaque
+  ligne menant directement au bon concerné, et un lien « voir tout » par catégorie vers la liste filtrée. Une
+  catégorie vide n'est pas affichée ; si tout est à jour, un message rassurant remplace le bloc.
+- **Alerte « tâches planifiées » sur le tableau de bord** : une tâche `@Cron` en erreur ou en retard (visible
+  jusqu'ici seulement dans Admin → Configuration → Monitoring) déclenche désormais une alerte discrète sur le
+  tableau de bord IT, avec un lien direct vers le monitoring. Réservée aux administrateurs ; invisible dès que
+  tout va bien, et pour tout autre rôle (aucun appel à la route, donc aucune erreur 403 à gérer).
+
+### Corrigé
+- **Disposition des tuiles du tableau de bord** : sept tuiles en 3 colonnes laissaient la dernière seule sur
+  sa ligne. Passées à 4 colonnes (comme les tuiles « Volumes » de l'onglet Délais), elles se répartissent
+  désormais en 4+2 ou 4+3 selon le contexte, sans ligne à un seul élément.
+- **Accessibilité — titres de page** : le tableau de bord et les dix pages de Configuration n'avaient aucun
+  `h1` (le tableau de bord affichait son titre en `h2` ; les pages de Configuration n'en avaient aucun). Ajout
+  d'un titre unique par page, visible sur le tableau de bord, visuellement masqué mais lisible par un lecteur
+  d'écran sur les pages de Configuration (où le titre visible équivalent existe déjà par ailleurs et ne doit
+  pas être doublé).
+- **Accessibilité — boutons sans nom accessible** : boutons à icône seule sans `aria-label` sur Admin →
+  Filiales (modifier/supprimer une filiale, désormais nommés avec la filiale concernée) et sur Admin →
+  Configuration (actualiser les tâches planifiées, actualiser le statut SMB, réessayer un export échoué,
+  bascule « Active » du formulaire de filiale).
+- **Accessibilité — tableaux sans intitulé** : ajout d'un `aria-label` aux deux tableaux de l'onglet « Délais »
+  (délai envoi → signature, bons en attente par étape) et à celui des exports SMB échoués sur la page
+  Monitoring, comme les autres tableaux de l'application.
+
+---
+
+## 2026-09-21 — Historique d'un matériel : une page dédiée, accessible depuis l'inventaire
+
+### Ajouté
+- **Page `/materiel/:reference`** : la traçabilité d'un matériel existait déjà (tous les bons où son numéro
+  apparaît) mais restait invisible — accessible uniquement en cliquant le numéro de série dans la fiche d'un
+  bon, sans rien qui indique que c'est cliquable, et absente de l'inventaire, l'écran où l'on va pourtant
+  chercher un matériel en premier. Le numéro de série est désormais cliquable partout où il s'affiche (fiche
+  du bon, inventaire), avec un intitulé accessible et un soulignement au survol. La page réunit l'état actuel
+  (chez qui, depuis quand, ou « rendu le … », ou « déclaré non rendu »), la suite des détenteurs du plus
+  récent au plus ancien avec lien vers chaque bon, et un export CSV. Remplace l'ancienne modale
+  (`SerialHistoryModal`) : une seule façon de consulter un historique, avec une adresse partageable. Accès IT
+  (admin, technicien) ; la direction peut consulter, sans lien vers les bons (même règle que l'inventaire).
+- **Le numéro d'inventaire compte désormais autant que le numéro de série** : jusqu'ici saisi mais inutilisé
+  nulle part (ni cliquable, ni cherchable), il ouvre maintenant le même historique et est reconnu par la
+  recherche globale (Ctrl+K) au même titre qu'un numéro de série.
+
+---
+
 ## 2026-09-21 — Alerte « départ d'un collaborateur »
 
 ### Ajouté
