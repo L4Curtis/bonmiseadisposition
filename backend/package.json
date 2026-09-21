@@ -15,7 +15,7 @@
     "test:cov": "jest --coverage"
   },
   "dependencies": {
-    "@azure/msal-node": "^2.16.2",
+    "@azure/msal-node": "^6.0.1",
     "@nestjs/common": "^12.0.3",
     "@nestjs/core": "^12.0.3",
     "@nestjs/jwt": "^12.0.2",
@@ -34,7 +34,7 @@
     "helmet": "^8.0.0",
     "ldapjs": "^3.0.7",
     "multer": "^2.1.1",
-    "nodemailer": "^8.0.11",
+    "nodemailer": "^10.0.10",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "pdfkit": "^0.18.0",
@@ -53,7 +53,6 @@
     "@types/jest": "^30.0.0",
     "@types/ldapjs": "^2.2.5",
     "@types/node": "^22.0.0",
-    "@types/nodemailer": "^6.4.16",
     "@types/passport-jwt": "^4.0.1",
     "jest": "^30.3.0",
     "ts-jest": "^29.4.6",
