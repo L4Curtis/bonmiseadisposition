@@ -1,4 +1,4 @@
-import { Outlet, useLocation } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router';
 import { AdminSubNav, getSubNavForPath } from '@/components/layout/AdminSubNav';
 import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 

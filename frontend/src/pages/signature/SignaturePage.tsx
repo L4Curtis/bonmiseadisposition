@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams } from 'react-router';
 import { AlertOctagon, Ban, CheckCircle, Clock, Loader2, XCircle } from 'lucide-react';
 import { useSignatureCanvas } from '@/hooks/use-signature-canvas';
 import { LoginRequiredScreen, UnauthorizedScreen } from './components/AuthScreens';

@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 import { useBonsListParams } from '../useBonsListParams';
 import { IN_PROGRESS_EXCLUDE, IN_PROGRESS_OPTION_VALUE, WAITING_ALL_STATUS } from '../statusFilterOptions';
 import { resetActiveFilialesForTests } from '@/hooks/use-active-filiales';

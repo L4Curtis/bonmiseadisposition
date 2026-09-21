@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router';
 import { api } from '@/lib/api';
 import { errorMessage, showActionError } from '@/lib/errors';
 import { toast } from '@/hooks/use-toast';

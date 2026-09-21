@@ -1,7 +1,7 @@
 import type { ReactElement, ReactNode } from 'react';
 import { render, type RenderOptions } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router';
 
 interface RenderWithProvidersOptions extends Omit<RenderOptions, 'wrapper'> {
   /** Initial URL for the MemoryRouter (defaults to '/'). */

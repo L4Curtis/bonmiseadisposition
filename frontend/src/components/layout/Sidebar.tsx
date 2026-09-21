@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { useUiView, UI_VIEW_LABELS } from '@/contexts/UiViewContext';
 import { useOpenContestationsCount } from '@/hooks/use-open-contestations-count';

@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { ChartCard } from '@/components/dashboard/ChartCard';
 import { useApiResource } from '@/hooks/use-api-resource';
 import { formatDateTime } from '@/lib/utils';

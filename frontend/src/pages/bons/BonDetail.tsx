@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { XCircle, AlertTriangle } from 'lucide-react';
 import { useBonActions } from './detail/useBonActions';

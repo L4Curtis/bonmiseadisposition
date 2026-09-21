@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ChartCard } from '@/components/dashboard/ChartCard';

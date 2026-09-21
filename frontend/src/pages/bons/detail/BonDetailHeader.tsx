@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { ChevronLeft } from 'lucide-react';
 import { StatusBadge } from '@/components/StatusBadge';
 import { formatDateLong } from '@/lib/utils';

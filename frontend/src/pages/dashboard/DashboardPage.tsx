@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo } from 'react';
 import { FADE_IN } from '@/components/dashboard/stagger';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { CalendarDays, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';

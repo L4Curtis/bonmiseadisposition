@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { Search, WifiOff } from 'lucide-react';
 import { api } from '@/lib/api';
 import { BON_STATUS_LABELS, type BonStatus } from '@/types';

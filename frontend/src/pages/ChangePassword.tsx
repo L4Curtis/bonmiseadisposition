@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router';
 import { Lock, CheckCircle2, XCircle, Eye, EyeOff } from 'lucide-react';
 import { changePasswordSchema, validate } from '@/lib/validation';
 import { isSafeReturnTo } from '@/lib/safe-return-to';
