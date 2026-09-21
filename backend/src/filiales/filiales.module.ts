@@ -2,7 +2,7 @@ import { BadRequestException, Module } from '@nestjs/common';
 import { MulterModule } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname, join } from 'path';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'node:crypto';
 import { FilialesController } from './filiales.controller';
 import { FilialesService } from './filiales.service';
 
@@ -12,7 +12,7 @@ import { FilialesService } from './filiales.service';
       storage: diskStorage({
         destination: join(process.cwd(), 'data', 'uploads'),
         filename: (_req, file, cb) => {
-          cb(null, `${uuidv4()}${extname(file.originalname)}`);
+          cb(null, `${randomUUID()}${extname(file.originalname)}`);
         },
       }),
       limits: { fileSize: 5 * 1024 * 1024 }, // 5MB

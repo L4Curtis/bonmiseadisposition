@@ -2,7 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import { writeFile, unlink } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'node:crypto';
 
 /** Taille max de l'image décodée (logo/cachet) acceptée à l'import CSV. */
 export const MAX_FILIALE_IMAGE_BYTES = 2 * 1024 * 1024; // 2 Mo
@@ -70,7 +70,7 @@ export async function saveFilialeImageFromBase64(raw: string, fieldLabel: string
     throw new BadRequestException(`${fieldLabel} : format non supporté (PNG ou JPEG uniquement).`);
   }
 
-  const filename = `${uuidv4()}.${ext}`;
+  const filename = `${randomUUID()}.${ext}`;
   await writeFile(join(UPLOADS_DIR, filename), decoded);
   return `uploads/${filename}`;
 }
