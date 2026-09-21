@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { todayLocalISO } from '@/lib/utils';
+import { todayInParis } from '@/lib/kpi-period';
 
 export interface DatesSectionProps {
   readonly dateMiseDisposition: string;
@@ -41,7 +41,7 @@ export function DatesSection({
               size="icon"
               className="h-9 w-9 shrink-0"
               title="Aujourd'hui"
-              onClick={() => onDateMiseDispositionChange(todayLocalISO())}
+              onClick={() => onDateMiseDispositionChange(todayInParis())}
             >
               <CalendarCheck className="h-3.5 w-3.5" />
             </Button>
@@ -63,7 +63,7 @@ export function DatesSection({
               size="icon"
               className="h-9 w-9 shrink-0"
               title="Aujourd'hui"
-              onClick={() => onDateRestitutionChange(todayLocalISO())}
+              onClick={() => onDateRestitutionChange(todayInParis())}
             >
               <CalendarCheck className="h-3.5 w-3.5" />
             </Button>

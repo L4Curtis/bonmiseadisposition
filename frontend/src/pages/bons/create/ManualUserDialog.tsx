@@ -28,6 +28,7 @@ interface ManualUserResponse {
   displayName: string;
   email: string | null;
   department?: string | null;
+  filialeId?: string | null;
   isManualAccount: boolean;
 }
 
@@ -91,6 +92,9 @@ export function ManualUserDialog({ open, onOpenChange, initialLastName, onCreate
         displayName: created.displayName,
         email: created.email,
         department: created.department,
+        // La filiale choisie ici (facultative) pré-remplit celle du bon —
+        // voir useBonCreateForm — comme pour un collaborateur d'annuaire.
+        filialeId: created.filialeId ?? (filialeId || undefined),
       });
       onOpenChange(false);
     } catch (err: unknown) {

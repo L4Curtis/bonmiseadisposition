@@ -4,6 +4,7 @@ import {
   duplicateLine,
   distributeSerialsFromLine,
   findDuplicateSerialIds,
+  isNonEmptyLine,
   splitPastedSerials,
   MIN_CATALOG_QUANTITY,
   MAX_CATALOG_QUANTITY,
@@ -120,6 +121,23 @@ describe('distributeSerialsFromLine', () => {
     const lines: EquipmentLine[] = [newLine({ customLabel: 'Écran' })];
     expect(distributeSerialsFromLine(lines, 'inconnu', ['SN-1'])).toEqual(lines);
     expect(distributeSerialsFromLine(lines, lines[0]._id, [])).toEqual(lines);
+  });
+});
+
+describe('isNonEmptyLine', () => {
+  it('considère vide une ligne sans aucune saisie', () => {
+    expect(isNonEmptyLine(newLine({}))).toBe(false);
+    expect(isNonEmptyLine(newLine({ customLabel: '   ' }))).toBe(false);
+  });
+
+  it.each([
+    ['catalogItemId', { catalogItemId: 'c1' }],
+    ['customLabel', { customLabel: 'Souris' }],
+    ['serialNumber', { serialNumber: 'SN-1' }],
+    ['inventoryNumber', { inventoryNumber: 'INV-1' }],
+    ['notes', { notes: 'Reconditionné' }],
+  ])('considère non vide une ligne avec %s renseigné', (_label, partial) => {
+    expect(isNonEmptyLine(newLine(partial))).toBe(true);
   });
 });
 

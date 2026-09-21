@@ -5,6 +5,9 @@ export interface UserResult {
    *  isDeliverableEmail (@/lib/email), qui accepte déjà cette valeur. */
   email: string | null;
   department?: string | null;
+  /** Filiale connue de l'annuaire (ou choisie à la création manuelle) — sert
+   *  à pré-remplir la filiale du bon quand elle n'a pas déjà été choisie. */
+  filialeId?: string | null;
 }
 
 export interface CatalogItem {

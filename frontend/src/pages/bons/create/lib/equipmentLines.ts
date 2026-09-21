@@ -4,6 +4,17 @@ import type { EquipmentLine } from '../types';
 export const MIN_CATALOG_QUANTITY = 1;
 export const MAX_CATALOG_QUANTITY = 50;
 
+/** Une ligne contient une saisie utile (article, libellé, numéro de série,
+ *  numéro d'inventaire ou notes) — sert de base commune à tout import qui
+ *  complète le formulaire courant sans écraser une ligne déjà renseignée
+ *  (import de pack, duplication d'un bon existant). */
+export function isNonEmptyLine(line: EquipmentLine): boolean {
+  return Boolean(
+    line.catalogItemId || line.customLabel?.trim() || line.serialNumber?.trim() ||
+    line.inventoryNumber?.trim() || line.notes?.trim(),
+  );
+}
+
 /** Ramène une quantité saisie à un entier valide dans les bornes autorisées
  *  (au moins une unité, au plus MAX_CATALOG_QUANTITY pour éviter une saisie
  *  erronée qui créerait des milliers de lignes). */

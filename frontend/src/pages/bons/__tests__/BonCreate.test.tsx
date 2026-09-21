@@ -7,7 +7,17 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/render';
 import { resetActiveFilialesForTests } from '@/hooks/use-active-filiales';
+import { todayInParis } from '@/lib/kpi-period';
 import { CatalogSearch, UserAutocomplete, BonCreatePage } from '../BonCreate';
+
+const DRAFT_STORAGE_KEY = 'bon-create-draft:v1';
+
+// Un brouillon laissé par un test précédent ne doit jamais fuiter vers le
+// suivant (chaque test rend sa propre page, mais localStorage est partagé
+// par tout le fichier — voir C5, lib/draftStorage).
+beforeEach(() => {
+  window.localStorage.clear();
+});
 
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>();
@@ -230,7 +240,12 @@ describe('BonCreatePage — validation avant envoi', () => {
     await user.click(screen.getByRole('button', { name: /créer le bon/i }));
 
     expect(await screen.findByText(/déjà en circulation sur un autre bon/i)).toBeInTheDocument();
-    expect(await screen.findByText(/BON-2026-0042/)).toBeInTheDocument();
+    // Scopé à la liste du bandeau de soumission : depuis C6, la même référence
+    // peut aussi apparaître dans l'avertissement de ligne (sortie de champ) —
+    // les deux sont attendus simultanément, voir useLiveSerialConflicts.
+    const conflictList = container.querySelector('ul.list-disc');
+    expect(conflictList).toHaveTextContent('BON-2026-0042');
+    expect(conflictList).toHaveTextContent('Marie Martin');
     expect(api.post).not.toHaveBeenCalled();
   });
 
@@ -238,12 +253,11 @@ describe('BonCreatePage — validation avant envoi', () => {
     const user = userEvent.setup();
     const { container } = renderWithProviders(<BonCreatePage />);
 
-    // La date de mise à disposition porte l'attribut HTML `required` : sans
-    // valeur, le navigateur (et jsdom) bloque nativement la soumission avant
-    // même que React ne voie l'événement submit — aucun message Zod ne
-    // s'affiche alors, pas parce que la validation collaborateur est absente,
-    // mais parce qu'on n'atteint jamais handleSubmit. On la renseigne donc
-    // pour isoler précisément le message qui nous intéresse ici.
+    // La date de mise à disposition est pré-remplie à aujourd'hui dès
+    // l'ouverture (C2) et porte l'attribut HTML `required` : elle n'est donc
+    // plus la cause d'un blocage natif de soumission ici. On la fixe malgré
+    // tout à une valeur stable pour isoler précisément le message qui nous
+    // intéresse dans ce test (indépendant de la date du jour).
     const dateInput = container.querySelector('input[type="date"]') as HTMLInputElement;
     fireEvent.change(dateInput, { target: { value: '2026-01-01' } });
 
@@ -256,5 +270,253 @@ describe('BonCreatePage — validation avant envoi', () => {
 
     expect(await screen.findByText('Sélectionnez un collaborateur')).toBeInTheDocument();
     expect(api.post).not.toHaveBeenCalled();
+  });
+});
+
+describe('BonCreatePage — pré-remplissage à l\'ouverture (C1, C2)', () => {
+  const siege = { id: 'f1', name: 'siege', displayName: 'Siège', active: true };
+  const agenceLyon = { id: 'f2', name: 'agence-lyon', displayName: 'Agence Lyon', active: true };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetActiveFilialesForTests();
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path.startsWith('/filiales/active')) return Promise.resolve([siege, agenceLyon]);
+      if (path.startsWith('/equipment/catalog')) return Promise.resolve([]);
+      if (path.startsWith('/equipment/packs')) return Promise.resolve([]);
+      if (path.startsWith('/users/search')) {
+        // Collaborateur d'annuaire dont la filiale est connue (voir /users/search).
+        return Promise.resolve([{ id: 'u1', displayName: 'Jean Dupont', email: 'jean@livio.fr', filialeId: 'f2' }]);
+      }
+      if (path.startsWith('/equipment/serial-conflicts')) return Promise.resolve({ items: [], truncated: false });
+      return Promise.reject(new Error(`GET non mocké dans ce test : ${path}`));
+    });
+  });
+
+  // C2 : la date de mise à disposition est pré-remplie à aujourd'hui côté
+  // Paris (todayInParis), pas via toISOString() qui décale en soirée.
+  it('C2 — la date de mise à disposition est pré-remplie à aujourd\'hui à l\'ouverture, en création', async () => {
+    const { container } = renderWithProviders(<BonCreatePage />);
+    // Laisse le chargement des données de référence (filiales/catalogue/packs)
+    // se résoudre pour ne pas laisser de mise à jour d'état hors act().
+    await waitFor(() => expect(api.get).toHaveBeenCalled());
+    const dateInput = container.querySelector('input[type="date"]') as HTMLInputElement;
+    expect(dateInput.value).toBe(todayInParis());
+  });
+
+  // C2 : jamais en édition d'un bon existant — la date vient du brouillon serveur.
+  it("C2 — n'écrase pas la date d'un brouillon existant en édition", async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path.startsWith('/filiales/active')) return Promise.resolve([siege, agenceLyon]);
+      if (path.startsWith('/equipment/catalog')) return Promise.resolve([]);
+      if (path.startsWith('/equipment/packs')) return Promise.resolve([]);
+      if (path === '/bons/existant') {
+        return Promise.resolve({
+          id: 'existant',
+          reference: 'BON-2026-0001',
+          status: 'draft',
+          filialeId: 'f1',
+          civilite: 'mr',
+          dateMiseDisposition: '2020-05-01',
+          collaborateur: { id: 'u1', displayName: 'Jean Dupont', email: 'jean@livio.fr' },
+          equipments: [],
+        });
+      }
+      return Promise.reject(new Error(`GET non mocké dans ce test : ${path}`));
+    });
+
+    const { container } = renderWithProviders(<BonCreatePage />, { route: '/bons/existant/edit', path: '/bons/:id/edit' });
+    await waitFor(() => expect(screen.getByText('Modifier le brouillon BON-2026-0001')).toBeInTheDocument());
+    const dateInput = container.querySelector('input[type="date"]') as HTMLInputElement;
+    expect(dateInput.value).toBe('2020-05-01');
+  });
+
+  it('C1 — choisir un collaborateur dans l\'autocomplétion pré-remplit sa filiale connue de l\'annuaire', async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const { container } = renderWithProviders(<BonCreatePage />);
+
+    await user.type(screen.getByPlaceholderText('Rechercher un collaborateur...'), 'Jean');
+    await user.click(await screen.findByText('Jean Dupont'));
+
+    const filialeTrigger = container.querySelector('#filiale-select') as HTMLElement;
+    await waitFor(() => expect(filialeTrigger).toHaveTextContent('Agence Lyon'));
+  });
+
+  it('C1 — ne recouvre jamais une filiale déjà choisie manuellement par l\'utilisateur', async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const { container } = renderWithProviders(<BonCreatePage />);
+    const filialeTrigger = container.querySelector('#filiale-select') as HTMLElement;
+
+    // Choix manuel d'abord (filiale différente de celle du collaborateur)
+    await user.click(screen.getByText('Sélectionner une filiale...'));
+    await user.click(await screen.findByRole('option', { name: 'Siège' }));
+    expect(filialeTrigger).toHaveTextContent('Siège');
+
+    await user.type(screen.getByPlaceholderText('Rechercher un collaborateur...'), 'Jean');
+    await user.click(await screen.findByText('Jean Dupont'));
+
+    expect(filialeTrigger).toHaveTextContent('Siège');
+    expect(filialeTrigger).not.toHaveTextContent('Agence Lyon');
+  });
+
+  it('C1 — un collaborateur sans filiale connue laisse la filiale du formulaire inchangée', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path.startsWith('/filiales/active')) return Promise.resolve([siege, agenceLyon]);
+      if (path.startsWith('/equipment/catalog')) return Promise.resolve([]);
+      if (path.startsWith('/equipment/packs')) return Promise.resolve([]);
+      if (path.startsWith('/users/search')) {
+        return Promise.resolve([{ id: 'u2', displayName: 'Alice Martin', email: 'alice@livio.fr' }]);
+      }
+      if (path.startsWith('/equipment/serial-conflicts')) return Promise.resolve({ items: [], truncated: false });
+      return Promise.reject(new Error(`GET non mocké dans ce test : ${path}`));
+    });
+    const user = userEvent.setup();
+    const { container } = renderWithProviders(<BonCreatePage />);
+    const filialeTrigger = container.querySelector('#filiale-select') as HTMLElement;
+
+    await user.type(screen.getByPlaceholderText('Rechercher un collaborateur...'), 'Alice');
+    await user.click(await screen.findByText('Alice Martin'));
+
+    expect(filialeTrigger).toHaveTextContent('Sélectionner une filiale...');
+  });
+});
+
+describe("BonCreatePage — repartir d'un bon existant via ?duplicateFrom (C3)", () => {
+  const filiale = { id: 'f1', name: 'siege', displayName: 'Siège', active: true };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetActiveFilialesForTests();
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path.startsWith('/filiales/active')) return Promise.resolve([filiale]);
+      if (path.startsWith('/equipment/catalog')) return Promise.resolve([]);
+      if (path.startsWith('/equipment/packs')) return Promise.resolve([]);
+      if (path === '/bons/source-bon') {
+        return Promise.resolve({
+          id: 'source-bon',
+          reference: 'BON-2026-0010',
+          dateMiseDisposition: '2020-01-01',
+          collaborateur: { id: 'u9', displayName: 'Ancien Titulaire', email: 'ancien@livio.fr' },
+          equipments: [{ catalogItem: null, customLabel: 'Casque audio' }],
+        });
+      }
+      return Promise.reject(new Error(`GET non mocké dans ce test : ${path}`));
+    });
+  });
+
+  it('importe les équipements du bon indiqué, sans reprendre le collaborateur ni les dates', async () => {
+    renderWithProviders(<BonCreatePage />, {
+      route: '/bons/new?duplicateFrom=source-bon',
+      path: '/bons/new',
+    });
+
+    expect(await screen.findByDisplayValue('Casque audio')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Rechercher un collaborateur...')).toBeInTheDocument();
+    expect(screen.queryByText('Ancien Titulaire')).not.toBeInTheDocument();
+  });
+});
+
+describe('BonCreatePage — conflit de numéro de série au fil de la saisie (C6)', () => {
+  const filiale = { id: 'f1', name: 'siege', displayName: 'Siège', active: true };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetActiveFilialesForTests();
+  });
+
+  it('signale un conflit dès la sortie du champ, avant toute soumission', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path.startsWith('/filiales/active')) return Promise.resolve([filiale]);
+      if (path.startsWith('/equipment/catalog')) return Promise.resolve([]);
+      if (path.startsWith('/equipment/packs')) return Promise.resolve([]);
+      if (path.startsWith('/equipment/serial-conflicts')) {
+        return Promise.resolve({
+          items: [{
+            serialNumber: 'SN-999',
+            bonId: 'b-autre',
+            bonReference: 'BON-2026-0099',
+            bonStatus: 'active',
+            collaborateur: 'Marie Martin',
+          }],
+          truncated: false,
+        });
+      }
+      return Promise.reject(new Error(`GET non mocké dans ce test : ${path}`));
+    });
+
+    renderWithProviders(<BonCreatePage />);
+    await user.type(screen.getAllByPlaceholderText('Libellé personnalisé')[0], 'Laptop A');
+    await user.type(screen.getByPlaceholderText('SN-XXXXX'), 'SN-999');
+    await user.tab();
+
+    expect(await screen.findByText(/Déjà en circulation sur BON-2026-0099/)).toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
+  });
+});
+
+describe('BonCreatePage — brouillon local conservé (C5)', () => {
+  const filiale = { id: 'f1', name: 'siege', displayName: 'Siège', active: true };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetActiveFilialesForTests();
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path.startsWith('/filiales/active')) return Promise.resolve([filiale]);
+      if (path.startsWith('/equipment/catalog')) return Promise.resolve([]);
+      if (path.startsWith('/equipment/packs')) return Promise.resolve([]);
+      if (path.startsWith('/users/search')) {
+        return Promise.resolve([{ id: 'u1', displayName: 'Jean Dupont', email: 'jean@livio.fr' }]);
+      }
+      if (path.startsWith('/equipment/serial-conflicts')) return Promise.resolve({ items: [], truncated: false });
+      return Promise.reject(new Error(`GET non mocké dans ce test : ${path}`));
+    });
+  });
+
+  it('conserve la saisie en cours et la restaure à la réouverture de la page', async () => {
+    const user = userEvent.setup();
+    const { unmount } = renderWithProviders(<BonCreatePage />);
+
+    await user.type(screen.getByPlaceholderText('Informations complémentaires...'), 'Écran fissuré à vérifier');
+    await waitFor(() => expect(window.localStorage.getItem(DRAFT_STORAGE_KEY)).toContain('Écran fissuré'));
+    unmount();
+
+    renderWithProviders(<BonCreatePage />);
+    expect(await screen.findByText(/Brouillon restauré/i)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Informations complémentaires...')).toHaveValue('Écran fissuré à vérifier');
+  });
+
+  it('« Repartir de zéro » efface le brouillon restauré et revient aux valeurs par défaut', async () => {
+    const user = userEvent.setup();
+    const { unmount } = renderWithProviders(<BonCreatePage />);
+    await user.type(screen.getByPlaceholderText('Informations complémentaires...'), 'À reprendre plus tard');
+    await waitFor(() => expect(window.localStorage.getItem(DRAFT_STORAGE_KEY)).not.toBeNull());
+    unmount();
+
+    renderWithProviders(<BonCreatePage />);
+    await screen.findByText(/Brouillon restauré/i);
+    await user.click(screen.getByRole('button', { name: 'Repartir de zéro' }));
+
+    expect(screen.queryByText(/Brouillon restauré/i)).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Informations complémentaires...')).toHaveValue('');
+    expect(window.localStorage.getItem(DRAFT_STORAGE_KEY)).toBeNull();
+  });
+
+  it('efface le brouillon local une fois le bon créé', async () => {
+    vi.mocked(api.post).mockResolvedValue({ id: 'nouveau-bon' });
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    renderWithProviders(<BonCreatePage />);
+
+    await user.type(screen.getByPlaceholderText('Rechercher un collaborateur...'), 'Jean');
+    await user.click(await screen.findByText('Jean Dupont'));
+    await user.click(screen.getByText('Sélectionner une filiale...'));
+    await user.click(await screen.findByRole('option', { name: 'Siège' }));
+    await user.type(screen.getAllByPlaceholderText('Libellé personnalisé')[0], 'Laptop A');
+    await waitFor(() => expect(window.localStorage.getItem(DRAFT_STORAGE_KEY)).not.toBeNull());
+
+    await user.click(screen.getByRole('button', { name: /créer le bon/i }));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalled());
+    expect(window.localStorage.getItem(DRAFT_STORAGE_KEY)).toBeNull();
   });
 });

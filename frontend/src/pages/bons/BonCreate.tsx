@@ -1,6 +1,6 @@
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { ChevronLeft } from 'lucide-react';
+import { ChevronLeft, X } from 'lucide-react';
 import { useBonCreateForm } from './create/useBonCreateForm';
 import { CollaborateurSection } from './create/CollaborateurSection';
 import { DatesSection } from './create/DatesSection';
@@ -51,6 +51,12 @@ export function BonCreatePage() {
     confirmDespiteConflicts,
     handleSubmit,
     conflictsRef,
+    liveSerialConflicts,
+    checkSerialConflict,
+    importDuplicatedEquipments,
+    restoredFromDraft,
+    discardRestoredDraft,
+    dismissRestoredNotice,
   } = useBonCreateForm();
 
   const goBack = () => { if (confirmLeave()) navigate(isEditing ? `/bons/${editBonId}` : '/bons'); };
@@ -67,6 +73,27 @@ export function BonCreatePage() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
+        {restoredFromDraft && (
+          <div
+            role="status"
+            className="flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 px-4 py-2.5 text-sm text-muted-foreground"
+          >
+            <span>Brouillon restauré depuis votre dernière visite sur cette page.</span>
+            <div className="flex shrink-0 items-center gap-3">
+              <button type="button" className="font-medium text-primary hover:underline" onClick={discardRestoredDraft}>
+                Repartir de zéro
+              </button>
+              <button
+                type="button"
+                onClick={dismissRestoredNotice}
+                aria-label="Masquer cet avis"
+                className="text-muted-foreground/60 hover:text-muted-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        )}
         {initError && (
           <div className="rounded-lg bg-destructive/10 border border-destructive/20 px-4 py-3 text-sm text-destructive flex items-center justify-between gap-3" role="alert">
             <span>Impossible de charger les filiales et le catalogue — le formulaire est incomplet.</span>
@@ -135,6 +162,7 @@ export function BonCreatePage() {
           allCatalogItems={allCatalogItems}
           packs={packs}
           duplicateSerialIds={duplicateSerialIds}
+          liveSerialConflicts={liveSerialConflicts}
           onAddFromCatalog={addFromCatalog}
           onAddFromPack={addFromPack}
           onAddEmptyLine={addEmptyLine}
@@ -142,6 +170,8 @@ export function BonCreatePage() {
           onUpdateEquipment={updateEquipment}
           onDuplicateEquipment={duplicateEquipment}
           onPasteSerial={pasteSerial}
+          onSerialBlur={checkSerialConflict}
+          onImportDuplicatedEquipments={importDuplicatedEquipments}
         />
 
         {/* Notes */}

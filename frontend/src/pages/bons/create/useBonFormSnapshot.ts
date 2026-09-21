@@ -24,6 +24,10 @@ export interface BonFormSnapshotResult {
   loaded: boolean;
   setLoaded: (loaded: boolean) => void;
   confirmLeave: () => boolean;
+  /** Le formulaire a changé depuis la baseline — exposé pour que l'appelant
+   *  ne purge le brouillon local (localStorage) qu'après un abandon EXPLICITE
+   *  de modifications réelles, jamais un simple retour sans rien changer. */
+  dirty: boolean;
 }
 
 /** Garde « modifications non enregistrées » : compare un instantané du
@@ -63,5 +67,5 @@ export function useBonFormSnapshot({
   const confirmLeave = () =>
     !dirty || window.confirm('Des modifications non enregistrées seront perdues. Quitter quand même ?');
 
-  return { snapshot, loaded, setLoaded, confirmLeave };
+  return { snapshot, loaded, setLoaded, confirmLeave, dirty };
 }
