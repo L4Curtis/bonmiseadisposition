@@ -1,6 +1,6 @@
-import { Search, X } from 'lucide-react';
+import { Search, UserX, X } from 'lucide-react';
 import type { Filiale } from '@/types';
-import type { InventoryCategorySummary, InventorySituationSummary } from './types';
+import type { CompteFilter, InventoryCategorySummary, InventorySituationSummary } from './types';
 
 interface InventoryFiltersProps {
   searchInput: string;
@@ -18,6 +18,11 @@ interface InventoryFiltersProps {
    *  comme un chip refermable, la tuile n'ayant pas d'état visuel persistant. */
   overdueFilter: boolean;
   onClearOverdue: () => void;
+  /** Lot D1 (départ d'un collaborateur) : bascule « comptes désactivés
+   *  uniquement », propre à la vue « Par collaborateur » (cf. Inventaire.tsx). */
+  compteFilter: CompteFilter;
+  onCompteFilterChange: (value: CompteFilter) => void;
+  showCompteFilter: boolean;
   hasActiveFilters: boolean;
   onReset: () => void;
 }
@@ -37,6 +42,9 @@ export function InventoryFilters({
   categories,
   overdueFilter,
   onClearOverdue,
+  compteFilter,
+  onCompteFilterChange,
+  showCompteFilter,
   hasActiveFilters,
   onReset,
 }: InventoryFiltersProps) {
@@ -107,6 +115,22 @@ export function InventoryFilters({
         >
           Retards uniquement
           <X className="h-3 w-3" />
+        </button>
+      )}
+
+      {showCompteFilter && (
+        <button
+          type="button"
+          onClick={() => onCompteFilterChange(compteFilter === 'inactif' ? '' : 'inactif')}
+          aria-pressed={compteFilter === 'inactif'}
+          className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${
+            compteFilter === 'inactif'
+              ? 'border-warning/40 bg-warning/10 text-warning'
+              : 'border-border bg-card text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <UserX className="h-3.5 w-3.5" aria-hidden="true" />
+          Comptes désactivés uniquement
         </button>
       )}
 

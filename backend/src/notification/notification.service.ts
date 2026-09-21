@@ -5,6 +5,8 @@ import { AppConfigService } from '../config/config.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { TemplatesService } from '../templates/templates.service';
 import { NotificationBon } from '../common/types';
+import { isDeliverableEmail } from '../common/email';
+import type { CollaborateurInventoryItem } from '../reporting/inventory-collaborateur-aggregate';
 import { resolveAppUrl } from './app-url';
 import {
   readSmtpSettings,
@@ -31,6 +33,7 @@ import {
   buildContestationResolutionMessage,
   ContestationResolutionAction,
 } from './messages/contestation-messages';
+import { buildDepartureAlertMessage } from './messages/departure-alert-message';
 import {
   buildCancellationNotice,
   buildMarkFoundNotice,
@@ -254,6 +257,63 @@ export class NotificationService {
       vars,
       subject,
     });
+  }
+
+  // ─── Départ d'un collaborateur (lot D1) ──────────────────────────────────────
+
+  /**
+   * Alerte récapitulative unique envoyée au staff IT (admin + technicien actifs,
+   * même sélection que sendContestationAlert) quand la synchronisation LDAP
+   * vient de désactiver un ou plusieurs comptes qui détiennent encore du
+   * matériel. Un seul email pour tout le lot (pas un par collaborateur) —
+   * l'appelant (LdapService / departure-notifications.ts) a déjà résolu la
+   * liste et la déduplication (journal d'audit) avant d'appeler cette méthode.
+   *
+   * Ne journalise pas dans NotificationLog : contrairement aux autres emails,
+   * cette alerte ne porte pas sur UN bon (bonId obligatoire dans
+   * NotificationLog) mais sur plusieurs collaborateurs/bons — la traçabilité
+   * de l'envoi est assurée en amont par l'appelant (AuditLog, action
+   * `departure_notified`, un enregistrement par collaborateur notifié).
+   *
+   * Renvoie `true` si l'email est parti chez au moins un destinataire IT, pour
+   * que l'appelant sache s'il peut marquer les collaborateurs comme notifiés
+   * (sinon la prochaine synchronisation retentera l'envoi).
+   */
+  async sendDepartureAlert(candidates: readonly CollaborateurInventoryItem[]): Promise<boolean> {
+    if (candidates.length === 0) return false;
+
+    const appUrl = await this.getAppUrl();
+    if (!appUrl) {
+      this.logger.error(
+        `Alerte départ non envoyée (${candidates.length} collaborateur(s) concerné(s)) : URL de l'application non configurée`,
+      );
+      return false;
+    }
+
+    const itStaff = (
+      await this.prisma.user.findMany({
+        where: { isItStaff: true, active: true },
+        select: { email: true },
+      })
+    ).filter((staff): staff is { email: string } => isDeliverableEmail(staff.email));
+    if (itStaff.length === 0) {
+      this.logger.warn(
+        `Alerte départ non envoyée (${candidates.length} collaborateur(s) concerné(s)) : aucun utilisateur IT actif avec une adresse email délivrable`,
+      );
+      return false;
+    }
+
+    const inventoryUrl = `${appUrl}/inventaire?vue=collaborateurs&compte=inactif`;
+    const { vars, subject } = buildDepartureAlertMessage(candidates, inventoryUrl);
+    const html = await this.templatesService.renderTemplate('departure_alert', vars);
+
+    const results = await Promise.all(itStaff.map((staff) => this.sendEmail(staff.email, subject, html)));
+    const anyOk = results.some((r) => r.ok);
+    if (!anyOk) {
+      const combinedError = results.map((r) => r.error ?? "Erreur d'envoi inconnue").join('; ');
+      this.logger.error(`Alerte départ : échec d'envoi à tous les destinataires IT (${combinedError})`);
+    }
+    return anyOk;
   }
 
   // ─── Cancel / MarkFound ──────────────────────────────────────────────────────

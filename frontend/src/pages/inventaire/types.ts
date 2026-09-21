@@ -83,12 +83,19 @@ export type InventoryView = 'equipements' | 'collaborateurs';
  *  plus ancien d'abord). */
 export type CollaborateurSort = 'count' | 'oldest';
 
+/** Filtre sur l'état du compte du collaborateur (lot D1 — départ d'un
+ *  collaborateur), propre à la vue « Par collaborateur ». `''` = pas de
+ *  filtre. */
+export type CompteFilter = '' | 'actif' | 'inactif';
+
 export interface CollaborateurInventoryItem {
   collaborateurId: string;
   displayName: string;
   email: string | null;
   department: string | null;
   filiale: InventoryFiliale | null;
+  /** État du compte (`User.active`) — alimente la pastille « Compte désactivé ». */
+  active: boolean;
   count: number;
   overdueCount: number;
   oldestDateMiseDisposition: string;

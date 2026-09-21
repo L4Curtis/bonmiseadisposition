@@ -3,6 +3,7 @@ import { AdminService } from '../admin.service';
 import { AppConfigService } from '../../config/config.service';
 import { EncryptionService } from '../../config/encryption.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { NotificationService } from '../../notification/notification.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
 import { createMockConfigService, createMockEncryptionService } from '../../common/__tests__/helpers/mock-services';
 
@@ -21,6 +22,7 @@ describe('AdminService', () => {
   let prisma: ReturnType<typeof createMockPrismaService>;
   let configService: ReturnType<typeof createMockConfigService>;
   let encryption: ReturnType<typeof createMockEncryptionService>;
+  let notificationService: { sendDepartureAlert: jest.Mock };
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -30,10 +32,15 @@ describe('AdminService', () => {
     (prisma.auditLog as unknown as Record<string, jest.Mock>).deleteMany = jest.fn();
     configService = createMockConfigService();
     encryption = createMockEncryptionService();
+    // Lot D1 : purgeLdapUsers délègue l'alerte « départ avec matériel » à
+    // NotificationService — mockée ici, testée en détail dans
+    // departure-notifications.spec.ts et notification.service.spec.ts.
+    notificationService = { sendDepartureAlert: jest.fn().mockResolvedValue(false) };
     service = new AdminService(
       configService as unknown as AppConfigService,
       encryption as unknown as EncryptionService,
       prisma as unknown as PrismaService,
+      notificationService as unknown as NotificationService,
     );
   });
 
@@ -103,6 +110,16 @@ describe('AdminService', () => {
   // ─── purgeLdapUsers ──────────────────────────────────────────────────────────
 
   describe('purgeLdapUsers', () => {
+    beforeEach(() => {
+      // Chemin nominal de l'alerte départ (lot D1) : aucun compte désactivé ne
+      // détient de matériel par défaut — les tests ci-dessous surchargent ces
+      // mocks quand ils veulent exercer l'envoi effectif. Sans ce défaut, le
+      // chemin non mocké journalise une erreur (rows is not iterable) même
+      // quand le test réussit — un test vert ne doit jamais crier dans les logs.
+      prisma.bonEquipment.findMany.mockResolvedValue([]);
+      prisma.user.findMany.mockResolvedValue([]);
+    });
+
     it('only deactivates LDAP-synced collaborators, excluding the caller (LOT C bug #5)', async () => {
       prisma.user.updateMany.mockResolvedValue({ count: 3 });
 
@@ -121,6 +138,64 @@ describe('AdminService', () => {
       expect(prisma.auditLog.create).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ action: 'ldap_users_deactivated' }) }),
       );
+    });
+
+    // ─── Alerte départ (lot D1) : même événement que la synchro LDAP ──────────
+
+    it('déclenche l\'alerte départ pour les comptes désactivés qui détiennent encore du matériel', async () => {
+      prisma.user.updateMany.mockResolvedValue({ count: 1 });
+      prisma.bonEquipment.findMany.mockResolvedValue([
+        {
+          bon: {
+            dateMiseDisposition: new Date('2026-01-10'),
+            dateRestitution: null,
+            collaborateur: { id: 'u-1', displayName: 'Jean Dupont', email: 'j.dupont@x.fr', department: 'IT', active: false },
+            filiale: { id: 'f-1', displayName: 'Paris' },
+          },
+        },
+      ]);
+      prisma.user.findMany.mockResolvedValue([{ id: 'u-1', updatedAt: new Date('2026-09-01') }]);
+      notificationService.sendDepartureAlert.mockResolvedValue(true);
+
+      await service.purgeLdapUsers('current-admin-id');
+
+      expect(notificationService.sendDepartureAlert).toHaveBeenCalledWith([
+        expect.objectContaining({ collaborateurId: 'u-1' }),
+      ]);
+      expect(prisma.auditLog.create).toHaveBeenCalledWith({
+        data: { action: 'departure_notified', details: { collaborateurId: 'u-1', equipmentCount: 1 } },
+      });
+    });
+
+    it('ne renvoie pas deux fois pour la même personne déjà notifiée depuis sa désactivation', async () => {
+      prisma.user.updateMany.mockResolvedValue({ count: 1 });
+      prisma.bonEquipment.findMany.mockResolvedValue([
+        {
+          bon: {
+            dateMiseDisposition: new Date('2026-01-10'),
+            dateRestitution: null,
+            collaborateur: { id: 'u-1', displayName: 'Jean Dupont', email: 'j.dupont@x.fr', department: 'IT', active: false },
+            filiale: { id: 'f-1', displayName: 'Paris' },
+          },
+        },
+      ]);
+      prisma.auditLog.findMany.mockResolvedValue([
+        { details: { collaborateurId: 'u-1' }, createdAt: new Date('2026-09-02') },
+      ]);
+      prisma.user.findMany.mockResolvedValue([{ id: 'u-1', updatedAt: new Date('2026-09-01') }]);
+
+      await service.purgeLdapUsers('current-admin-id');
+
+      expect(notificationService.sendDepartureAlert).not.toHaveBeenCalled();
+    });
+
+    it('ne fait pas échouer la purge quand l\'alerte départ échoue (résultat renvoyé normalement)', async () => {
+      prisma.user.updateMany.mockResolvedValue({ count: 1 });
+      prisma.bonEquipment.findMany.mockRejectedValue(new Error('boom'));
+
+      const result = await service.purgeLdapUsers('current-admin-id');
+
+      expect(result).toEqual({ deactivated: 1 });
     });
   });
 

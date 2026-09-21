@@ -170,7 +170,14 @@ export function CollaborateurTable({
                             <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
                           )}
                           <span>
-                            <span className="font-medium text-foreground leading-tight block">{c.displayName}</span>
+                            <span className="flex items-center gap-1.5">
+                              <span className="font-medium text-foreground leading-tight">{c.displayName}</span>
+                              {!c.active && (
+                                <span className="inline-flex items-center rounded-full bg-warning/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning">
+                                  Compte désactivé
+                                </span>
+                              )}
+                            </span>
                             <span className="text-xs text-muted-foreground/70">{c.department || '—'}</span>
                           </span>
                         </button>

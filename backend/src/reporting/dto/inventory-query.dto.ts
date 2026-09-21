@@ -27,6 +27,15 @@ export const toBoolean = ({ value }: { value: unknown }): unknown => {
 export const trimSearch = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' ? value.trim() : value;
 
+/** Filtre sur l'état du compte du collaborateur (`User.active`) — porté
+ *  uniquement par `InventoryByCollaborateurQueryDto` (cf. plus bas) : filtrer
+ *  la vue par équipement sur ce critère n'a pas d'usage identifié pour
+ *  l'instant. Déclaré ici (fichier « base ») pour éviter un cycle d'import
+ *  avec inventory-by-collaborateur-query.dto.ts, qui importe déjà de ce
+ *  fichier (toBoolean, trimSearch). */
+export const COMPTE_FILTER_VALUES = ['actif', 'inactif'] as const;
+export type CompteFilter = (typeof COMPTE_FILTER_VALUES)[number];
+
 /**
  * Champs de filtrage communs à `GET /reporting/inventory` et
  * `GET /reporting/inventory/by-collaborateur` : c'est le contrat implicite de
@@ -43,6 +52,8 @@ export interface InventoryWhereFilters {
   situation?: EquipmentSituation;
   overdue?: boolean;
   search?: string;
+  /** cf. COMPTE_FILTER_VALUES — seule InventoryByCollaborateurQueryDto le déclare. */
+  compte?: CompteFilter;
 }
 
 /** Query DTO commun à la liste paginée et à l'export CSV de l'inventaire du

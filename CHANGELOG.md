@@ -4,6 +4,19 @@ Historique des évolutions notables de l'application. Les entrées les plus réc
 
 ---
 
+## 2026-09-21 — Alerte « départ d'un collaborateur »
+
+### Ajouté
+- **Alerte « départs avec matériel »** : rien ne reliait jusqu'ici la procédure de départ à l'application —
+  quand la synchronisation LDAP désactivait un compte, personne n'était prévenu qu'il détenait encore du
+  matériel, qui partait avec la personne. En fin de synchronisation, un email récapitulatif unique prévient
+  désormais l'IT (nom, filiale, nombre d'équipements, ancienneté du prêt le plus ancien), sans jamais
+  renvoyer deux fois pour la même personne. Alerte seule : aucune action automatique sur les bons, la
+  restitution reste présentielle depuis la fiche du bon. Tuile « Départs avec matériel » sur le tableau de
+  bord IT, filtre `?compte=` et pastille « Compte désactivé » dans l'inventaire par collaborateur.
+
+---
+
 ## 2026-09-21 — Dépendances : plus aucune vulnérabilité connue
 
 Montées de version majeures, une par lot, chacune validée par les tests, le démarrage réel du binaire

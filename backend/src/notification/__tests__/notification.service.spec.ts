@@ -434,6 +434,92 @@ describe('NotificationService', () => {
     });
   });
 
+  // ─── sendDepartureAlert (lot D1 — départ d'un collaborateur) ────────────────
+
+  describe('sendDepartureAlert', () => {
+    const candidate = {
+      collaborateurId: 'u-1',
+      displayName: 'Jean Dupont',
+      email: 'jean@test.fr',
+      department: 'IT',
+      filiale: { id: 'f-1', displayName: 'Paris' },
+      active: false,
+      count: 3,
+      overdueCount: 0,
+      oldestDateMiseDisposition: new Date('2026-01-05'),
+      oldestAgeDays: 200,
+    };
+
+    it('renvoie false sans rien envoyer quand la liste de candidats est vide', async () => {
+      const result = await service.sendDepartureAlert([]);
+
+      expect(result).toBe(false);
+      expect(mockSendMail).not.toHaveBeenCalled();
+      expect(prisma.user.findMany).not.toHaveBeenCalled();
+    });
+
+    it('envoie un seul email récapitulatif à tout le staff IT actif avec une adresse délivrable', async () => {
+      asMock(prisma.user.findMany).mockResolvedValue([
+        { email: 'it1@test.fr' },
+        { email: 'it2@test.fr' },
+        { email: 'admin@local' }, // non délivrable (pas de domaine complet) — exclu
+      ]);
+
+      const result = await service.sendDepartureAlert([candidate]);
+
+      expect(result).toBe(true);
+      expect(prisma.user.findMany).toHaveBeenCalledWith({
+        where: { isItStaff: true, active: true },
+        select: { email: true },
+      });
+      expect(templatesService.renderTemplate).toHaveBeenCalledWith(
+        'departure_alert',
+        expect.objectContaining({ COUNT: '1' }),
+      );
+      // Un seul email par destinataire IT délivrable — pas un par collaborateur concerné.
+      expect(mockSendMail).toHaveBeenCalledTimes(2);
+    });
+
+    it("construit le lien vers l'inventaire filtré sur les comptes désactivés", async () => {
+      asMock(prisma.user.findMany).mockResolvedValue([{ email: 'it1@test.fr' }]);
+
+      await service.sendDepartureAlert([candidate]);
+
+      expect(templatesService.renderTemplate).toHaveBeenCalledWith(
+        'departure_alert',
+        expect.objectContaining({ INVENTORY_URL: 'https://app.test.local/inventaire?vue=collaborateurs&compte=inactif' }),
+      );
+    });
+
+    it('renvoie false sans envoyer quand aucun IT actif ne dispose d\'une adresse délivrable', async () => {
+      asMock(prisma.user.findMany).mockResolvedValue([{ email: null }, { email: 'admin@local' }]);
+
+      const result = await service.sendDepartureAlert([candidate]);
+
+      expect(result).toBe(false);
+      expect(mockSendMail).not.toHaveBeenCalled();
+    });
+
+    it("renvoie false sans envoyer quand l'URL de l'application n'est pas configurée (production, sans repli d'environnement)", async () => {
+      const originalEnv = process.env.NODE_ENV;
+      const originalFrontendUrl = process.env.FRONTEND_URL;
+      process.env.NODE_ENV = 'production';
+      delete process.env.FRONTEND_URL;
+      configService.set('general', 'app_url', '');
+      asMock(prisma.user.findMany).mockResolvedValue([{ email: 'it1@test.fr' }]);
+
+      try {
+        const result = await service.sendDepartureAlert([candidate]);
+
+        expect(result).toBe(false);
+        expect(mockSendMail).not.toHaveBeenCalled();
+      } finally {
+        process.env.NODE_ENV = originalEnv;
+        if (originalFrontendUrl !== undefined) process.env.FRONTEND_URL = originalFrontendUrl;
+      }
+    });
+  });
+
   // ─── sendCancellationNotice ────────────────────────────────────────────────
 
   describe('sendCancellationNotice', () => {

@@ -97,6 +97,10 @@ export function createMockPrismaService(): MockPrismaService {
       // Resolved par défaut : certains appelants chaînent .catch() (non-bloquant)
       create: jest.fn().mockResolvedValue({}),
       findFirst: jest.fn(),
+      // Resolved par défaut (tableau vide) : departure-notifications.ts (lot D1)
+      // lit tout l'historique `departure_notified` à chaque appel — un défaut
+      // non mocké ne doit pas faire planter les appelants qui ne le testent pas.
+      findMany: jest.fn().mockResolvedValue([]),
       count: jest.fn(),
     },
 

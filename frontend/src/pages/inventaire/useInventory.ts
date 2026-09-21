@@ -6,6 +6,7 @@ import { toast } from '@/hooks/use-toast';
 import { useActiveFiliales } from '@/hooks/use-active-filiales';
 import { buildBaseFilterEntries, PAGE_LIMIT, type InventoryBaseFilters } from './inventoryFilterParams';
 import type {
+  CompteFilter,
   EquipmentSituation,
   InventoryItem,
   InventoryListResponse,
@@ -15,9 +16,17 @@ import type {
 } from './types';
 
 const SITUATIONS: EquipmentSituation[] = ['en_attente_signature', 'en_circulation', 'en_litige'];
+const COMPTE_FILTERS: CompteFilter[] = ['actif', 'inactif'];
 
 function readSituation(value: string | null): '' | EquipmentSituation {
   return SITUATIONS.includes(value as EquipmentSituation) ? (value as EquipmentSituation) : '';
+}
+
+/** Lot D1 (départ d'un collaborateur) : filtre propre à la vue « Par
+ *  collaborateur », jamais transmis à /reporting/inventory ni à l'export CSV —
+ *  voir buildFilterEntries ci-dessous, qui ne le lit pas. */
+function readCompte(value: string | null): CompteFilter {
+  return COMPTE_FILTERS.includes(value as CompteFilter) ? (value as CompteFilter) : '';
 }
 
 function readDirection(value: string | null): '' | SortDirection {
@@ -91,6 +100,7 @@ export function useInventory() {
   const [searchInput, setSearchInput] = useState(searchParams.get('search') ?? '');
   const [search, setSearch] = useState(searchParams.get('search') ?? '');
   const [overdueFilter, setOverdueFilterState] = useState(searchParams.get('overdue') === '1');
+  const [compteFilter, setCompteFilterState] = useState<CompteFilter>(() => readCompte(searchParams.get('compte')));
   const [sortDirection, setSortDirectionState] = useState<'' | SortDirection>(() =>
     readDirection(searchParams.get('direction')),
   );
@@ -101,6 +111,7 @@ export function useInventory() {
   const setCategoryFilter = (value: string) => { setCategoryFilterState(value); setPage(1); };
   const setSituationFilter = (value: string) => { setSituationFilterState(readSituation(value)); setPage(1); };
   const setOverdueFilter = (value: boolean) => { setOverdueFilterState(value); setPage(1); };
+  const setCompteFilter = (value: CompteFilter) => { setCompteFilterState(value); setPage(1); };
 
   /** Bascule le sens de tri de la colonne « Mise à disposition » (ancienneté).
    *  Le premier clic part du sens implicite par défaut (desc, le plus récent
@@ -117,6 +128,7 @@ export function useInventory() {
     setSearchInput('');
     setSearch('');
     setOverdueFilterState(false);
+    setCompteFilterState('');
     setPage(1);
   };
 
@@ -150,6 +162,10 @@ export function useInventory() {
 
     const urlParams = Object.fromEntries(filterEntries);
     if (view !== 'equipements') urlParams['vue'] = view;
+    // compte (lot D1) : persisté dans l'URL (deep-link tuile tableau de bord /
+    // email d'alerte) mais jamais transmis à /reporting/inventory ni à
+    // l'export CSV, qui ne le supportent pas — cf. buildFilterEntries plus haut.
+    if (compteFilter) urlParams['compte'] = compteFilter;
     if (page > 1) urlParams['page'] = String(page);
     setSearchParams(urlParams, { replace: true });
 
@@ -185,7 +201,7 @@ export function useInventory() {
       ignore = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filialeFilter, categoryFilter, situationFilter, search, overdueFilter, sortDirection, page, reloadKey, view]);
+  }, [filialeFilter, categoryFilter, situationFilter, search, overdueFilter, compteFilter, sortDirection, page, reloadKey, view]);
 
   const handleExport = async () => {
     setExportLoading(true);
@@ -208,7 +224,7 @@ export function useInventory() {
     }
   };
 
-  const hasActiveFilters = !!(filialeFilter || categoryFilter || situationFilter || search || overdueFilter);
+  const hasActiveFilters = !!(filialeFilter || categoryFilter || situationFilter || search || overdueFilter || compteFilter);
   const baseFilters: InventoryBaseFilters = { filialeFilter, categoryFilter, situationFilter, search, overdueFilter };
 
   return {
@@ -233,6 +249,8 @@ export function useInventory() {
     setSituationFilter,
     overdueFilter,
     setOverdueFilter,
+    compteFilter,
+    setCompteFilter,
     sortDirection,
     toggleDateSort,
     searchInput,

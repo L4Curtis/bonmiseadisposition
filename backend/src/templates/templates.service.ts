@@ -27,6 +27,7 @@ import {
   defaultContestationRejected,
 } from './defaults/contestation-defaults';
 import { defaultReminder, defaultRestitutionDueReminder } from './defaults/reminder-defaults';
+import { defaultDepartureAlert } from './defaults/departure-alert-defaults';
 
 export type { TemplateDefinition } from './template-catalog';
 
@@ -155,6 +156,7 @@ export class TemplatesService {
       case 'contestation_rejected':         return defaultContestationRejected();
       case 'reminder':                      return defaultReminder();
       case 'restitution_due_reminder':      return defaultRestitutionDueReminder();
+      case 'departure_alert':               return defaultDepartureAlert();
       default: throw new NotFoundException(`Template "${id}" introuvable`);
     }
   }

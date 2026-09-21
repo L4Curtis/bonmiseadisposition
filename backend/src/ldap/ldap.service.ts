@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import * as ldap from 'ldapjs';
 import { AppConfigService } from '../config/config.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationService } from '../notification/notification.service';
 import { JobTrackerService, JobOutcome } from '../monitoring/job-tracker.service';
 import { JOB_KEYS } from '../monitoring/job-registry';
 import { translateLdapConnectionError } from './ldap-errors';
@@ -12,6 +13,7 @@ import { searchLdapUsers } from './ldap-search';
 import { LdapUser } from './ldap-entry-parser';
 import { upsertLdapUsers } from './ldap-user-upsert';
 import { deactivateAbsentLdapUsers } from './ldap-deactivation';
+import { notifyDepartures } from './departure-notifications';
 
 export interface SyncStatus {
   lastSync: Date | null;
@@ -47,6 +49,7 @@ export class LdapService {
     private readonly configService: AppConfigService,
     private readonly prisma: PrismaService,
     private readonly jobTracker: JobTrackerService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   async testConnection(): Promise<{ success: boolean; message: string }> {
@@ -177,6 +180,18 @@ export class LdapService {
       };
 
       this.logger.log(`LDAP sync complete: ${users.length} users processed (${skipped} ignoré(s))`);
+
+      // Lot D1 (départ d'un collaborateur) : alerte l'IT si un compte
+      // (nouvellement désactivé ou non encore notifié) détient encore du
+      // matériel. Son propre try/catch : une panne ici (SMTP, template...) ne
+      // doit jamais faire échouer la synchro LDAP elle-même (même politique
+      // que les autres envois), ni empêcher this.syncStatus ci-dessus d'être
+      // considéré comme un succès.
+      try {
+        await this.runDepartureNotifications();
+      } catch (err: unknown) {
+        this.logger.error(`Alerte départ en échec (synchro LDAP non affectée): ${(err as Error).stack ?? err}`);
+      }
     } catch (err: unknown) {
       // Détail technique brut dans les journaux serveur uniquement ;
       // lastSyncError (affiché tel quel côté UI, cf. commentaire ci-dessus)
@@ -219,5 +234,16 @@ export class LdapService {
 
   private async deactivateAbsentUsers(syncStart: Date): Promise<{ aborted: boolean; abortMessage: string | null }> {
     return deactivateAbsentLdapUsers(this.prisma, this.logger, syncStart);
+  }
+
+  // Nom distinct de la fonction importée (même convention que
+  // deactivateAbsentUsers / deactivateAbsentLdapUsers ci-dessus) : évite toute
+  // ambiguïté de lecture entre la méthode et la fonction pure qu'elle délègue.
+  private async runDepartureNotifications(): Promise<void> {
+    return notifyDepartures({
+      prisma: this.prisma,
+      logger: this.logger,
+      sendAlert: (candidates) => this.notificationService.sendDepartureAlert(candidates),
+    });
   }
 }

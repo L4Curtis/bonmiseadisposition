@@ -2,7 +2,7 @@ export interface TemplateDefinition {
   id: string;
   name: string;
   description: string;
-  category: 'signature' | 'contestation' | 'rappel';
+  category: 'signature' | 'contestation' | 'rappel' | 'depart';
   recipient: string;
   /** Pastille affichée dans l'admin. Tous les emails partagent désormais
    *  l'en-tête de marque rouge Livio (cf. email-layout.brandHeader) — la pastille
@@ -32,6 +32,9 @@ export const VARIABLE_DESCRIPTIONS: Record<string, string> = {
   MAX_REMINDERS: 'Nombre maximum de rappels configuré',
   DATE_RESTITUTION: 'Date de restitution prévue',
   PORTAIL_URL: 'Lien vers le portail collaborateur (mes bons)',
+  COUNT: 'Nombre de collaborateurs concernés',
+  DEPART_LIST: 'Liste des collaborateurs concernés (balises <li>)',
+  INVENTORY_URL: "Lien vers l'inventaire par collaborateur, filtré sur les comptes désactivés",
 };
 
 const vars = (...names: string[]) =>
@@ -131,6 +134,15 @@ export const TEMPLATES: TemplateDefinition[] = [
     variables: vars('FILIALE_NOM', 'REFERENCE', 'TYPE_LABEL'),
   },
   {
+    id: 'departure_alert',
+    name: 'Alerte — Départs avec matériel',
+    description: "Envoyé au staff IT en fin de synchronisation LDAP quand un compte nouvellement désactivé détient encore du matériel",
+    category: 'depart',
+    recipient: 'Staff IT',
+    headerColor: BRAND_PASTILLE,
+    variables: vars('COUNT', 'DEPART_LIST', 'INVENTORY_URL'),
+  },
+  {
     id: 'restitution_due_reminder',
     name: 'Rappel — Restitution prévue',
     description: "Envoyé automatiquement au collaborateur avant la date de restitution prévue d'un bon actif",
@@ -190,4 +202,10 @@ export const PREVIEW_VARS: Record<string, string> = {
   USER_NAME: 'Jean Dupont',
   DATE_RESTITUTION: '20 avril 2026',
   PORTAIL_URL: '#',
+  COUNT: '2',
+  DEPART_LIST: [
+    '<li style="padding:10px 0;border-bottom:1px solid #E2DFD9;font-size:14px;color:#4A463F;line-height:1.6;list-style:none"><strong style="color:#1B1A18">Jean Dupont</strong> &middot; Groupe Livio — Filiale Demo<br><span style="color:#6B665E;font-size:13px">3 équipements &middot; prêt le plus ancien depuis 214 jours</span></li>',
+    '<li style="padding:10px 0;border-bottom:1px solid #E2DFD9;font-size:14px;color:#4A463F;line-height:1.6;list-style:none"><strong style="color:#1B1A18">Alice Martin</strong> &middot; Groupe Livio — Filiale Demo<br><span style="color:#6B665E;font-size:13px">1 équipement &middot; prêt le plus ancien depuis 42 jours</span></li>',
+  ].join('\n'),
+  INVENTORY_URL: '#',
 };

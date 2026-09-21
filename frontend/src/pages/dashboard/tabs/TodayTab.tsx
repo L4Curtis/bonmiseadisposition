@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { useNavigate } from 'react-router';
 import {
   FileText, Clock, CheckCircle, AlertTriangle, Plus,
-  Building2, ArrowRight, Archive, RotateCcw,
+  Building2, ArrowRight, Archive, RotateCcw, UserX,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -14,6 +14,7 @@ import { useApiResource } from '@/hooks/use-api-resource';
 import { formatDate } from '@/lib/utils';
 import { isWaitingStatus, type SignatureSummary } from '@/lib/bon-helpers';
 import type { BonStatus } from '@/types';
+import type { CollaborateurInventoryResponse } from '@/pages/inventaire/types';
 
 const DEFAULT_OVERDUE_THRESHOLD_DAYS = 7;
 
@@ -86,6 +87,15 @@ export function TodayTab() {
     useApiResource<Stats>('/bons/stats', 'Erreur lors du chargement des statistiques');
   const { data: recent, loading: recentLoading, error: recentError, reload: reloadRecent } =
     useApiResource<RecentBon[]>('/bons/recent?limit=10', 'Erreur lors du chargement des bons récents');
+  // Lot D1 (départ d'un collaborateur) : chargement indépendant — sa propre
+  // erreur ne doit pas bloquer le reste de l'onglet, et la tuile n'existe
+  // (cf. statCards ci-dessous) que si le nombre concerné est strictement
+  // positif : contrairement aux autres tuiles, une alerte à 0 n'a pas sa place.
+  const { data: departures } = useApiResource<CollaborateurInventoryResponse>(
+    '/reporting/inventory/by-collaborateur?compte=inactif&limit=1',
+    'Erreur lors du chargement des départs avec matériel',
+  );
+  const departureCount = departures?.total ?? 0;
 
   const thresholdDays = stats?.overdueThresholdDays ?? DEFAULT_OVERDUE_THRESHOLD_DAYS;
 
@@ -133,7 +143,17 @@ export function TodayTab() {
       tone: 'danger',
       onClick: () => navigate('/bons?overdue=1'),
     },
-  ], [stats, thresholdDays, navigate]);
+    // Lot D1 : alerte, pas erreur (--warning) — absente tant qu'aucun
+    // collaborateur n'est concerné, contrairement aux autres tuiles.
+    ...(departureCount > 0 ? [{
+      key: 'departures',
+      label: 'Départs avec matériel',
+      value: departureCount,
+      icon: UserX,
+      tone: 'warning' as const,
+      onClick: () => navigate('/inventaire?vue=collaborateurs&compte=inactif'),
+    }] : []),
+  ], [stats, thresholdDays, departureCount, navigate]);
 
   const breakdownRows = (stats?.byFiliale ?? []).map((f) => ({
     key: f.id,

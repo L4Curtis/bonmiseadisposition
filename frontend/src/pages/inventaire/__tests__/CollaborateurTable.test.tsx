@@ -23,6 +23,7 @@ function makeCollaborateur(overrides: Partial<CollaborateurInventoryItem> = {}):
     email: 'jean@x.fr',
     department: 'IT',
     filiale: { id: 'f1', name: 'Paris', displayName: 'Paris' },
+    active: true,
     count: 5,
     overdueCount: 0,
     oldestDateMiseDisposition: '2026-01-05T00:00:00.000Z',
@@ -67,6 +68,16 @@ describe('CollaborateurTable', () => {
 
     rerender(<CollaborateurTable {...baseProps} items={[makeCollaborateur({ overdueCount: 0 })]} />);
     expect(screen.getByText('0')).toBeInTheDocument();
+  });
+
+  it('affiche la pastille "Compte désactivé" pour un collaborateur inactif, absente sinon', () => {
+    const { rerender } = renderWithProviders(
+      <CollaborateurTable {...baseProps} items={[makeCollaborateur({ active: false })]} />,
+    );
+    expect(screen.getByText('Compte désactivé')).toBeInTheDocument();
+
+    rerender(<CollaborateurTable {...baseProps} items={[makeCollaborateur({ active: true })]} />);
+    expect(screen.queryByText('Compte désactivé')).not.toBeInTheDocument();
   });
 
   it('affiche l\'état vide explicite quand aucun collaborateur ne correspond', () => {

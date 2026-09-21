@@ -269,6 +269,45 @@ describe('useInventory', () => {
     expect(callsAfter).toBe(callsBefore);
   });
 
+  it("setCompteFilter (lot D1) met à jour l'URL et hasActiveFilters, sans jamais l'envoyer à /reporting/inventory", async () => {
+    mockApiGet();
+    const { result } = renderHook(() => useInventory(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(() => result.current.setCompteFilter('inactif'));
+
+    await waitFor(() => expect(result.current.compteFilter).toBe('inactif'));
+    expect(result.current.hasActiveFilters).toBe(true);
+
+    const calls = vi.mocked(api.get).mock.calls
+      .map(([path]) => path as string)
+      .filter((p) => p.startsWith('/reporting/inventory?') || p.startsWith('/reporting/inventory/export'));
+    expect(calls.every((p) => !p.includes('compte='))).toBe(true);
+  });
+
+  it('lit le filtre compte depuis l\'URL au montage (deep-link tuile tableau de bord / email)', async () => {
+    mockApiGet();
+    function compteWrapper({ children }: { children: ReactNode }) {
+      return <MemoryRouter initialEntries={['/inventaire?vue=collaborateurs&compte=inactif']}>{children}</MemoryRouter>;
+    }
+    const { result } = renderHook(() => useInventory(), { wrapper: compteWrapper });
+
+    expect(result.current.compteFilter).toBe('inactif');
+  });
+
+  it('resetFilters vide aussi le filtre compte', async () => {
+    mockApiGet();
+    const { result } = renderHook(() => useInventory(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(() => result.current.setCompteFilter('inactif'));
+    await waitFor(() => expect(result.current.compteFilter).toBe('inactif'));
+
+    act(() => result.current.resetFilters());
+
+    expect(result.current.compteFilter).toBe('');
+  });
+
   it('conserve les filtres actifs en changeant de vue', async () => {
     mockApiGet();
     const { result } = renderHook(() => useInventory(), { wrapper });

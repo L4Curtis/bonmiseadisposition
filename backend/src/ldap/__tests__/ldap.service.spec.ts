@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { LdapService } from '../ldap.service';
 import { AppConfigService } from '../../config/config.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { NotificationService } from '../../notification/notification.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
 import { createMockConfigService, createMockJobTrackerService } from '../../common/__tests__/helpers/mock-services';
 import { JobTrackerService } from '../../monitoring/job-tracker.service';
@@ -37,6 +38,7 @@ describe('LdapService', () => {
   let configService: ReturnType<typeof createMockConfigService>;
   let prisma: ReturnType<typeof createMockPrismaService>;
   let jobTracker: ReturnType<typeof createMockJobTrackerService>;
+  let notificationService: { sendDepartureAlert: jest.Mock };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -44,6 +46,11 @@ describe('LdapService', () => {
     prisma = createMockPrismaService();
     configService = createMockConfigService();
     jobTracker = createMockJobTrackerService();
+    // Lot D1 : LdapService délègue l'alerte « départ avec matériel » à
+    // NotificationService — mocké ici, testé en détail dans
+    // departure-notifications.spec.ts (fonction pure) et
+    // notification.service.spec.ts (sendDepartureAlert).
+    notificationService = { sendDepartureAlert: jest.fn().mockResolvedValue(false) };
 
     // Default LDAP config
     configService.set('ldap', 'enabled', 'true');
@@ -60,6 +67,7 @@ describe('LdapService', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: AppConfigService, useValue: configService },
         { provide: JobTrackerService, useValue: jobTracker },
+        { provide: NotificationService, useValue: notificationService },
       ],
     }).compile();
 
@@ -238,6 +246,13 @@ describe('LdapService', () => {
       prisma.filiale.findMany.mockResolvedValue([]);
       prisma.user.count.mockResolvedValue(0);
       prisma.user.updateMany.mockResolvedValue({ count: 0 });
+      // Chemin nominal de l'alerte départ (lot D1, exécutée en fin de
+      // syncUsers) : aucun compte désactivé ne détient de matériel — sans ce
+      // mock, prisma.bonEquipment.findMany renvoie undefined (mock non
+      // configuré) et le try/catch dédié journalise une erreur même quand ce
+      // test réussit par ailleurs. Un test vert ne doit jamais crier dans les
+      // logs.
+      prisma.bonEquipment.findMany.mockResolvedValue([]);
 
       await service.syncUsers();
 

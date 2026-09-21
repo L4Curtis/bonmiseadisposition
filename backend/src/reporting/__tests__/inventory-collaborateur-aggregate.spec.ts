@@ -5,7 +5,7 @@ function makeRow(overrides: Partial<CollaborateurGroupRow['bon']> = {}): Collabo
     bon: {
       dateMiseDisposition: new Date('2026-01-10'),
       dateRestitution: new Date('2026-06-01'),
-      collaborateur: { id: 'u-1', displayName: 'Jean Dupont', email: 'j.dupont@x.fr', department: 'IT' },
+      collaborateur: { id: 'u-1', displayName: 'Jean Dupont', email: 'j.dupont@x.fr', department: 'IT', active: true },
       filiale: { id: 'f-1', displayName: 'Paris' },
       ...overrides,
     },
@@ -14,7 +14,7 @@ function makeRow(overrides: Partial<CollaborateurGroupRow['bon']> = {}): Collabo
 
 describe('groupInventoryByCollaborateur', () => {
   it('regroupe plusieurs lignes du même collaborateur en un seul item, avec le bon compte', () => {
-    const rows = [makeRow(), makeRow(), makeRow({ collaborateur: { id: 'u-2', displayName: 'Alice Martin', email: 'a@x.fr', department: 'RH' } })];
+    const rows = [makeRow(), makeRow(), makeRow({ collaborateur: { id: 'u-2', displayName: 'Alice Martin', email: 'a@x.fr', department: 'RH', active: true } })];
 
     const result = groupInventoryByCollaborateur(rows);
 
@@ -72,12 +72,18 @@ describe('groupInventoryByCollaborateur', () => {
   it('renvoie un tableau vide quand aucune ligne ne correspond', () => {
     expect(groupInventoryByCollaborateur([])).toEqual([]);
   });
+
+  it('expose l\'état du compte (active) du collaborateur', () => {
+    const rows = [makeRow({ collaborateur: { id: 'u-1', displayName: 'Jean Dupont', email: 'j.dupont@x.fr', department: 'IT', active: false } })];
+    const [result] = groupInventoryByCollaborateur(rows);
+    expect(result.active).toBe(false);
+  });
 });
 
 describe('sortCollaborateurGroups', () => {
-  const alice = { collaborateurId: 'u-2', displayName: 'Alice Martin', email: null, department: null, filiale: null, count: 5, overdueCount: 0, oldestDateMiseDisposition: new Date('2026-03-01'), oldestAgeDays: 10 };
-  const jean = { collaborateurId: 'u-1', displayName: 'Jean Dupont', email: null, department: null, filiale: null, count: 5, overdueCount: 0, oldestDateMiseDisposition: new Date('2026-01-05'), oldestAgeDays: 100 };
-  const zoe = { collaborateurId: 'u-3', displayName: 'Zoé Petit', email: null, department: null, filiale: null, count: 9, overdueCount: 2, oldestDateMiseDisposition: new Date('2026-06-01'), oldestAgeDays: 5 };
+  const alice = { collaborateurId: 'u-2', displayName: 'Alice Martin', email: null, department: null, filiale: null, active: true, count: 5, overdueCount: 0, oldestDateMiseDisposition: new Date('2026-03-01'), oldestAgeDays: 10 };
+  const jean = { collaborateurId: 'u-1', displayName: 'Jean Dupont', email: null, department: null, filiale: null, active: true, count: 5, overdueCount: 0, oldestDateMiseDisposition: new Date('2026-01-05'), oldestAgeDays: 100 };
+  const zoe = { collaborateurId: 'u-3', displayName: 'Zoé Petit', email: null, department: null, filiale: null, active: true, count: 9, overdueCount: 2, oldestDateMiseDisposition: new Date('2026-06-01'), oldestAgeDays: 5 };
 
   it('trie par "count" décroissant par défaut, égalité départagée par ordre alphabétique du nom', () => {
     const result = sortCollaborateurGroups([alice, jean, zoe]);

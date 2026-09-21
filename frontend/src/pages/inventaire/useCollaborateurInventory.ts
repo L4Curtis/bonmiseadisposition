@@ -3,7 +3,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import { api } from '@/lib/api';
 import { errorMessage } from '@/lib/errors';
 import { buildBaseFilterEntries, PAGE_LIMIT, type InventoryBaseFilters } from './inventoryFilterParams';
-import type { CollaborateurInventoryItem, CollaborateurInventoryResponse, CollaborateurSort } from './types';
+import type { CollaborateurInventoryItem, CollaborateurInventoryResponse, CollaborateurSort, CompteFilter } from './types';
 
 interface UseCollaborateurInventoryOptions {
   /** La requête n'est déclenchée que si la vue « Par collaborateur » est
@@ -12,15 +12,20 @@ interface UseCollaborateurInventoryOptions {
   filters: InventoryBaseFilters;
   page: number;
   setPage: Dispatch<SetStateAction<number>>;
+  /** Lot D1 (départ d'un collaborateur) : filtre propre à cette vue, absent de
+   *  InventoryBaseFilters (non supporté par la vue par équipement ni l'export
+   *  CSV) — cf. useInventory.ts. Défaut `''` (aucun filtre). */
+  compteFilter?: CompteFilter;
 }
 
 /**
  * Chargement de la vue « Par collaborateur » de l'inventaire
  * (GET /reporting/inventory/by-collaborateur) — mêmes filtres que la vue par
  * équipement (buildBaseFilterEntries, cf. inventoryFilterParams.ts), avec un
- * tri propre à cette vue (count/oldest, cf. dto backend).
+ * tri propre à cette vue (count/oldest, cf. dto backend) et le filtre `compte`
+ * (lot D1).
  */
-export function useCollaborateurInventory({ enabled, filters, page, setPage }: UseCollaborateurInventoryOptions) {
+export function useCollaborateurInventory({ enabled, filters, page, setPage, compteFilter = '' }: UseCollaborateurInventoryOptions) {
   const [items, setItems] = useState<CollaborateurInventoryItem[]>([]);
   const [total, setTotal] = useState(0);
   const [truncated, setTruncated] = useState(false);
@@ -46,6 +51,7 @@ export function useCollaborateurInventory({ enabled, filters, page, setPage }: U
 
     const params = new URLSearchParams(buildBaseFilterEntries(filters));
     if (sort !== 'count') params.set('sort', sort);
+    if (compteFilter) params.set('compte', compteFilter);
     params.set('page', String(page));
     params.set('limit', String(PAGE_LIMIT));
 
@@ -79,6 +85,7 @@ export function useCollaborateurInventory({ enabled, filters, page, setPage }: U
     filters.situationFilter,
     filters.search,
     filters.overdueFilter,
+    compteFilter,
     sort,
     page,
     reloadKey,

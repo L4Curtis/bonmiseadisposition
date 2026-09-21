@@ -2,7 +2,7 @@ import { Transform, Type } from 'class-transformer';
 import { IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
 import { EquipmentCategory } from '@prisma/client';
 import { EquipmentSituation, SITUATION_ORDER } from '../../common/bon-predicates';
-import { InventoryWhereFilters, toBoolean, trimSearch } from './inventory-query.dto';
+import { COMPTE_FILTER_VALUES, CompteFilter, InventoryWhereFilters, toBoolean, trimSearch } from './inventory-query.dto';
 
 /** Tri du regroupement par collaborateur : `count` (défaut, nombre
  *  d'équipements décroissant) ou `oldest` (prêt le plus ancien d'abord). Voir
@@ -41,6 +41,14 @@ export class InventoryByCollaborateurQueryDto implements InventoryWhereFilters {
   @Transform(trimSearch)
   @MaxLength(200)
   search?: string;
+
+  /** « en départ » (lot D1) = compte désactivé (`?compte=inactif`) qui détient
+   *  encore du matériel du parc en circulation — cf. InventoryService.buildWhere.
+   *  `actif` est symétrique (exclut les comptes désactivés) mais n'a pas
+   *  d'usage identifié côté interface pour l'instant. */
+  @IsOptional()
+  @IsIn(COMPTE_FILTER_VALUES)
+  compte?: CompteFilter;
 
   @IsOptional()
   @Type(() => Number)

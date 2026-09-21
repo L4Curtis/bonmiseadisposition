@@ -42,6 +42,60 @@ describe('InventoryService.getInventoryByCollaborateur', () => {
     });
   });
 
+  // ─── ?compte=actif|inactif (lot D1 — départ d'un collaborateur) ─────────────
+
+  describe('filtre compte', () => {
+    it('sans le filtre, ne restreint pas sur l\'état du compte', async () => {
+      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
+
+      await service.getInventoryByCollaborateur({});
+
+      const call = (prisma.bonEquipment.findMany as jest.Mock).mock.calls[0][0];
+      expect(call.where.AND).not.toContainEqual(expect.objectContaining({ bon: { collaborateur: expect.anything() } }));
+    });
+
+    it('?compte=inactif restreint aux comptes désactivés', async () => {
+      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
+
+      await service.getInventoryByCollaborateur({ compte: 'inactif' });
+
+      const call = (prisma.bonEquipment.findMany as jest.Mock).mock.calls[0][0];
+      expect(call.where.AND).toContainEqual({ bon: { collaborateur: { active: false } } });
+    });
+
+    it('?compte=actif restreint aux comptes actifs', async () => {
+      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
+
+      await service.getInventoryByCollaborateur({ compte: 'actif' });
+
+      const call = (prisma.bonEquipment.findMany as jest.Mock).mock.calls[0][0];
+      expect(call.where.AND).toContainEqual({ bon: { collaborateur: { active: true } } });
+    });
+
+    it('un collaborateur désactivé sans matériel n\'apparaît pas (le where filtre déjà le parc en circulation)', async () => {
+      // Le prédicat commun (buildParcEquipmentWhere) exclut déjà tout
+      // équipement rendu ou déclaré perdu : un collaborateur désactivé qui a
+      // tout restitué n'a simplement aucune ligne BonEquipment correspondante,
+      // donc aucun groupe — rien de plus à filtrer ici.
+      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
+
+      const result = await service.getInventoryByCollaborateur({ compte: 'inactif' });
+
+      expect(result.items).toEqual([]);
+      expect(result.total).toBe(0);
+    });
+  });
+
+  it('expose l\'état du compte (active) sur chaque ligne regroupée', async () => {
+    (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([
+      makeGroupRow({ collaborateur: { id: 'u-1', displayName: 'Jean Dupont', email: 'j.dupont@x.fr', department: 'IT', active: false } }),
+    ]);
+
+    const result = await service.getInventoryByCollaborateur({});
+
+    expect(result.items[0]).toMatchObject({ collaborateurId: 'u-1', active: false });
+  });
+
   it('regroupe les lignes renvoyées par collaborateur et applique le tri "count" par défaut', async () => {
     (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([
       makeGroupRow(),
@@ -154,5 +208,17 @@ describe('InventoryByCollaborateurQueryDto', () => {
   it('est valide sans aucun paramètre (tout optionnel)', async () => {
     const dto = plainToInstance(InventoryByCollaborateurQueryDto, {});
     expect(await validate(dto)).toHaveLength(0);
+  });
+
+  it.each(['actif', 'inactif'])('accepte le filtre compte « %s »', async (compte) => {
+    const dto = plainToInstance(InventoryByCollaborateurQueryDto, { compte });
+    expect(await validate(dto)).toHaveLength(0);
+  });
+
+  it('rejette une valeur de compte inconnue', async () => {
+    const dto = plainToInstance(InventoryByCollaborateurQueryDto, { compte: 'peut-etre' });
+    const errors = await validate(dto);
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0].constraints).toHaveProperty('isIn');
   });
 });

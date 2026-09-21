@@ -17,7 +17,7 @@ const EMPTY_FILTERS: InventoryBaseFilters = {
 
 const response = {
   items: [
-    { collaborateurId: 'u1', displayName: 'Jean Dupont', email: 'jean@x.fr', department: 'IT', filiale: { id: 'f1', name: 'Paris', displayName: 'Paris' }, count: 5, overdueCount: 1, oldestDateMiseDisposition: '2026-01-01T00:00:00.000Z', oldestAgeDays: 260 },
+    { collaborateurId: 'u1', displayName: 'Jean Dupont', email: 'jean@x.fr', department: 'IT', filiale: { id: 'f1', name: 'Paris', displayName: 'Paris' }, active: true, count: 5, overdueCount: 1, oldestDateMiseDisposition: '2026-01-01T00:00:00.000Z', oldestAgeDays: 260 },
   ],
   total: 1,
   page: 1,
@@ -27,9 +27,9 @@ const response = {
 
 /** Petit harnais gérant lui-même `page`, comme le ferait useInventory (le hook
  *  testé ne possède pas son propre état de page — il le reçoit de l'appelant). */
-function useHarness(enabled: boolean, filters: InventoryBaseFilters) {
+function useHarness(enabled: boolean, filters: InventoryBaseFilters, compteFilter?: '' | 'actif' | 'inactif') {
   const [page, setPage] = useState(1);
-  const collaborateurs = useCollaborateurInventory({ enabled, filters, page, setPage });
+  const collaborateurs = useCollaborateurInventory({ enabled, filters, page, setPage, compteFilter });
   return { ...collaborateurs, page, setPage };
 }
 
@@ -106,6 +106,24 @@ describe('useCollaborateurInventory', () => {
 
     await waitFor(() => expect(result.current.error).toBeNull());
     await waitFor(() => expect(result.current.items).toHaveLength(1));
+  });
+
+  it('transmet le filtre compte (lot D1) quand il est actif, absent par défaut', async () => {
+    vi.mocked(api.get).mockResolvedValue(response);
+    renderHook(() => useHarness(true, EMPTY_FILTERS));
+
+    await waitFor(() => {
+      const lastCall = vi.mocked(api.get).mock.calls.at(-1)?.[0] as string;
+      expect(lastCall).not.toContain('compte=');
+    });
+
+    vi.mocked(api.get).mockClear();
+    renderHook(() => useHarness(true, EMPTY_FILTERS, 'inactif'));
+
+    await waitFor(() => {
+      const lastCall = vi.mocked(api.get).mock.calls.at(-1)?.[0] as string;
+      expect(lastCall).toContain('compte=inactif');
+    });
   });
 
   it('remonte la troncature du serveur pour que la vue puisse avertir', async () => {

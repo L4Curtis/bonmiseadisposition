@@ -5,6 +5,8 @@ import { EncryptionService } from '../config/encryption.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { isItRole } from '../common/roles';
 import * as nodemailer from 'nodemailer';
+import { NotificationService } from '../notification/notification.service';
+import { notifyDepartures } from '../ldap/departure-notifications';
 import { CONFIG_HEALTH_CATEGORIES, ConfigHealthSection, computeConfigHealth } from './config-health';
 
 @Injectable()
@@ -15,6 +17,7 @@ export class AdminService {
     private readonly configService: AppConfigService,
     private readonly encryption: EncryptionService,
     private readonly prisma: PrismaService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   async getConfigSection(category: string, options?: { maskSecrets?: boolean }) {
@@ -168,7 +171,32 @@ export class AdminService {
       this.logger.error(`Audit ldap_users_deactivated non journalisé: ${(err as Error).message}`);
     });
 
+    // Lot D1 (départ d'un collaborateur) : même événement de départ que la
+    // désactivation automatique par la synchro LDAP (LdapService.syncUsers),
+    // même conséquence (du matériel qui part avec la personne) — même alerte.
+    // Son propre try/catch : une panne ici ne doit jamais faire échouer la
+    // purge elle-même, et la même déduplication (journal d'audit) s'applique.
+    try {
+      await this.runDepartureNotifications();
+    } catch (err: unknown) {
+      this.logger.error(`Alerte départ en échec (purge LDAP non affectée): ${(err as Error).stack ?? err}`);
+    }
+
     return { deactivated: result.count };
+  }
+
+  // Nom distinct de la fonction importée (même convention que
+  // LdapService.runDepartureNotifications) : délègue à la fonction pure
+  // partagée (backend/src/ldap/departure-notifications.ts), qui calcule les
+  // comptes désactivés détenant encore du matériel et déduplique via le
+  // journal d'audit — identique, que la désactivation vienne de la synchro
+  // LDAP ou de cette purge manuelle.
+  private async runDepartureNotifications(): Promise<void> {
+    return notifyDepartures({
+      prisma: this.prisma,
+      logger: this.logger,
+      sendAlert: (candidates) => this.notificationService.sendDepartureAlert(candidates),
+    });
   }
 
   /**

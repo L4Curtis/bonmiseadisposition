@@ -12,7 +12,11 @@ export const COLLABORATEUR_GROUP_SELECT = {
     select: {
       dateMiseDisposition: true,
       dateRestitution: true,
-      collaborateur: { select: { id: true, displayName: true, email: true, department: true } },
+      // `active` (lot D1) : expose l'état du compte sur chaque ligne
+      // regroupée — alimente le filtre `?compte=` et la pastille « Compte
+      // désactivé » côté interface, et sert de base à la détection des
+      // départs avec matériel (departure-notifications.ts, module LDAP).
+      collaborateur: { select: { id: true, displayName: true, email: true, department: true, active: true } },
       filiale: { select: { id: true, displayName: true } },
     },
   },
@@ -31,6 +35,9 @@ export interface CollaborateurInventoryItem {
    *  actif, puisque `buildWhere` restreint alors déjà toutes les lignes à
    *  cette filiale). */
   filiale: { id: string; displayName: string } | null;
+  /** État du compte du collaborateur (`User.active`) — lot D1, alimente la
+   *  pastille « Compte désactivé » et le filtre `?compte=`. */
+  active: boolean;
   count: number;
   overdueCount: number;
   oldestDateMiseDisposition: Date;
@@ -85,6 +92,7 @@ export function groupInventoryByCollaborateur(
       email: collaborateur.email,
       department: collaborateur.department,
       filiale,
+      active: collaborateur.active,
       count: groupRows.length,
       overdueCount,
       oldestDateMiseDisposition: oldestRow.bon.dateMiseDisposition,

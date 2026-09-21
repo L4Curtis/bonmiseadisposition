@@ -71,4 +71,53 @@ describe('TodayTab', () => {
     renderWithProviders(<TodayTab />);
     expect(await screen.findByText('En retard (> 7 j)')).toBeInTheDocument();
   });
+
+  // ─── Départs avec matériel (lot D1) ─────────────────────────────────────────
+
+  describe('tuile "Départs avec matériel"', () => {
+    function mockApi(departureTotal: number | null) {
+      vi.mocked(api.get).mockImplementation((path: string) => {
+        if (path.startsWith('/bons/stats')) {
+          return Promise.resolve({
+            waitingSignature: 0, active: 0, overdue: 0, total: 0,
+            archivedThisMonth: 0, partiallyReturned: 0, byFiliale: [],
+          });
+        }
+        if (path.startsWith('/bons/recent')) return Promise.resolve([]);
+        if (path.startsWith('/reporting/inventory/by-collaborateur')) {
+          return departureTotal === null
+            ? Promise.reject(new Error('boom'))
+            : Promise.resolve({ items: [], total: departureTotal, page: 1, limit: 1, truncated: false });
+        }
+        return Promise.resolve(null);
+      });
+    }
+
+    it('affiche la tuile avec le nombre concerné et mène vers l\'inventaire filtré', async () => {
+      mockApi(3);
+      const { user } = renderWithProviders(<TodayTab />);
+
+      const tile = await screen.findByRole('button', { name: /Départs avec matériel : 3/ });
+      await user.click(tile);
+
+      expect(navigateMock).toHaveBeenCalledWith('/inventaire?vue=collaborateurs&compte=inactif');
+    });
+
+    it("n'affiche pas la tuile quand aucun collaborateur n'est concerné", async () => {
+      mockApi(0);
+      renderWithProviders(<TodayTab />);
+
+      // Attend la fin du chargement des tuiles avant de vérifier l'absence.
+      await screen.findByRole('button', { name: /Total bons en cours/ });
+      expect(screen.queryByText('Départs avec matériel')).not.toBeInTheDocument();
+    });
+
+    it("n'affiche pas la tuile quand la ressource échoue à charger (pas d'alerte fausse)", async () => {
+      mockApi(null);
+      renderWithProviders(<TodayTab />);
+
+      await screen.findByRole('button', { name: /Total bons en cours/ });
+      expect(screen.queryByText('Départs avec matériel')).not.toBeInTheDocument();
+    });
+  });
 });

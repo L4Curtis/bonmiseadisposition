@@ -38,6 +38,8 @@ export function InventairePage() {
     setSituationFilter,
     overdueFilter,
     setOverdueFilter,
+    compteFilter,
+    setCompteFilter,
     sortDirection,
     toggleDateSort,
     searchInput,
@@ -54,6 +56,7 @@ export function InventairePage() {
     filters: baseFilters,
     page,
     setPage,
+    compteFilter,
   });
 
   const activeTotal = view === 'equipements' ? total : collaborateurs.total;
@@ -124,6 +127,9 @@ export function InventairePage() {
         categories={summary?.byCategory ?? []}
         overdueFilter={overdueFilter}
         onClearOverdue={() => setOverdueFilter(false)}
+        compteFilter={compteFilter}
+        onCompteFilterChange={setCompteFilter}
+        showCompteFilter={view === 'collaborateurs'}
         hasActiveFilters={hasActiveFilters}
         onReset={resetFilters}
       />

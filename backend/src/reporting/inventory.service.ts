@@ -59,6 +59,13 @@ export class InventoryService {
     if (filters.collaborateurId) {
       and.push({ bon: { collaborateurId: filters.collaborateurId } });
     }
+    if (filters.compte) {
+      // Lot D1 (départ d'un collaborateur) : « en départ » = compte désactivé
+      // (?compte=inactif) qui détient encore du matériel — cf.
+      // InventoryByCollaborateurQueryDto et departure-notifications.ts (LDAP),
+      // qui réutilise ce même where pour l'alerte email.
+      and.push({ bon: { collaborateur: { active: filters.compte === 'actif' } } });
+    }
     if (filters.situation) {
       and.push({ bon: { status: { in: [...SITUATION_BON_STATUSES[filters.situation]] } } });
     }
