@@ -1,39 +1,55 @@
-# ─── Production — images pré-buildées depuis ghcr.io ────────────────────────
+# ─── Installation TOUT-EN-UN (annexe) — démonstration ou petite filiale ─────────
 #
-# ⚠️ Cette stack tout-en-un suit l'étiquette `latest`, désormais un simple alias
-#    de la branche main (donc de la recette). Pour une installation neuve, ou
-#    pour épingler la production sur un numéro de version, utiliser les deux
-#    stacks de deploy/ (application et base séparées) : voir deploy/README.md,
-#    section « Publier une version ».
+# Base, backend et frontend sur une seule machine. L'installation de référence
+# (production du groupe) est celle de deploy/ : deux machines, base séparée.
+# Mode d'emploi de cette variante : deploy/README.md, « Annexe : installation
+# tout-en-un ».
 #
-# Portainer → Stacks → Add Stack → Repository → docker-compose.prod.yml
+# Version figée : APP_IMAGE_TAG porte un numéro de version (ex. 1.0.0), jamais
+# latest ni main. Aucune mise à jour automatique (ni « Automatic updates » de
+# Portainer, ni Watchtower) : on change la version à la main, après l'avoir
+# vérifiée en recette.
 #
-# Variables à renseigner (dans Portainer ou .env) :
-#   ENCRYPTION_KEY    = openssl rand -hex 32
-#   JWT_SECRET        = openssl rand -hex 32  (DOIT être différent de ENCRYPTION_KEY)
-#   POSTGRES_PASSWORD = openssl rand -hex 24   (hexadécimal : « / » ou « + » casseraient DATABASE_URL)
-#   FRONTEND_URL      = https://bons.exemple.local
-#   FRONTEND_PORT     = 5147  (optionnel, défaut 5147)
-#   FRONTEND_BIND     = 127.0.0.1 si NPM tourne sur la même machine (recommandé :
-#                       évite l'accès HTTP direct en clair qui contournerait NPM
-#                       et permettrait de forger X-Real-IP). Défaut 0.0.0.0.
+# Mêmes protections que la production : aucun port publié, le reverse proxy
+# joint le frontend sur son propre réseau Docker ; même image frontend, donc
+# même nginx (en-tête CF-Connecting-IP ignoré sauf TRUST_CF_CONNECTING_IP=1).
+# Mêmes sauvegardes aussi : conteneurs db-backup et data-backup, restauration
+# identique à celle de la production.
 #
-# Mise à jour : Portainer → Stack → "Pull and redeploy"
+# Portainer → Stacks → Add stack → Web editor : coller ce fichier, renseigner
+# les variables, « Deploy the stack ».
+#
+# Variables (section « Environment variables » de la stack) :
+#   APP_IMAGE_TAG      numéro de version à déployer (ex. 1.0.0)
+#   ENCRYPTION_KEY     hexadécimal 32 octets  ⚠️ NE CHANGE JAMAIS
+#   JWT_SECRET         hexadécimal 32 octets  différent d'ENCRYPTION_KEY
+#   APP_DB_PASSWORD    hexadécimal 24 octets  (stack tout-en-un antérieure : reprendre la valeur de POSTGRES_PASSWORD)
+#   FRONTEND_URL       URL publique HTTPS sans slash final (ex. https://bons.exemple.local)
+#   PROXY_NETWORK      nom du réseau Docker du reverse proxy, qui doit déjà exister (Portainer → Networks)
+#   TRUST_CF_CONNECTING_IP   optionnel, défaut 0 ; 1 uniquement derrière Cloudflare (deploy/README.md, § 4)
+#   DEFAULT_ADMIN_PASSWORD   optionnel (sinon généré dans /app/data/initial-admin-password.txt)
+#   BACKUP_RETENTION_DAYS    optionnel, défaut 14
+#   BACKUP_INTERVAL_SECONDS  optionnel, défaut 86400
 
 services:
 
-  # ── Base de données PostgreSQL ─────────────────────────────────────────────
+  # ── Base de données PostgreSQL (réseau interne uniquement) ───────────────────
   db:
     image: postgres:16-alpine
     restart: unless-stopped
+    # Les indicateurs KPI comparent des timestamps UTC : ne pas modifier.
+    command: ["postgres", "-c", "timezone=UTC"]
     environment:
-      POSTGRES_DB: bons_disposition
-      # Fuseau explicite : les indicateurs KPI comparent des timestamps UTC ; ne pas modifier.
       TZ: UTC
+      POSTGRES_DB: bons_disposition
       POSTGRES_USER: app
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: "${APP_DB_PASSWORD:?APP_DB_PASSWORD manquant (stack tout-en-un antérieure : reprendre la valeur de POSTGRES_PASSWORD)}"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      # Socket partagé avec db-backup : sauvegarde et restauration sans mot de passe réseau.
+      - pgsocket:/var/run/postgresql
+    # Le /dev/shm par défaut de Docker (64 Mo) peut faire échouer les requêtes parallèles.
+    shm_size: 256mb
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U app -d bons_disposition"]
       interval: 10s
@@ -48,15 +64,15 @@ services:
 
   # ── Backend NestJS ───────────────────────────────────────────────────────────
   backend:
-    image: ghcr.io/l4curtis/bonmiseadisposition-backend:latest
+    image: "ghcr.io/l4curtis/bonmiseadisposition-backend:${APP_IMAGE_TAG:?APP_IMAGE_TAG manquant : un numéro de version (ex. 1.0.0)}"
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://app:${POSTGRES_PASSWORD}@db:5432/bons_disposition
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
-      JWT_SECRET: ${JWT_SECRET}
+      DATABASE_URL: "postgresql://app:${APP_DB_PASSWORD:?APP_DB_PASSWORD manquant}@db:5432/bons_disposition?connect_timeout=10"
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY manquant}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET manquant}
       DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:-}
       NODE_ENV: production
-      FRONTEND_URL: ${FRONTEND_URL}
+      FRONTEND_URL: ${FRONTEND_URL:?FRONTEND_URL manquant}
     volumes:
       - data:/app/data
     depends_on:
@@ -65,7 +81,7 @@ services:
     networks:
       - internal
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:4000/api/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4000/api/health/ready || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -75,26 +91,98 @@ services:
         limits:
           memory: 1g
 
-  # ── Frontend React — exposé sur le port hôte pour NPM ──────────────────────
+  # ── Frontend React (nginx) — joint par le reverse proxy sur son réseau ──────
   frontend:
-    image: ghcr.io/l4curtis/bonmiseadisposition-frontend:latest
+    image: "ghcr.io/l4curtis/bonmiseadisposition-frontend:${APP_IMAGE_TAG:?APP_IMAGE_TAG manquant : un numéro de version (ex. 1.0.0)}"
     restart: unless-stopped
-    ports:
-      - "${FRONTEND_BIND:-0.0.0.0}:${FRONTEND_PORT:-5147}:8080"
+    environment:
+      # 0 (défaut) : l'en-tête CF-Connecting-IP est ignoré. 1 : uniquement
+      # derrière Cloudflare (deploy/README.md, § 4).
+      TRUST_CF_CONNECTING_IP: ${TRUST_CF_CONNECTING_IP:-0}
+    # Aucun port publié. Démonstration sur un poste, sans reverse proxy :
+    # décommenter pour ouvrir http://localhost:5147 sur ce poste seulement
+    # (boucle locale : injoignable depuis le réseau).
+    # ports:
+    #   - "127.0.0.1:5147:8080"
     depends_on:
       backend:
         condition: service_healthy
     networks:
       - internal
+      - proxy
     deploy:
       resources:
         limits:
           memory: 128m
 
+  # ── Sauvegarde quotidienne de la base (socket local, sans mot de passe réseau) ─
+  db-backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      TZ: UTC
+    volumes:
+      - pgsocket:/var/run/postgresql
+      - db_backups:/backups
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        while true; do
+          f="/backups/bons-$$(date +%Y%m%d-%H%M).dump"
+          if pg_dump -h /var/run/postgresql -U app -F c -f "$$f.tmp" bons_disposition; then
+            mv "$$f.tmp" "$$f"
+            echo "Sauvegarde OK : $$f ($$(du -h "$$f" | cut -f1))"
+          else
+            rm -f "$$f.tmp"
+            echo "ÉCHEC de la sauvegarde de la base" >&2
+          fi
+          find /backups -name 'bons-*.dump' -mtime +${BACKUP_RETENTION_DAYS:-14} -delete
+          sleep ${BACKUP_INTERVAL_SECONDS:-86400}
+        done
+
+  # ── Sauvegarde quotidienne du volume data (images de signature, pièces jointes) ─
+  data-backup:
+    image: alpine:3.20
+    restart: unless-stopped
+    volumes:
+      - data:/data:ro
+      - data_backups:/backups
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        while true; do
+          f="/backups/data-$$(date +%Y%m%d-%H%M).tar.gz"
+          if tar czf "$$f.tmp" -C / data; then
+            mv "$$f.tmp" "$$f"
+            echo "Sauvegarde OK : $$f ($$(du -h "$$f" | cut -f1))"
+          else
+            rm -f "$$f.tmp"
+            echo "ÉCHEC de la sauvegarde du volume data" >&2
+          fi
+          find /backups -name 'data-*.tar.gz' -mtime +${BACKUP_RETENTION_DAYS:-14} -delete
+          sleep ${BACKUP_INTERVAL_SECONDS:-86400}
+        done
+
+# Volumes préfixés par le nom de la stack (ex. bons-demo_pgdata) : deux
+# installations tout-en-un sur la même machine ne partagent rien.
 volumes:
   pgdata:
+  pgsocket:
+  # Fichiers chiffrés : inexploitables sans la base ET l'ENCRYPTION_KEY.
   data:
+  # Sauvegardes : volumes locaux par défaut ; à inclure dans la sauvegarde de
+  # la machine, ou à remplacer par un volume CIFS (deploy/README.md, § 7).
+  db_backups:
+  data_backups:
 
 networks:
   internal:
     driver: bridge
+  # Réseau du reverse proxy, créé par la stack du proxy : il doit exister avant
+  # ce déploiement. Seul le frontend y est raccordé.
+  proxy:
+    name: "${PROXY_NETWORK:?PROXY_NETWORK manquant : nom du réseau Docker du reverse proxy (Portainer → Networks)}"
+    external: true

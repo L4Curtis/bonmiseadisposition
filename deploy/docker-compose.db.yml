@@ -1,5 +1,8 @@
 # ─── Stack BASE DE DONNÉES — machine PostgreSQL dédiée (Portainer) ─────────────
 #
+# Mode d'emploi complet : deploy/README.md (§ 2 installation, § 7 sauvegarde et
+# restauration).
+#
 # Portainer → environnement de la machine base → Stacks → Add stack → Web editor :
 # coller ce fichier, renseigner les variables ci-dessous, « Deploy the stack ».
 # Aucun fichier à créer sur l'hôte : certificat TLS, pg_hba.conf et script

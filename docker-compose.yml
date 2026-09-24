@@ -1,3 +1,19 @@
+# ─── Pile complète construite depuis les sources, sur le poste ───────────────
+#
+# Pour essayer localement les images telles qu'elles seront construites
+# (nginx du frontend compris) : http://localhost:3000. Ce n'est ni la pile de
+# développement (docker-compose.dev.yml : base et Mailpit, backend et frontend
+# lancés par npm) ni une installation de production (deploy/README.md).
+#
+# Variables lues dans .env (modèle : .env.example) : POSTGRES_PASSWORD,
+# ENCRYPTION_KEY, JWT_SECRET, DEFAULT_ADMIN_PASSWORD.
+#
+#   docker compose up -d --build      puis      docker compose down
+
+# Nom de projet propre : sans lui, Compose reprendrait celui du dossier, déjà
+# utilisé par docker-compose.dev.yml, et remplacerait la base de dev.
+name: bons-local
+
 services:
   db:
     image: postgres:16-alpine
@@ -7,7 +23,7 @@ services:
       # Fuseau explicite : les indicateurs KPI comparent des timestamps UTC ; ne pas modifier.
       TZ: UTC
       POSTGRES_USER: app
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-devpassword}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -24,12 +40,13 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://app:${POSTGRES_PASSWORD}@db:5432/bons_disposition
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
-      JWT_SECRET: ${JWT_SECRET}
+      DATABASE_URL: postgresql://app:${POSTGRES_PASSWORD:-devpassword}@db:5432/bons_disposition
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY manquant dans .env (openssl rand -hex 32)}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET manquant dans .env (openssl rand -hex 32, différent de ENCRYPTION_KEY)}
       DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:-}
       NODE_ENV: development
-      FRONTEND_URL: http://localhost:5173
+      # Adresse de cette pile : liens des emails et retour du SSO.
+      FRONTEND_URL: http://localhost:3000
     volumes:
       - data:/app/data
     depends_on:
@@ -57,7 +74,10 @@ services:
     networks:
       - internal
     ports:
-      - "3000:8080"
+      # Boucle locale seulement : joint en direct, sans reverse proxy, ce port
+      # laisserait un autre poste choisir l'adresse IP enregistrée (en-tête
+      # X-Real-IP) et circuler en HTTP clair.
+      - "127.0.0.1:3000:8080"
 
 volumes:
   pgdata:

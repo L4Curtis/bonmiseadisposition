@@ -75,6 +75,15 @@ services:
     build:
       context: ../frontend
       dockerfile: Dockerfile
+    environment:
+      # Chaque test se présente avec sa propre adresse client, passée dans
+      # l'en-tête CF-Connecting-IP (e2e/tests/fixtures.ts), pour ne pas buter
+      # sur la limitation de débit par adresse. Le nginx du frontend n'honore
+      # cet en-tête qu'avec cette option (frontend/nginx.conf, « Adresse IP du
+      # client ») : sans elle, tous les tests partageraient une seule adresse.
+      # Acceptable ici parce que le port n'est publié que sur la boucle locale ;
+      # jamais en production derrière Nginx Proxy Manager.
+      TRUST_CF_CONNECTING_IP: "1"
     depends_on:
       backend:
         condition: service_healthy
