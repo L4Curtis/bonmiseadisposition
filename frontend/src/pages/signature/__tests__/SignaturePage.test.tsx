@@ -31,6 +31,7 @@ const currentUser: User = {
   email: 'jean@livio.fr',
   isItStaff: false,
   isLocalAccount: false,
+  isManualAccount: false,
   mustChangePassword: false,
   role: 'collaborator',
   active: true,

@@ -132,6 +132,13 @@ jobs:
         working-directory: ./frontend
         run: npx tsc --noEmit -p tsconfig.app.json
 
+      # tsconfig.app.json exclut les tests (ils ne vont pas dans le bundle) :
+      # sans cette étape, une fixture qui ne correspond plus au modèle passe
+      # inaperçue, puisque Vitest ne vérifie pas les types.
+      - name: Type-check des tests frontend
+        working-directory: ./frontend
+        run: npx tsc --noEmit -p tsconfig.test.json
+
       - name: Tests frontend (Vitest)
         working-directory: ./frontend
         run: npx vitest run
