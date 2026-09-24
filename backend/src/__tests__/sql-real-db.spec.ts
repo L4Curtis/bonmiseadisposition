@@ -21,6 +21,7 @@ import { KpiParcService } from '../kpi/kpi-parc.service';
 import { KpiDelaisService } from '../kpi/kpi-delais.service';
 import { KpiIncidentsService } from '../kpi/kpi-incidents.service';
 import { resolvePeriod } from '../kpi/kpi-period';
+import { generateBonReference, BON_REFERENCE_TX_OPTIONS } from '../common/bon-reference';
 
 const ENABLED = process.env.RUN_DB_TESTS === '1';
 const describeDb = ENABLED ? describe : describe.skip;
@@ -89,5 +90,43 @@ describeDb('Requêtes SQL réelles (base de développement)', () => {
 
     const incidents = await new KpiIncidentsService(prisma, configStub).getIncidents(period);
     expect(typeof incidents.cancellations.count.current).toBe('number');
+  });
+
+  // Régression : une référence non numérique (données de démonstration
+  // « BON-AAAA-D0040 », reprise d'un ancien système) faisait échouer le CAST
+  // en INTEGER de toute la requête — plus aucun bon ne pouvait être créé.
+  // Seul Postgres peut le montrer : les tests unitaires simulent $queryRaw.
+  // Tout se passe dans une transaction annulée : la base n'est pas modifiée.
+  it('génère une référence même en présence de références non numériques', async () => {
+    const annulation = new Error('annulation volontaire du test');
+    const annee = new Date().getFullYear();
+    let reference = '';
+
+    await expect(
+      prisma.$transaction(async (tx) => {
+        const filiale = await tx.filiale.create({
+          data: { name: `test-ref-${Date.now()}`, displayName: 'Test référence' },
+        });
+        const user = await tx.user.create({
+          data: { samAccountName: `test-ref-${Date.now()}`, displayName: 'Test référence' },
+        });
+        await tx.bon.create({
+          data: {
+            reference: `BON-${annee}-D9999`,
+            filialeId: filiale.id,
+            collaborateurId: user.id,
+            createdById: user.id,
+            civilite: 'mr',
+            dateMiseDisposition: new Date(),
+          },
+        });
+
+        reference = await generateBonReference(tx);
+        throw annulation;
+      }, BON_REFERENCE_TX_OPTIONS),
+    ).rejects.toBe(annulation);
+
+    expect(reference.startsWith(`BON-${annee}-`)).toBe(true);
+    expect(reference).toMatch(/^BON-\d{4}-\d{4,}$/);
   });
 });

@@ -27,10 +27,17 @@ export async function generateBonReference(tx: Prisma.TransactionClient): Promis
   const yearPrefix = `BON-${year}-`;
   try {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('bon_reference_lock'))`;
+    // Seules les références entièrement numériques comptent : une référence
+    // d'un autre format (données de démonstration « BON-2026-D0040 », reprise
+    // d'un ancien système) faisait échouer le CAST en INTEGER pour TOUTE la
+    // requête (erreur 22P02) — et plus aucun bon ne pouvait être créé. Le
+    // filtre du WHERE s'applique avant l'agrégat : le CAST ne voit jamais que
+    // des chiffres.
     const rows = await tx.$queryRaw<Array<{ max: number | null }>>`
       SELECT MAX(CAST(SPLIT_PART(reference, '-', 3) AS INTEGER)) AS max
       FROM bons
       WHERE reference LIKE ${`${yearPrefix}%`}
+        AND SPLIT_PART(reference, '-', 3) ~ '^[0-9]+$'
     `;
     const nextNum = (rows[0]?.max ?? 0) + 1;
     return `BON-${year}-${String(nextNum).padStart(4, '0')}`;
