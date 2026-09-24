@@ -2,6 +2,8 @@ import { expect, type Page } from '@playwright/test';
 import { CATALOG_ITEM_LABEL, CATALOG_QUERY, FILIALE_NAME } from './env';
 import { todayISO } from './ids';
 import { createManualCollaborateur, selectExistingCollaborateur, type NouveauCollaborateur } from './collaborateur';
+import { initiatePresentiel } from './it-cachet';
+import { completeSignature } from './signer';
 
 export interface ExistingCollaborateur {
   existing: true;
@@ -14,6 +16,9 @@ export interface DraftBonParams {
   /** Un numéro de série par équipement à ajouter (le même article de
    *  catalogue fourni par l'amorçage E2E est utilisé pour chacun). */
   serialNumbers: string[];
+  /** Numéros d'inventaire facultatifs, alignés sur `serialNumbers` (même
+   *  index = même ligne) ; une entrée absente laisse le champ vide. */
+  inventoryNumbers?: string[];
   /** YYYY-MM-DD — par défaut aujourd'hui. */
   dateMiseDisposition?: string;
 }
@@ -21,6 +26,8 @@ export interface DraftBonParams {
 export interface DraftBon {
   bonId: string;
   url: string;
+  /** Référence métier affichée en titre de la fiche (ex. BON-2026-0001). */
+  reference: string;
 }
 
 /**
@@ -29,7 +36,7 @@ export interface DraftBon {
  * voir `createManualCollaborateur`), date de mise à disposition, un ou
  * plusieurs équipements pris dans le catalogue avec leur numéro de série.
  * Retourne l'id du bon créé, déduit de la redirection post-création vers
- * `/bons/:id`.
+ * `/bons/:id`, et sa référence, lue dans le titre de la fiche.
  */
 export async function createDraftBon(page: Page, params: DraftBonParams): Promise<DraftBon> {
   await page.goto('/bons/new');
@@ -51,11 +58,14 @@ export async function createDraftBon(page: Page, params: DraftBonParams): Promis
   // forcément « ligne 1 » — c'est toujours la DERNIÈRE ligne du tableau.
   const catalogSearch = page.getByLabel('Rechercher dans le catalogue');
   const serialInputs = page.getByLabel(/^Numéro de série - ligne \d+$/);
-  for (const serialNumber of params.serialNumbers) {
+  const inventoryInputs = page.getByLabel(/^Numéro d'inventaire - ligne \d+$/);
+  for (const [index, serialNumber] of params.serialNumbers.entries()) {
     await catalogSearch.fill(CATALOG_QUERY);
     await page.getByRole('option', { name: CATALOG_ITEM_LABEL }).click();
     const count = await serialInputs.count();
     await serialInputs.nth(count - 1).fill(serialNumber);
+    const inventoryNumber = params.inventoryNumbers?.[index];
+    if (inventoryNumber) await inventoryInputs.nth(count - 1).fill(inventoryNumber);
   }
 
   await page.getByRole('button', { name: 'Créer le bon' }).click();
@@ -67,5 +77,23 @@ export async function createDraftBon(page: Page, params: DraftBonParams): Promis
 
   const url = page.url();
   const bonId = new URL(url).pathname.split('/bons/')[1];
-  return { bonId, url };
+  // Titre attendu par son motif : juste après la redirection, le titre du
+  // formulaire (« Nouveau bon… ») peut encore être à l'écran.
+  const reference = (await page.getByRole('heading', { level: 1, name: /^BON-\d{4}-/ }).innerText()).trim();
+  return { bonId, url, reference };
+}
+
+/**
+ * Crée un bon puis le mène jusqu'au statut actif par une signature
+ * présentielle (cachet IT, signature recueillie depuis la session IT — voir
+ * `completeSignature`), comme aux tests 3 et 6. Revient sur la fiche du bon
+ * et attend le statut « Actif » avant de rendre la main.
+ */
+export async function createActiveBon(page: Page, params: DraftBonParams): Promise<DraftBon> {
+  const bon = await createDraftBon(page, params);
+  const signerPath = await initiatePresentiel(page, 'mise_disposition');
+  await completeSignature(page, signerPath);
+  await page.goto(bon.url);
+  await expect(page.getByText('Actif', { exact: true }).first()).toBeVisible();
+  return bon;
 }

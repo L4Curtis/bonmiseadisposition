@@ -16,6 +16,14 @@ export const ADMIN_NEW_PASSWORD = process.env.E2E_ADMIN_NEW_PASSWORD ?? 'E2eNouv
  *  (tests/auth.setup.ts) et réutilisée par tous les autres tests. */
 export const STORAGE_STATE_PATH = 'playwright/.auth/admin.json';
 
+/** Collaborateur à compte local fourni par l'amorçage (e2e/seed/seed.sql) :
+ *  le seul collaborateur capable de se connecter dans cet environnement (ni
+ *  annuaire ni Entra). Mot de passe factice, synchronisé avec l'empreinte
+ *  bcrypt de seed.sql. */
+export const PORTAIL_EMAIL = 'seed.portail@e2e.local';
+export const PORTAIL_PASSWORD = 'E2ePortail#2026';
+export const PORTAIL_DISPLAY_NAME = 'E2E Seed Portail';
+
 /** Article de catalogue unique fourni par l'amorçage (e2e/seed/seed.sql). */
 export const CATALOG_QUERY = 'E2E';
 export const CATALOG_ITEM_LABEL = 'E2E Materiel Test';

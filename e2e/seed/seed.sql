@@ -5,13 +5,17 @@
 --
 -- Fournit : une filiale active, un collaborateur avec une adresse email
 -- valide, un collaborateur sans adresse (compte manuel, façon « compagnon de
--- chantier »), un article de catalogue actif, et la configuration SMTP
+-- chantier »), un collaborateur à compte local capable de se connecter (portail
+-- « Mes bons »), un article de catalogue actif, et la configuration SMTP
 -- pointée vers mailpit. Le compte admin@local est provisionné automatiquement
 -- par le backend au démarrage (voir backend/src/auth/admin-provisioning.ts) —
 -- rien à faire ici pour lui.
 --
--- Rejouable : supprime d'abord ses propres données (marquées « [E2E] » ou en
--- @e2e.local), jamais autre chose. Les UUID sont des colonnes texte ; id et
+-- Rejouable tant qu'aucun test n'a tourné : supprime d'abord ses propres
+-- données (marquées « [E2E] » ou en @e2e.local), jamais autre chose. Une fois
+-- des bons créés, ils référencent la filiale et les collaborateurs amorcés :
+-- la purge échoue (clé étrangère, transaction annulée, rien n'est modifié) et
+-- il faut repartir d'une base neuve (`down -v`). Les UUID sont des colonnes texte ; id et
 -- updated_at ne sont pas générés automatiquement par Postgres sur un INSERT
 -- brut (contrairement à Prisma) et doivent donc être fournis explicitement.
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -45,6 +49,26 @@ INSERT INTO users (
 )
 SELECT gen_random_uuid()::text, 'e2e.seed.sans-email', 'E2E Seed SansEmail', NULL,
        'Amorçage E2E', f.id, 'collaborator', false, true, false, true, false, now(), now()
+FROM filiales f WHERE f.name = 'E2E';
+
+-- ── Collaborateur authentifiable (portail « Mes bons », contestation) ────────
+-- Il n'y a ni annuaire ni Entra dans cet environnement : le seul moyen pour un
+-- collaborateur de se connecter est un compte LOCAL (is_local_account +
+-- password_hash). Rôle collaborator, aucun droit IT : il ne voit que ses bons.
+-- Mot de passe en clair : E2ePortail#2026 (voir e2e/tests/helpers/env.ts) —
+-- valeur FACTICE, propre à cet environnement jetable. Empreinte bcrypt
+-- (coût 10) calculée avec bcryptjs, la bibliothèque du backend :
+--   node -e "console.log(require('bcryptjs').hashSync('E2ePortail#2026', 10))"
+-- must_change_password=false et password_changed_at=now() : pas d'écran de
+-- changement imposé à la connexion (le parcours de l'admin le couvre déjà).
+INSERT INTO users (
+  id, sam_account_name, display_name, email, department, filiale_id, role,
+  is_it_staff, active, is_local_account, is_manual_account, must_change_password,
+  password_hash, password_changed_at, created_at, updated_at
+)
+SELECT gen_random_uuid()::text, 'e2e.seed.portail', 'E2E Seed Portail', 'seed.portail@e2e.local',
+       'Amorçage E2E', f.id, 'collaborator', false, true, true, false, false,
+       '$2a$10$fNbNg7KOkHy6.eg50eAR3uvlsVx/8LitbFyxn0RQUsg/Q4r1APOJq', now(), now(), now()
 FROM filiales f WHERE f.name = 'E2E';
 
 -- ── Article de catalogue ─────────────────────────────────────────────────────

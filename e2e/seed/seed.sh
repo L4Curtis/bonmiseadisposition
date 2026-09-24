@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Amorce l'environnement E2E (voir seed.sql) — à lancer une fois la compose
-# démarrée et /api/health/ready vert. Idempotent (voir purge en tête de
-# seed.sql) : peut être relancé sans redémarrer la compose.
+# démarrée et /api/health/ready vert. Rejouable tant qu'aucun test n'a créé de
+# bon (voir l'en-tête de seed.sql) ; ensuite, repartir de `down -v`.
 #
 # Usage : e2e/seed/seed.sh <nom-du-projet-compose>
 #   e2e/seed/seed.sh bmad-e2e

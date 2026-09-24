@@ -4,6 +4,96 @@ Historique des évolutions notables de l'application. Les entrées les plus réc
 
 ---
 
+## 2026-09-24 — Tests backend sous Vitest : les tests exécutent le vrai NestJS
+
+### Modifié
+- **La suite de tests du backend passe de Jest à Vitest** (`backend/vitest.config.ts`, SWC pour les
+  décorateurs). Depuis NestJS 12, publié en ESM pur, Jest ne pouvait charger NestJS qu'au prix de deux
+  contournements : une retranscription Babel de tous les paquets `@nestjs/*` et une doublure remplaçant un
+  fichier interne de NestJS (`load-package.util`). Les deux sont supprimés : les tests exécutent désormais
+  le vrai code de NestJS, comme la production, et une évolution interne de NestJS ne peut plus casser la
+  suite de façon incompréhensible. Aucun test désactivé, aucune assertion affaiblie : 1 450 tests (dont 26
+  ignorés sans base : les 25 tests sur base réelle et un test propre à Linux), fichier par fichier le même
+  nombre qu'avant. La suite complète tourne en 1 min 20 environ au lieu de 5 min sur le poste.
+- Commandes inchangées : `npm test`, `npm run test:cov` (seuils de couverture 65/72/80/80 toujours
+  appliqués). Nouveau : `npm run test:watch`. La CI lance les suites sur base réelle par
+  `RUN_DB_TESTS=1 npx vitest run real-db` (toutes les suites « real-db », échec si aucune n'est trouvée).
+- **Garde-fous contre les cycles d'import** (`di-metadata.spec.ts`, `import-order.spec.ts`) : ils
+  chargent maintenant le code dans un processus Node neuf, compilé par TypeScript exactement comme par
+  `nest build`, au lieu de s'appuyer sur le chargeur du lanceur de tests. Vérifié en réintroduisant
+  volontairement le cycle qui avait cassé la production : les trois tests échouent en le nommant.
+- Le build de production ne change pas : même JavaScript émis (vérifié fichier par fichier), démarrage du
+  binaire vérifié.
+
+### Corrigé
+- Les deux suites sur base réelle pouvaient s'exécuter en même temps sur la même base : l'une insère ses
+  bons pendant que l'autre compare deux requêtes d'inventaire, d'où un échec aléatoire (constaté sous
+  Linux). Avec `RUN_DB_TESTS=1`, les fichiers s'exécutent désormais l'un après l'autre.
+
+### À savoir
+- Écrire un test : `vi.fn()`, `vi.mock()`, `vi.spyOn()` à la place de `jest.*`, et pas de `require()`
+  d'un module simulé (l'importer normalement). Détails dans `docs/testing-guide.md`, section 2.1.
+- La couverture est maintenant mesurée par V8 (et non plus Istanbul) : les pourcentages ne se comparent
+  pas directement à ceux d'avant. Mesure du jour : 80,1 % des instructions, 72,4 % des branches,
+  76,8 % des fonctions, 80,8 % des lignes. La marge sur les instructions est très faible (seuil 80).
+
+---
+
+## 2026-09-24 — Tests de bout en bout : le parcours du collaborateur
+
+### Ajouté
+- **Cinq parcours Playwright** (`e2e/tests/08` à `12`), la suite passe de 7 à 12 parcours :
+  - **portail collaborateur** : un collaborateur connecté voit son bon dans « Mes bons », l'ouvre, télécharge
+    le PDF (fichier `bon-<référence>.pdf`, contenu PDF vérifié) ; le bon d'un autre collaborateur n'apparaît
+    pas, et l'ouvrir par son adresse directe affiche « Accès refusé à ce bon » ;
+  - **contestation** : le collaborateur conteste depuis la fiche de son bon ; l'IT voit le badge du menu,
+    rejette la contestation avec une réponse depuis Admin → Contestations ; le collaborateur retrouve son bon
+    dans « En cours » et reçoit l'email de réponse, qui reprend le message de l'IT (vérifié dans Mailpit) ;
+  - **fiche matériel** : depuis l'inventaire, le n° de série puis le n° d'inventaire ouvrent `/materiel/…`,
+    qui nomme le détenteur actuel ;
+  - **création rapide** : date du jour pré-remplie, filiale remplie par le choix du collaborateur, n° de série
+    déjà en circulation signalé à la sortie du champ, Entrée dans « N° Série » qui ajoute une ligne et place
+    le curseur dedans sans soumettre le formulaire (pourtant complet) ;
+  - **signature sur téléphone** : signature présentielle au doigt dans un contexte mobile (390 × 844,
+    tactile, vrais évènements tactiles) jusqu'au bon actif ; le bouton « Signer » reste désactivé tant que
+    le tracé n'est pas enregistré.
+- **Compte collaborateur authentifiable dans l'amorçage E2E** (`seed.portail@e2e.local`, compte local, rôle
+  collaborateur, mot de passe factice propre à cet environnement jetable) : sans annuaire ni Entra, c'était
+  le seul moyen de jouer le point de vue de celui qui signe.
+
+### À savoir
+- L'amorçage E2E n'est rejouable que sur une base neuve : une fois des bons créés, sa purge échoue sur une
+  clé étrangère (sans rien modifier). La documentation le disait idempotent ; elle est corrigée.
+- Repéré en écrivant le parcours « fiche matériel », non corrigé : dans l'inventaire, cliquer un lien moins
+  de 300 ms après avoir tapé une recherche peut ramener à l'inventaire, la recherche différée étant écrite
+  dans l'URL pendant le chargement de la page visée. Le test attend que la recherche soit appliquée.
+
+---
+
+## 2026-09-24 — Outillage de test frontend : plus aucune vulnérabilité signalée
+
+### Modifié
+- **Vitest 2.1.9 → 5.0.1** (frontend, dépendance de développement). `npm audit` complet passe de
+  5 vulnérabilités (1 critique, 1 haute, 3 modérées) à **0**. Elles venaient toutes de la chaîne embarquée
+  par Vitest 2 : son propre Vite 5.4 et son esbuild 0.21 (serveur de développement lisible depuis n'importe
+  quel site, contournement de `server.fs.deny` sous Windows), `@vitest/mocker` (lecture de fichiers
+  arbitraires via une redirection de mock) et l'interface Vitest (lecture et exécution de fichiers).
+  Vitest 5 réutilise désormais le Vite 6.4.3 du projet : une seule copie de Vite et d'esbuild (0.25.12)
+  dans `node_modules`. Aucun effet sur l'application livrée : ces paquets ne sont pas dans l'image, et le
+  build de production est identique octet pour octet (mêmes 85 fichiers, mêmes empreintes).
+- Vite (6.4.3), `@vitejs/plugin-react` (4.7.0), jsdom et Testing Library restent aux mêmes versions.
+
+### Corrigé
+- `npx vitest run --maxWorkers=N` fonctionne : Vitest 2.1 le refusait (« minThreads and maxThreads must
+  not conflict »), le nouveau pool de Vitest 4+ n'a plus qu'un réglage `maxWorkers`.
+
+### À savoir
+- Vitest 5 exige Node ≥ 22.12 (CI et image : Node 22). Il vide les mocks avant chaque test par défaut
+  (`clearMocks: true`) et fait échouer une assertion asynchrone non attendue : les 639 tests passent sans
+  modification.
+
+---
+
 ## 2026-09-24 — Liste des bons : tri, filtres, relances groupées et réponse allégée
 
 ### Ajouté
