@@ -7,9 +7,10 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { createMockConfigService, createMockJobTrackerService } from '../../common/__tests__/helpers/mock-services';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
 import { JobTrackerService } from '../../monitoring/job-tracker.service';
+import type { Mock } from 'vitest';
 
-jest.mock('fs/promises');
-jest.mock('fs');
+vi.mock('fs/promises');
+vi.mock('fs');
 
 describe('SmbService', () => {
   let service: SmbService;
@@ -26,7 +27,7 @@ describe('SmbService', () => {
   };
 
   beforeEach(async () => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     configService = createMockConfigService();
     prisma = createMockPrismaService();
     jobTracker = createMockJobTrackerService();
@@ -72,11 +73,11 @@ describe('SmbService', () => {
         if (cat === 'smb' && key === 'path') return Promise.resolve('/mnt/share');
         return Promise.resolve(null);
       });
-      (fs.existsSync as jest.Mock).mockReturnValue(true);
+      (fs.existsSync as Mock).mockReturnValue(true);
       prisma.smbExport.create.mockResolvedValue({ id: 'exp-1' });
       prisma.smbExport.update.mockResolvedValue({});
-      (fsPromises.mkdir as jest.Mock).mockResolvedValue(undefined);
-      (fsPromises.writeFile as jest.Mock).mockResolvedValue(undefined);
+      (fsPromises.mkdir as Mock).mockResolvedValue(undefined);
+      (fsPromises.writeFile as Mock).mockResolvedValue(undefined);
 
       const result = await service.exportPdf(mockBon, 'test.pdf', Buffer.from('pdf'));
 
@@ -105,11 +106,11 @@ describe('SmbService', () => {
         if (cat === 'smb' && key === 'path') return Promise.resolve('/mnt/share');
         return Promise.resolve(null);
       });
-      (fs.existsSync as jest.Mock).mockReturnValue(true);
+      (fs.existsSync as Mock).mockReturnValue(true);
       prisma.smbExport.create.mockResolvedValue({ id: 'exp-2' });
       prisma.smbExport.update.mockResolvedValue({});
-      (fsPromises.mkdir as jest.Mock).mockResolvedValue(undefined);
-      (fsPromises.writeFile as jest.Mock).mockRejectedValue(new Error('EACCES: permission denied'));
+      (fsPromises.mkdir as Mock).mockResolvedValue(undefined);
+      (fsPromises.writeFile as Mock).mockRejectedValue(new Error('EACCES: permission denied'));
 
       const result = await service.exportPdf(mockBon, 'test.pdf', Buffer.from('pdf'));
 
@@ -161,7 +162,7 @@ describe('SmbService', () => {
         if (cat === 'smb' && key === 'path') return Promise.resolve('/mnt/share');
         return Promise.resolve(null);
       });
-      (fs.existsSync as jest.Mock).mockReturnValue(false);
+      (fs.existsSync as Mock).mockReturnValue(false);
 
       const result = await service.exportPdf(mockBon, 'test.pdf', Buffer.from('pdf'));
 
@@ -250,9 +251,9 @@ describe('SmbService', () => {
 
     it('should succeed when path is writable', async () => {
       configService.get.mockResolvedValue('/mnt/share');
-      (fs.existsSync as jest.Mock).mockReturnValue(true);
-      (fsPromises.writeFile as jest.Mock).mockResolvedValue(undefined);
-      (fsPromises.unlink as jest.Mock).mockResolvedValue(undefined);
+      (fs.existsSync as Mock).mockReturnValue(true);
+      (fsPromises.writeFile as Mock).mockResolvedValue(undefined);
+      (fsPromises.unlink as Mock).mockResolvedValue(undefined);
 
       const result = await service.testConnection();
 
@@ -262,7 +263,7 @@ describe('SmbService', () => {
     it('should fail explicitly (without creating the root) when the share is not mounted', async () => {
       const smbPath = '/mnt/share';
       configService.get.mockResolvedValue(smbPath);
-      (fs.existsSync as jest.Mock).mockReturnValue(false);
+      (fs.existsSync as Mock).mockReturnValue(false);
 
       const result = await service.testConnection();
 
@@ -293,9 +294,9 @@ describe('SmbService', () => {
         if (cat === 'smb' && key === 'path') return Promise.resolve('/mnt/share');
         return Promise.resolve(null);
       });
-      (fs.existsSync as jest.Mock).mockReturnValue(true);
-      (fsPromises.mkdir as jest.Mock).mockResolvedValue(undefined);
-      (fsPromises.writeFile as jest.Mock).mockResolvedValue(undefined);
+      (fs.existsSync as Mock).mockReturnValue(true);
+      (fsPromises.mkdir as Mock).mockResolvedValue(undefined);
+      (fsPromises.writeFile as Mock).mockResolvedValue(undefined);
       prisma.smbExport.findUnique.mockResolvedValue({
         id: 'exp-1',
         status: 'failed',
@@ -360,7 +361,7 @@ describe('SmbService', () => {
         if (cat === 'smb' && key === 'path') return Promise.resolve('/mnt/share');
         return Promise.resolve(null);
       });
-      (fs.existsSync as jest.Mock).mockReturnValue(false);
+      (fs.existsSync as Mock).mockReturnValue(false);
       prisma.smbExport.findUnique.mockResolvedValue({
         id: 'exp-3',
         status: 'failed',

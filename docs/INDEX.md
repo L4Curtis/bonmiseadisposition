@@ -114,7 +114,7 @@
 ### Guide de tests
 **[testing-guide.md](testing-guide.md)**
 - Stratégie de test (unitaire, intégration, E2E)
-- Patterns Jest/NestJS, fixtures, mocks
+- Patterns Vitest/NestJS, fixtures, mocks
 - Objectifs de couverture, priorités par service
 
 ### Conformité légale (document de travail, non implémenté)

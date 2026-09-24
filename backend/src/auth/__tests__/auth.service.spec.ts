@@ -4,13 +4,14 @@ import type { Response } from 'express';
 import * as bcrypt from 'bcryptjs';
 import { Prisma } from '@prisma/client';
 import { AuthService } from '../auth.service';
+import type { Mock } from 'vitest';
 
 // Prevent ensureDefaultAdmin/changePassword from touching the real filesystem
-jest.mock('fs', () => ({
-  ...jest.requireActual('fs'),
-  writeFileSync: jest.fn(),
-  existsSync: jest.fn().mockReturnValue(false),
-  unlinkSync: jest.fn(),
+vi.mock('fs', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('fs')>()),
+  writeFileSync: vi.fn(),
+  existsSync: vi.fn().mockReturnValue(false),
+  unlinkSync: vi.fn(),
 }));
 import { existsSync, unlinkSync } from 'fs';
 import { AppConfigService } from '../../config/config.service';
@@ -20,12 +21,12 @@ import { createMockConfigService } from '../../common/__tests__/helpers/mock-ser
 import { localAdminUser, collaboratorUser, manualAccountUser } from '../../common/__tests__/fixtures/user.fixtures';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type MockPrisma = Record<string, Record<string, jest.Mock<any, any>>>;
+type MockPrisma = Record<string, Record<string, Mock>>;
 
 describe('AuthService', () => {
   let service: AuthService;
   let prisma: MockPrisma;
-  let jwtService: { sign: jest.Mock; verify: jest.Mock };
+  let jwtService: { sign: Mock; verify: Mock };
   let configService: ReturnType<typeof createMockConfigService>;
 
   // A valid strong password used across multiple tests
@@ -34,8 +35,8 @@ describe('AuthService', () => {
   beforeEach(() => {
     prisma = createMockPrismaService() as unknown as MockPrisma;
     jwtService = {
-      sign: jest.fn().mockReturnValue('mock-jwt-token'),
-      verify: jest.fn(),
+      sign: vi.fn().mockReturnValue('mock-jwt-token'),
+      verify: vi.fn(),
     };
     configService = createMockConfigService();
 
@@ -354,7 +355,7 @@ describe('AuthService', () => {
 
       prisma.user.findUniqueOrThrow.mockResolvedValue(admin);
       prisma.user.update.mockResolvedValue({ ...admin, mustChangePassword: false });
-      (existsSync as jest.Mock).mockReturnValueOnce(true);
+      (existsSync as Mock).mockReturnValueOnce(true);
 
       await service.changePassword(admin.id, currentPw, newPw);
 
@@ -371,7 +372,7 @@ describe('AuthService', () => {
 
       prisma.user.findUniqueOrThrow.mockResolvedValue(user);
       prisma.user.update.mockResolvedValue({ ...user, mustChangePassword: false });
-      (unlinkSync as jest.Mock).mockClear();
+      (unlinkSync as Mock).mockClear();
 
       await service.changePassword(user.id, currentPw, newPw);
 
@@ -403,8 +404,8 @@ describe('AuthService', () => {
         'produire une promesse rejetée non gérée (cf. fix 057737c)',
       async () => {
         prisma.revokedToken.deleteMany.mockRejectedValue(new Error('Base indisponible'));
-        const logger = (service as unknown as { logger: { warn: jest.Mock } }).logger;
-        const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => undefined);
+        const logger = (service as unknown as { logger: { warn: Mock } }).logger;
+        const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
 
         // Remplit le cache mémoire au-delà du seuil (10000) pour déclencher le
         // chemin onOverCapacity() de revokeTokenImpl (token-revocation.ts).
@@ -497,7 +498,7 @@ describe('AuthService', () => {
     it('should scope the refresh_token cookie to /api/auth (not /api/auth/refresh) so logout can revoke it (LOT C bug #3)', () => {
       const cookieCalls: Array<[string, string, Record<string, unknown>]> = [];
       const res = {
-        cookie: jest.fn((name: string, value: string, opts: Record<string, unknown>) => {
+        cookie: vi.fn((name: string, value: string, opts: Record<string, unknown>) => {
           cookieCalls.push([name, value, opts]);
         }),
       };
@@ -511,7 +512,7 @@ describe('AuthService', () => {
     it('should clear the refresh_token cookie with the same /api/auth path', () => {
       const clearCalls: Array<[string, Record<string, unknown>]> = [];
       const res = {
-        clearCookie: jest.fn((name: string, opts: Record<string, unknown>) => {
+        clearCookie: vi.fn((name: string, opts: Record<string, unknown>) => {
           clearCalls.push([name, opts]);
         }),
       };

@@ -6,8 +6,9 @@ import {
   blockIfAppUrlMissing,
 } from '../notification-log';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
+import type { Mock } from 'vitest';
 
-const asMock = (fn: unknown): jest.Mock => fn as jest.Mock;
+const asMock = (fn: unknown): Mock => fn as Mock;
 
 describe('truncateErrorMessage', () => {
   it('returns a default message when the error is undefined', () => {
@@ -127,7 +128,7 @@ describe('blockIfAppUrlMissing', () => {
   beforeEach(() => {
     prisma = createMockPrismaService();
     asMock(prisma.notificationLog.create).mockResolvedValue({});
-    logger = { error: jest.fn() } as unknown as Logger;
+    logger = { error: vi.fn() } as unknown as Logger;
   });
 
   it('returns false and logs nothing when appUrl is present', async () => {

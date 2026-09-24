@@ -3,7 +3,13 @@ import { createHash } from 'crypto';
 import { existsSync } from 'fs';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
-import * as PDFDocument from 'pdfkit';
+// pdfkit est un module CommonJS dont l'export est la classe elle-même
+// (`module.exports = PDFDocument`) : `import = require` est la forme TypeScript
+// exacte pour ce cas. Compilé par `nest build`, le résultat est identique à
+// l'ancien `import * as` (`const PDFDocument = require("pdfkit")`), mais il
+// reste une vraie classe quand les tests l'exécutent en ESM (Vitest), là où un
+// espace de noms `import * as` n'est pas constructible.
+import PDFDocument = require('pdfkit');
 import { PrismaService } from '../prisma/prisma.service';
 import { EncryptionService } from '../config/encryption.service';
 import { PdfSnapshotType } from '../common/types';
@@ -88,7 +94,7 @@ export class PdfService {
   // glyphe faux. Sur un document de preuve légale (identité du signataire),
   // c'est inacceptable. On embarque donc DejaVu Sans (licence Bitstream Vera,
   // libre et redistribuable) et on l'enregistre sur chaque document généré.
-  // __dirname résout correctement en dev (ts-jest / ts-node : backend/src/pdf)
+  // __dirname résout correctement en dev (tests Vitest / ts-node : backend/src/pdf)
   // ET en prod (dist/pdf, copié par compilerOptions.assets de nest-cli.json).
   private readonly fontsDir = join(__dirname, 'fonts');
   private readonly fontRegularPath = join(this.fontsDir, 'DejaVuSans.ttf');

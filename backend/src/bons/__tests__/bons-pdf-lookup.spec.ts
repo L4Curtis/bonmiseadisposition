@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { assertValidPdfQuery, resolveBonPdf } from '../bons-pdf-lookup';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
+import type { Mock } from 'vitest';
 
 describe('assertValidPdfQuery', () => {
   it("accepte un type et une étape valides (cas nominal)", () => {
@@ -29,7 +30,7 @@ describe('resolveBonPdf', () => {
   });
 
   it("sert le snapshot de l'étape demandée en priorité quand stage est fourni (cas nominal)", async () => {
-    (prisma.pdfSnapshot.findUnique as jest.Mock).mockResolvedValue({
+    (prisma.pdfSnapshot.findUnique as Mock).mockResolvedValue({
       filename: 'etape.pdf',
       data: Buffer.from('etape'),
     });
@@ -40,7 +41,7 @@ describe('resolveBonPdf', () => {
   });
 
   it('retombe sur le snapshot par défaut du type quand le stage demandé est absent', async () => {
-    (prisma.pdfSnapshot.findUnique as jest.Mock)
+    (prisma.pdfSnapshot.findUnique as Mock)
       .mockResolvedValueOnce(null) // stage
       .mockResolvedValueOnce({ filename: 'defaut.pdf', data: Buffer.from('defaut') }); // type par défaut
 
@@ -50,8 +51,8 @@ describe('resolveBonPdf', () => {
   });
 
   it('retombe sur les colonnes legacy quand aucun PdfSnapshot n’existe', async () => {
-    (prisma.pdfSnapshot.findUnique as jest.Mock).mockResolvedValue(null);
-    (prisma.bon.findUnique as jest.Mock).mockResolvedValue({
+    (prisma.pdfSnapshot.findUnique as Mock).mockResolvedValue(null);
+    (prisma.bon.findUnique as Mock).mockResolvedValue({
       pdfMiseDispoSnapshot: Buffer.from('legacy'),
       pdfRestitutionSnapshot: null,
     });
@@ -62,8 +63,8 @@ describe('resolveBonPdf', () => {
   });
 
   it("renvoie null quand rien n'est stocké (cas limite : génération à la volée déléguée au contrôleur)", async () => {
-    (prisma.pdfSnapshot.findUnique as jest.Mock).mockResolvedValue(null);
-    (prisma.bon.findUnique as jest.Mock).mockResolvedValue({
+    (prisma.pdfSnapshot.findUnique as Mock).mockResolvedValue(null);
+    (prisma.bon.findUnique as Mock).mockResolvedValue({
       pdfMiseDispoSnapshot: null,
       pdfRestitutionSnapshot: null,
     });

@@ -37,7 +37,7 @@ describe('getNextBonStatus (pure)', () => {
   });
 
   it('should warn via the provided logger on an invalid transition, without throwing', () => {
-    const warn = jest.fn();
+    const warn = vi.fn();
     const result = getNextBonStatus('active', 'mise_disposition', { warn });
 
     expect(result).toBe('active');

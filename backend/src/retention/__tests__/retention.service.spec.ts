@@ -2,44 +2,46 @@ import { BadRequestException } from '@nestjs/common';
 import { RetentionService } from '../retention.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
 import { createMockConfigService, createMockJobTrackerService } from '../../common/__tests__/helpers/mock-services';
+import type { Mock } from 'vitest';
+import * as fsPromisesModule from 'fs/promises';
 
-jest.mock('fs', () => ({ existsSync: jest.fn().mockReturnValue(false) }));
-jest.mock('fs/promises', () => ({ unlink: jest.fn().mockResolvedValue(undefined) }));
+vi.mock('fs', () => ({ existsSync: vi.fn().mockReturnValue(false) }));
+vi.mock('fs/promises', () => ({ unlink: vi.fn().mockResolvedValue(undefined) }));
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const asMock = (fn: unknown): jest.Mock => fn as any;
+const asMock = (fn: unknown): Mock => fn as any;
 
 describe('RetentionService', () => {
   let prisma: ReturnType<typeof createMockPrismaService>;
   let config: ReturnType<typeof createMockConfigService>;
-  let attachments: { purgeForBon: jest.Mock };
+  let attachments: { purgeForBon: Mock };
   let jobTracker: ReturnType<typeof createMockJobTrackerService>;
   let service: RetentionService;
 
   beforeEach(() => {
     prisma = createMockPrismaService();
     config = createMockConfigService();
-    attachments = { purgeForBon: jest.fn().mockResolvedValue(2) };
+    attachments = { purgeForBon: vi.fn().mockResolvedValue(2) };
     jobTracker = createMockJobTrackerService();
     service = new RetentionService(prisma as never, config as never, attachments as never, jobTracker as never);
 
     // Modèles utilisés par anonymizeBon / purgeOldAttachments non présents (ou
     // sans défaut) dans le mock Prisma partagé — complétés ici localement.
-    (prisma.auditLog as unknown as { findMany: jest.Mock }).findMany = jest.fn().mockResolvedValue([]);
-    (prisma.auditLog as unknown as { update: jest.Mock }).update = jest.fn().mockResolvedValue({});
-    (prisma.auditLog as unknown as { updateMany: jest.Mock }).updateMany = jest
+    (prisma.auditLog as unknown as { findMany: Mock }).findMany = vi.fn().mockResolvedValue([]);
+    (prisma.auditLog as unknown as { update: Mock }).update = vi.fn().mockResolvedValue({});
+    (prisma.auditLog as unknown as { updateMany: Mock }).updateMany = vi
       .fn()
       .mockResolvedValue({ count: 0 });
-    (prisma.auditLog as unknown as { deleteMany: jest.Mock }).deleteMany = jest
+    (prisma.auditLog as unknown as { deleteMany: Mock }).deleteMany = vi
       .fn()
       .mockResolvedValue({ count: 0 });
-    (prisma.notificationLog as unknown as { updateMany: jest.Mock }).updateMany = jest
+    (prisma.notificationLog as unknown as { updateMany: Mock }).updateMany = vi
       .fn()
       .mockResolvedValue({ count: 0 });
-    (prisma.signature as unknown as { deleteMany: jest.Mock }).deleteMany = jest
+    (prisma.signature as unknown as { deleteMany: Mock }).deleteMany = vi
       .fn()
       .mockResolvedValue({ count: 0 });
-    (prisma.signature as unknown as { count: jest.Mock }).count = jest.fn().mockResolvedValue(0);
+    (prisma.signature as unknown as { count: Mock }).count = vi.fn().mockResolvedValue(0);
 
     asMock(prisma.bon.findUnique).mockResolvedValue({
       collaborateurId: 'collab-1',
@@ -369,7 +371,7 @@ describe('RetentionService', () => {
     });
 
     it('ignores missing files (ENOENT) but still deletes the row', async () => {
-      const fsPromises = jest.requireMock('fs/promises') as { unlink: jest.Mock };
+      const fsPromises = fsPromisesModule as unknown as { unlink: Mock };
       const enoent = Object.assign(new Error('not found'), { code: 'ENOENT' });
       fsPromises.unlink.mockRejectedValueOnce(enoent);
       asMock(prisma.attachment.findMany).mockResolvedValue([{ id: 'att-1', storedPath: 'gone.enc' }]);
@@ -400,7 +402,7 @@ describe('RetentionService', () => {
   describe('cronRetention', () => {
     it('signale "skipped" au suivi quand la rétention est désactivée, sans exécuter run()', async () => {
       config.set('retention', 'enabled', 'false');
-      const runSpy = jest.spyOn(service, 'run');
+      const runSpy = vi.spyOn(service, 'run');
 
       await service.cronRetention();
 
@@ -411,7 +413,7 @@ describe('RetentionService', () => {
 
     it('exécute run() en mode cron et ne signale rien de particulier (succès) quand la rétention est activée', async () => {
       config.set('retention', 'enabled', 'true');
-      const runSpy = jest.spyOn(service, 'run').mockResolvedValue({
+      const runSpy = vi.spyOn(service, 'run').mockResolvedValue({
         eligible: 0,
         anonymized: 0,
         attachmentsPurged: 0,
@@ -428,7 +430,7 @@ describe('RetentionService', () => {
 
     it("propage l'échec de run() au suivi", async () => {
       config.set('retention', 'enabled', 'true');
-      jest.spyOn(service, 'run').mockRejectedValue(new Error('DB indisponible'));
+      vi.spyOn(service, 'run').mockRejectedValue(new Error('DB indisponible'));
 
       await service.cronRetention();
 

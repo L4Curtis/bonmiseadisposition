@@ -1865,7 +1865,7 @@ describe('BonsService', () => {
       // 2026-03-01T00:30:00Z : en UTC-1 (ou plus à l'ouest), l'heure locale
       // serait encore le 28/02 — un calcul en heure locale décalerait le
       // début de mois d'une journée.
-      jest.useFakeTimers().setSystemTime(new Date('2026-03-01T00:30:00Z'));
+      vi.useFakeTimers().setSystemTime(new Date('2026-03-01T00:30:00Z'));
       try {
         prisma.bon.count.mockResolvedValue(0);
         prisma.filiale.findMany.mockResolvedValue([]);
@@ -1879,7 +1879,7 @@ describe('BonsService', () => {
         expect(archivedThisMonthCall).toBeDefined();
         expect(archivedThisMonthCall?.[0].where.archivedAt.gte.toISOString()).toBe('2026-03-01T00:00:00.000Z');
       } finally {
-        jest.useRealTimers();
+        vi.useRealTimers();
       }
     });
 

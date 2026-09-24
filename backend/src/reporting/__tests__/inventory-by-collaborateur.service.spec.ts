@@ -4,6 +4,7 @@ import { InventoryService, AGGREGATION_ROW_LIMIT } from '../inventory.service';
 import { InventoryByCollaborateurQueryDto } from '../dto/inventory-by-collaborateur-query.dto';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
 import { PARC_BON_STATUSES } from '../../common/bon-predicates';
+import type { Mock } from 'vitest';
 
 function makeGroupRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -27,11 +28,11 @@ describe('InventoryService.getInventoryByCollaborateur', () => {
   });
 
   it("réutilise le même where que getInventory (parc en circulation élargi + filtres)", async () => {
-    (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
+    (prisma.bonEquipment.findMany as Mock).mockResolvedValue([]);
 
     await service.getInventoryByCollaborateur({ filialeId: 'f-1', category: 'ecran', overdue: true }, new Date('2026-09-18'));
 
-    const call = (prisma.bonEquipment.findMany as jest.Mock).mock.calls[0][0];
+    const call = (prisma.bonEquipment.findMany as Mock).mock.calls[0][0];
     expect(call.where.AND).toContainEqual({ returnedAt: null });
     expect(call.where.AND).toContainEqual({ notReturned: false });
     expect(call.where.AND).toContainEqual({ bon: { status: { in: [...PARC_BON_STATUSES] } } });
@@ -46,29 +47,29 @@ describe('InventoryService.getInventoryByCollaborateur', () => {
 
   describe('filtre compte', () => {
     it('sans le filtre, ne restreint pas sur l\'état du compte', async () => {
-      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.bonEquipment.findMany as Mock).mockResolvedValue([]);
 
       await service.getInventoryByCollaborateur({});
 
-      const call = (prisma.bonEquipment.findMany as jest.Mock).mock.calls[0][0];
+      const call = (prisma.bonEquipment.findMany as Mock).mock.calls[0][0];
       expect(call.where.AND).not.toContainEqual(expect.objectContaining({ bon: { collaborateur: expect.anything() } }));
     });
 
     it('?compte=inactif restreint aux comptes désactivés', async () => {
-      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.bonEquipment.findMany as Mock).mockResolvedValue([]);
 
       await service.getInventoryByCollaborateur({ compte: 'inactif' });
 
-      const call = (prisma.bonEquipment.findMany as jest.Mock).mock.calls[0][0];
+      const call = (prisma.bonEquipment.findMany as Mock).mock.calls[0][0];
       expect(call.where.AND).toContainEqual({ bon: { collaborateur: { active: false } } });
     });
 
     it('?compte=actif restreint aux comptes actifs', async () => {
-      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.bonEquipment.findMany as Mock).mockResolvedValue([]);
 
       await service.getInventoryByCollaborateur({ compte: 'actif' });
 
-      const call = (prisma.bonEquipment.findMany as jest.Mock).mock.calls[0][0];
+      const call = (prisma.bonEquipment.findMany as Mock).mock.calls[0][0];
       expect(call.where.AND).toContainEqual({ bon: { collaborateur: { active: true } } });
     });
 
@@ -77,7 +78,7 @@ describe('InventoryService.getInventoryByCollaborateur', () => {
       // équipement rendu ou déclaré perdu : un collaborateur désactivé qui a
       // tout restitué n'a simplement aucune ligne BonEquipment correspondante,
       // donc aucun groupe — rien de plus à filtrer ici.
-      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.bonEquipment.findMany as Mock).mockResolvedValue([]);
 
       const result = await service.getInventoryByCollaborateur({ compte: 'inactif' });
 
@@ -87,7 +88,7 @@ describe('InventoryService.getInventoryByCollaborateur', () => {
   });
 
   it('expose l\'état du compte (active) sur chaque ligne regroupée', async () => {
-    (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([
+    (prisma.bonEquipment.findMany as Mock).mockResolvedValue([
       makeGroupRow({ collaborateur: { id: 'u-1', displayName: 'Jean Dupont', email: 'j.dupont@x.fr', department: 'IT', active: false } }),
     ]);
 
@@ -97,7 +98,7 @@ describe('InventoryService.getInventoryByCollaborateur', () => {
   });
 
   it('regroupe les lignes renvoyées par collaborateur et applique le tri "count" par défaut', async () => {
-    (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([
+    (prisma.bonEquipment.findMany as Mock).mockResolvedValue([
       makeGroupRow(),
       makeGroupRow(),
       makeGroupRow({ collaborateur: { id: 'u-2', displayName: 'Alice Martin', email: 'a@x.fr', department: 'RH' } }),
@@ -113,7 +114,7 @@ describe('InventoryService.getInventoryByCollaborateur', () => {
   });
 
   it('applique le tri "oldest" (prêt le plus ancien en premier)', async () => {
-    (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([
+    (prisma.bonEquipment.findMany as Mock).mockResolvedValue([
       makeGroupRow({ dateMiseDisposition: new Date('2026-08-01'), collaborateur: { id: 'u-1', displayName: 'Récent', email: null, department: null } }),
       makeGroupRow({ dateMiseDisposition: new Date('2026-01-01'), collaborateur: { id: 'u-2', displayName: 'Ancien', email: null, department: null } }),
     ]);
@@ -125,7 +126,7 @@ describe('InventoryService.getInventoryByCollaborateur', () => {
 
   it('calcule overdueCount par collaborateur en fonction de `now`', async () => {
     const now = new Date('2026-09-18T10:00:00.000Z');
-    (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([
+    (prisma.bonEquipment.findMany as Mock).mockResolvedValue([
       makeGroupRow({ dateRestitution: new Date('2026-09-01T00:00:00.000Z') }), // en retard
       makeGroupRow({ dateRestitution: new Date('2026-12-01T00:00:00.000Z') }), // pas en retard
     ]);
@@ -139,7 +140,7 @@ describe('InventoryService.getInventoryByCollaborateur', () => {
     const rows = Array.from({ length: 3 }, (_, i) =>
       makeGroupRow({ collaborateur: { id: `u-${i}`, displayName: `Personne ${i}`, email: null, department: null } }),
     );
-    (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue(rows);
+    (prisma.bonEquipment.findMany as Mock).mockResolvedValue(rows);
 
     const result = await service.getInventoryByCollaborateur({});
 
@@ -153,7 +154,7 @@ describe('InventoryService.getInventoryByCollaborateur', () => {
     const rows = Array.from({ length: 5 }, (_, i) =>
       makeGroupRow({ collaborateur: { id: `u-${i}`, displayName: `Personne ${i}`, email: null, department: null } }),
     );
-    (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue(rows);
+    (prisma.bonEquipment.findMany as Mock).mockResolvedValue(rows);
 
     const result = await service.getInventoryByCollaborateur({ page: 2, limit: 2 });
 
@@ -161,7 +162,7 @@ describe('InventoryService.getInventoryByCollaborateur', () => {
     expect(result.limit).toBe(2);
     expect(result.items).toHaveLength(2);
 
-    const call = (prisma.bonEquipment.findMany as jest.Mock).mock.calls[0][0];
+    const call = (prisma.bonEquipment.findMany as Mock).mock.calls[0][0];
     expect(call.take).toBe(AGGREGATION_ROW_LIMIT + 1);
   });
 
@@ -169,7 +170,7 @@ describe('InventoryService.getInventoryByCollaborateur', () => {
     const rows = Array.from({ length: AGGREGATION_ROW_LIMIT + 1 }, (_, i) =>
       makeGroupRow({ collaborateur: { id: `u-${i}`, displayName: `Personne ${i}`, email: null, department: null } }),
     );
-    (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue(rows);
+    (prisma.bonEquipment.findMany as Mock).mockResolvedValue(rows);
 
     const result = await service.getInventoryByCollaborateur({ limit: 200 });
 

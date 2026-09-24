@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import * as PDFDocument from 'pdfkit';
+import PDFDocument = require('pdfkit');
 import { Test, TestingModule } from '@nestjs/testing';
 import { PdfService, BonForPdf, SigImages } from '../pdf.service';
 import { PdfTemplatesService } from '../pdf-templates.service';
@@ -8,9 +8,14 @@ import { EncryptionService } from '../../config/encryption.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
 import { createMockPdfTemplatesService, createMockEncryptionService } from '../../common/__tests__/helpers/mock-services';
 import { activeBon, partiallyReturnedBon } from '../../common/__tests__/fixtures/bon.fixtures';
+import type { Mock, MockInstance } from 'vitest';
 
-// Helper to access jest.Mock methods on deeply-nested prisma mocks
-const asMock = (fn: unknown): jest.Mock => fn as jest.Mock;
+// vi.spyOn sur une méthode privée : Vitest vérifie la cible et le nom de la
+// méthode, d'où ce transtypage vers un objet quelconque de méthodes.
+type SpyTarget = Record<string, (...args: unknown[]) => unknown>;
+
+// Helper to access Mock methods on deeply-nested prisma mocks
+const asMock = (fn: unknown): Mock => fn as Mock;
 
 describe('PdfService', () => {
   let service: PdfService;
@@ -114,7 +119,7 @@ describe('PdfService', () => {
   }
 
   beforeEach(async () => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     prisma = createMockPrismaService();
     const mockPdfTemplatesService = createMockPdfTemplatesService();
 
@@ -156,7 +161,7 @@ describe('PdfService', () => {
       const hugeBuffer = Buffer.alloc(11 * 1024 * 1024); // 11 MB
 
       // Spy on the private renderPdf to return a huge buffer
-      jest.spyOn(service as never, 'renderPdf' as never).mockResolvedValue(
+      vi.spyOn(service as unknown as SpyTarget, 'renderPdf').mockResolvedValue(
         hugeBuffer as never,
       );
 
@@ -329,22 +334,22 @@ describe('PdfService', () => {
 
       // getLogoBuffer lit sur disque (data/uploads) — on l'intercepte pour ne
       // renvoyer un buffer QUE pour le chemin du cachet (pas de logo ici).
-      const getLogoBufferSpy = jest
-        .spyOn(service as never, 'getLogoBuffer' as never)
+      const getLogoBufferSpy = vi
+        .spyOn(service as unknown as SpyTarget, 'getLogoBuffer')
         .mockImplementation((async (path: string | null) =>
           path === 'uploads/stamp.png' ? stampBuffer : null) as never);
 
       // drawSignatureBox est appelée avec (doc, x, y, width, opts, colors) —
       // on garde l'implémentation réelle (call-through) pour ne capturer que
       // le `y` de la case IT (1er appel).
-      const drawSignatureBoxSpy = jest.spyOn(PdfService.prototype as never, 'drawSignatureBox' as never);
+      const drawSignatureBoxSpy = vi.spyOn(PdfService.prototype as unknown as SpyTarget, 'drawSignatureBox');
 
       // doc.image() n'est ici appelée QUE pour le cachet (pas de logo, pas
       // d'encre de signature avec noSigImages) : on la neutralise (pas de
       // vrai décodage d'image) tout en capturant ses arguments.
       const imageCalls: unknown[][] = [];
-      const imageSpy = jest
-        .spyOn(PDFDocument.prototype as never, 'image' as never)
+      const imageSpy = vi
+        .spyOn(PDFDocument.prototype as unknown as SpyTarget, 'image')
         .mockImplementation(function (this: unknown, ...args: unknown[]) {
           imageCalls.push(args);
           return this;
@@ -430,11 +435,11 @@ describe('PdfService', () => {
   // ─── getDocumentType (tested through generateAndSave) ─────────────────────
 
   describe('getDocumentType (via generateAndSave)', () => {
-    let renderSpy: jest.SpyInstance;
+    let renderSpy: MockInstance;
 
     beforeEach(() => {
       asMock(prisma.pdfSnapshot.upsert).mockResolvedValue({});
-      renderSpy = jest.spyOn(service as never, 'renderPdf' as never);
+      renderSpy = vi.spyOn(service as unknown as SpyTarget, 'renderPdf');
     });
 
     afterEach(() => {
@@ -497,10 +502,10 @@ describe('PdfService', () => {
   // ─── regenerateMissingSnapshots ───────────────────────────────────────────
 
   describe('regenerateMissingSnapshots', () => {
-    let generateAndSaveSpy: jest.SpyInstance;
+    let generateAndSaveSpy: MockInstance;
 
     beforeEach(() => {
-      generateAndSaveSpy = jest.spyOn(service, 'generateAndSave').mockResolvedValue(Buffer.from('%PDF-mock'));
+      generateAndSaveSpy = vi.spyOn(service, 'generateAndSave').mockResolvedValue(Buffer.from('%PDF-mock'));
     });
 
     afterEach(() => {

@@ -6,9 +6,9 @@ function fakeEntry(attrs: Array<{ type: string; vals: string[] }>): unknown {
 }
 
 describe('parseLdapSearchEntry', () => {
-  const logger = { debug: jest.fn(), warn: jest.fn(), log: jest.fn() } as unknown as Logger;
+  const logger = { debug: vi.fn(), warn: vi.fn(), log: vi.fn() } as unknown as Logger;
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => vi.clearAllMocks());
 
   it('parses a well-formed entry into an LdapUser (cas nominal)', () => {
     const entry = fakeEntry([

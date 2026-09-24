@@ -2,25 +2,27 @@
  * Mock factories for common services used throughout the backend tests.
  *
  * Each factory returns a fresh object so tests remain isolated from each other.
- * All methods are jest.fn() stubs with sensible defaults (resolved promises, etc.).
+ * All methods are vi.fn() stubs with sensible defaults (resolved promises, etc.).
  */
+import { vi } from 'vitest';
+import { DEFAULT_CONFIGS } from '../../../pdf/pdf-template-config';
 
 // ── NotificationService ──────────────────────────────────────────────────────
 
 export function createMockNotificationService() {
   return {
-    sendMiseDispositionRequest: jest.fn().mockResolvedValue(undefined),
-    sendRestitutionRequest: jest.fn().mockResolvedValue(undefined),
-    sendSignatureConfirmation: jest.fn().mockResolvedValue(undefined),
-    sendPvClotureRequest: jest.fn().mockResolvedValue(undefined),
-    sendContestationAlert: jest.fn().mockResolvedValue(undefined),
-    sendContestationResolution: jest.fn().mockResolvedValue(undefined),
-    sendCancellationNotice: jest.fn().mockResolvedValue(undefined),
-    sendMarkFoundNotice: jest.fn().mockResolvedValue(undefined),
-    sendUnilateralCloseNotice: jest.fn().mockResolvedValue(undefined),
-    sendDailyReminders: jest.fn().mockResolvedValue(undefined),
-    sendEmail: jest.fn().mockResolvedValue(true),
-    invalidateTransporterCache: jest.fn(),
+    sendMiseDispositionRequest: vi.fn().mockResolvedValue(undefined),
+    sendRestitutionRequest: vi.fn().mockResolvedValue(undefined),
+    sendSignatureConfirmation: vi.fn().mockResolvedValue(undefined),
+    sendPvClotureRequest: vi.fn().mockResolvedValue(undefined),
+    sendContestationAlert: vi.fn().mockResolvedValue(undefined),
+    sendContestationResolution: vi.fn().mockResolvedValue(undefined),
+    sendCancellationNotice: vi.fn().mockResolvedValue(undefined),
+    sendMarkFoundNotice: vi.fn().mockResolvedValue(undefined),
+    sendUnilateralCloseNotice: vi.fn().mockResolvedValue(undefined),
+    sendDailyReminders: vi.fn().mockResolvedValue(undefined),
+    sendEmail: vi.fn().mockResolvedValue(true),
+    invalidateTransporterCache: vi.fn(),
   };
 }
 
@@ -28,20 +30,20 @@ export function createMockNotificationService() {
 
 export function createMockSignatureService() {
   return {
-    generateToken: jest.fn().mockResolvedValue({
+    generateToken: vi.fn().mockResolvedValue({
       token: 'mock-token-uuid',
       id: 'sig-id',
     }),
-    invalidateUnsignedTokens: jest.fn().mockResolvedValue(undefined),
-    sign: jest.fn(),
-    signItCachet: jest.fn(),
-    getBonInfoByToken: jest.fn(),
-    getSignatureImagesForBon: jest
+    invalidateUnsignedTokens: vi.fn().mockResolvedValue(undefined),
+    sign: vi.fn(),
+    signItCachet: vi.fn(),
+    getBonInfoByToken: vi.fn(),
+    getSignatureImagesForBon: vi
       .fn()
       .mockResolvedValue({ it: null, collab: null }),
-    getSignatureImageDecrypted: jest.fn().mockResolvedValue(null),
-    saveItPvSignature: jest.fn().mockResolvedValue(undefined),
-    verifyBonIntegrity: jest
+    getSignatureImageDecrypted: vi.fn().mockResolvedValue(null),
+    saveItPvSignature: vi.fn().mockResolvedValue(undefined),
+    verifyBonIntegrity: vi
       .fn()
       .mockResolvedValue({ allValid: true, signatures: [] }),
   };
@@ -51,8 +53,8 @@ export function createMockSignatureService() {
 
 export function createMockPdfService() {
   return {
-    generateAndSave: jest.fn().mockResolvedValue(Buffer.from('mock-pdf')),
-    generateBonPdf: jest.fn().mockResolvedValue(Buffer.from('mock-pdf')),
+    generateAndSave: vi.fn().mockResolvedValue(Buffer.from('mock-pdf')),
+    generateBonPdf: vi.fn().mockResolvedValue(Buffer.from('mock-pdf')),
   };
 }
 
@@ -60,15 +62,15 @@ export function createMockPdfService() {
 
 export function createMockSmbService() {
   return {
-    exportPdf: jest.fn().mockResolvedValue({ success: true }),
-    testConnection: jest
+    exportPdf: vi.fn().mockResolvedValue({ success: true }),
+    testConnection: vi
       .fn()
       .mockResolvedValue({ success: true, message: 'ok' }),
-    getStatus: jest.fn().mockResolvedValue({ enabled: false }),
-    getFailedExports: jest.fn().mockResolvedValue([]),
-    retryOne: jest.fn().mockResolvedValue({ success: true }),
-    retryAllFailed: jest.fn().mockResolvedValue({ retried: 0, succeeded: 0, failed: 0 }),
-    sanitizeName: jest.fn().mockImplementation((name: string) =>
+    getStatus: vi.fn().mockResolvedValue({ enabled: false }),
+    getFailedExports: vi.fn().mockResolvedValue([]),
+    retryOne: vi.fn().mockResolvedValue({ success: true }),
+    retryAllFailed: vi.fn().mockResolvedValue({ retried: 0, succeeded: 0, failed: 0 }),
+    sanitizeName: vi.fn().mockImplementation((name: string) =>
       name
         .normalize('NFD')
         .replace(/[\u0300-\u036f]/g, '')
@@ -86,21 +88,21 @@ export function createMockConfigService() {
   const store = new Map<string, string>();
 
   return {
-    get: jest
+    get: vi
       .fn()
       .mockImplementation((category: string, key: string) =>
         Promise.resolve(store.get(`${category}.${key}`) ?? null),
       ),
-    set: jest
+    set: vi
       .fn()
       .mockImplementation((category: string, key: string, value: string) => {
         store.set(`${category}.${key}`, value);
         return Promise.resolve();
       }),
-    getAll: jest.fn().mockResolvedValue([]),
-    invalidateCache: jest.fn(),
-    isSetupRequired: jest.fn().mockResolvedValue(false),
-    getInt: jest
+    getAll: vi.fn().mockResolvedValue([]),
+    invalidateCache: vi.fn(),
+    isSetupRequired: vi.fn().mockResolvedValue(false),
+    getInt: vi
       .fn()
       .mockImplementation(
         (
@@ -117,7 +119,7 @@ export function createMockConfigService() {
           );
         },
       ),
-    getSignatureOverdueDays: jest.fn().mockResolvedValue(7),
+    getSignatureOverdueDays: vi.fn().mockResolvedValue(7),
   };
 }
 
@@ -125,14 +127,14 @@ export function createMockConfigService() {
 
 export function createMockEncryptionService() {
   return {
-    encrypt: jest
+    encrypt: vi
       .fn()
       .mockImplementation((data: string) => `encrypted:${data}`),
-    decrypt: jest
+    decrypt: vi
       .fn()
       .mockImplementation((data: string) => data.replace('encrypted:', '')),
-    seal: jest.fn().mockImplementation((data: string) => `seal:${data}`),
-    verifySeal: jest
+    seal: vi.fn().mockImplementation((data: string) => `seal:${data}`),
+    verifySeal: vi
       .fn()
       .mockImplementation((data: string, expected: string) => expected === `seal:${data}`),
   };
@@ -142,33 +144,30 @@ export function createMockEncryptionService() {
 
 export function createMockTimestampService() {
   return {
-    timestamp: jest.fn().mockResolvedValue(null),
+    timestamp: vi.fn().mockResolvedValue(null),
   };
 }
 
 // ── PdfTemplatesService ──────────────────────────────────────────────────────
 
 export function createMockPdfTemplatesService() {
-  // Lazy-import to avoid circular dependency at module load time
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { DEFAULT_CONFIGS } = require('../../../pdf/pdf-template-config');
   const defaultConfig = DEFAULT_CONFIGS['mise_disposition'];
 
   return {
-    getAll: jest.fn().mockResolvedValue([]),
-    getTemplateById: jest.fn().mockReturnValue({
+    getAll: vi.fn().mockResolvedValue([]),
+    getTemplateById: vi.fn().mockReturnValue({
       id: 'mise_disposition',
       name: 'Bon de mise à disposition',
       description: 'Modèle PDF mise à disposition',
       documentType: 'mise_disposition',
       variables: [],
     }),
-    getDefaultConfig: jest.fn().mockReturnValue(defaultConfig),
-    getTemplateConfig: jest.fn().mockResolvedValue(defaultConfig),
-    updateTemplate: jest.fn().mockResolvedValue(undefined),
-    resetTemplate: jest.fn().mockResolvedValue(undefined),
-    exportAll: jest.fn().mockResolvedValue({ exportedAt: '', templates: [] }),
-    importAll: jest.fn().mockResolvedValue({ imported: 0, skipped: 0 }),
+    getDefaultConfig: vi.fn().mockReturnValue(defaultConfig),
+    getTemplateConfig: vi.fn().mockResolvedValue(defaultConfig),
+    updateTemplate: vi.fn().mockResolvedValue(undefined),
+    resetTemplate: vi.fn().mockResolvedValue(undefined),
+    exportAll: vi.fn().mockResolvedValue({ exportedAt: '', templates: [] }),
+    importAll: vi.fn().mockResolvedValue({ imported: 0, skipped: 0 }),
   };
 }
 
@@ -180,7 +179,7 @@ export function createMockPdfTemplatesService() {
 
 export function createMockJobTrackerService() {
   return {
-    track: jest.fn((_job: string, fn: () => Promise<unknown>) => fn()),
+    track: vi.fn((_job: string, fn: () => Promise<unknown>) => fn()),
   };
 }
 
@@ -188,27 +187,27 @@ export function createMockJobTrackerService() {
 
 export function createMockTemplatesService() {
   return {
-    renderTemplate: jest
+    renderTemplate: vi
       .fn()
       .mockResolvedValue('<html>mock template</html>'),
-    getAll: jest.fn().mockResolvedValue([]),
-    getTemplateById: jest.fn(),
-    getDefaultHtml: jest.fn().mockReturnValue('<html>default</html>'),
-    getTemplateHtml: jest
+    getAll: vi.fn().mockResolvedValue([]),
+    getTemplateById: vi.fn(),
+    getDefaultHtml: vi.fn().mockReturnValue('<html>default</html>'),
+    getTemplateHtml: vi
       .fn()
       .mockResolvedValue('<html>template</html>'),
-    render: jest
+    render: vi
       .fn()
       .mockImplementation(
         (html: string, _vars: Record<string, string>) => html,
       ),
-    getPreviewHtml: jest
+    getPreviewHtml: vi
       .fn()
       .mockResolvedValue('<html>preview</html>'),
-    updateTemplate: jest.fn().mockResolvedValue(undefined),
-    resetTemplate: jest.fn().mockResolvedValue(undefined),
-    exportAll: jest.fn().mockResolvedValue({ exportedAt: '', templates: [] }),
-    importAll: jest
+    updateTemplate: vi.fn().mockResolvedValue(undefined),
+    resetTemplate: vi.fn().mockResolvedValue(undefined),
+    exportAll: vi.fn().mockResolvedValue({ exportedAt: '', templates: [] }),
+    importAll: vi
       .fn()
       .mockResolvedValue({ imported: 0, skipped: 0 }),
   };

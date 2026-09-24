@@ -64,7 +64,7 @@ describe('UserThrottlerGuard.canActivate', () => {
     return {
       switchToHttp: () => ({
         getRequest: () => req,
-        getResponse: () => ({ header: jest.fn() }),
+        getResponse: () => ({ header: vi.fn() }),
       }),
       getClass: () => ({ name: 'AuthControllerTest' }),
       getHandler: () => ({ name: 'refreshTest' }),

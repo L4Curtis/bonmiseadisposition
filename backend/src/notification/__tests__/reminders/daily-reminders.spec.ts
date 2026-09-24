@@ -2,8 +2,9 @@ import { Logger } from '@nestjs/common';
 import { parseDelay, getTokenValidityDays, regenerateSignatureToken } from '../../reminders/daily-reminders';
 import { createMockConfigService } from '../../../common/__tests__/helpers/mock-services';
 import { createMockPrismaService } from '../../../common/__tests__/helpers/mock-prisma';
+import type { Mock } from 'vitest';
 
-const asMock = (fn: unknown): jest.Mock => fn as jest.Mock;
+const asMock = (fn: unknown): Mock => fn as Mock;
 
 describe('parseDelay', () => {
   it('returns the parsed value when it is a positive integer', () => {
@@ -53,7 +54,7 @@ describe('regenerateSignatureToken', () => {
   it('invalidates the previous unsigned signature and creates a fresh token', async () => {
     const prisma = createMockPrismaService();
     const configService = createMockConfigService();
-    const logger = { log: jest.fn() } as unknown as Logger;
+    const logger = { log: vi.fn() } as unknown as Logger;
     asMock(prisma.signature.updateMany).mockResolvedValue({ count: 1 });
     asMock(prisma.signature.create).mockResolvedValue({ token: 'fresh-token' });
 

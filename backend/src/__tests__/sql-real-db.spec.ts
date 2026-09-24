@@ -11,7 +11,7 @@
  *     paramètres distincts (« column b.status must appear in the GROUP BY clause »).
  *
  * Exécution (base de développement lancée, migrations appliquées) :
- *   cd backend && RUN_DB_TESTS=1 npx jest src/__tests__/sql-real-db.spec.ts
+ *   cd backend && RUN_DB_TESTS=1 npx vitest run src/__tests__/sql-real-db.spec.ts
  * Sans `RUN_DB_TESTS=1`, la suite est ignorée : la CI et les tests unitaires
  * habituels n'ont besoin d'aucune base.
  */

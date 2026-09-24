@@ -9,7 +9,7 @@
  * deux fois ni perdue d'une page à l'autre).
  *
  * Exécution (base jetable ou de développement, migrations appliquées) :
- *   cd backend && RUN_DB_TESTS=1 npx jest src/reporting/__tests__/inventory-sort.real-db.spec.ts
+ *   cd backend && RUN_DB_TESTS=1 npx vitest run src/reporting/__tests__/inventory-sort.real-db.spec.ts
  * Sans `RUN_DB_TESTS=1`, la suite est ignorée. Les données créées portent le
  * préfixe TEST_PREFIX et sont supprimées à la fin.
  */

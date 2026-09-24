@@ -3,6 +3,7 @@ import { AttachmentsController } from '../attachments.controller';
 import { AttachmentsService } from '../attachments.service';
 import { AuthUser } from '../../auth/auth-user.interface';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
+import type { Mock } from 'vitest';
 
 /**
  * Point 8 : un collaborateur ne peut ajouter/supprimer des pièces jointes que
@@ -13,9 +14,9 @@ describe('AttachmentsController — collaborator write window', () => {
   let controller: AttachmentsController;
   let prisma: ReturnType<typeof createMockPrismaService>;
   let attachments: {
-    list: jest.Mock;
-    create: jest.Mock;
-    remove: jest.Mock;
+    list: Mock;
+    create: Mock;
+    remove: Mock;
   };
 
   const collaborator: AuthUser = {
@@ -47,15 +48,15 @@ describe('AttachmentsController — collaborator write window', () => {
   beforeEach(() => {
     prisma = createMockPrismaService();
     attachments = {
-      list: jest.fn().mockResolvedValue([]),
-      create: jest.fn().mockResolvedValue({ id: 'att-1' }),
-      remove: jest.fn().mockResolvedValue({ ok: true }),
+      list: vi.fn().mockResolvedValue([]),
+      create: vi.fn().mockResolvedValue({ id: 'att-1' }),
+      remove: vi.fn().mockResolvedValue({ ok: true }),
     };
     controller = new AttachmentsController(attachments as unknown as AttachmentsService, prisma as never);
   });
 
   const mockBon = (overrides: Partial<{ collaborateurId: string; status: string }> = {}) => {
-    (prisma.bon.findUnique as jest.Mock).mockImplementation(({ select }: { select: Record<string, boolean> }) => {
+    (prisma.bon.findUnique as Mock).mockImplementation(({ select }: { select: Record<string, boolean> }) => {
       if (select.collaborateurId) return Promise.resolve({ collaborateurId: overrides.collaborateurId ?? collaborator.id });
       if (select.status) return Promise.resolve({ status: overrides.status ?? 'sent_mise_dispo' });
       return Promise.resolve(null);

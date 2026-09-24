@@ -46,7 +46,7 @@ describe('getBonStats', () => {
   });
 
   it('computes the month boundary in UTC, not local time', async () => {
-    jest.useFakeTimers().setSystemTime(new Date('2026-03-01T00:30:00Z'));
+    vi.useFakeTimers().setSystemTime(new Date('2026-03-01T00:30:00Z'));
     try {
       const prisma = createMockPrismaService();
       prisma.bon.count.mockResolvedValue(0);
@@ -60,7 +60,7 @@ describe('getBonStats', () => {
       expect(archivedThisMonthCall).toBeDefined();
       expect(archivedThisMonthCall?.[0].where.archivedAt.gte.toISOString()).toBe('2026-03-01T00:00:00.000Z');
     } finally {
-      jest.useRealTimers();
+      vi.useRealTimers();
     }
   });
 });

@@ -3,11 +3,12 @@ import { Prisma } from '@prisma/client';
 import { importManualUsers } from '../users-import';
 import { PrismaService } from '../../prisma/prisma.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
+import type { Mock } from 'vitest';
 
 const ACTOR_ID = 'actor-001';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type MockPrisma = Record<string, Record<string, jest.Mock<any, any>>>;
+type MockPrisma = Record<string, Record<string, Mock>>;
 
 interface ExistingUserFixture {
   id: string;

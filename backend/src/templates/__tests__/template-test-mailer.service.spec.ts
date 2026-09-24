@@ -4,26 +4,27 @@ import { TemplatesService } from '../templates.service';
 import { NotificationService } from '../../notification/notification.service';
 import { TemplateBonPreviewService } from '../template-bon-preview.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
+import type { Mock } from 'vitest';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const asMock = (fn: unknown): jest.Mock => fn as any;
+const asMock = (fn: unknown): Mock => fn as any;
 
 describe('TemplateTestMailerService', () => {
   let prisma: ReturnType<typeof createMockPrismaService>;
-  let templatesService: { getTemplateById: jest.Mock; getPreviewHtml: jest.Mock };
-  let notificationService: { sendEmail: jest.Mock };
-  let bonPreviewService: { render: jest.Mock };
+  let templatesService: { getTemplateById: Mock; getPreviewHtml: Mock };
+  let notificationService: { sendEmail: Mock };
+  let bonPreviewService: { render: Mock };
   let service: TemplateTestMailerService;
 
   beforeEach(() => {
     prisma = createMockPrismaService();
     templatesService = {
-      getTemplateById: jest.fn().mockReturnValue({ id: 'reminder', name: 'Rappel — Document en attente de signature' }),
-      getPreviewHtml: jest.fn().mockResolvedValue('<html>apercu</html>'),
+      getTemplateById: vi.fn().mockReturnValue({ id: 'reminder', name: 'Rappel — Document en attente de signature' }),
+      getPreviewHtml: vi.fn().mockResolvedValue('<html>apercu</html>'),
     };
-    notificationService = { sendEmail: jest.fn() };
+    notificationService = { sendEmail: vi.fn() };
     bonPreviewService = {
-      render: jest.fn().mockResolvedValue({
+      render: vi.fn().mockResolvedValue({
         html: '<html>bon reel</html>',
         subject: 'sujet',
         reference: 'BMD-2026-0007',

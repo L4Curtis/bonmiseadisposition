@@ -13,7 +13,7 @@ describe('PdfTemplatesService', () => {
   let prisma: ReturnType<typeof createMockPrismaService>;
 
   beforeEach(async () => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     configService = createMockConfigService();
     prisma = createMockPrismaService();
 

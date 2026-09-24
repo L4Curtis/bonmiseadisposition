@@ -3,6 +3,7 @@ import { TemplatesController } from '../templates.controller';
 import { TemplatesService } from '../../templates/templates.service';
 import { TemplateTestMailerService } from '../../templates/template-test-mailer.service';
 import { AuthUser } from '../../auth/auth-user.interface';
+import type { Mock } from 'vitest';
 
 const adminUser: AuthUser = {
   id: 'admin-1',
@@ -23,13 +24,13 @@ const adminUser: AuthUser = {
 
 describe('TemplatesController', () => {
   let controller: TemplatesController;
-  let templatesService: { getTemplateById: jest.Mock };
-  let templateTestMailerService: { sendTest: jest.Mock };
+  let templatesService: { getTemplateById: Mock };
+  let templateTestMailerService: { sendTest: Mock };
 
   beforeEach(() => {
-    templatesService = { getTemplateById: jest.fn() };
+    templatesService = { getTemplateById: vi.fn() };
     templateTestMailerService = {
-      sendTest: jest.fn().mockResolvedValue({ success: true, message: 'Email de test envoyé à admin@livio.fr.' }),
+      sendTest: vi.fn().mockResolvedValue({ success: true, message: 'Email de test envoyé à admin@livio.fr.' }),
     };
     controller = new TemplatesController(
       templatesService as unknown as TemplatesService,

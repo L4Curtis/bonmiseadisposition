@@ -633,7 +633,7 @@ node scripts/reset-admin-password.js 'MotDePasseTemporaire!2026'
 
 ```bash
 cd backend
-npm test              # tests unitaires Jest
+npm test              # tests unitaires (Vitest)
 npm run test:cov      # avec rapport de couverture (backend/coverage/lcov-report/index.html)
 
 cd frontend

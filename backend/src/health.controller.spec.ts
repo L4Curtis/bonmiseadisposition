@@ -29,15 +29,16 @@ describe('HealthController', () => {
     it('répond 503 { status: error, database: unreachable } sans détail quand la base ne répond pas', async () => {
       prisma.$queryRaw.mockRejectedValue(new Error('mot de passe invalide pour l\'utilisateur app'));
 
-      try {
-        await controller.ready();
-        fail('devait lever une HttpException 503');
-      } catch (err) {
-        expect(err).toBeInstanceOf(HttpException);
-        const httpErr = err as HttpException;
-        expect(httpErr.getStatus()).toBe(HttpStatus.SERVICE_UNAVAILABLE);
-        expect(httpErr.getResponse()).toEqual({ status: 'error', database: 'unreachable' });
-      }
+      // Une résolution (pas d'exception) donnerait ici la valeur résolue, que
+      // l'assertion suivante rejette : le test échoue dans les deux cas.
+      const err = await controller.ready().then(
+        (value) => value,
+        (error: unknown) => error,
+      );
+      expect(err).toBeInstanceOf(HttpException);
+      const httpErr = err as HttpException;
+      expect(httpErr.getStatus()).toBe(HttpStatus.SERVICE_UNAVAILABLE);
+      expect(httpErr.getResponse()).toEqual({ status: 'error', database: 'unreachable' });
     });
   });
 });

@@ -11,23 +11,24 @@ import {
 } from '../../common/__tests__/helpers/mock-services';
 import { activeBon, draftBon } from '../../common/__tests__/fixtures/bon.fixtures';
 import { collaboratorUser, adminUser } from '../../common/__tests__/fixtures/user.fixtures';
+import type { Mock } from 'vitest';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type MockPrisma = Record<string, Record<string, jest.Mock<any, any>>>;
+type MockPrisma = Record<string, Record<string, Mock>>;
 
 describe('ContestationService', () => {
   let service: ContestationService;
   let prisma: MockPrisma;
   let notificationService: ReturnType<typeof createMockNotificationService>;
   let signatureService: ReturnType<typeof createMockSignatureService>;
-  let bonsService: { duplicateAsDraft: jest.Mock };
+  let bonsService: { duplicateAsDraft: Mock };
 
   beforeEach(() => {
     prisma = createMockPrismaService() as unknown as MockPrisma;
     notificationService = createMockNotificationService();
     signatureService = createMockSignatureService();
     bonsService = {
-      duplicateAsDraft: jest.fn().mockResolvedValue({ id: 'bon-corrected-001', reference: 'BON-2026-0099' }),
+      duplicateAsDraft: vi.fn().mockResolvedValue({ id: 'bon-corrected-001', reference: 'BON-2026-0099' }),
     };
 
     service = new ContestationService(

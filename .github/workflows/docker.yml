@@ -99,7 +99,9 @@ jobs:
         # voir backend/src/__tests__/sql-real-db.spec.ts. Base vide suffisante.
         # Toutes les suites « real-db » (et pas un fichier nommé) : une nouvelle
         # suite ajoutée ailleurs ne doit pas être oubliée silencieusement par la CI.
-        run: RUN_DB_TESTS=1 npx jest --testPathPatterns 'real-db'
+        # Vitest filtre les fichiers dont le chemin contient « real-db » et échoue
+        # si aucun ne correspond (filtre cassé = CI rouge, pas verte à vide).
+        run: RUN_DB_TESTS=1 npx vitest run real-db
 
       - name: Audit de sécurité (non bloquant)
         working-directory: ./backend

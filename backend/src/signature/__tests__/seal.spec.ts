@@ -52,7 +52,7 @@ describe('seal (pure)', () => {
     };
 
     it('should mark sealValid null (and never call verifySeal) for an anonymized bon', () => {
-      const verifySeal = jest.fn();
+      const verifySeal = vi.fn();
       const result = computeSignatureIntegrity([{ ...baseSig, signerEmail: null }], true, verifySeal);
 
       expect(result.allValid).toBe(true);
@@ -61,7 +61,7 @@ describe('seal (pure)', () => {
     });
 
     it('should compute sealValid via verifySeal for a non-anonymized, sealed signature', () => {
-      const verifySeal = jest.fn().mockReturnValue(true);
+      const verifySeal = vi.fn().mockReturnValue(true);
       const result = computeSignatureIntegrity([baseSig], false, verifySeal);
 
       expect(verifySeal).toHaveBeenCalledTimes(1);
@@ -70,7 +70,7 @@ describe('seal (pure)', () => {
     });
 
     it('should mark allValid false when any sealed signature fails verification', () => {
-      const verifySeal = jest.fn().mockReturnValue(false);
+      const verifySeal = vi.fn().mockReturnValue(false);
       const result = computeSignatureIntegrity([baseSig], false, verifySeal);
 
       expect(result.signatures[0].sealValid).toBe(false);
@@ -78,7 +78,7 @@ describe('seal (pure)', () => {
     });
 
     it('should leave sealValid null for an unsealed signature without invalidating allValid', () => {
-      const verifySeal = jest.fn();
+      const verifySeal = vi.fn();
       const result = computeSignatureIntegrity([{ ...baseSig, seal: null }], false, verifySeal);
 
       expect(result.signatures[0].sealed).toBe(false);

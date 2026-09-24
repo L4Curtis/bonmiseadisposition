@@ -1,12 +1,14 @@
 import { buildFilialesExportCsv, buildFilialesImportTemplateCsv, FilialeExportRow, FILIALES_CSV_HEADERS } from '../filiales-csv';
+import type { Mock } from 'vitest';
+import * as fsModule from 'fs';
 
-jest.mock('fs', () => ({
-  existsSync: jest.fn(),
-  readFileSync: jest.fn(),
+vi.mock('fs', () => ({
+  existsSync: vi.fn(),
+  readFileSync: vi.fn(),
 }));
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const fs = require('fs') as { existsSync: jest.Mock; readFileSync: jest.Mock };
+// Reçoit la doublure déclarée par vi.mock ci-dessus (remontée en tête de fichier).
+const fs = fsModule as unknown as { existsSync: Mock; readFileSync: Mock };
 
 function row(overrides: Partial<FilialeExportRow> = {}): FilialeExportRow {
   return {

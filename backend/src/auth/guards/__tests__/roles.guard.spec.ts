@@ -6,7 +6,7 @@ import { AuthUser } from '../../auth-user.interface';
 describe('RolesGuard', () => {
   function makeGuard(requiredRoles: string[] | undefined): RolesGuard {
     const reflector = {
-      getAllAndOverride: jest.fn().mockReturnValue(requiredRoles),
+      getAllAndOverride: vi.fn().mockReturnValue(requiredRoles),
     } as unknown as Reflector;
     return new RolesGuard(reflector);
   }

@@ -7,6 +7,8 @@ import { NotificationService } from '../../notification/notification.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
 import { createMockConfigService, createMockJobTrackerService } from '../../common/__tests__/helpers/mock-services';
 import { JobTrackerService } from '../../monitoring/job-tracker.service';
+import type { Mock } from 'vitest';
+import * as ldapModule from 'ldapjs';
 
 // Accès aux méthodes privées d'upsert/désactivation pour les tester isolément
 // sans simuler tout le flux LDAP (bind + search par événements).
@@ -17,31 +19,31 @@ interface PrivateLdapService {
 
 // Mock ldapjs — we never want real LDAP connections in unit tests
 const mockClient = {
-  bind: jest.fn(),
-  search: jest.fn(),
-  destroy: jest.fn(),
-  on: jest.fn(),
+  bind: vi.fn(),
+  search: vi.fn(),
+  destroy: vi.fn(),
+  on: vi.fn(),
 };
 
-jest.mock('ldapjs', () => {
+vi.mock('ldapjs', () => {
   // Return a factory so mockClient is captured at runtime, not hoist-time
   return {
-    createClient: jest.fn().mockImplementation(() => mockClient),
+    createClient: vi.fn().mockImplementation(() => mockClient),
   };
 });
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const ldapMock = require('ldapjs') as { createClient: jest.Mock };
+// Reçoit la doublure déclarée par vi.mock ci-dessus (remontée en tête de fichier).
+const ldapMock = ldapModule as unknown as { createClient: Mock };
 
 describe('LdapService', () => {
   let service: LdapService;
   let configService: ReturnType<typeof createMockConfigService>;
   let prisma: ReturnType<typeof createMockPrismaService>;
   let jobTracker: ReturnType<typeof createMockJobTrackerService>;
-  let notificationService: { sendDepartureAlert: jest.Mock };
+  let notificationService: { sendDepartureAlert: Mock };
 
   beforeEach(async () => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
 
     prisma = createMockPrismaService();
     configService = createMockConfigService();
@@ -50,7 +52,7 @@ describe('LdapService', () => {
     // NotificationService — mocké ici, testé en détail dans
     // departure-notifications.spec.ts (fonction pure) et
     // notification.service.spec.ts (sendDepartureAlert).
-    notificationService = { sendDepartureAlert: jest.fn().mockResolvedValue(false) };
+    notificationService = { sendDepartureAlert: vi.fn().mockResolvedValue(false) };
 
     // Default LDAP config
     configService.set('ldap', 'enabled', 'true');
@@ -79,7 +81,7 @@ describe('LdapService', () => {
   describe('scheduledSync', () => {
     it('signale "skipped" au suivi quand LDAP est désactivé, sans lancer de sync', async () => {
       configService.set('ldap', 'enabled', 'false');
-      const syncUsersSpy = jest.spyOn(service, 'syncUsers');
+      const syncUsersSpy = vi.spyOn(service, 'syncUsers');
 
       await service.scheduledSync();
 
@@ -103,7 +105,7 @@ describe('LdapService', () => {
       (service as unknown as { syncStatus: { lastSync: Date } }).syncStatus = {
         lastSync: new Date(Date.now() - 2 * 60 * 60 * 1000),
       } as never;
-      const syncUsersSpy = jest.spyOn(service, 'syncUsers');
+      const syncUsersSpy = vi.spyOn(service, 'syncUsers');
 
       await service.scheduledSync();
 
@@ -112,7 +114,7 @@ describe('LdapService', () => {
     });
 
     it('ne signale pas "skipped" et propage l\'échec au suivi quand la sync échoue', async () => {
-      jest.spyOn(service, 'syncUsers').mockImplementation(async () => {
+      vi.spyOn(service, 'syncUsers').mockImplementation(async () => {
         // Reproduit le comportement réel de syncUsers() : elle avale ses
         // erreurs et se contente de mettre à jour syncStatus (jamais de rejet).
         (service as unknown as { syncStatus: { lastSyncSuccess: boolean; lastSyncError: string } }).syncStatus = {
@@ -128,7 +130,7 @@ describe('LdapService', () => {
     });
 
     it('ne signale rien de particulier (succès) quand la sync réussit', async () => {
-      jest.spyOn(service, 'syncUsers').mockImplementation(async () => {
+      vi.spyOn(service, 'syncUsers').mockImplementation(async () => {
         (service as unknown as { syncStatus: { lastSyncSuccess: boolean } }).syncStatus = {
           lastSyncSuccess: true,
         } as never;

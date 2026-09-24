@@ -22,8 +22,8 @@ Le projet suit une approche de test en trois couches :
 
 | Couche | Outil | Scope | Statut |
 |--------|-------|-------|--------|
-| **Tests unitaires** | Jest + @nestjs/testing | Services, utilitaires, validation | Actif |
-| **Tests d'integration** | Jest + base reelle (Docker) | Endpoints API avec PostgreSQL | Futur |
+| **Tests unitaires** | Vitest + @nestjs/testing | Services, utilitaires, validation | Actif |
+| **Tests d'integration** | Vitest + base reelle (Docker) | Endpoints API avec PostgreSQL | Futur |
 | **Tests E2E** | Playwright + Docker Compose | Parcours utilisateur complets | Actif (`e2e/`) |
 
 ### Principes
@@ -43,26 +43,40 @@ Le projet suit une approche de test en trois couches :
 
 | Element | Valeur |
 |---------|--------|
-| Runner | Jest 30.3 |
-| Transform | ts-jest |
+| Runner | Vitest 4 (depuis le 24/09/2026 ; Jest auparavant) |
+| Transform | SWC via `unplugin-swc` (emet les metadonnees de decorateurs dont depend l'injection NestJS) |
 | Module testing | @nestjs/testing |
-| Config | `backend/jest.config.js` |
+| Config | `backend/vitest.config.ts` |
 | Pattern de nommage | `*.spec.ts` |
 | Emplacement | Dossiers `__tests__/` a cote des sources |
+| Couverture | `@vitest/coverage-v8`, seuils dans `vitest.config.ts` (cliquet 65/72/80/80) |
 
-Configuration Jest (`backend/jest.config.js`) :
+Pourquoi Vitest : depuis NestJS 12, les paquets `@nestjs/*` sont publies en ESM pur. Jest execute
+tout en CommonJS avec son propre chargeur ; il fallait retranscrire NestJS avec Babel et remplacer un
+de ses fichiers internes par une doublure. Vitest laisse Node charger `node_modules` : les tests
+executent le vrai code de NestJS, comme la production. Le build de production (`nest build`, CommonJS)
+n'a pas change.
 
-```javascript
-module.exports = {
-  moduleFileExtensions: ['js', 'json', 'ts'],
-  rootDir: '.',
-  testRegex: '.*\\.spec\\.ts$',
-  transform: { '^.+\\.ts$': 'ts-jest' },
-  collectCoverageFrom: ['src/**/*.ts', '!src/**/*.module.ts', '!src/main.ts'],
-  coverageDirectory: './coverage',
-  testEnvironment: 'node',
-};
-```
+Ce qui change par rapport a Jest :
+
+- `vi` remplace `jest` : `vi.fn()`, `vi.spyOn()`, `vi.mock()`, `vi.useFakeTimers()`… Les globales
+  (`describe`, `it`, `expect`, `vi`) restent disponibles sans import dans les `*.spec.ts`
+  (types : `backend/test/vitest-globals.d.ts`). Les types s'importent : `import type { Mock } from 'vitest'`.
+- Les utilitaires de test qui ne sont pas des `*.spec.ts` (`common/__tests__/helpers`, fixtures) sont
+  compiles par `nest build` : ils importent `vi` explicitement (`import { vi } from 'vitest'`).
+- Les tests s'executent en ESM : pas de `require()` d'un module simule. Pour manipuler un module
+  remplace par `vi.mock('fs/promises', …)`, l'importer normalement (`import * as fsp from 'fs/promises'`) :
+  l'import recoit la doublure. Pour garder le reste du vrai module :
+  `vi.mock('fs', async (importOriginal) => ({ ...(await importOriginal<typeof import('fs')>()), existsSync: vi.fn() }))`.
+- Un module CommonJS dont l'export est lui-meme une classe ou une fonction (`module.exports = X`,
+  ex. `pdfkit`) s'importe avec `import X = require('x')`, pas `import * as X` (un espace de noms ESM
+  n'est pas constructible). La compilation de production est identique.
+- `di-metadata.spec.ts` et `import-order.spec.ts` (garde-fous contre les cycles d'import qui ont deja
+  casse la production) ne passent pas par Vitest pour charger le code : ils lancent un processus Node
+  neuf qui compile les sources avec le compilateur TypeScript (programme complet de
+  `tsconfig.build.json`, comme `nest build`) et les charge par `require()`
+  (`backend/test/helpers/production-load-report.cjs`). Une transpilation fichier par fichier, ou SWC,
+  remplacerait l'`undefined` d'un cycle par `Object` et rendrait ces garde-fous aveugles.
 
 ### 2.2 Commandes d'execution
 
@@ -73,19 +87,33 @@ cd backend
 npm test
 
 # Mode watch (relance a chaque modification)
-npm test -- --watch
+npm run test:watch
 
-# Rapport de couverture (HTML dans ./coverage)
+# Rapport de couverture avec seuils (HTML dans ./coverage/index.html)
 npm run test:cov
 
-# Lancer les tests d'un service specifique
-npm test -- --testPathPattern=bons
+# Lancer les fichiers dont le chemin contient « bons »
+npx vitest run bons
 
 # Lancer un fichier de test precis
-npm test -- --testPathPattern=auth-security
+npx vitest run src/auth/__tests__/auth-security.spec.ts
 
 # Mode verbose (detail de chaque test)
-npm test -- --verbose
+npx vitest run --reporter=verbose
+
+# Suites sur base reelle (base lancee, migrations appliquees ; fichiers executes
+# l'un apres l'autre, voir vitest.config.ts)
+RUN_DB_TESTS=1 npx vitest run real-db
+```
+
+Sous Linux (comme la CI) depuis le poste Windows : le `node_modules` du poste contient des binaires
+natifs Windows (SWC, Rolldown) inutilisables dans un conteneur Linux. Copier le dossier sans
+`node_modules` et installer dans le conteneur :
+
+```bash
+MSYS_NO_PATHCONV=1 docker run --rm -v "C:/Users/clemieux/Claude/BonDeMiseADisposition/backend:/src:ro" node:22-alpine sh -c \
+  'mkdir /app && cd /src && tar --exclude=./node_modules --exclude=./dist --exclude=./coverage --exclude=./data -cf - . | tar -xf - -C /app \
+   && cd /app && apk add --no-cache openssl >/dev/null && npm ci && npx prisma generate && npm run test:cov'
 ```
 
 ### 2.3 Pattern NestJS TestingModule
@@ -105,48 +133,48 @@ import { SmbService } from '../../smb/smb.service';
 
 describe('BonsService', () => {
   let service: BonsService;
-  let mockPrisma: jest.Mocked<Record<string, any>>;
+  let mockPrisma: Mocked<Record<string, any>>;
 
   beforeEach(async () => {
     // Mock PrismaService avec tous les modeles utilises
     mockPrisma = {
       bon: {
-        findMany: jest.fn(),
-        findUnique: jest.fn(),
-        create: jest.fn(),
-        update: jest.fn(),
-        count: jest.fn(),
-        deleteMany: jest.fn(),
+        findMany: vi.fn(),
+        findUnique: vi.fn(),
+        create: vi.fn(),
+        update: vi.fn(),
+        count: vi.fn(),
+        deleteMany: vi.fn(),
       },
       signature: {
-        findFirst: jest.fn(),
-        findMany: jest.fn(),
-        create: jest.fn(),
-        update: jest.fn(),
-        deleteMany: jest.fn(),
+        findFirst: vi.fn(),
+        findMany: vi.fn(),
+        create: vi.fn(),
+        update: vi.fn(),
+        deleteMany: vi.fn(),
       },
       filiale: {
-        findMany: jest.fn(),
+        findMany: vi.fn(),
       },
-      $transaction: jest.fn((cb) => cb(mockPrisma)),
+      $transaction: vi.fn((cb) => cb(mockPrisma)),
     };
 
     const mockSignatureService = {
-      generateToken: jest.fn(),
-      getSignatureImages: jest.fn(),
+      generateToken: vi.fn(),
+      getSignatureImages: vi.fn(),
     };
 
     const mockNotificationService = {
-      sendBonNotification: jest.fn(),
+      sendBonNotification: vi.fn(),
     };
 
     const mockPdfService = {
-      generateMiseDisposition: jest.fn(),
-      generateRestitution: jest.fn(),
+      generateMiseDisposition: vi.fn(),
+      generateRestitution: vi.fn(),
     };
 
     const mockSmbService = {
-      uploadPdf: jest.fn(),
+      uploadPdf: vi.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -194,28 +222,28 @@ import { SignatureService } from '../../signature/signature.service';
 
 describe('ContestationService', () => {
   let service: ContestationService;
-  let mockPrisma: jest.Mocked<Record<string, any>>;
+  let mockPrisma: Mocked<Record<string, any>>;
 
   beforeEach(async () => {
     mockPrisma = {
       bon: {
-        findUnique: jest.fn(),
-        update: jest.fn(),
+        findUnique: vi.fn(),
+        update: vi.fn(),
       },
       contestation: {
-        create: jest.fn(),
-        findMany: jest.fn(),
-        update: jest.fn(),
+        create: vi.fn(),
+        findMany: vi.fn(),
+        update: vi.fn(),
       },
-      $transaction: jest.fn((cb) => cb(mockPrisma)),
+      $transaction: vi.fn((cb) => cb(mockPrisma)),
     };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ContestationService,
         { provide: PrismaService, useValue: mockPrisma },
-        { provide: NotificationService, useValue: { sendContestationNotification: jest.fn() } },
-        { provide: SignatureService, useValue: { generateToken: jest.fn() } },
+        { provide: NotificationService, useValue: { sendContestationNotification: vi.fn() } },
+        { provide: SignatureService, useValue: { generateToken: vi.fn() } },
       ],
     }).compile();
 
@@ -248,7 +276,7 @@ const mockPrisma = {
   notification: { create, findMany, update, updateMany, count },
   auditLog: { create },
   appConfig: { findFirst, findUnique, upsert },
-  $transaction: jest.fn((callback) => callback(mockPrisma)),
+  $transaction: vi.fn((callback) => callback(mockPrisma)),
 };
 ```
 
@@ -256,10 +284,10 @@ const mockPrisma = {
 
 ```typescript
 // CORRECT : execute le callback avec le mock client
-$transaction: jest.fn((cb) => cb(mockPrisma)),
+$transaction: vi.fn((cb) => cb(mockPrisma)),
 
 // INCORRECT : ne retourne rien
-$transaction: jest.fn(),
+$transaction: vi.fn(),
 ```
 
 #### Services externes (jamais d'appel reel)
@@ -275,12 +303,12 @@ $transaction: jest.fn(),
 
 ```typescript
 const mockEncryption = {
-  encrypt: jest.fn((val: string) => `encrypted:${val}`),
-  decrypt: jest.fn((val: string) => val.replace('encrypted:', '')),
+  encrypt: vi.fn((val: string) => `encrypted:${val}`),
+  decrypt: vi.fn((val: string) => val.replace('encrypted:', '')),
 };
 
 const mockConfigService = {
-  get: jest.fn((category: string, key: string) => {
+  get: vi.fn((category: string, key: string) => {
     const defaults: Record<string, string> = {
       'smtp:host': 'localhost',
       'smtp:port': '587',
@@ -591,7 +619,7 @@ Pour generer le rapport de couverture :
 cd backend
 npm run test:cov
 
-# Le rapport HTML est dans backend/coverage/lcov-report/index.html
+# Le rapport HTML est dans backend/coverage/index.html
 ```
 
 ---
@@ -739,6 +767,12 @@ brouillon », qui rendait tout envoi impossible depuis l'interface, n'a été vu
 | `tests/04-sans-adresse.spec.ts` | Collaborateur sans adresse : envoi par email refusé avec la bonne explication, présentiel possible |
 | `tests/05-restitution-non-rendu.spec.ts` | Restitution partielle, équipement déclaré non rendu, PV de clôture, archivage |
 | `tests/06-inventaire-par-collaborateur.spec.ts` | Vue « Par collaborateur » de l'inventaire : la personne apparaît avec son matériel |
+| `tests/07-restitution-sans-adresse.spec.ts` | Collaborateur sans adresse : restitution par email refusée, le bon reste actif |
+| `tests/08-portail-collaborateur.spec.ts` | Portail `/mes-bons`, côté collaborateur connecté : il voit son bon, l'ouvre, télécharge le PDF ; le bon d'un autre n'apparaît pas et son adresse directe est refusée (« Accès refusé à ce bon ») |
+| `tests/09-contestation.spec.ts` | Le collaborateur conteste depuis le portail ; l'IT voit le badge du menu, traite la contestation dans Admin → Contestations (rejet avec réponse) ; le collaborateur retrouve son bon actif et reçoit l'email de réponse (Mailpit) |
+| `tests/10-fiche-materiel.spec.ts` | Depuis l'inventaire, le n° de série puis le n° d'inventaire ouvrent la fiche `/materiel/:reference`, qui nomme le détenteur actuel |
+| `tests/11-creation-rapide.spec.ts` | Création rapide : date du jour pré-remplie, filiale remplie par le choix du collaborateur, n° de série déjà en circulation signalé à la sortie du champ, Entrée dans « N° Série » ajoute une ligne sans soumettre |
+| `tests/12-signature-mobile.spec.ts` | Signature présentielle au doigt sur téléphone (390 × 844, tactile) : le bon devient actif |
 
 ### 7.2 Lancer la suite en local
 
@@ -752,7 +786,7 @@ docker compose -p bmad-e2e -f e2e/docker-compose.e2e.yml up -d --build
 # 2. Attendre que l'application réponde
 curl -fsS http://localhost:8081/api/health/ready
 
-# 3. Amorcer les données (idempotent : rejouable sans redémarrer)
+# 3. Amorcer les données (une fois, sur une base neuve)
 bash e2e/seed/seed.sh bmad-e2e
 
 # 4. Dépendances et navigateur (une seule fois)
@@ -768,7 +802,13 @@ docker compose -p bmad-e2e -f e2e/docker-compose.e2e.yml down -v
 ```
 
 L'amorçage (`e2e/seed/seed.sql`) crée une filiale active, un collaborateur avec adresse, un collaborateur
-sans adresse et un article de catalogue. Les tests créent ensuite leurs propres données.
+sans adresse, un collaborateur **à compte local** (`seed.portail@e2e.local`, mot de passe factice
+`E2ePortail#2026`, voir `tests/helpers/env.ts`) et un article de catalogue. Ce compte local est le seul
+collaborateur capable de se connecter ici (ni annuaire ni Entra) : les parcours du portail l'utilisent. Les
+tests créent ensuite leurs propres données.
+
+L'amorçage se rejoue tant qu'aucun test n'a tourné ; après une exécution, les bons créés référencent la
+filiale et les collaborateurs amorcés et le nettoyage échoue : repartir de `down -v`.
 
 ### 7.3 Écrire un test
 
@@ -781,11 +821,20 @@ sans adresse et un article de catalogue. Les tests créent ensuite leurs propres
 - La suite s'exécute en série (`workers: 1`) : tous les tests partagent la même boîte Mailpit et la même
   session administrateur. C'est volontaire, et sans coût réel vu la taille de la suite.
 
+- Deux points de vue dans un même test : la fixture `page` porte la session admin ; `openPortailSession`
+  (`tests/helpers/portail.ts`) ouvre un second contexte, connecté avec le compte collaborateur. Pour un
+  téléphone, un contexte avec `viewport`, `isMobile` et `hasTouch`, et `drawSignatureByTouch` qui envoie de
+  vrais évènements tactiles (`page.touchscreen` ne sait que taper un point, pas tracer).
+
 Pièges déjà rencontrés, traités dans les helpers : le canevas de signature doit être ramené dans la fenêtre
 avant de dessiner (`page.mouse` ne fait pas défiler, contrairement à `click`) ; l'attente d'URL d'un bon
 utilise un identifiant strict, sinon `/bons/new` correspond aussi ; le formulaire de création démarre avec une
 ligne d'équipement vide, donc on vise toujours la dernière ligne ajoutée ; le mot de passe de `admin@local` ne
-peut être changé qu'une fois, la connexion de la session gère les deux cas.
+peut être changé qu'une fois, la connexion de la session gère les deux cas. Juste après la création d'un bon,
+le titre du formulaire est parfois encore affiché : la référence se lit sur un titre au motif `BON-AAAA-`.
+Dans l'inventaire, la recherche est appliquée avec 300 ms de retard puis écrite dans l'URL : cliquer un lien
+avant cela peut ramener à l'inventaire pendant le chargement de la page visée, d'où l'attente de
+`search=` dans l'URL avant le clic.
 
 ### 7.4 Lire un échec en CI
 

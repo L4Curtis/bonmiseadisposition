@@ -5,6 +5,7 @@ import { InventoryService, EXPORT_ROW_LIMIT } from '../inventory.service';
 import { InventoryQueryDto } from '../dto/inventory-query.dto';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
 import { PARC_BON_STATUSES, SITUATION_LABELS } from '../../common/bon-predicates';
+import type { Mock } from 'vitest';
 
 function makeRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -37,12 +38,12 @@ describe('InventoryService', () => {
 
   describe('getInventory — where', () => {
     it('inclut exactement les 5 statuts « en circulation » (parc élargi) et exclut les équipements rendus/perdus', async () => {
-      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
-      (prisma.bonEquipment.count as jest.Mock).mockResolvedValue(0);
+      (prisma.bonEquipment.findMany as Mock).mockResolvedValue([]);
+      (prisma.bonEquipment.count as Mock).mockResolvedValue(0);
 
       await service.getInventory({});
 
-      const call = (prisma.bonEquipment.findMany as jest.Mock).mock.calls[0][0];
+      const call = (prisma.bonEquipment.findMany as Mock).mock.calls[0][0];
       expect(call.where.AND).toContainEqual({ returnedAt: null });
       expect(call.where.AND).toContainEqual({ notReturned: false });
       // Définition élargie (audit 2026-09-18) : inclut désormais sent_mise_dispo
@@ -59,13 +60,13 @@ describe('InventoryService', () => {
       // optionnel supplémentaire quand aucun n'est fourni.
       expect(call.where.AND).toHaveLength(3);
       // Le même where doit être utilisé pour le count (cohérence total/pagination)
-      const countCall = (prisma.bonEquipment.count as jest.Mock).mock.calls[0][0];
+      const countCall = (prisma.bonEquipment.count as Mock).mock.calls[0][0];
       expect(countCall.where).toEqual(call.where);
     });
 
     it('ajoute le filtre filiale/collaborateur/catégorie/recherche quand fournis', async () => {
-      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
-      (prisma.bonEquipment.count as jest.Mock).mockResolvedValue(0);
+      (prisma.bonEquipment.findMany as Mock).mockResolvedValue([]);
+      (prisma.bonEquipment.count as Mock).mockResolvedValue(0);
 
       await service.getInventory({
         filialeId: 'f-1',
@@ -74,7 +75,7 @@ describe('InventoryService', () => {
         search: 'dell',
       });
 
-      const call = (prisma.bonEquipment.findMany as jest.Mock).mock.calls[0][0];
+      const call = (prisma.bonEquipment.findMany as Mock).mock.calls[0][0];
       expect(call.where.AND).toContainEqual({ bon: { filialeId: 'f-1' } });
       expect(call.where.AND).toContainEqual({ bon: { collaborateurId: 'u-1' } });
       expect(call.where.AND).toContainEqual({ catalogItem: { category: 'ecran' } });
@@ -83,69 +84,69 @@ describe('InventoryService', () => {
     });
 
     it('ajoute le filtre situation quand fourni (restreint aux statuts de cette situation)', async () => {
-      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
-      (prisma.bonEquipment.count as jest.Mock).mockResolvedValue(0);
+      (prisma.bonEquipment.findMany as Mock).mockResolvedValue([]);
+      (prisma.bonEquipment.count as Mock).mockResolvedValue(0);
 
       await service.getInventory({ situation: 'en_attente_signature' });
-      let call = (prisma.bonEquipment.findMany as jest.Mock).mock.calls[0][0];
+      let call = (prisma.bonEquipment.findMany as Mock).mock.calls[0][0];
       expect(call.where.AND).toContainEqual({ bon: { status: { in: ['sent_mise_dispo'] } } });
 
       await service.getInventory({ situation: 'en_litige' });
-      call = (prisma.bonEquipment.findMany as jest.Mock).mock.calls[1][0];
+      call = (prisma.bonEquipment.findMany as Mock).mock.calls[1][0];
       expect(call.where.AND).toContainEqual({ bon: { status: { in: ['contested'] } } });
     });
 
     it('catégorie "autre" couvre à la fois les équipements sans fiche catalogue et category=autre', async () => {
-      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
-      (prisma.bonEquipment.count as jest.Mock).mockResolvedValue(0);
+      (prisma.bonEquipment.findMany as Mock).mockResolvedValue([]);
+      (prisma.bonEquipment.count as Mock).mockResolvedValue(0);
 
       await service.getInventory({ category: 'autre' as never });
 
-      const call = (prisma.bonEquipment.findMany as jest.Mock).mock.calls[0][0];
+      const call = (prisma.bonEquipment.findMany as Mock).mock.calls[0][0];
       expect(call.where.AND).toContainEqual({
         OR: [{ catalogItemId: null }, { catalogItem: { category: 'autre' } }],
       });
     });
 
     it('ajoute le filtre "overdue" (retard de restitution), indépendant de la situation', async () => {
-      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
-      (prisma.bonEquipment.count as jest.Mock).mockResolvedValue(0);
+      (prisma.bonEquipment.findMany as Mock).mockResolvedValue([]);
+      (prisma.bonEquipment.count as Mock).mockResolvedValue(0);
       const now = new Date('2026-09-18T10:00:00.000Z');
 
       await service.getInventory({ overdue: true }, now);
 
-      const call = (prisma.bonEquipment.findMany as jest.Mock).mock.calls[0][0];
+      const call = (prisma.bonEquipment.findMany as Mock).mock.calls[0][0];
       expect(call.where.AND).toContainEqual({
         bon: { dateRestitution: { lt: new Date('2026-09-18T00:00:00.000Z') } },
       });
     });
 
     it('ajoute le filtre « sans numéro de série » (NULL ou vide) à la liste et à l’export', async () => {
-      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
-      (prisma.bonEquipment.count as jest.Mock).mockResolvedValue(0);
+      (prisma.bonEquipment.findMany as Mock).mockResolvedValue([]);
+      (prisma.bonEquipment.count as Mock).mockResolvedValue(0);
 
       await service.getInventory({ sansNumeroSerie: true });
       const clause = { OR: [{ serialNumber: null }, { serialNumber: '' }] };
-      expect((prisma.bonEquipment.findMany as jest.Mock).mock.calls[0][0].where.AND).toContainEqual(clause);
+      expect((prisma.bonEquipment.findMany as Mock).mock.calls[0][0].where.AND).toContainEqual(clause);
 
       await service.getExportCsv({ sansNumeroSerie: true });
-      expect((prisma.bonEquipment.findMany as jest.Mock).mock.calls.at(-1)[0].where.AND).toContainEqual(clause);
+      expect((prisma.bonEquipment.findMany as Mock).mock.calls.at(-1)![0].where.AND).toContainEqual(clause);
     });
 
     it('n’ajoute aucun filtre « sans numéro de série » quand il est absent ou faux', async () => {
-      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
-      (prisma.bonEquipment.count as jest.Mock).mockResolvedValue(0);
+      (prisma.bonEquipment.findMany as Mock).mockResolvedValue([]);
+      (prisma.bonEquipment.count as Mock).mockResolvedValue(0);
 
       await service.getInventory({ sansNumeroSerie: false });
-      expect((prisma.bonEquipment.findMany as jest.Mock).mock.calls[0][0].where.AND).toHaveLength(3);
+      expect((prisma.bonEquipment.findMany as Mock).mock.calls[0][0].where.AND).toHaveLength(3);
     });
 
     it('n\'ajoute aucun filtre "overdue" quand il est absent ou faux', async () => {
-      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
-      (prisma.bonEquipment.count as jest.Mock).mockResolvedValue(0);
+      (prisma.bonEquipment.findMany as Mock).mockResolvedValue([]);
+      (prisma.bonEquipment.count as Mock).mockResolvedValue(0);
 
       await service.getInventory({});
-      const call = (prisma.bonEquipment.findMany as jest.Mock).mock.calls[0][0];
+      const call = (prisma.bonEquipment.findMany as Mock).mock.calls[0][0];
       // Exactement 3 clauses (returnedAt, notReturned, statuts) — aucun filtre
       // dateRestitution ajouté.
       expect(call.where.AND).toHaveLength(3);
@@ -154,12 +155,12 @@ describe('InventoryService', () => {
 
   describe('getInventory — pagination et mapping', () => {
     it('applique page=1/limit=50 par défaut', async () => {
-      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
-      (prisma.bonEquipment.count as jest.Mock).mockResolvedValue(0);
+      (prisma.bonEquipment.findMany as Mock).mockResolvedValue([]);
+      (prisma.bonEquipment.count as Mock).mockResolvedValue(0);
 
       const result = await service.getInventory({});
 
-      const call = (prisma.bonEquipment.findMany as jest.Mock).mock.calls[0][0];
+      const call = (prisma.bonEquipment.findMany as Mock).mock.calls[0][0];
       expect(call.skip).toBe(0);
       expect(call.take).toBe(50);
       expect(result.page).toBe(1);
@@ -167,22 +168,22 @@ describe('InventoryService', () => {
     });
 
     it('calcule skip à partir de page/limit et plafonne limit à 200', async () => {
-      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
-      (prisma.bonEquipment.count as jest.Mock).mockResolvedValue(0);
+      (prisma.bonEquipment.findMany as Mock).mockResolvedValue([]);
+      (prisma.bonEquipment.count as Mock).mockResolvedValue(0);
 
       await service.getInventory({ page: 3, limit: 20 });
-      let call = (prisma.bonEquipment.findMany as jest.Mock).mock.calls[0][0];
+      let call = (prisma.bonEquipment.findMany as Mock).mock.calls[0][0];
       expect(call.skip).toBe(40);
       expect(call.take).toBe(20);
 
       await service.getInventory({ page: 1, limit: 9999 as never });
-      call = (prisma.bonEquipment.findMany as jest.Mock).mock.calls[1][0];
+      call = (prisma.bonEquipment.findMany as Mock).mock.calls[1][0];
       expect(call.take).toBe(200);
     });
 
     it('mappe chaque ligne vers la forme attendue par le frontend', async () => {
-      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([makeRow()]);
-      (prisma.bonEquipment.count as jest.Mock).mockResolvedValue(1);
+      (prisma.bonEquipment.findMany as Mock).mockResolvedValue([makeRow()]);
+      (prisma.bonEquipment.count as Mock).mockResolvedValue(1);
 
       const result = await service.getInventory({});
 
@@ -203,10 +204,10 @@ describe('InventoryService', () => {
     });
 
     it('utilise le customLabel quand il n’y a pas de fiche catalogue', async () => {
-      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([
+      (prisma.bonEquipment.findMany as Mock).mockResolvedValue([
         makeRow({ catalogItem: null, customLabel: 'Adaptateur USB-C' }),
       ]);
-      (prisma.bonEquipment.count as jest.Mock).mockResolvedValue(1);
+      (prisma.bonEquipment.count as Mock).mockResolvedValue(1);
 
       const result = await service.getInventory({});
 
@@ -221,10 +222,10 @@ describe('InventoryService', () => {
       ['partially_returned', 'en_circulation', 'En circulation'],
       ['contested', 'en_litige', 'En litige'],
     ])('mappe le statut de bon %s vers la situation %s (%s)', async (bonStatus, situation, situationLabel) => {
-      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([
+      (prisma.bonEquipment.findMany as Mock).mockResolvedValue([
         makeRow({ bon: { ...makeRow().bon, status: bonStatus } }),
       ]);
-      (prisma.bonEquipment.count as jest.Mock).mockResolvedValue(1);
+      (prisma.bonEquipment.count as Mock).mockResolvedValue(1);
 
       const result = await service.getInventory({});
 
@@ -233,10 +234,10 @@ describe('InventoryService', () => {
     });
 
     it('lève une erreur si une ligne porte un statut de bon hors du parc en circulation (invariant buildWhere)', async () => {
-      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([
+      (prisma.bonEquipment.findMany as Mock).mockResolvedValue([
         makeRow({ bon: { ...makeRow().bon, status: 'draft' } }),
       ]);
-      (prisma.bonEquipment.count as jest.Mock).mockResolvedValue(1);
+      (prisma.bonEquipment.count as Mock).mockResolvedValue(1);
 
       await expect(service.getInventory({})).rejects.toThrow(/hors du parc en circulation/);
     });
@@ -244,10 +245,10 @@ describe('InventoryService', () => {
 
   describe('getInventory — tri (sort/direction)', () => {
     async function orderByOf(query: Parameters<InventoryService['getInventory']>[0]) {
-      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
-      (prisma.bonEquipment.count as jest.Mock).mockResolvedValue(0);
+      (prisma.bonEquipment.findMany as Mock).mockResolvedValue([]);
+      (prisma.bonEquipment.count as Mock).mockResolvedValue(0);
       await service.getInventory(query);
-      return (prisma.bonEquipment.findMany as jest.Mock).mock.calls.at(-1)[0].orderBy;
+      return (prisma.bonEquipment.findMany as Mock).mock.calls.at(-1)![0].orderBy;
     }
 
     const TIE_BREAKERS = [{ bon: { dateMiseDisposition: 'desc' } }, { id: 'asc' }];
@@ -304,16 +305,16 @@ describe('InventoryService', () => {
       it('compte chaque situation puis ne lit que les tranches qui recoupent la page', async () => {
         // Tranches : attente [0, 2[, circulation [2, 5[, litige [5, 9[. La page 2
         // de 3 lignes (lignes 3 à 5) = circulation[1..2] + litige[0].
-        (prisma.bonEquipment.count as jest.Mock)
+        (prisma.bonEquipment.count as Mock)
           .mockResolvedValueOnce(2) // en_attente_signature
           .mockResolvedValueOnce(3) // en_circulation
           .mockResolvedValueOnce(4) // en_litige
           .mockResolvedValueOnce(9); // total de la liste
-        (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
+        (prisma.bonEquipment.findMany as Mock).mockResolvedValue([]);
 
         await service.getInventory({ sort: 'situation', page: 2, limit: 3 });
 
-        const calls = (prisma.bonEquipment.findMany as jest.Mock).mock.calls.map((c) => c[0]);
+        const calls = (prisma.bonEquipment.findMany as Mock).mock.calls.map((c) => c[0]);
         expect(calls).toHaveLength(2);
         expect(whereStatuses(calls[0])).toEqual(['active', 'sent_restitution', 'partially_returned']);
         expect(calls[0]).toMatchObject({ skip: 1, take: 2, orderBy: TIE_BREAKERS });
@@ -322,24 +323,24 @@ describe('InventoryService', () => {
       });
 
       it('parcourt les situations dans l’ordre inverse en décroissant (export compris)', async () => {
-        (prisma.bonEquipment.count as jest.Mock)
+        (prisma.bonEquipment.count as Mock)
           .mockResolvedValueOnce(1) // en_litige
           .mockResolvedValueOnce(0) // en_circulation
           .mockResolvedValueOnce(2); // en_attente_signature
-        (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
+        (prisma.bonEquipment.findMany as Mock).mockResolvedValue([]);
 
         await service.getExportCsv({ sort: 'situation', direction: 'desc' });
 
-        const calls = (prisma.bonEquipment.findMany as jest.Mock).mock.calls.map((c) => c[0]);
+        const calls = (prisma.bonEquipment.findMany as Mock).mock.calls.map((c) => c[0]);
         expect(calls.map(whereStatuses)).toEqual([['contested'], ['sent_mise_dispo']]);
         expect(calls[1]).toMatchObject({ skip: 0, take: 2 });
       });
     });
 
     it('applique le même tri à l’export CSV qu’à la liste', async () => {
-      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.bonEquipment.findMany as Mock).mockResolvedValue([]);
       await service.getExportCsv({ sort: 'filiale', direction: 'desc' });
-      expect((prisma.bonEquipment.findMany as jest.Mock).mock.calls.at(-1)[0].orderBy).toEqual([
+      expect((prisma.bonEquipment.findMany as Mock).mock.calls.at(-1)![0].orderBy).toEqual([
         { bon: { filiale: { displayName: 'desc' } } },
         ...TIE_BREAKERS,
       ]);
@@ -348,7 +349,7 @@ describe('InventoryService', () => {
 
   describe('getSummary', () => {
     it('agrège total, byCategory, byFiliale, bySituation et overdue via SQL', async () => {
-      (prisma.$queryRaw as jest.Mock)
+      (prisma.$queryRaw as Mock)
         .mockResolvedValueOnce([{ count: 5n }]) // total
         .mockResolvedValueOnce([
           { category: 'ecran', count: 3n },
@@ -381,11 +382,11 @@ describe('InventoryService', () => {
     });
 
     it('compare le statut enum via un cast ::text (sinon Postgres refuse « "BonStatus" = text »)', async () => {
-      (prisma.$queryRaw as jest.Mock).mockResolvedValue([{ count: 0n }]);
+      (prisma.$queryRaw as Mock).mockResolvedValue([{ count: 0n }]);
 
       await service.getSummary();
 
-      const calls = (prisma.$queryRaw as jest.Mock).mock.calls as [Prisma.Sql][];
+      const calls = (prisma.$queryRaw as Mock).mock.calls as [Prisma.Sql][];
       expect(calls).toHaveLength(5);
       for (const [query] of calls) {
         expect(query.sql).toContain('b.status::text IN (');
@@ -394,11 +395,11 @@ describe('InventoryService', () => {
     });
 
     it('utilise PARC_BON_STATUSES (5 statuts, définition élargie) dans chaque requête', async () => {
-      (prisma.$queryRaw as jest.Mock).mockResolvedValue([{ count: 0n }]);
+      (prisma.$queryRaw as Mock).mockResolvedValue([{ count: 0n }]);
 
       await service.getSummary();
 
-      const calls = (prisma.$queryRaw as jest.Mock).mock.calls as [Prisma.Sql][];
+      const calls = (prisma.$queryRaw as Mock).mock.calls as [Prisma.Sql][];
       for (const [query] of calls) {
         for (const status of PARC_BON_STATUSES) {
           expect(query.values).toContain(status);
@@ -407,7 +408,7 @@ describe('InventoryService', () => {
     });
 
     it('renvoie des agrégats à zéro (bySituation zéro-complété) quand le parc en circulation est vide', async () => {
-      (prisma.$queryRaw as jest.Mock)
+      (prisma.$queryRaw as Mock)
         .mockResolvedValueOnce([{ count: 0n }])
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([])
@@ -432,7 +433,7 @@ describe('InventoryService', () => {
 
   describe('getExportCsv', () => {
     it('produit un CSV préfixé BOM avec en-têtes et échappe les cellules', async () => {
-      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([
+      (prisma.bonEquipment.findMany as Mock).mockResolvedValue([
         makeRow({ customLabel: null, catalogItem: { category: 'ecran', brand: 'LG', model: '27"' } }),
       ]);
 
@@ -446,7 +447,7 @@ describe('InventoryService', () => {
     });
 
     it('ajoute la colonne « Situation » avec le libellé FR de la situation', async () => {
-      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([
+      (prisma.bonEquipment.findMany as Mock).mockResolvedValue([
         makeRow({ bon: { ...makeRow().bon, status: 'sent_mise_dispo' } }),
       ]);
 
@@ -460,7 +461,7 @@ describe('InventoryService', () => {
 
     it('ajoute les colonnes « Ancienneté (jours) » et « Retard (jours) », calculées depuis `now`', async () => {
       const now = new Date('2026-09-18T10:00:00.000Z');
-      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([
+      (prisma.bonEquipment.findMany as Mock).mockResolvedValue([
         makeRow({
           bon: {
             ...makeRow().bon,
@@ -483,7 +484,7 @@ describe('InventoryService', () => {
 
     it('laisse la colonne « Retard (jours) » vide quand la restitution n\'est pas en retard', async () => {
       const now = new Date('2026-09-18T10:00:00.000Z');
-      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([
+      (prisma.bonEquipment.findMany as Mock).mockResolvedValue([
         makeRow({
           bon: { ...makeRow().bon, dateRestitution: new Date('2026-12-01T00:00:00.000Z') },
         }),
@@ -497,7 +498,7 @@ describe('InventoryService', () => {
     });
 
     it('affiche « — » (jamais null/undefined) quand le collaborateur n\'a pas d\'adresse email (compte manuel)', async () => {
-      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([
+      (prisma.bonEquipment.findMany as Mock).mockResolvedValue([
         makeRow({
           bon: { ...makeRow().bon, collaborateur: { id: 'u-2', displayName: 'Jean DUPONT', email: null, department: null } },
         }),
@@ -515,7 +516,7 @@ describe('InventoryService', () => {
       const rows = Array.from({ length: EXPORT_ROW_LIMIT + 1 }, (_, i) =>
         makeRow({ id: `be-${i}`, bon: { ...makeRow().bon, id: `b-${i}`, reference: `BON-2026-${i}` } }),
       );
-      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue(rows);
+      (prisma.bonEquipment.findMany as Mock).mockResolvedValue(rows);
 
       const { csv, truncated } = await service.getExportCsv({});
 

@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { KpiController, cacheKey } from '../kpi.controller';
 import { resolvePeriod } from '../kpi-period';
+import type { Mock } from 'vitest';
 
 describe('KpiController', () => {
   it('déclare les rôles admin, technician, direction (métadonnée `roles`)', () => {
@@ -9,17 +10,17 @@ describe('KpiController', () => {
   });
 
   describe('routes', () => {
-    let cache: { getOrCompute: jest.Mock };
-    let parcService: { getParc: jest.Mock };
-    let delaisService: { getDelais: jest.Mock };
-    let incidentsService: { getIncidents: jest.Mock };
+    let cache: { getOrCompute: Mock };
+    let parcService: { getParc: Mock };
+    let delaisService: { getDelais: Mock };
+    let incidentsService: { getIncidents: Mock };
     let controller: KpiController;
 
     beforeEach(() => {
-      cache = { getOrCompute: jest.fn((_key: string, compute: () => Promise<unknown>) => compute()) };
-      parcService = { getParc: jest.fn().mockResolvedValue({ tag: 'parc' }) };
-      delaisService = { getDelais: jest.fn().mockResolvedValue({ tag: 'delais' }) };
-      incidentsService = { getIncidents: jest.fn().mockResolvedValue({ tag: 'incidents' }) };
+      cache = { getOrCompute: vi.fn((_key: string, compute: () => Promise<unknown>) => compute()) };
+      parcService = { getParc: vi.fn().mockResolvedValue({ tag: 'parc' }) };
+      delaisService = { getDelais: vi.fn().mockResolvedValue({ tag: 'delais' }) };
+      incidentsService = { getIncidents: vi.fn().mockResolvedValue({ tag: 'incidents' }) };
       controller = new KpiController(
         cache as never,
         parcService as never,

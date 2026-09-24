@@ -6,12 +6,13 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationService } from '../../notification/notification.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
 import { createMockConfigService, createMockEncryptionService } from '../../common/__tests__/helpers/mock-services';
+import type { Mock } from 'vitest';
 
-const mockSendMail = jest.fn().mockResolvedValue({ messageId: 'msg-001' });
-const mockVerify = jest.fn().mockResolvedValue(true);
+const mockSendMail = vi.fn().mockResolvedValue({ messageId: 'msg-001' });
+const mockVerify = vi.fn().mockResolvedValue(true);
 
-jest.mock('nodemailer', () => ({
-  createTransport: jest.fn(() => ({
+vi.mock('nodemailer', () => ({
+  createTransport: vi.fn(() => ({
     verify: mockVerify,
     sendMail: mockSendMail,
   })),
@@ -22,20 +23,20 @@ describe('AdminService', () => {
   let prisma: ReturnType<typeof createMockPrismaService>;
   let configService: ReturnType<typeof createMockConfigService>;
   let encryption: ReturnType<typeof createMockEncryptionService>;
-  let notificationService: { sendDepartureAlert: jest.Mock };
+  let notificationService: { sendDepartureAlert: Mock };
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     prisma = createMockPrismaService();
     // Not part of the shared mock helper (out of this lot's scope) — added
     // locally since unlockUser() is the only consumer in this codebase so far.
-    (prisma.auditLog as unknown as Record<string, jest.Mock>).deleteMany = jest.fn();
+    (prisma.auditLog as unknown as Record<string, Mock>).deleteMany = vi.fn();
     configService = createMockConfigService();
     encryption = createMockEncryptionService();
     // Lot D1 : purgeLdapUsers délègue l'alerte « départ avec matériel » à
     // NotificationService — mockée ici, testée en détail dans
     // departure-notifications.spec.ts et notification.service.spec.ts.
-    notificationService = { sendDepartureAlert: jest.fn().mockResolvedValue(false) };
+    notificationService = { sendDepartureAlert: vi.fn().mockResolvedValue(false) };
     service = new AdminService(
       configService as unknown as AppConfigService,
       encryption as unknown as EncryptionService,

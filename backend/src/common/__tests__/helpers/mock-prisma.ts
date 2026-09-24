@@ -1,9 +1,10 @@
 import { PrismaService } from '../../../prisma/prisma.service';
+import { vi, type Mock } from 'vitest';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 /**
- * Recursively turns every function in T into jest.Mock<any, any[]>, and every
+ * Recursively turns every function in T into Mock, and every
  * nested plain-object into a deeply-mocked version. Using `any` for return /
  * param types is intentional: Prisma delegates have complex conditional types
  * that are impossible to satisfy with fixture data. The trade-off (less strict
@@ -11,7 +12,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
  */
 type DeepMocked<T> = {
   [K in keyof T]: T[K] extends (...args: any[]) => any
-    ? jest.Mock<any, any[]>
+    ? Mock
     : T[K] extends object
       ? DeepMocked<T[K]>
       : T[K];
@@ -27,7 +28,7 @@ export type MockPrismaService = DeepMocked<PrismaService>;
 
 /**
  * Creates a fully mocked PrismaService with all Prisma model delegates
- * and utility methods ($transaction, $executeRaw) stubbed via jest.fn().
+ * and utility methods ($transaction, $executeRaw) stubbed via vi.fn().
  *
  * Usage:
  *   const prisma = createMockPrismaService();
@@ -37,173 +38,173 @@ export function createMockPrismaService(): MockPrismaService {
   const mockPrisma = {
     // ── Bon ────────────────────────────────────────────────────────────────────
     bon: {
-      findMany: jest.fn(),
-      findUnique: jest.fn(),
-      findUniqueOrThrow: jest.fn(),
-      findFirst: jest.fn(),
-      create: jest.fn(),
-      update: jest.fn(),
-      updateMany: jest.fn(),
-      count: jest.fn(),
-      deleteMany: jest.fn(),
+      findMany: vi.fn(),
+      findUnique: vi.fn(),
+      findUniqueOrThrow: vi.fn(),
+      findFirst: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      updateMany: vi.fn(),
+      count: vi.fn(),
+      deleteMany: vi.fn(),
     },
 
     // ── User ───────────────────────────────────────────────────────────────────
     user: {
-      findMany: jest.fn(),
-      findUnique: jest.fn(),
-      findUniqueOrThrow: jest.fn(),
-      findFirst: jest.fn(),
-      create: jest.fn(),
-      update: jest.fn(),
-      updateMany: jest.fn(),
-      upsert: jest.fn(),
-      count: jest.fn(),
-      deleteMany: jest.fn(),
+      findMany: vi.fn(),
+      findUnique: vi.fn(),
+      findUniqueOrThrow: vi.fn(),
+      findFirst: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      updateMany: vi.fn(),
+      upsert: vi.fn(),
+      count: vi.fn(),
+      deleteMany: vi.fn(),
     },
 
     // ── BonEquipment ───────────────────────────────────────────────────────────
     bonEquipment: {
-      findMany: jest.fn(),
-      updateMany: jest.fn(),
-      count: jest.fn(),
-      deleteMany: jest.fn(),
-      createMany: jest.fn(),
+      findMany: vi.fn(),
+      updateMany: vi.fn(),
+      count: vi.fn(),
+      deleteMany: vi.fn(),
+      createMany: vi.fn(),
     },
 
     // ── Signature ──────────────────────────────────────────────────────────────
     signature: {
-      findMany: jest.fn(),
-      findUnique: jest.fn(),
-      findFirst: jest.fn(),
-      create: jest.fn(),
-      update: jest.fn(),
-      updateMany: jest.fn(),
+      findMany: vi.fn(),
+      findUnique: vi.fn(),
+      findFirst: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      updateMany: vi.fn(),
     },
 
     // ── Contestation ───────────────────────────────────────────────────────────
     contestation: {
-      findMany: jest.fn(),
-      findUnique: jest.fn(),
-      findFirst: jest.fn(),
-      create: jest.fn(),
-      update: jest.fn(),
-      updateMany: jest.fn(),
-      count: jest.fn(),
+      findMany: vi.fn(),
+      findUnique: vi.fn(),
+      findFirst: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      updateMany: vi.fn(),
+      count: vi.fn(),
     },
 
     // ── AuditLog ───────────────────────────────────────────────────────────────
     auditLog: {
       // Resolved par défaut : certains appelants chaînent .catch() (non-bloquant)
-      create: jest.fn().mockResolvedValue({}),
-      findFirst: jest.fn(),
+      create: vi.fn().mockResolvedValue({}),
+      findFirst: vi.fn(),
       // Resolved par défaut (tableau vide) : departure-notifications.ts (lot D1)
       // lit tout l'historique `departure_notified` à chaque appel — un défaut
       // non mocké ne doit pas faire planter les appelants qui ne le testent pas.
-      findMany: jest.fn().mockResolvedValue([]),
-      count: jest.fn(),
+      findMany: vi.fn().mockResolvedValue([]),
+      count: vi.fn(),
     },
 
     // ── NotificationLog ────────────────────────────────────────────────────────
     notificationLog: {
-      create: jest.fn(),
-      findMany: jest.fn(),
-      count: jest.fn(),
+      create: vi.fn(),
+      findMany: vi.fn(),
+      count: vi.fn(),
     },
 
     // ── PdfSnapshot ────────────────────────────────────────────────────────────
     pdfSnapshot: {
-      findMany: jest.fn(),
-      findUnique: jest.fn(),
-      upsert: jest.fn(),
-      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      findMany: vi.fn(),
+      findUnique: vi.fn(),
+      upsert: vi.fn(),
+      deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
     },
 
     // ── ProofArchive (append-only) ───────────────────────────────────────────────
     proofArchive: {
-      findMany: jest.fn(),
-      findFirst: jest.fn(),
-      create: jest.fn().mockResolvedValue({}),
-      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
-      count: jest.fn(),
+      findMany: vi.fn(),
+      findFirst: vi.fn(),
+      create: vi.fn().mockResolvedValue({}),
+      deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+      count: vi.fn(),
     },
 
     // ── Attachment (pièces jointes) ──────────────────────────────────────────────
     attachment: {
-      findMany: jest.fn(),
-      findUnique: jest.fn(),
-      findFirst: jest.fn(),
-      create: jest.fn(),
-      delete: jest.fn(),
-      deleteMany: jest.fn(),
-      count: jest.fn(),
+      findMany: vi.fn(),
+      findUnique: vi.fn(),
+      findFirst: vi.fn(),
+      create: vi.fn(),
+      delete: vi.fn(),
+      deleteMany: vi.fn(),
+      count: vi.fn(),
     },
 
     // ── SmbExport ──────────────────────────────────────────────────────────────
     smbExport: {
-      findMany: jest.fn(),
-      findUnique: jest.fn(),
-      findFirst: jest.fn(),
-      create: jest.fn(),
-      update: jest.fn(),
-      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
-      count: jest.fn(),
+      findMany: vi.fn(),
+      findUnique: vi.fn(),
+      findFirst: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+      count: vi.fn(),
     },
 
     // ── AppConfig ──────────────────────────────────────────────────────────────
     appConfig: {
-      findMany: jest.fn(),
-      findUnique: jest.fn(),
-      upsert: jest.fn(),
-      deleteMany: jest.fn(),
+      findMany: vi.fn(),
+      findUnique: vi.fn(),
+      upsert: vi.fn(),
+      deleteMany: vi.fn(),
     },
 
     // ── Filiale ────────────────────────────────────────────────────────────────
     filiale: {
-      findMany: jest.fn(),
-      findUnique: jest.fn(),
-      create: jest.fn(),
-      update: jest.fn(),
+      findMany: vi.fn(),
+      findUnique: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
     },
 
     // ── EquipmentCatalog ───────────────────────────────────────────────────────
     equipmentCatalog: {
-      findMany: jest.fn(),
-      findUnique: jest.fn(),
-      create: jest.fn(),
-      update: jest.fn(),
+      findMany: vi.fn(),
+      findUnique: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
     },
 
     // ── EquipmentPack ──────────────────────────────────────────────────────────
     equipmentPack: {
-      findMany: jest.fn(),
-      findUnique: jest.fn(),
-      create: jest.fn(),
-      update: jest.fn(),
+      findMany: vi.fn(),
+      findUnique: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
     },
 
     // ── EquipmentPackItem ──────────────────────────────────────────────────────
     equipmentPackItem: {
-      deleteMany: jest.fn(),
-      createMany: jest.fn(),
+      deleteMany: vi.fn(),
+      createMany: vi.fn(),
     },
 
     // ── RevokedToken ───────────────────────────────────────────────────────────
     revokedToken: {
-      findUnique: jest.fn().mockResolvedValue(null),
-      upsert: jest.fn().mockResolvedValue({}),
-      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      findUnique: vi.fn().mockResolvedValue(null),
+      upsert: vi.fn().mockResolvedValue({}),
+      deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
     },
 
     // ── ScheduledJobRun (suivi des tâches planifiées — lot A5) ──────────────────
     scheduledJobRun: {
-      findMany: jest.fn().mockResolvedValue([]),
-      findUnique: jest.fn().mockResolvedValue(null),
-      upsert: jest.fn().mockResolvedValue({}),
+      findMany: vi.fn().mockResolvedValue([]),
+      findUnique: vi.fn().mockResolvedValue(null),
+      upsert: vi.fn().mockResolvedValue({}),
     },
 
     // ── Prisma Client utilities ────────────────────────────────────────────────
-    $transaction: jest.fn().mockImplementation(
+    $transaction: vi.fn().mockImplementation(
       (cbOrArray: ((tx: typeof mockPrisma) => Promise<unknown>) | Promise<unknown>[]) => {
         if (typeof cbOrArray === 'function') {
           return cbOrArray(mockPrisma);
@@ -211,8 +212,8 @@ export function createMockPrismaService(): MockPrismaService {
         return Promise.all(cbOrArray);
       },
     ),
-    $executeRaw: jest.fn(),
-    $queryRaw: jest.fn().mockResolvedValue([{ max: null }]),
+    $executeRaw: vi.fn(),
+    $queryRaw: vi.fn().mockResolvedValue([{ max: null }]),
   } as unknown as MockPrismaService;
 
   return mockPrisma;

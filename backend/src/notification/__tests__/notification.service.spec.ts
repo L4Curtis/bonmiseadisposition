@@ -9,13 +9,14 @@ import { createMockConfigService, createMockTemplatesService, createMockJobTrack
 import { JobTrackerService } from '../../monitoring/job-tracker.service';
 import { activeBon, sentMiseDispoBon, partiallyReturnedBon } from '../../common/__tests__/fixtures/bon.fixtures';
 import { NotificationBon } from '../../common/types';
+import type { Mock } from 'vitest';
 
-jest.mock('nodemailer', () => ({
-  createTransport: jest.fn(),
+vi.mock('nodemailer', () => ({
+  createTransport: vi.fn(),
 }));
 
-// Helper to access jest.Mock methods on deeply-nested prisma mocks
-const asMock = (fn: unknown): jest.Mock => fn as jest.Mock;
+// Helper to access Mock methods on deeply-nested prisma mocks
+const asMock = (fn: unknown): Mock => fn as Mock;
 
 describe('NotificationService', () => {
   let service: NotificationService;
@@ -24,10 +25,10 @@ describe('NotificationService', () => {
   let templatesService: ReturnType<typeof createMockTemplatesService>;
   let jobTracker: ReturnType<typeof createMockJobTrackerService>;
 
-  const mockSendMail = jest.fn().mockResolvedValue({ messageId: 'msg-001' });
+  const mockSendMail = vi.fn().mockResolvedValue({ messageId: 'msg-001' });
 
   beforeEach(async () => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
 
     prisma = createMockPrismaService();
     configService = createMockConfigService();
@@ -43,7 +44,7 @@ describe('NotificationService', () => {
     configService.set('smtp', 'from', 'noreply@test.local');
     configService.set('general', 'app_url', 'https://app.test.local');
 
-    (nodemailer.createTransport as jest.Mock).mockReturnValue({
+    (nodemailer.createTransport as Mock).mockReturnValue({
       sendMail: mockSendMail,
     });
 
@@ -872,12 +873,12 @@ describe('NotificationService', () => {
 
   describe('runRestitutionDueReminders', () => {
     beforeEach(() => {
-      jest.useFakeTimers();
-      jest.setSystemTime(new Date('2026-04-10T08:00:00Z')); // 10h Paris (CEST, UTC+2)
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-04-10T08:00:00Z')); // 10h Paris (CEST, UTC+2)
     });
 
     afterEach(() => {
-      jest.useRealTimers();
+      vi.useRealTimers();
     });
 
     it('does nothing when restitution_before_days is 0 (feature disabled)', async () => {

@@ -5,6 +5,7 @@ import { AppConfigService } from '../../config/config.service';
 import { FAKE_SIGNATURE_TOKEN } from '../bon-preview-vars';
 import { TEMPLATES } from '../template-catalog';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
+import type { Mock } from 'vitest';
 
 const BON_ID = '11111111-2222-3333-4444-555555555555';
 
@@ -29,20 +30,20 @@ function dbBon(overrides: Record<string, unknown> = {}) {
 
 describe('TemplateBonPreviewService', () => {
   let prisma: ReturnType<typeof createMockPrismaService>;
-  let config: { get: jest.Mock };
-  let templatesService: { getTemplateById: jest.Mock; renderTemplate: jest.Mock };
+  let config: { get: Mock };
+  let templatesService: { getTemplateById: Mock; renderTemplate: Mock };
   let service: TemplateBonPreviewService;
 
   beforeEach(() => {
     prisma = createMockPrismaService();
-    config = { get: jest.fn().mockResolvedValue('https://bons.livio.fr/') };
+    config = { get: vi.fn().mockResolvedValue('https://bons.livio.fr/') };
     templatesService = {
-      getTemplateById: jest.fn((id: string) => {
+      getTemplateById: vi.fn((id: string) => {
         const tpl = TEMPLATES.find((t) => t.id === id);
         if (!tpl) throw new NotFoundException(`Template "${id}" introuvable`);
         return tpl;
       }),
-      renderTemplate: jest.fn(async (_id: string, vars: Record<string, string>) => `<a href="${vars.SIGNER_URL}">${vars.COLLAB_NAME}</a>`),
+      renderTemplate: vi.fn(async (_id: string, vars: Record<string, string>) => `<a href="${vars.SIGNER_URL}">${vars.COLLAB_NAME}</a>`),
     };
     service = new TemplateBonPreviewService(
       prisma as never,

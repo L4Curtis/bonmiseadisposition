@@ -2,9 +2,10 @@ import { BadRequestException } from '@nestjs/common';
 import { TemplatesService } from '../templates.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
 import { createMockConfigService } from '../../common/__tests__/helpers/mock-services';
+import type { Mock } from 'vitest';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const asMock = (fn: unknown): jest.Mock => fn as any;
+const asMock = (fn: unknown): Mock => fn as any;
 
 const VALID_SIGNER_HTML = '<html>{{SIGNER_URL}}</html>';
 const VALID_NON_SIGNER_HTML = '<html>{{REFERENCE}}</html>';

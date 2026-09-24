@@ -4,19 +4,19 @@ describe('KpiCacheService', () => {
   let service: KpiCacheService;
 
   beforeEach(() => {
-    jest.useFakeTimers();
+    vi.useFakeTimers();
     service = new KpiCacheService();
   });
 
   afterEach(() => {
-    jest.useRealTimers();
+    vi.useRealTimers();
   });
 
   it('sert la valeur en cache tant que le TTL (60 s par défaut) n’est pas écoulé', async () => {
-    const compute = jest.fn().mockResolvedValue('v1');
+    const compute = vi.fn().mockResolvedValue('v1');
 
     const first = await service.getOrCompute('k', compute);
-    jest.advanceTimersByTime(59_999);
+    vi.advanceTimersByTime(59_999);
     const second = await service.getOrCompute('k', compute);
 
     expect(first).toBe('v1');
@@ -25,10 +25,10 @@ describe('KpiCacheService', () => {
   });
 
   it('recalcule après expiration du TTL', async () => {
-    const compute = jest.fn().mockResolvedValueOnce('v1').mockResolvedValueOnce('v2');
+    const compute = vi.fn().mockResolvedValueOnce('v1').mockResolvedValueOnce('v2');
 
     await service.getOrCompute('k', compute);
-    jest.advanceTimersByTime(60_001);
+    vi.advanceTimersByTime(60_001);
     const second = await service.getOrCompute('k', compute);
 
     expect(second).toBe('v2');
@@ -36,10 +36,10 @@ describe('KpiCacheService', () => {
   });
 
   it('respecte un TTL explicite différent du défaut', async () => {
-    const compute = jest.fn().mockResolvedValue('v1');
+    const compute = vi.fn().mockResolvedValue('v1');
 
     await service.getOrCompute('k', compute, 1_000);
-    jest.advanceTimersByTime(1_001);
+    vi.advanceTimersByTime(1_001);
     await service.getOrCompute('k', compute, 1_000);
 
     expect(compute).toHaveBeenCalledTimes(2);
@@ -47,7 +47,7 @@ describe('KpiCacheService', () => {
 
   it('dédoublonne deux appels concurrents sur la même clé (une seule promesse en vol)', async () => {
     let resolveCompute!: (value: string) => void;
-    const compute = jest.fn().mockImplementation(
+    const compute = vi.fn().mockImplementation(
       () => new Promise<string>((resolve) => { resolveCompute = resolve; }),
     );
 
@@ -62,7 +62,7 @@ describe('KpiCacheService', () => {
   });
 
   it('ne met pas en cache une promesse rejetée : l’appel suivant recalcule', async () => {
-    const compute = jest
+    const compute = vi
       .fn()
       .mockRejectedValueOnce(new Error('boom'))
       .mockResolvedValueOnce('ok');
@@ -75,7 +75,7 @@ describe('KpiCacheService', () => {
   });
 
   it('évince la plus ancienne entrée (FIFO) au-delà de 200 clés', async () => {
-    const compute = (n: number) => jest.fn().mockResolvedValue(`v${n}`);
+    const compute = (n: number) => vi.fn().mockResolvedValue(`v${n}`);
     const firstCompute = compute(0);
 
     await service.getOrCompute('key-0', firstCompute);
@@ -92,7 +92,7 @@ describe('KpiCacheService', () => {
   });
 
   it('clear() vide le cache', async () => {
-    const compute = jest.fn().mockResolvedValue('v1');
+    const compute = vi.fn().mockResolvedValue('v1');
 
     await service.getOrCompute('k', compute);
     service.clear();

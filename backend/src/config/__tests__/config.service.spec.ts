@@ -79,10 +79,10 @@ describe('AppConfigService — cohérence entre plusieurs instances', () => {
   let service: AppConfigService;
 
   beforeEach(() => {
-    jest.useFakeTimers();
+    vi.useFakeTimers();
     prisma = createMockPrismaService();
     encryption = createMockEncryptionService();
-    prisma.appConfig.aggregate = jest.fn().mockResolvedValue({ _max: { updatedAt: new Date('2026-09-18T10:00:00Z') } });
+    prisma.appConfig.aggregate = vi.fn().mockResolvedValue({ _max: { updatedAt: new Date('2026-09-18T10:00:00Z') } });
     service = new AppConfigService(
       prisma as unknown as PrismaService,
       encryption as unknown as EncryptionService,
@@ -90,7 +90,7 @@ describe('AppConfigService — cohérence entre plusieurs instances', () => {
   });
 
   afterEach(() => {
-    jest.useRealTimers();
+    vi.useRealTimers();
   });
 
   function valeurStockee(value: string) {
@@ -102,10 +102,10 @@ describe('AppConfigService — cohérence entre plusieurs instances', () => {
     expect(await service.get('entra', 'redirect_uri')).toBe('https://ancienne.local/api/auth/callback');
 
     // Écriture par une AUTRE instance : la date de dernière écriture avance.
-    prisma.appConfig.aggregate = jest.fn().mockResolvedValue({ _max: { updatedAt: new Date('2026-09-18T10:05:00Z') } });
+    prisma.appConfig.aggregate = vi.fn().mockResolvedValue({ _max: { updatedAt: new Date('2026-09-18T10:05:00Z') } });
     valeurStockee('https://nouvelle.local/api/auth/callback');
 
-    jest.advanceTimersByTime(6000); // au-delà de l'intervalle de vérification
+    vi.advanceTimersByTime(6000); // au-delà de l'intervalle de vérification
     expect(await service.get('entra', 'redirect_uri')).toBe('https://nouvelle.local/api/auth/callback');
   });
 
@@ -114,7 +114,7 @@ describe('AppConfigService — cohérence entre plusieurs instances', () => {
     await service.get('entra', 'redirect_uri');
     const appelsApresPremiereLecture = prisma.appConfig.findUnique.mock.calls.length;
 
-    jest.advanceTimersByTime(6000);
+    vi.advanceTimersByTime(6000);
     await service.get('entra', 'redirect_uri');
 
     expect(prisma.appConfig.findUnique.mock.calls.length).toBe(appelsApresPremiereLecture);

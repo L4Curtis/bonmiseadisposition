@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { KpiIncidentsService } from '../kpi-incidents.service';
 import { resolvePeriod } from '../kpi-period';
+import type { Mock } from 'vitest';
 
 /**
  * `$queryRaw` est mocké par ROUTAGE sur le texte SQL (et non par ordre
@@ -17,7 +18,7 @@ interface QueryRoute {
 }
 
 function createRoutedQueryRaw(period: ReturnType<typeof resolvePeriod>, routes: QueryRoute[]) {
-  return jest.fn((query: Prisma.Sql) => {
+  return vi.fn((query: Prisma.Sql) => {
     const route = routes.find((r) => r.match(query.sql));
     if (!route) {
       throw new Error(`Requête SQL non gérée par le mock de test : ${query.sql}`);
@@ -153,7 +154,7 @@ describe('KpiIncidentsService', () => {
       const { service, prisma } = buildService();
       await service.getIncidents(period, 'f1');
 
-      const calls = (prisma.$queryRaw as jest.Mock).mock.calls as [Prisma.Sql][];
+      const calls = (prisma.$queryRaw as Mock).mock.calls as [Prisma.Sql][];
       expect(calls.length).toBeGreaterThan(0);
       for (const [query] of calls) {
         expect(query.sql).not.toContain('status IN (');
@@ -178,7 +179,7 @@ describe('KpiIncidentsService', () => {
       const { service, prisma } = buildService();
       await service.getIncidents(period, 'f1');
 
-      const calls = (prisma.$queryRaw as jest.Mock).mock.calls as [Prisma.Sql][];
+      const calls = (prisma.$queryRaw as Mock).mock.calls as [Prisma.Sql][];
       const reasonsCall = calls.find(([q]) => q.sql.includes("btrim(a.details->>'reason'"));
       expect(reasonsCall).toBeDefined();
       expect(reasonsCall?.[0].sql).toContain("a.details->>'reason'");
@@ -189,7 +190,7 @@ describe('KpiIncidentsService', () => {
       const { service, prisma } = buildService();
       await service.getIncidents(period, 'f1');
 
-      const calls = (prisma.$queryRaw as jest.Mock).mock.calls as [Prisma.Sql][];
+      const calls = (prisma.$queryRaw as Mock).mock.calls as [Prisma.Sql][];
       const threeOrMoreCall = calls.find(([q]) => q.sql.includes('COUNT(DISTINCT nl.bon_id)'));
       expect(threeOrMoreCall?.[0].sql).toContain('nl.reminder_number >= 3');
     });
@@ -200,7 +201,7 @@ describe('KpiIncidentsService', () => {
       const { service, prisma } = buildService();
       await service.getIncidents(period, 'f1');
 
-      const calls = (prisma.$queryRaw as jest.Mock).mock.calls as [Prisma.Sql][];
+      const calls = (prisma.$queryRaw as Mock).mock.calls as [Prisma.Sql][];
       expect(calls).toHaveLength(12);
       for (const [query] of calls) {
         expect(query.sql).toContain('filiale_id');
@@ -212,7 +213,7 @@ describe('KpiIncidentsService', () => {
       const { service, prisma } = buildService();
       await service.getIncidents(period);
 
-      const calls = (prisma.$queryRaw as jest.Mock).mock.calls as [Prisma.Sql][];
+      const calls = (prisma.$queryRaw as Mock).mock.calls as [Prisma.Sql][];
       expect(calls).toHaveLength(12);
       for (const [query] of calls) {
         expect(query.sql).not.toContain('filiale_id');

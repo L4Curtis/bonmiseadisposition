@@ -36,16 +36,18 @@ import {
   archivedBon,
   draftBon,
 } from '../../common/__tests__/fixtures/bon.fixtures';
+import type { Mock, Mocked } from 'vitest';
+import * as fsPromisesModule from 'fs/promises';
 
 /**
  * Mock local de BonsService — pas de factory partagée dans
  * common/__tests__/helpers/mock-services.ts (hors périmètre du lot B) : la
  * dépendance est nouvelle (hook PV clôture après signature de restitution),
- * un simple objet jest.fn() suffit ici.
+ * un simple objet vi.fn() suffit ici.
  */
 function createMockBonsService() {
   return {
-    emitPvClotureIfDue: jest.fn().mockResolvedValue(true),
+    emitPvClotureIfDue: vi.fn().mockResolvedValue(true),
   };
 }
 
@@ -57,32 +59,32 @@ function createMockBonsService() {
  */
 function createMockModuleRef(bonsServiceMock: ReturnType<typeof createMockBonsService>) {
   return {
-    get: jest.fn().mockReturnValue(bonsServiceMock),
+    get: vi.fn().mockReturnValue(bonsServiceMock),
   };
 }
 
 // ─── Mock fs module ──────────────────────────────────────────────────────────
 
-jest.mock('fs', () => ({
-  existsSync: jest.fn().mockReturnValue(true),
-  mkdirSync: jest.fn(),
+vi.mock('fs', () => ({
+  existsSync: vi.fn().mockReturnValue(true),
+  mkdirSync: vi.fn(),
 }));
 
-jest.mock('fs/promises', () => ({
-  readFile: jest.fn().mockResolvedValue('encrypted:base64data'),
-  writeFile: jest.fn().mockResolvedValue(undefined),
-  mkdir: jest.fn().mockResolvedValue(undefined),
-  unlink: jest.fn().mockResolvedValue(undefined),
+vi.mock('fs/promises', () => ({
+  readFile: vi.fn().mockResolvedValue('encrypted:base64data'),
+  writeFile: vi.fn().mockResolvedValue(undefined),
+  mkdir: vi.fn().mockResolvedValue(undefined),
+  unlink: vi.fn().mockResolvedValue(undefined),
 }));
 
 // ─── Deep-mock type alias ────────────────────────────────────────────────────
-// createMockPrismaService returns jest.Mocked<PrismaService>, but strict mode
-// does not recognise jest.fn() methods on deeply-nested Prisma delegates.
+// createMockPrismaService returns Mocked<PrismaService>, but strict mode
+// does not recognise vi.fn() methods on deeply-nested Prisma delegates.
 // We use a permissive record type that mirrors the mock shape at runtime.
 
-type MockPrisma = Record<string, Record<string, jest.Mock> & { [k: string]: jest.Mock }> & {
-  $transaction: jest.Mock;
-  $executeRaw: jest.Mock;
+type MockPrisma = Record<string, Record<string, Mock> & { [k: string]: Mock }> & {
+  $transaction: Mock;
+  $executeRaw: Mock;
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -170,7 +172,7 @@ describe('SignatureService', () => {
   });
 
   afterEach(() => {
-    jest.restoreAllMocks();
+    vi.restoreAllMocks();
   });
 
   // ─── generateToken ───────────────────────────────────────────────────────
@@ -581,7 +583,7 @@ describe('SignatureService', () => {
       prisma.bon.updateMany.mockResolvedValue({ count: 0 });
       prisma.auditLog.create.mockResolvedValue({});
 
-      const { unlink: mockUnlink } = jest.requireMock('fs/promises') as { unlink: jest.Mock };
+      const { unlink: mockUnlink } = fsPromisesModule as unknown as { unlink: Mock };
       mockUnlink.mockClear();
 
       await expect(
@@ -862,7 +864,7 @@ describe('SignatureService', () => {
   // ─── getSignatureImagesForBon ────────────────────────────────────────────
 
   describe('getSignatureImagesForBon', () => {
-    const { readFile: mockReadFile } = jest.requireMock('fs/promises') as { readFile: jest.Mock };
+    const { readFile: mockReadFile } = fsPromisesModule as unknown as { readFile: Mock };
 
     it('should build SigImages from signed signatures', async () => {
       mockReadFile.mockResolvedValue('encrypted:base64ItData');

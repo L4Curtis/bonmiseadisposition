@@ -6,9 +6,10 @@ import { EquipmentService } from '../equipment.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
 import { EquipmentCategoryEnum, PackItemDto } from '../dto/equipment.dto';
+import type { Mock } from 'vitest';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type MockPrisma = Record<string, Record<string, jest.Mock<any, any>>>;
+type MockPrisma = Record<string, Record<string, Mock>>;
 
 const USER_ID = 'user-001';
 const CAT_1 = '11111111-1111-4111-8111-111111111111';
@@ -24,7 +25,7 @@ describe('EquipmentService', () => {
     // equipmentPackItem.count n'existe pas dans le mock partagé
     // (helpers/mock-prisma.ts, hors périmètre de ce lot) : on l'ajoute ici,
     // par défaut sans pack actif référençant l'article.
-    prisma.equipmentPackItem.count = jest.fn().mockResolvedValue(0);
+    prisma.equipmentPackItem.count = vi.fn().mockResolvedValue(0);
     service = new EquipmentService(prisma as unknown as PrismaService);
   });
 

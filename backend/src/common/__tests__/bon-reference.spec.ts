@@ -9,8 +9,8 @@ import { generateBonReference, BON_REFERENCE_TX_OPTIONS } from '../bon-reference
  */
 function fakeTx(queryRawResult: Array<{ max: number | null }>) {
   return {
-    $executeRaw: jest.fn().mockResolvedValue(undefined),
-    $queryRaw: jest.fn().mockResolvedValue(queryRawResult),
+    $executeRaw: vi.fn().mockResolvedValue(undefined),
+    $queryRaw: vi.fn().mockResolvedValue(queryRawResult),
   } as unknown as Prisma.TransactionClient;
 }
 
@@ -60,8 +60,8 @@ describe('generateBonReference', () => {
       clientVersion: '5.22.0',
     });
     const tx = {
-      $executeRaw: jest.fn().mockRejectedValue(timeoutError),
-      $queryRaw: jest.fn(),
+      $executeRaw: vi.fn().mockRejectedValue(timeoutError),
+      $queryRaw: vi.fn(),
     } as unknown as Prisma.TransactionClient;
 
     await expect(generateBonReference(tx)).rejects.toThrow(ServiceUnavailableException);
@@ -73,8 +73,8 @@ describe('generateBonReference', () => {
       clientVersion: '5.22.0',
     });
     const tx = {
-      $executeRaw: jest.fn().mockRejectedValue(timeoutError),
-      $queryRaw: jest.fn(),
+      $executeRaw: vi.fn().mockRejectedValue(timeoutError),
+      $queryRaw: vi.fn(),
     } as unknown as Prisma.TransactionClient;
 
     await expect(generateBonReference(tx)).rejects.toThrow(
@@ -88,8 +88,8 @@ describe('generateBonReference', () => {
       clientVersion: '5.22.0',
     });
     const tx = {
-      $executeRaw: jest.fn().mockRejectedValue(otherError),
-      $queryRaw: jest.fn(),
+      $executeRaw: vi.fn().mockRejectedValue(otherError),
+      $queryRaw: vi.fn(),
     } as unknown as Prisma.TransactionClient;
 
     await expect(generateBonReference(tx)).rejects.toBe(otherError);

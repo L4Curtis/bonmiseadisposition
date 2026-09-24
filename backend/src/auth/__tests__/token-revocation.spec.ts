@@ -9,7 +9,7 @@ import { revokeToken, isTokenRevoked, type RevokedTokenStore } from '../token-re
 describe('revokeToken (fonction pure, cf. AuthService.revokeToken)', () => {
   it("révoque le jeton et n'appelle pas onOverCapacity sous le seuil de 10000 entrées (cas nominal)", () => {
     const store: RevokedTokenStore = new Map();
-    const onOverCapacity = jest.fn();
+    const onOverCapacity = vi.fn();
 
     revokeToken(store, 'un-jeton', 15 * 60 * 1000, onOverCapacity);
 
@@ -22,7 +22,7 @@ describe('revokeToken (fonction pure, cf. AuthService.revokeToken)', () => {
     for (let i = 0; i < 10000; i++) {
       store.set(`hash-${i}`, Date.now() + 1000);
     }
-    const onOverCapacity = jest.fn();
+    const onOverCapacity = vi.fn();
 
     revokeToken(store, 'jeton-10001', 15 * 60 * 1000, onOverCapacity);
 

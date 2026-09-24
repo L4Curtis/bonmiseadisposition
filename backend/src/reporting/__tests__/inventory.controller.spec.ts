@@ -19,7 +19,7 @@ describe('InventoryController — by-collaborateur', () => {
   };
 
   const buildController = (result: Record<string, unknown>) => {
-    const service = { getInventoryByCollaborateur: jest.fn().mockResolvedValue(result) };
+    const service = { getInventoryByCollaborateur: vi.fn().mockResolvedValue(result) };
     return { controller: new InventoryController(service as unknown as InventoryService), service };
   };
 

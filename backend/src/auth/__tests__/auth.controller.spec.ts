@@ -6,28 +6,29 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
 import { createMockConfigService } from '../../common/__tests__/helpers/mock-services';
 import { adminUser } from '../../common/__tests__/fixtures/user.fixtures';
+import type { Mock } from 'vitest';
 
 describe('AuthController', () => {
   let controller: AuthController;
   let authService: {
-    revokeToken: jest.Mock;
-    revokeRefreshToken: jest.Mock;
-    clearAuthCookies: jest.Mock;
-    setAuthCookies: jest.Mock;
-    localLogin: jest.Mock;
-    createTokensForUser: jest.Mock;
+    revokeToken: Mock;
+    revokeRefreshToken: Mock;
+    clearAuthCookies: Mock;
+    setAuthCookies: Mock;
+    localLogin: Mock;
+    createTokensForUser: Mock;
   };
   let prisma: ReturnType<typeof createMockPrismaService>;
   let configService: ReturnType<typeof createMockConfigService>;
 
   beforeEach(() => {
     authService = {
-      revokeToken: jest.fn(),
-      revokeRefreshToken: jest.fn().mockResolvedValue(undefined),
-      clearAuthCookies: jest.fn(),
-      setAuthCookies: jest.fn(),
-      localLogin: jest.fn(),
-      createTokensForUser: jest.fn(),
+      revokeToken: vi.fn(),
+      revokeRefreshToken: vi.fn().mockResolvedValue(undefined),
+      clearAuthCookies: vi.fn(),
+      setAuthCookies: vi.fn(),
+      localLogin: vi.fn(),
+      createTokensForUser: vi.fn(),
     };
     prisma = createMockPrismaService();
     configService = createMockConfigService();
@@ -39,7 +40,7 @@ describe('AuthController', () => {
   });
 
   function makeRes(): Response {
-    return { json: jest.fn().mockReturnThis() } as unknown as Response;
+    return { json: vi.fn().mockReturnThis() } as unknown as Response;
   }
 
   describe('logout', () => {

@@ -3,6 +3,7 @@ import { KpiParcService } from '../kpi-parc.service';
 import { KpiPeriod, resolvePeriod } from '../kpi-period';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
 import { createMockConfigService } from '../../common/__tests__/helpers/mock-services';
+import type { Mock } from 'vitest';
 
 interface RouterOptions {
   totalEquipments?: bigint;
@@ -92,7 +93,7 @@ function buildRouter(period: KpiPeriod, opts: RouterOptions = {}) {
 }
 
 function sqlCalls(prisma: ReturnType<typeof createMockPrismaService>): string[] {
-  return (prisma.$queryRaw as jest.Mock).mock.calls.map((call: unknown[]) => (call[0] as Prisma.Sql).sql);
+  return (prisma.$queryRaw as Mock).mock.calls.map((call: unknown[]) => (call[0] as Prisma.Sql).sql);
 }
 
 describe('KpiParcService', () => {
@@ -108,7 +109,7 @@ describe('KpiParcService', () => {
   });
 
   it('renvoie le contrat complet (filiale fournie), BigInt et Decimal-like convertis en number', async () => {
-    (prisma.$queryRaw as jest.Mock).mockImplementation(
+    (prisma.$queryRaw as Mock).mockImplementation(
       buildRouter(period, {
         situationRows: [
           { situation: 'en_attente_signature', count: 20n },
@@ -175,13 +176,13 @@ describe('KpiParcService', () => {
   });
 
   it('filialeId absent → null dans l’enveloppe', async () => {
-    (prisma.$queryRaw as jest.Mock).mockImplementation(buildRouter(period));
+    (prisma.$queryRaw as Mock).mockImplementation(buildRouter(period));
     const result = await service.getParc(period);
     expect(result.filialeId).toBeNull();
   });
 
   it('caste les colonnes enum et ne compare jamais un statut sans cast', async () => {
-    (prisma.$queryRaw as jest.Mock).mockImplementation(buildRouter(period));
+    (prisma.$queryRaw as Mock).mockImplementation(buildRouter(period));
     await service.getParc(period, 'f1');
 
     const calls = sqlCalls(prisma);
@@ -202,10 +203,10 @@ describe('KpiParcService', () => {
 
   describe('alignement parc en circulation (audit 2026-09-18 : sent_mise_dispo et contested)', () => {
     it('la série historique utilise la même définition de statuts que le total instantané (PARC_BON_STATUSES), plus la dérogation archived_at pour les bons désormais archivés', async () => {
-      (prisma.$queryRaw as jest.Mock).mockImplementation(buildRouter(period));
+      (prisma.$queryRaw as Mock).mockImplementation(buildRouter(period));
       await service.getParc(period, 'f1');
 
-      const calls = (prisma.$queryRaw as jest.Mock).mock.calls.map((call: unknown[]) => call[0] as Prisma.Sql);
+      const calls = (prisma.$queryRaw as Mock).mock.calls.map((call: unknown[]) => call[0] as Prisma.Sql);
       const totalsSql = calls.find((q) => q.sql.includes('AS total, COUNT(DISTINCT b.id)'));
       const seriesSql = calls.find((q) => q.sql.includes('generate_series'));
       expect(totalsSql).toBeDefined();
@@ -229,10 +230,10 @@ describe('KpiParcService', () => {
     });
 
     it('loaned.total, la série et bySituation partagent le même jeu de statuts (PARC_BON_STATUSES) dans toutes les requêtes concernées', async () => {
-      (prisma.$queryRaw as jest.Mock).mockImplementation(buildRouter(period));
+      (prisma.$queryRaw as Mock).mockImplementation(buildRouter(period));
       await service.getParc(period, 'f1');
 
-      const calls = (prisma.$queryRaw as jest.Mock).mock.calls.map((call: unknown[]) => call[0] as Prisma.Sql);
+      const calls = (prisma.$queryRaw as Mock).mock.calls.map((call: unknown[]) => call[0] as Prisma.Sql);
       const parcStatuses = ['sent_mise_dispo', 'active', 'sent_restitution', 'partially_returned', 'contested'];
 
       const queriesUsingParcStatuses = [
@@ -256,7 +257,7 @@ describe('KpiParcService', () => {
   });
 
   it('ajoute le filtre filiale à toutes les requêtes quand filialeId est fourni', async () => {
-    (prisma.$queryRaw as jest.Mock).mockImplementation(buildRouter(period));
+    (prisma.$queryRaw as Mock).mockImplementation(buildRouter(period));
     await service.getParc(period, 'f1');
 
     const calls = sqlCalls(prisma);
@@ -267,7 +268,7 @@ describe('KpiParcService', () => {
   });
 
   it('n’ajoute aucun filtre filiale quand filialeId est absent', async () => {
-    (prisma.$queryRaw as jest.Mock).mockImplementation(buildRouter(period));
+    (prisma.$queryRaw as Mock).mockImplementation(buildRouter(period));
     await service.getParc(period);
 
     const calls = sqlCalls(prisma);
@@ -278,7 +279,7 @@ describe('KpiParcService', () => {
   });
 
   it('ratios null quand le dénominateur est nul', async () => {
-    (prisma.$queryRaw as jest.Mock).mockImplementation(
+    (prisma.$queryRaw as Mock).mockImplementation(
       buildRouter(period, {
         totalEquipments: 0n,
         offCatalog: 0n,

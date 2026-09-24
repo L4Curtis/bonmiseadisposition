@@ -9,21 +9,22 @@ import { SsoDiagnosticService } from '../sso-diagnostic.service';
 import { MonitoringService } from '../../monitoring/monitoring.service';
 import { createMockConfigService, createMockSmbService } from '../../common/__tests__/helpers/mock-services';
 import { AuthUser } from '../../auth/auth-user.interface';
+import type { Mock } from 'vitest';
 
 describe('AdminController', () => {
   let controller: AdminController;
   let adminService: {
-    bulkSetConfig: jest.Mock;
-    getConfigSection: jest.Mock;
-    changeUserRole: jest.Mock;
-    ensureNonLocalAdminExists: jest.Mock;
-    getConfigHealth: jest.Mock;
+    bulkSetConfig: Mock;
+    getConfigSection: Mock;
+    changeUserRole: Mock;
+    ensureNonLocalAdminExists: Mock;
+    getConfigHealth: Mock;
   };
-  let ldapService: { validateLdapFilter: jest.Mock };
+  let ldapService: { validateLdapFilter: Mock };
   let configService: ReturnType<typeof createMockConfigService>;
   let smbService: ReturnType<typeof createMockSmbService>;
-  let notificationFailuresService: { getFailedNotifications: jest.Mock };
-  let monitoringService: { getAdminStatus: jest.Mock };
+  let notificationFailuresService: { getFailedNotifications: Mock };
+  let monitoringService: { getAdminStatus: Mock };
 
   const adminUser: AuthUser = {
     id: 'admin-1',
@@ -44,20 +45,20 @@ describe('AdminController', () => {
 
   beforeEach(() => {
     adminService = {
-      bulkSetConfig: jest.fn().mockResolvedValue(undefined),
-      getConfigSection: jest.fn().mockResolvedValue({}),
-      changeUserRole: jest.fn().mockResolvedValue({ id: 'user-2', role: 'direction', isItStaff: false }),
-      ensureNonLocalAdminExists: jest.fn().mockResolvedValue(undefined),
-      getConfigHealth: jest.fn().mockResolvedValue({ sections: [] }),
+      bulkSetConfig: vi.fn().mockResolvedValue(undefined),
+      getConfigSection: vi.fn().mockResolvedValue({}),
+      changeUserRole: vi.fn().mockResolvedValue({ id: 'user-2', role: 'direction', isItStaff: false }),
+      ensureNonLocalAdminExists: vi.fn().mockResolvedValue(undefined),
+      getConfigHealth: vi.fn().mockResolvedValue({ sections: [] }),
     };
-    ldapService = { validateLdapFilter: jest.fn() };
+    ldapService = { validateLdapFilter: vi.fn() };
     configService = createMockConfigService();
     smbService = createMockSmbService();
     notificationFailuresService = {
-      getFailedNotifications: jest.fn().mockResolvedValue({ count: 0, windowDays: 30, items: [] }),
+      getFailedNotifications: vi.fn().mockResolvedValue({ count: 0, windowDays: 30, items: [] }),
     };
     monitoringService = {
-      getAdminStatus: jest.fn().mockResolvedValue({
+      getAdminStatus: vi.fn().mockResolvedValue({
         version: 'dev', commit: 'dev', uptimeSeconds: 0, database: 'ok', jobs: [],
       }),
     };
@@ -68,7 +69,7 @@ describe('AdminController', () => {
       configService as unknown as AppConfigService,
       smbService as unknown as SmbService,
       notificationFailuresService as unknown as NotificationFailuresService,
-      { getRecent: jest.fn().mockResolvedValue([]) } as unknown as SsoDiagnosticService,
+      { getRecent: vi.fn().mockResolvedValue([]) } as unknown as SsoDiagnosticService,
       monitoringService as unknown as MonitoringService,
     );
   });

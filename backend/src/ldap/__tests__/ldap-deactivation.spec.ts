@@ -1,11 +1,12 @@
 import { Logger } from '@nestjs/common';
 import { deactivateAbsentLdapUsers } from '../ldap-deactivation';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
+import type { Mock } from 'vitest';
 
-const asMock = (fn: unknown): jest.Mock => fn as jest.Mock;
+const asMock = (fn: unknown): Mock => fn as Mock;
 
 describe('deactivateAbsentLdapUsers', () => {
-  const logger = { warn: jest.fn(), error: jest.fn(), log: jest.fn() } as unknown as Logger;
+  const logger = { warn: vi.fn(), error: vi.fn(), log: vi.fn() } as unknown as Logger;
 
   it('deactivates absent accounts when under the 20% threshold (cas nominal)', async () => {
     const prisma = createMockPrismaService();

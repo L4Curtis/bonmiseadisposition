@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { KpiDelaisService } from '../kpi-delais.service';
 import { resolvePeriod } from '../kpi-period';
+import type { Mock } from 'vitest';
 
 /**
  * `$queryRaw` est mocké par ROUTAGE sur le texte SQL (jamais par ordre
@@ -18,17 +19,17 @@ const CURRENT_FROM = '2026-08-01';
 const PREVIOUS_FROM = PERIOD.previous.from; // 2026-07-22
 
 function createConfig(overdueDays: number) {
-  return { getSignatureOverdueDays: jest.fn().mockResolvedValue(overdueDays) };
+  return { getSignatureOverdueDays: vi.fn().mockResolvedValue(overdueDays) };
 }
 
 function createPrisma() {
-  return { $queryRaw: jest.fn() };
+  return { $queryRaw: vi.fn() };
 }
 
 /** Mock générique : toute requête renvoie `[]`. Utile pour les assertions
  *  qui ne portent que sur le SQL généré (casts, filtre filiale, seuil…). */
 function mockEmpty(prisma: ReturnType<typeof createPrisma>) {
-  (prisma.$queryRaw as jest.Mock).mockResolvedValue([]);
+  (prisma.$queryRaw as Mock).mockResolvedValue([]);
 }
 
 interface Fixtures {
@@ -51,7 +52,7 @@ interface Fixtures {
  *  pour les quatre requêtes dupliquées courant/précédent, selon les valeurs
  *  liées). Toute requête non reconnue fait échouer le test explicitement. */
 function mockRouted(prisma: ReturnType<typeof createPrisma>, fixtures: Fixtures) {
-  (prisma.$queryRaw as jest.Mock).mockImplementation((query: RawQuery) => {
+  (prisma.$queryRaw as Mock).mockImplementation((query: RawQuery) => {
     const sql = query.sql;
     const values = query.values;
     const isCurrent = values.includes(CURRENT_FROM);
@@ -246,7 +247,7 @@ describe('KpiDelaisService', () => {
 
       await service.getDelais(PERIOD, 'fil-1');
 
-      const calls = (prisma.$queryRaw as jest.Mock).mock.calls as [RawQuery][];
+      const calls = (prisma.$queryRaw as Mock).mock.calls as [RawQuery][];
       expect(calls.length).toBeGreaterThan(0);
       for (const [query] of calls) {
         expect(query.sql).not.toMatch(/b\.status IN \(/);
@@ -269,7 +270,7 @@ describe('KpiDelaisService', () => {
 
       await service.getDelais(PERIOD);
 
-      const calls = (prisma.$queryRaw as jest.Mock).mock.calls as [RawQuery][];
+      const calls = (prisma.$queryRaw as Mock).mock.calls as [RawQuery][];
       const lagCall = calls.find(([q]) => q.sql.includes('LAG('));
       expect(lagCall).toBeDefined();
       expect(lagCall![0].sql).toContain("'-infinity'::timestamp");
@@ -282,17 +283,17 @@ describe('KpiDelaisService', () => {
       const service = new KpiDelaisService(prisma as never, config as never);
 
       await service.getDelais(PERIOD);
-      let calls = (prisma.$queryRaw as jest.Mock).mock.calls as [RawQuery][];
+      let calls = (prisma.$queryRaw as Mock).mock.calls as [RawQuery][];
       let waitingCall = calls.find(([q]) => q.sql.includes('CASE b.status::text'));
       expect(waitingCall).toBeDefined();
       expect(waitingCall![0].sql).toContain('to_timestamp(1)');
       expect(waitingCall![0].values).toContain(7);
 
-      (prisma.$queryRaw as jest.Mock).mockClear();
-      (config.getSignatureOverdueDays as jest.Mock).mockResolvedValue(10);
+      (prisma.$queryRaw as Mock).mockClear();
+      (config.getSignatureOverdueDays as Mock).mockResolvedValue(10);
 
       await service.getDelais(PERIOD);
-      calls = (prisma.$queryRaw as jest.Mock).mock.calls as [RawQuery][];
+      calls = (prisma.$queryRaw as Mock).mock.calls as [RawQuery][];
       waitingCall = calls.find(([q]) => q.sql.includes('CASE b.status::text'));
       expect(waitingCall![0].values).toContain(10);
     });
@@ -304,15 +305,15 @@ describe('KpiDelaisService', () => {
       const service = new KpiDelaisService(prisma as never, config as never);
 
       await service.getDelais(PERIOD, 'fil-1');
-      let calls = (prisma.$queryRaw as jest.Mock).mock.calls as [RawQuery][];
+      let calls = (prisma.$queryRaw as Mock).mock.calls as [RawQuery][];
       expect(calls.length).toBeGreaterThan(0);
       for (const [query] of calls) {
         expect(query.sql).toContain('b.filiale_id =');
       }
 
-      (prisma.$queryRaw as jest.Mock).mockClear();
+      (prisma.$queryRaw as Mock).mockClear();
       await service.getDelais(PERIOD);
-      calls = (prisma.$queryRaw as jest.Mock).mock.calls as [RawQuery][];
+      calls = (prisma.$queryRaw as Mock).mock.calls as [RawQuery][];
       expect(calls.length).toBeGreaterThan(0);
       for (const [query] of calls) {
         expect(query.sql).not.toContain('filiale_id');

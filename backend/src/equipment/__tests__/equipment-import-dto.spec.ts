@@ -5,6 +5,7 @@ import { ImportCatalogDto, ImportCatalogItemDto } from '../dto/equipment.dto';
 import { importCatalogItems } from '../equipment-catalog-import';
 import { PrismaService } from '../../prisma/prisma.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
+import type { Mock } from 'vitest';
 
 /**
  * Durcissement de l'import du catalogue (POST /equipment/catalog/import) :
@@ -35,7 +36,7 @@ describe('Import catalogue — durcissement (categories + limite de lignes)', ()
 
   it('surfaces the category message (with accepted values) through importCatalogItems as a per-row error', async () => {
     const prisma = createMockPrismaService();
-    (prisma.equipmentCatalog.findMany as jest.Mock).mockResolvedValue([]);
+    (prisma.equipmentCatalog.findMany as Mock).mockResolvedValue([]);
 
     const result = await importCatalogItems(
       prisma as unknown as PrismaService,

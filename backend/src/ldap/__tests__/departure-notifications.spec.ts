@@ -6,6 +6,7 @@ import {
 } from '../departure-notifications';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
 import { PARC_BON_STATUSES } from '../../common/bon-predicates';
+import type { Mock } from 'vitest';
 
 function makeGroupRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -21,9 +22,9 @@ function makeGroupRow(overrides: Record<string, unknown> = {}) {
 
 function silentLogger(): Logger {
   const logger = new Logger('test');
-  jest.spyOn(logger, 'log').mockImplementation(() => undefined);
-  jest.spyOn(logger, 'warn').mockImplementation(() => undefined);
-  jest.spyOn(logger, 'error').mockImplementation(() => undefined);
+  vi.spyOn(logger, 'log').mockImplementation(() => undefined);
+  vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+  vi.spyOn(logger, 'error').mockImplementation(() => undefined);
   return logger;
 }
 
@@ -35,11 +36,11 @@ describe('getInactiveCollaborateurGroups', () => {
   });
 
   it('restreint le prédicat parc en circulation aux comptes désactivés', async () => {
-    (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
+    (prisma.bonEquipment.findMany as Mock).mockResolvedValue([]);
 
     await getInactiveCollaborateurGroups(prisma as never, new Date('2026-09-21'));
 
-    const call = (prisma.bonEquipment.findMany as jest.Mock).mock.calls[0][0];
+    const call = (prisma.bonEquipment.findMany as Mock).mock.calls[0][0];
     expect(call.where.AND).toContainEqual({ returnedAt: null });
     expect(call.where.AND).toContainEqual({ notReturned: false });
     expect(call.where.AND).toContainEqual({ bon: { status: { in: [...PARC_BON_STATUSES] } } });
@@ -47,7 +48,7 @@ describe('getInactiveCollaborateurGroups', () => {
   });
 
   it('regroupe les lignes renvoyées par collaborateur (réutilise groupInventoryByCollaborateur)', async () => {
-    (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([makeGroupRow(), makeGroupRow()]);
+    (prisma.bonEquipment.findMany as Mock).mockResolvedValue([makeGroupRow(), makeGroupRow()]);
 
     const result = await getInactiveCollaborateurGroups(prisma as never);
 
@@ -56,7 +57,7 @@ describe('getInactiveCollaborateurGroups', () => {
   });
 
   it("renvoie un tableau vide quand aucun compte désactivé ne détient de matériel", async () => {
-    (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
+    (prisma.bonEquipment.findMany as Mock).mockResolvedValue([]);
 
     const result = await getInactiveCollaborateurGroups(prisma as never);
 
@@ -67,16 +68,16 @@ describe('getInactiveCollaborateurGroups', () => {
 describe('notifyDepartures', () => {
   let prisma: ReturnType<typeof createMockPrismaService>;
   let logger: Logger;
-  let sendAlert: jest.Mock;
+  let sendAlert: Mock;
 
   beforeEach(() => {
     prisma = createMockPrismaService();
     logger = silentLogger();
-    sendAlert = jest.fn().mockResolvedValue(true);
+    sendAlert = vi.fn().mockResolvedValue(true);
   });
 
   it("n'envoie rien et ne journalise rien quand aucun compte désactivé ne détient de matériel", async () => {
-    (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
+    (prisma.bonEquipment.findMany as Mock).mockResolvedValue([]);
 
     await notifyDepartures({ prisma: prisma as never, logger, sendAlert });
 
@@ -85,9 +86,9 @@ describe('notifyDepartures', () => {
   });
 
   it('envoie une alerte pour un collaborateur jamais notifié, puis journalise departure_notified', async () => {
-    (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([makeGroupRow()]);
-    (prisma.auditLog.findMany as jest.Mock).mockResolvedValue([]); // jamais notifié
-    (prisma.user.findMany as jest.Mock).mockResolvedValue([{ id: 'u-1', updatedAt: new Date('2026-09-01') }]);
+    (prisma.bonEquipment.findMany as Mock).mockResolvedValue([makeGroupRow()]);
+    (prisma.auditLog.findMany as Mock).mockResolvedValue([]); // jamais notifié
+    (prisma.user.findMany as Mock).mockResolvedValue([{ id: 'u-1', updatedAt: new Date('2026-09-01') }]);
 
     await notifyDepartures({ prisma: prisma as never, logger, sendAlert }, new Date('2026-09-21'));
 
@@ -99,12 +100,12 @@ describe('notifyDepartures', () => {
   });
 
   it('ne renvoie jamais deux fois pour la même personne (déjà notifiée depuis sa désactivation)', async () => {
-    (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([makeGroupRow()]);
+    (prisma.bonEquipment.findMany as Mock).mockResolvedValue([makeGroupRow()]);
     // Désactivé le 1er septembre, notifié le 2 — aucune notification depuis.
-    (prisma.auditLog.findMany as jest.Mock).mockResolvedValue([
+    (prisma.auditLog.findMany as Mock).mockResolvedValue([
       { details: { collaborateurId: 'u-1' }, createdAt: new Date('2026-09-02') },
     ]);
-    (prisma.user.findMany as jest.Mock).mockResolvedValue([{ id: 'u-1', updatedAt: new Date('2026-09-01') }]);
+    (prisma.user.findMany as Mock).mockResolvedValue([{ id: 'u-1', updatedAt: new Date('2026-09-01') }]);
 
     await notifyDepartures({ prisma: prisma as never, logger, sendAlert }, new Date('2026-09-21'));
 
@@ -113,13 +114,13 @@ describe('notifyDepartures', () => {
   });
 
   it('envoie une nouvelle alerte après une réactivation puis une nouvelle désactivation', async () => {
-    (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([makeGroupRow()]);
+    (prisma.bonEquipment.findMany as Mock).mockResolvedValue([makeGroupRow()]);
     // Notifié le 2 septembre (1er épisode), puis réactivé/redésactivé le 15 :
     // updatedAt (15) est postérieur à la dernière notification (2) → à renotifier.
-    (prisma.auditLog.findMany as jest.Mock).mockResolvedValue([
+    (prisma.auditLog.findMany as Mock).mockResolvedValue([
       { details: { collaborateurId: 'u-1' }, createdAt: new Date('2026-09-02') },
     ]);
-    (prisma.user.findMany as jest.Mock).mockResolvedValue([{ id: 'u-1', updatedAt: new Date('2026-09-15') }]);
+    (prisma.user.findMany as Mock).mockResolvedValue([{ id: 'u-1', updatedAt: new Date('2026-09-15') }]);
 
     await notifyDepartures({ prisma: prisma as never, logger, sendAlert }, new Date('2026-09-21'));
 
@@ -130,9 +131,9 @@ describe('notifyDepartures', () => {
   });
 
   it("ne journalise pas quand l'envoi échoue, pour retenter au prochain passage", async () => {
-    (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([makeGroupRow()]);
-    (prisma.auditLog.findMany as jest.Mock).mockResolvedValue([]);
-    (prisma.user.findMany as jest.Mock).mockResolvedValue([{ id: 'u-1', updatedAt: new Date('2026-09-01') }]);
+    (prisma.bonEquipment.findMany as Mock).mockResolvedValue([makeGroupRow()]);
+    (prisma.auditLog.findMany as Mock).mockResolvedValue([]);
+    (prisma.user.findMany as Mock).mockResolvedValue([{ id: 'u-1', updatedAt: new Date('2026-09-01') }]);
     sendAlert.mockResolvedValue(false);
 
     await notifyDepartures({ prisma: prisma as never, logger, sendAlert }, new Date('2026-09-21'));
@@ -142,15 +143,15 @@ describe('notifyDepartures', () => {
   });
 
   it('ne notifie que les collaborateurs dus quand plusieurs sont concernés', async () => {
-    (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([
+    (prisma.bonEquipment.findMany as Mock).mockResolvedValue([
       makeGroupRow(),
       makeGroupRow({ collaborateur: { id: 'u-2', displayName: 'Alice Martin', email: 'a@x.fr', department: 'RH', active: false } }),
     ]);
-    (prisma.auditLog.findMany as jest.Mock).mockResolvedValue([
+    (prisma.auditLog.findMany as Mock).mockResolvedValue([
       // u-1 déjà notifié depuis sa désactivation ; u-2 jamais notifié.
       { details: { collaborateurId: 'u-1' }, createdAt: new Date('2026-09-05') },
     ]);
-    (prisma.user.findMany as jest.Mock).mockResolvedValue([
+    (prisma.user.findMany as Mock).mockResolvedValue([
       { id: 'u-1', updatedAt: new Date('2026-09-01') },
       { id: 'u-2', updatedAt: new Date('2026-09-10') },
     ]);

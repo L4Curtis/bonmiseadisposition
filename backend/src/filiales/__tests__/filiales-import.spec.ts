@@ -2,25 +2,28 @@ import 'reflect-metadata';
 import { importFilialeItems } from '../filiales-import';
 import { PrismaService } from '../../prisma/prisma.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
+import type { Mock } from 'vitest';
+import * as fsPromisesModule from 'fs/promises';
+import * as cryptoModule from 'node:crypto';
 
-jest.mock('fs', () => ({ existsSync: jest.fn().mockReturnValue(true) }));
-jest.mock('fs/promises', () => ({
-  writeFile: jest.fn().mockResolvedValue(undefined),
-  unlink: jest.fn().mockResolvedValue(undefined),
+vi.mock('fs', () => ({ existsSync: vi.fn().mockReturnValue(true) }));
+vi.mock('fs/promises', () => ({
+  writeFile: vi.fn().mockResolvedValue(undefined),
+  unlink: vi.fn().mockResolvedValue(undefined),
 }));
 // filiales-image.ts nomme ses fichiers via crypto.randomUUID() (le paquet
 // uuid a été retiré du projet — voir chore(deps) « retirer uuid au profit de
 // crypto.randomUUID »). Ce mock ciblait encore l'ancien paquet ; il n'avait
 // plus aucun effet sur le nom réellement généré.
-jest.mock('node:crypto', () => ({
-  ...jest.requireActual('node:crypto'),
-  randomUUID: jest.fn(),
+vi.mock('node:crypto', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:crypto')>()),
+  randomUUID: vi.fn(),
 }));
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const fsp = require('fs/promises') as { writeFile: jest.Mock; unlink: jest.Mock };
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { randomUUID } = require('node:crypto') as { randomUUID: jest.Mock };
+// Ces deux imports reçoivent les doublures déclarées par vi.mock (remontées en
+// tête de fichier), pas les vrais modules.
+const fsp = fsPromisesModule as unknown as { writeFile: Mock; unlink: Mock };
+const randomUUID = cryptoModule.randomUUID as unknown as Mock;
 
 const USER_ID = 'user-001';
 
@@ -38,7 +41,7 @@ function gifBase64(): string {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type MockPrisma = Record<string, Record<string, jest.Mock<any, any>>>;
+type MockPrisma = Record<string, Record<string, Mock>>;
 
 describe('importFilialeItems (POST /filiales/import)', () => {
   let prisma: MockPrisma;

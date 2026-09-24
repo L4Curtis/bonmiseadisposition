@@ -7,14 +7,15 @@ import {
 import { createMockPrismaService } from '../../../common/__tests__/helpers/mock-prisma';
 import { createMockTemplatesService } from '../../../common/__tests__/helpers/mock-services';
 import { NotificationBon } from '../../../common/types';
+import type { Mock } from 'vitest';
 
-const asMock = (fn: unknown): jest.Mock => fn as jest.Mock;
+const asMock = (fn: unknown): Mock => fn as Mock;
 
 function makeDeps() {
   const prisma = createMockPrismaService();
   const templatesService = createMockTemplatesService();
-  const logger = { log: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } as unknown as Logger;
-  const sendEmail = jest.fn().mockResolvedValue({ ok: true });
+  const logger = { log: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as unknown as Logger;
+  const sendEmail = vi.fn().mockResolvedValue({ ok: true });
   asMock(prisma.notificationLog.create).mockResolvedValue({});
   return { prisma, templatesService, logger, sendEmail };
 }
@@ -69,8 +70,8 @@ describe('sendTemplatedNotification', () => {
 
 describe('sendTokenSignatureRequest', () => {
   it('builds the signer URL from the app URL and token, then sends (cas nominal)', async () => {
-    const deps = { ...makeDeps(), getAppUrl: jest.fn().mockResolvedValue('https://app.test.local') };
-    const buildMessage = jest.fn().mockReturnValue({ vars: { SIGNER_URL: 'x' }, subject: 'Signer' });
+    const deps = { ...makeDeps(), getAppUrl: vi.fn().mockResolvedValue('https://app.test.local') };
+    const buildMessage = vi.fn().mockReturnValue({ vars: { SIGNER_URL: 'x' }, subject: 'Signer' });
 
     await sendTokenSignatureRequest(deps as never, {
       bon: baseBon,
@@ -85,8 +86,8 @@ describe('sendTokenSignatureRequest', () => {
   });
 
   it('blocks the send without ever building the message when the app URL is missing (cas limite)', async () => {
-    const deps = { ...makeDeps(), getAppUrl: jest.fn().mockResolvedValue('') };
-    const buildMessage = jest.fn();
+    const deps = { ...makeDeps(), getAppUrl: vi.fn().mockResolvedValue('') };
+    const buildMessage = vi.fn();
 
     await sendTokenSignatureRequest(deps as never, {
       bon: baseBon,
@@ -104,8 +105,8 @@ describe('sendTokenSignatureRequest', () => {
   });
 
   it('blocks the send when the collaborator has no email (cas limite)', async () => {
-    const deps = { ...makeDeps(), getAppUrl: jest.fn().mockResolvedValue('https://app.test.local') };
-    const buildMessage = jest.fn();
+    const deps = { ...makeDeps(), getAppUrl: vi.fn().mockResolvedValue('https://app.test.local') };
+    const buildMessage = vi.fn();
 
     await sendTokenSignatureRequest(deps as never, {
       bon: { ...baseBon, collaborateurEmail: null },

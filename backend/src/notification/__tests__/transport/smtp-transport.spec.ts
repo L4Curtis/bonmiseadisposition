@@ -7,8 +7,8 @@ import {
 } from '../../transport/smtp-transport';
 import { createMockConfigService } from '../../../common/__tests__/helpers/mock-services';
 
-jest.mock('nodemailer', () => ({
-  createTransport: jest.fn().mockReturnValue({ sendMail: jest.fn() }),
+vi.mock('nodemailer', () => ({
+  createTransport: vi.fn().mockReturnValue({ sendMail: vi.fn() }),
 }));
 
 describe('smtp-transport', () => {
@@ -66,7 +66,7 @@ describe('smtp-transport', () => {
   });
 
   describe('buildTransporter', () => {
-    beforeEach(() => jest.clearAllMocks());
+    beforeEach(() => vi.clearAllMocks());
 
     it('enables auth only when both user and password are present', () => {
       buildTransporter({ host: 'h', port: '587', user: 'u', pass: 'p', secure: 'false' });

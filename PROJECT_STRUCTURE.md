@@ -47,7 +47,7 @@ BonDeMiseADisposition/
 │   ├── phase6.md                       # Switcher de vue utilisateur (style GLPI)
 │   ├── security.md                     # Reference securite consolidee (phases 6+7, mise a jour continue)
 │   ├── SAUVEGARDE-REPRISE.md           # Sauvegarde/restauration, sequestre ENCRYPTION_KEY
-│   ├── testing-guide.md                # Guide de tests backend (Jest) et frontend (Vitest)
+│   ├── testing-guide.md                # Guide de tests backend et frontend (Vitest)
 │   └── phase-legal-compliance.md       # Document de travail conformite legale (non implemente)
 │
 ├── e2e/                                 # Tests de bout en bout (Playwright), lancés en CI (voir job `e2e`)

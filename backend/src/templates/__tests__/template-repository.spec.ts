@@ -7,8 +7,9 @@ import {
 } from '../template-repository';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
 import { createMockConfigService } from '../../common/__tests__/helpers/mock-services';
+import type { Mock } from 'vitest';
 
-const asMock = (fn: unknown): jest.Mock => fn as jest.Mock;
+const asMock = (fn: unknown): Mock => fn as Mock;
 
 describe('getCustomizedTemplates', () => {
   it('delegates to configService.getAll("email_templates")', async () => {

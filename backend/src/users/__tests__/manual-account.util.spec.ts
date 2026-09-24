@@ -32,14 +32,14 @@ describe('manual-account.util', () => {
 
   describe('generateUniqueManualSamAccountName', () => {
     it('returns the base unchanged when it is free', async () => {
-      const exists = jest.fn().mockResolvedValue(false);
+      const exists = vi.fn().mockResolvedValue(false);
       const result = await generateUniqueManualSamAccountName('manuel.jean.dupont', exists);
       expect(result).toBe('manuel.jean.dupont');
       expect(exists).toHaveBeenCalledTimes(1);
     });
 
     it('suffixes -2 on a single collision', async () => {
-      const exists = jest.fn()
+      const exists = vi.fn()
         .mockResolvedValueOnce(true) // base taken
         .mockResolvedValueOnce(false); // -2 free
       const result = await generateUniqueManualSamAccountName('manuel.jean.dupont', exists);
@@ -47,7 +47,7 @@ describe('manual-account.util', () => {
     });
 
     it('keeps incrementing the suffix across multiple collisions', async () => {
-      const exists = jest.fn()
+      const exists = vi.fn()
         .mockResolvedValueOnce(true) // base
         .mockResolvedValueOnce(true) // -2
         .mockResolvedValueOnce(true) // -3
