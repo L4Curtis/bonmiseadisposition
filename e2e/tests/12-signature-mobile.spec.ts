@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, adresseClient } from './fixtures';
 import { createDraftBon } from './helpers/bon-create';
 import { initiatePresentiel } from './helpers/it-cachet';
 import { drawSignatureByTouch } from './helpers/canvas';
@@ -31,6 +31,8 @@ test('signature présentielle au doigt sur téléphone : bon actif', async ({ pa
     deviceScaleFactor: 3,
     isMobile: true,
     hasTouch: true,
+    // Le téléphone du collaborateur : sa propre adresse client (voir fixtures.ts).
+    extraHTTPHeaders: { 'CF-Connecting-IP': adresseClient(`telephone-${suffix}`) },
   });
   try {
     const mobile = await telephone.newPage();

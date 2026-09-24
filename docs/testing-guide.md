@@ -812,6 +812,16 @@ filiale et les collaborateurs amorcés et le nettoyage échoue : repartir de `do
 
 ### 7.3 Écrire un test
 
+- **Importer `test` et `expect` depuis `./fixtures`**, jamais directement depuis `@playwright/test`. La
+  fixture donne à chaque test sa propre adresse client (en-tête `CF-Connecting-IP`, que le nginx du
+  frontend reconnaît). Le backend plafonne certaines routes par adresse (cachet IT : 10 par minute) : en CI,
+  les parcours s'enchaînent en moins d'une minute depuis une seule adresse et recevaient des 429 « Trop de
+  requêtes » en plein parcours. Un contexte créé à la main (`browser.newContext`) représente un autre
+  appareil : lui donner sa propre adresse avec `adresseClient()`.
+- Pour reproduire exactement la CI (Linux, Chromium livré par Playwright, fuseau UTC, langue anglaise),
+  lancer les tests dans l'image `mcr.microsoft.com/playwright:v<version>-noble` contre la compose, avec
+  `E2E_BASE_URL=http://host.docker.internal:8081` : un test vert dans le Chrome local en français peut
+  échouer là, parce que tout y va plus vite.
 - Un test crée ce dont il a besoin (helpers de `tests/helpers/`) : aucun test ne dépend de ce qu'un autre a
   laissé derrière lui.
 - Sélecteurs par rôle, libellé ou texte visible, jamais par classe CSS. Attention aux libellés inclus les uns

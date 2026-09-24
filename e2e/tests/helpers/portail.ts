@@ -1,4 +1,5 @@
 import { expect, type Browser, type BrowserContext, type Locator, type Page } from '@playwright/test';
+import { adresseClient } from '../fixtures';
 import { BASE_URL, PORTAIL_EMAIL, PORTAIL_PASSWORD } from './env';
 
 export interface PortailSession {
@@ -16,7 +17,13 @@ export interface PortailSession {
  * À refermer par l'appelant (`context.close()`), idéalement dans un finally.
  */
 export async function openPortailSession(browser: Browser): Promise<PortailSession> {
-  const context = await browser.newContext({ baseURL: BASE_URL, storageState: { cookies: [], origins: [] } });
+  // Le collaborateur est sur son propre poste : sa propre adresse client
+  // (voir fixtures.ts — plafonds par adresse du backend).
+  const context = await browser.newContext({
+    baseURL: BASE_URL,
+    storageState: { cookies: [], origins: [] },
+    extraHTTPHeaders: { 'CF-Connecting-IP': adresseClient(`portail-${Date.now()}-${Math.random()}`) },
+  });
   const page = await context.newPage();
 
   await page.goto('/login');

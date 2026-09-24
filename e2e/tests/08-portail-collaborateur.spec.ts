@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import { createActiveBon } from './helpers/bon-create';
 import { PORTAIL_DISPLAY_NAME } from './helpers/env';
 import { openPortailSession, portailSection } from './helpers/portail';

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import { createDraftBon } from './helpers/bon-create';
 import { sendBySignatureLink } from './helpers/it-cachet';
 import { uniqueSuffix } from './helpers/ids';

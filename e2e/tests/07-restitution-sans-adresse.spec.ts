@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import { createDraftBon } from './helpers/bon-create';
 import { initiatePresentiel } from './helpers/it-cachet';
 import { completeSignature } from './helpers/signer';

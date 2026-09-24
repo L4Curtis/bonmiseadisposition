@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import { createDraftBon } from './helpers/bon-create';
 import { CATALOG_ITEM_LABEL, CATALOG_QUERY, FILIALE_NAME } from './helpers/env';
 import { selectExistingCollaborateur } from './helpers/collaborateur';
