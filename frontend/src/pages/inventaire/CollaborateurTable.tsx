@@ -214,8 +214,7 @@ export function CollaborateurTable({
                             hasActiveFilters={false}
                             onResetFilters={() => undefined}
                             canLinkToBon={canLinkToBon}
-                            sortDirection=""
-                            onToggleDateSort={() => undefined}
+                            sort={null}
                           />
                         </td>
                       </tr>

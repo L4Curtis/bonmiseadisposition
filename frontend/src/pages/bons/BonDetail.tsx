@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { useAuth } from '@/contexts/AuthContext';
+import { toast } from '@/hooks/use-toast';
 import { XCircle, AlertTriangle } from 'lucide-react';
 import { useBonActions } from './detail/useBonActions';
 import { BonDetailHeader } from './detail/BonDetailHeader';
@@ -28,6 +29,30 @@ export function BonDetailPage() {
   const { bon, loading, loadError, actionLoading, pdfLoading, pdfSnapshots, notifLogs } = actions;
 
   useEffect(() => { actions.load(); }, [id]);
+
+  // Lien profond `?action=restitution` (action « Initier la restitution » de
+  // l'inventaire) : ouvre la boîte de dialogue de restitution dès que le bon
+  // est chargé, si son statut le permet (mêmes statuts que le bouton), puis
+  // retire le paramètre pour qu'un rechargement ne la rouvre pas.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedAction = searchParams.get('action');
+  useEffect(() => {
+    if (requestedAction !== 'restitution' || !bon || bon.id !== id) return;
+    if (['active', 'partially_returned'].includes(bon.status)) {
+      actions.setShowRestitutionModal(true);
+    } else {
+      toast({
+        title: 'Restitution impossible',
+        description: 'Le statut de ce bon ne permet pas d’initier une restitution.',
+      });
+    }
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete('action');
+      return next;
+    }, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestedAction, bon?.id, bon?.status, id]);
 
   // ── IT sign trigger helpers ────────────────────────────────────────────────
   // Mise à disposition : cachet PUIS envoi/présentiel (le cachet certifie la

@@ -5,14 +5,16 @@ import { errorMessage, showActionError } from '@/lib/errors';
 import { toast } from '@/hooks/use-toast';
 import { useActiveFiliales } from '@/hooks/use-active-filiales';
 import { buildBaseFilterEntries, PAGE_LIMIT, type InventoryBaseFilters } from './inventoryFilterParams';
+import { INVENTORY_SORT_FIELDS } from './types';
 import type {
   CompteFilter,
   EquipmentSituation,
   InventoryItem,
   InventoryListResponse,
+  InventorySort,
+  InventorySortField,
   InventorySummary,
   InventoryView,
-  SortDirection,
 } from './types';
 
 const SITUATIONS: EquipmentSituation[] = ['en_attente_signature', 'en_circulation', 'en_litige'];
@@ -29,8 +31,15 @@ function readCompte(value: string | null): CompteFilter {
   return COMPTE_FILTERS.includes(value as CompteFilter) ? (value as CompteFilter) : '';
 }
 
-function readDirection(value: string | null): '' | SortDirection {
-  return value === 'asc' || value === 'desc' ? value : '';
+/** Tri lu depuis l'URL (`sort` + `direction`) : ignoré s'il n'est pas dans la
+ *  liste blanche — l'API répondrait 400. Un `direction` seul (ancien lien, où
+ *  seule la mise à disposition était triable) vaut tri sur cette colonne. */
+function readSort(sort: string | null, direction: string | null): InventorySort | null {
+  if (direction !== 'asc' && direction !== 'desc') return null;
+  if (sort === null) return { field: 'dateMiseDisposition', direction };
+  return (INVENTORY_SORT_FIELDS as readonly string[]).includes(sort)
+    ? { field: sort as InventorySortField, direction }
+    : null;
 }
 
 function readView(value: string | null): InventoryView {
@@ -38,7 +47,7 @@ function readView(value: string | null): InventoryView {
 }
 
 interface EquipmentFilterState extends InventoryBaseFilters {
-  sortDirection: '' | SortDirection;
+  sort: InventorySort | null;
 }
 
 /** Couple [clé, valeur] des filtres actifs de la vue par équipement — partagé
@@ -47,9 +56,9 @@ interface EquipmentFilterState extends InventoryBaseFilters {
  *  « l'export reflète les filtres actifs, quelle que soit la vue »). */
 function buildFilterEntries(f: EquipmentFilterState): [string, string][] {
   const entries = buildBaseFilterEntries(f);
-  if (f.sortDirection) {
-    entries.push(['sort', 'dateMiseDisposition']);
-    entries.push(['direction', f.sortDirection]);
+  if (f.sort) {
+    entries.push(['sort', f.sort.field]);
+    entries.push(['direction', f.sort.direction]);
   }
   return entries;
 }
@@ -59,8 +68,9 @@ const SEARCH_DEBOUNCE_MS = 300;
 /**
  * État + chargement de la page Inventaire : résumé (tuiles), bascule de vue
  * (par équipement / par collaborateur, cf. InventoryViewToggle), liste paginée
- * par équipement avec filtres synchronisés dans l'URL (filialeId, category,
- * search, page, vue), et export CSV. La vue « par collaborateur » a son propre
+ * par équipement avec filtres et tri synchronisés dans l'URL (filialeId,
+ * category, search, sansNumeroSerie, sort/direction, page, vue), et export CSV
+ * (mêmes filtres, même tri). La vue « par collaborateur » a son propre
  * chargement (useCollaborateurInventory) mais partage ces mêmes filtres.
  * Isolé de la présentation pour rester testable indépendamment.
  */
@@ -100,9 +110,10 @@ export function useInventory() {
   const [searchInput, setSearchInput] = useState(searchParams.get('search') ?? '');
   const [search, setSearch] = useState(searchParams.get('search') ?? '');
   const [overdueFilter, setOverdueFilterState] = useState(searchParams.get('overdue') === '1');
+  const [missingSerialFilter, setMissingSerialFilterState] = useState(searchParams.get('sansNumeroSerie') === '1');
   const [compteFilter, setCompteFilterState] = useState<CompteFilter>(() => readCompte(searchParams.get('compte')));
-  const [sortDirection, setSortDirectionState] = useState<'' | SortDirection>(() =>
-    readDirection(searchParams.get('direction')),
+  const [sort, setSortState] = useState<InventorySort | null>(() =>
+    readSort(searchParams.get('sort'), searchParams.get('direction')),
   );
   const [exportLoading, setExportLoading] = useState(false);
 
@@ -111,13 +122,20 @@ export function useInventory() {
   const setCategoryFilter = (value: string) => { setCategoryFilterState(value); setPage(1); };
   const setSituationFilter = (value: string) => { setSituationFilterState(readSituation(value)); setPage(1); };
   const setOverdueFilter = (value: boolean) => { setOverdueFilterState(value); setPage(1); };
+  const setMissingSerialFilter = (value: boolean) => { setMissingSerialFilterState(value); setPage(1); };
   const setCompteFilter = (value: CompteFilter) => { setCompteFilterState(value); setPage(1); };
 
-  /** Bascule le sens de tri de la colonne « Mise à disposition » (ancienneté).
-   *  Le premier clic part du sens implicite par défaut (desc, le plus récent
-   *  d'abord côté API) et bascule vers asc (le plus ancien d'abord). */
-  const toggleDateSort = () => {
-    setSortDirectionState((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+  /** Clic sur l'en-tête d'une colonne : une nouvelle colonne part en
+   *  croissant, la colonne déjà triée change de sens. Sans tri choisi, la
+   *  mise à disposition est implicitement triée en décroissant (ordre par
+   *  défaut de l'API) : un clic dessus passe donc en croissant (le plus
+   *  ancien prêt d'abord). Retour à la page 1 dans tous les cas. */
+  const changeSort = (field: InventorySortField) => {
+    setSortState((prev) => {
+      const current = prev ?? { field: 'dateMiseDisposition', direction: 'desc' };
+      if (current.field !== field) return { field, direction: 'asc' };
+      return { field, direction: current.direction === 'asc' ? 'desc' : 'asc' };
+    });
     setPage(1);
   };
 
@@ -128,6 +146,7 @@ export function useInventory() {
     setSearchInput('');
     setSearch('');
     setOverdueFilterState(false);
+    setMissingSerialFilterState(false);
     setCompteFilterState('');
     setPage(1);
   };
@@ -157,7 +176,7 @@ export function useInventory() {
   //    vue « par collaborateur » a son propre chargement (useCollaborateurInventory).
   useEffect(() => {
     const filterEntries = buildFilterEntries({
-      filialeFilter, categoryFilter, situationFilter, search, overdueFilter, sortDirection,
+      filialeFilter, categoryFilter, situationFilter, search, overdueFilter, missingSerialFilter, sort,
     });
 
     const urlParams = Object.fromEntries(filterEntries);
@@ -201,13 +220,15 @@ export function useInventory() {
       ignore = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filialeFilter, categoryFilter, situationFilter, search, overdueFilter, compteFilter, sortDirection, page, reloadKey, view]);
+  }, [filialeFilter, categoryFilter, situationFilter, search, overdueFilter, missingSerialFilter, compteFilter, sort, page, reloadKey, view]);
 
   const handleExport = async () => {
     setExportLoading(true);
     try {
       const params = new URLSearchParams(
-        buildFilterEntries({ filialeFilter, categoryFilter, situationFilter, search, overdueFilter, sortDirection }),
+        buildFilterEntries({
+          filialeFilter, categoryFilter, situationFilter, search, overdueFilter, missingSerialFilter, sort,
+        }),
       );
       const blob = await api.getBlob(`/reporting/inventory/export?${params}`);
       const url = URL.createObjectURL(blob);
@@ -224,8 +245,12 @@ export function useInventory() {
     }
   };
 
-  const hasActiveFilters = !!(filialeFilter || categoryFilter || situationFilter || search || overdueFilter || compteFilter);
-  const baseFilters: InventoryBaseFilters = { filialeFilter, categoryFilter, situationFilter, search, overdueFilter };
+  const hasActiveFilters = !!(
+    filialeFilter || categoryFilter || situationFilter || search || overdueFilter || missingSerialFilter || compteFilter
+  );
+  const baseFilters: InventoryBaseFilters = {
+    filialeFilter, categoryFilter, situationFilter, search, overdueFilter, missingSerialFilter,
+  };
 
   return {
     view,
@@ -249,10 +274,12 @@ export function useInventory() {
     setSituationFilter,
     overdueFilter,
     setOverdueFilter,
+    missingSerialFilter,
+    setMissingSerialFilter,
     compteFilter,
     setCompteFilter,
-    sortDirection,
-    toggleDateSort,
+    sort,
+    changeSort,
     searchInput,
     setSearchInput,
     resetFilters,

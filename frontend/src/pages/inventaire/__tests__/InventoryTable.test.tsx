@@ -19,7 +19,7 @@ function makeItem(overrides: Partial<InventoryItem> = {}): InventoryItem {
     situationLabel: 'En circulation',
     dateMiseDisposition: '2026-09-01T00:00:00.000Z',
     dateRestitution: null,
-    collaborateur: { id: 'u1', displayName: 'Jean Dupont', email: 'jean@example.com', department: null },
+    collaborateur: { id: 'u1', displayName: 'Jean Dupont', email: 'jean@example.com', department: null, active: true },
     filiale: { id: 'f1', name: 'Paris', displayName: 'Paris' },
     ...overrides,
   };
@@ -32,8 +32,7 @@ const baseProps = {
   hasActiveFilters: false,
   onResetFilters: vi.fn(),
   canLinkToBon: true,
-  sortDirection: '' as const,
-  onToggleDateSort: vi.fn(),
+  sort: null,
 };
 
 describe('InventoryTable', () => {
@@ -42,30 +41,105 @@ describe('InventoryTable', () => {
     expect(screen.getByText(/il y a \d+([,.]\d+)? j/)).toBeInTheDocument();
   });
 
-  it('déclenche onToggleDateSort au clic sur l’en-tête « Mise à disposition »', async () => {
-    const onToggleDateSort = vi.fn();
+  it.each([
+    ['Équipement', 'label'],
+    ['N° série', 'serialNumber'],
+    ['Collaborateur', 'collaborateur'],
+    ['Filiale', 'filiale'],
+    ['Situation', 'situation'],
+    ['Mise à disposition', 'dateMiseDisposition'],
+    ['Restitution prévue', 'dateRestitution'],
+  ])('rend la colonne « %s » triable (onSortChange("%s"))', async (label, field) => {
+    const onSortChange = vi.fn();
     const { user } = renderWithProviders(
-      <InventoryTable {...baseProps} items={[makeItem()]} onToggleDateSort={onToggleDateSort} />,
+      <InventoryTable {...baseProps} items={[makeItem()]} onSortChange={onSortChange} />,
     );
 
-    await user.click(screen.getByRole('button', { name: /Mise à disposition/ }));
-    expect(onToggleDateSort).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole('button', { name: new RegExp(`^${label}$`) }));
+    expect(onSortChange).toHaveBeenCalledWith(field);
   });
 
-  it('marque l’en-tête ascending/descending selon sortDirection', () => {
+  it('annonce le tri par aria-sort : ordre par défaut de l’API, puis colonne choisie', () => {
     const { rerender } = renderWithProviders(
-      <InventoryTable {...baseProps} items={[makeItem()]} sortDirection="asc" />,
+      <InventoryTable {...baseProps} items={[makeItem()]} onSortChange={vi.fn()} />,
     );
-    expect(screen.getByRole('columnheader', { name: /Mise à disposition/ })).toHaveAttribute(
-      'aria-sort',
-      'ascending',
-    );
+    // Sans tri choisi : mise à disposition, la plus récente d'abord.
+    expect(screen.getByRole('columnheader', { name: /Mise à disposition/ })).toHaveAttribute('aria-sort', 'descending');
+    expect(screen.getByRole('columnheader', { name: /Filiale/ })).toHaveAttribute('aria-sort', 'none');
 
-    rerender(<InventoryTable {...baseProps} items={[makeItem()]} sortDirection="desc" />);
-    expect(screen.getByRole('columnheader', { name: /Mise à disposition/ })).toHaveAttribute(
-      'aria-sort',
-      'descending',
+    rerender(
+      <InventoryTable
+        {...baseProps}
+        items={[makeItem()]}
+        onSortChange={vi.fn()}
+        sort={{ field: 'filiale', direction: 'asc' }}
+      />,
     );
+    expect(screen.getByRole('columnheader', { name: /Filiale/ })).toHaveAttribute('aria-sort', 'ascending');
+    expect(screen.getByRole('columnheader', { name: /Mise à disposition/ })).toHaveAttribute('aria-sort', 'none');
+  });
+
+  it('sans onSortChange (détail d’un collaborateur), aucun en-tête n’est un bouton de tri', () => {
+    renderWithProviders(<InventoryTable {...baseProps} items={[makeItem()]} />);
+    expect(screen.queryByRole('button', { name: /^Filiale$/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: /Filiale/ })).not.toHaveAttribute('aria-sort');
+  });
+
+  it('propose d’ouvrir le bon, l’historique du matériel et la restitution (lien profond)', () => {
+    renderWithProviders(<InventoryTable {...baseProps} items={[makeItem()]} />);
+
+    expect(screen.getByRole('link', { name: 'Ouvrir le bon BMD-2026-0001' })).toHaveAttribute('href', '/bons/b1');
+    expect(screen.getByRole('link', { name: /Voir l’historique de ce matériel/ })).toHaveAttribute('href', '/materiel/SN1');
+    expect(screen.getByRole('link', { name: 'Initier la restitution du bon BMD-2026-0001' })).toHaveAttribute(
+      'href',
+      '/bons/b1?action=restitution',
+    );
+  });
+
+  it('ne propose la restitution que pour un bon actif ou partiellement restitué', () => {
+    renderWithProviders(
+      <InventoryTable
+        {...baseProps}
+        items={[makeItem({ bonStatus: 'sent_mise_dispo', situation: 'en_attente_signature' })]}
+      />,
+    );
+    expect(screen.queryByRole('link', { name: /Initier la restitution/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Ouvrir le bon/ })).toBeInTheDocument();
+  });
+
+  it('direction : ni lien vers le bon ni restitution, mais l’historique du matériel reste accessible', () => {
+    renderWithProviders(<InventoryTable {...baseProps} items={[makeItem()]} canLinkToBon={false} />);
+
+    expect(screen.queryByRole('link', { name: /Ouvrir le bon/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Initier la restitution/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'BMD-2026-0001' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Voir l’historique de ce matériel/ })).toBeInTheDocument();
+  });
+
+  it('historique via le n° d’inventaire à défaut de n° de série, aucun lien sans l’un ni l’autre', () => {
+    const { rerender } = renderWithProviders(
+      <InventoryTable {...baseProps} items={[makeItem({ serialNumber: null, inventoryNumber: 'INV-9' })]} />,
+    );
+    expect(screen.getByRole('link', { name: /Voir l’historique de ce matériel/ })).toHaveAttribute('href', '/materiel/INV-9');
+
+    rerender(<InventoryTable {...baseProps} items={[makeItem({ serialNumber: null, inventoryNumber: null })]} />);
+    expect(screen.queryByRole('link', { name: /Voir l’historique de ce matériel/ })).not.toBeInTheDocument();
+  });
+
+  it('signale un compte désactivé sur la colonne collaborateur (information serveur)', () => {
+    renderWithProviders(
+      <InventoryTable
+        {...baseProps}
+        items={[
+          makeItem(),
+          makeItem({
+            equipmentId: 'e2',
+            collaborateur: { id: 'u2', displayName: 'Paul Parti', email: 'p@example.com', department: null, active: false },
+          }),
+        ]}
+      />,
+    );
+    expect(screen.getAllByText('Compte désactivé')).toHaveLength(1);
   });
 
   it('rend le n° de série et le n° d’inventaire cliquables vers la page /materiel/:reference', () => {

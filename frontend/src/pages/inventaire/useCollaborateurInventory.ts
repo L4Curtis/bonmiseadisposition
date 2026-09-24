@@ -85,6 +85,7 @@ export function useCollaborateurInventory({ enabled, filters, page, setPage, com
     filters.situationFilter,
     filters.search,
     filters.overdueFilter,
+    filters.missingSerialFilter,
     compteFilter,
     sort,
     page,

@@ -12,7 +12,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
 import { api } from '@/lib/api';
 
 const EMPTY_FILTERS: InventoryBaseFilters = {
-  filialeFilter: '', categoryFilter: '', situationFilter: '', search: '', overdueFilter: false,
+  filialeFilter: '', categoryFilter: '', situationFilter: '', search: '', overdueFilter: false, missingSerialFilter: false,
 };
 
 const response = {
@@ -56,10 +56,11 @@ describe('useCollaborateurInventory', () => {
     expect(api.get).not.toHaveBeenCalled();
   });
 
-  it('transmet les filtres actifs (filiale, catégorie, situation, recherche, retard) à la requête', async () => {
+  it('transmet les filtres actifs (filiale, catégorie, situation, recherche, retard, sans n° de série) à la requête', async () => {
     vi.mocked(api.get).mockResolvedValue(response);
     const filters: InventoryBaseFilters = {
       filialeFilter: 'f1', categoryFilter: 'ecran', situationFilter: 'en_circulation', search: 'dell', overdueFilter: true,
+      missingSerialFilter: true,
     };
     renderHook(() => useHarness(true, filters));
 
@@ -70,6 +71,7 @@ describe('useCollaborateurInventory', () => {
       expect(lastCall).toContain('situation=en_circulation');
       expect(lastCall).toContain('search=dell');
       expect(lastCall).toContain('overdue=1');
+      expect(lastCall).toContain('sansNumeroSerie=1');
     });
   });
 

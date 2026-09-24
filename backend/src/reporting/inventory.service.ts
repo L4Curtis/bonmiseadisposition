@@ -9,10 +9,11 @@ import {
   parcEquipmentSql,
   situationCaseSql,
 } from '../common/bon-predicates';
-import { InventoryQueryDto, InventorySortField, InventoryWhereFilters, SortDirection } from './dto/inventory-query.dto';
+import { InventoryQueryDto, InventoryWhereFilters } from './dto/inventory-query.dto';
 import { InventoryByCollaborateurQueryDto } from './dto/inventory-by-collaborateur-query.dto';
-import { ITEM_SELECT, toInventoryItem } from './inventory-mapper';
+import { toInventoryItem } from './inventory-mapper';
 import { buildInventoryCsv } from './inventory-csv';
+import { findSortedInventoryRows } from './inventory-sort';
 import { parisMidnightUtc } from './inventory-dates';
 import {
   COLLABORATEUR_GROUP_SELECT,
@@ -85,6 +86,12 @@ export class InventoryService {
       // `NULL < x` est indéterminé, jamais vrai).
       and.push({ bon: { dateRestitution: { lt: parisMidnightUtc(now) } } });
     }
+    if (filters.sansNumeroSerie) {
+      // Qualité des données : NULL et chaîne vide (saisie effacée) sont tous
+      // deux « sans numéro » — ni l'un ni l'autre ne permet de retrouver le
+      // matériel sur /materiel ni de le rapprocher d'un autre outil.
+      and.push({ OR: [{ serialNumber: null }, { serialNumber: '' }] });
+    }
 
     const search = filters.search?.trim();
     if (search) {
@@ -103,21 +110,6 @@ export class InventoryService {
     return { AND: and };
   }
 
-  /** `direction` s'applique au champ `sort` choisi ; à défaut, conserve les
-   *  sens historiques (collaborateur/catégorie croissants, mise à disposition
-   *  décroissante) pour ne pas changer l'ordre par défaut de la liste. */
-  private buildOrderBy(sort?: InventorySortField, direction?: SortDirection): Prisma.BonEquipmentOrderByWithRelationInput {
-    switch (sort) {
-      case 'collaborateur':
-        return { bon: { collaborateur: { displayName: direction ?? 'asc' } } };
-      case 'category':
-        return { catalogItem: { category: direction ?? 'asc' } };
-      case 'dateMiseDisposition':
-      default:
-        return { bon: { dateMiseDisposition: direction ?? 'desc' } };
-    }
-  }
-
   /** GET /reporting/inventory */
   async getInventory(query: InventoryQueryDto, now: Date = new Date()) {
     const page = query.page ?? 1;
@@ -125,10 +117,7 @@ export class InventoryService {
     const where = this.buildWhere(query, now);
 
     const [rows, total] = await Promise.all([
-      this.prisma.bonEquipment.findMany({
-        where,
-        select: ITEM_SELECT,
-        orderBy: this.buildOrderBy(query.sort, query.direction),
+      findSortedInventoryRows(this.prisma, where, query.sort, query.direction, {
         skip: (page - 1) * limit,
         take: limit,
       }),
@@ -256,16 +245,15 @@ export class InventoryService {
 
   /**
    * GET /reporting/inventory/export — CSV complet (mêmes filtres et même tri
-   * que la liste, sans pagination), plafonné à EXPORT_ROW_LIMIT lignes.
+   * que la liste — `findSortedInventoryRows`, partagé —, sans pagination),
+   * plafonné à EXPORT_ROW_LIMIT lignes.
    * `now` est injectable (tests) pour figer le filtre `overdue` et les
    * colonnes calculées (ancienneté, retard) — voir inventory-csv.ts.
    */
   async getExportCsv(query: InventoryQueryDto, now: Date = new Date()): Promise<{ csv: string; truncated: boolean }> {
     const where = this.buildWhere(query, now);
-    const rows = await this.prisma.bonEquipment.findMany({
-      where,
-      select: ITEM_SELECT,
-      orderBy: this.buildOrderBy(query.sort, query.direction),
+    const rows = await findSortedInventoryRows(this.prisma, where, query.sort, query.direction, {
+      skip: 0,
       take: EXPORT_ROW_LIMIT + 1,
     });
 

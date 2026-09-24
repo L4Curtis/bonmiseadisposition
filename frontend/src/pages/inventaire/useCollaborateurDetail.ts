@@ -34,7 +34,7 @@ export function useCollaborateurDetail(filters: InventoryBaseFilters) {
     setExpandedIds(new Set());
     setDetailById({});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.filialeFilter, filters.categoryFilter, filters.situationFilter, filters.search, filters.overdueFilter]);
+  }, [filters.filialeFilter, filters.categoryFilter, filters.situationFilter, filters.search, filters.overdueFilter, filters.missingSerialFilter]);
 
   function loadDetail(collaborateurId: string) {
     setDetailById((prev) => ({ ...prev, [collaborateurId]: { items: [], loading: true, error: null } }));

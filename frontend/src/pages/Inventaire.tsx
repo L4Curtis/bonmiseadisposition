@@ -38,10 +38,12 @@ export function InventairePage() {
     setSituationFilter,
     overdueFilter,
     setOverdueFilter,
+    missingSerialFilter,
+    setMissingSerialFilter,
     compteFilter,
     setCompteFilter,
-    sortDirection,
-    toggleDateSort,
+    sort,
+    changeSort,
     searchInput,
     setSearchInput,
     resetFilters,
@@ -127,6 +129,8 @@ export function InventairePage() {
         categories={summary?.byCategory ?? []}
         overdueFilter={overdueFilter}
         onClearOverdue={() => setOverdueFilter(false)}
+        missingSerialFilter={missingSerialFilter}
+        onMissingSerialFilterChange={setMissingSerialFilter}
         compteFilter={compteFilter}
         onCompteFilterChange={setCompteFilter}
         showCompteFilter={view === 'collaborateurs'}
@@ -143,8 +147,8 @@ export function InventairePage() {
           hasActiveFilters={hasActiveFilters}
           onResetFilters={resetFilters}
           canLinkToBon={canLinkToBon}
-          sortDirection={sortDirection}
-          onToggleDateSort={toggleDateSort}
+          sort={sort}
+          onSortChange={changeSort}
         />
       ) : (
         <CollaborateurTable

@@ -120,6 +120,26 @@ describe('InventoryService', () => {
       });
     });
 
+    it('ajoute le filtre « sans numéro de série » (NULL ou vide) à la liste et à l’export', async () => {
+      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.bonEquipment.count as jest.Mock).mockResolvedValue(0);
+
+      await service.getInventory({ sansNumeroSerie: true });
+      const clause = { OR: [{ serialNumber: null }, { serialNumber: '' }] };
+      expect((prisma.bonEquipment.findMany as jest.Mock).mock.calls[0][0].where.AND).toContainEqual(clause);
+
+      await service.getExportCsv({ sansNumeroSerie: true });
+      expect((prisma.bonEquipment.findMany as jest.Mock).mock.calls.at(-1)[0].where.AND).toContainEqual(clause);
+    });
+
+    it('n’ajoute aucun filtre « sans numéro de série » quand il est absent ou faux', async () => {
+      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.bonEquipment.count as jest.Mock).mockResolvedValue(0);
+
+      await service.getInventory({ sansNumeroSerie: false });
+      expect((prisma.bonEquipment.findMany as jest.Mock).mock.calls[0][0].where.AND).toHaveLength(3);
+    });
+
     it('n\'ajoute aucun filtre "overdue" quand il est absent ou faux', async () => {
       (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
       (prisma.bonEquipment.count as jest.Mock).mockResolvedValue(0);
@@ -230,30 +250,99 @@ describe('InventoryService', () => {
       return (prisma.bonEquipment.findMany as jest.Mock).mock.calls.at(-1)[0].orderBy;
     }
 
-    it('trie par dateMiseDisposition décroissant par défaut (aucun paramètre)', async () => {
-      expect(await orderByOf({})).toEqual({ bon: { dateMiseDisposition: 'desc' } });
+    const TIE_BREAKERS = [{ bon: { dateMiseDisposition: 'desc' } }, { id: 'asc' }];
+
+    it('trie par dateMiseDisposition décroissant par défaut, départagé par l’identifiant (tri stable)', async () => {
+      expect(await orderByOf({})).toEqual([{ bon: { dateMiseDisposition: 'desc' } }, { id: 'asc' }]);
     });
 
     it('applique "direction" au champ dateMiseDisposition explicitement choisi', async () => {
-      expect(await orderByOf({ sort: 'dateMiseDisposition', direction: 'asc' })).toEqual({
-        bon: { dateMiseDisposition: 'asc' },
+      expect(await orderByOf({ sort: 'dateMiseDisposition', direction: 'asc' })).toEqual([
+        { bon: { dateMiseDisposition: 'asc' } },
+        { id: 'asc' },
+      ]);
+    });
+
+    it.each([
+      ['collaborateur', [{ bon: { collaborateur: { displayName: 'asc' } } }]],
+      ['category', [{ catalogItem: { category: 'asc' } }]],
+      ['filiale', [{ bon: { filiale: { displayName: 'asc' } } }]],
+      ['serialNumber', [{ serialNumber: { sort: 'asc', nulls: 'last' } }]],
+      ['dateRestitution', [{ bon: { dateRestitution: { sort: 'asc', nulls: 'last' } } }]],
+      [
+        'label',
+        [
+          { catalogItem: { brand: 'asc' } },
+          { catalogItem: { model: 'asc' } },
+          { customLabel: { sort: 'asc', nulls: 'last' } },
+        ],
+      ],
+    ] as const)('trie par « %s » (croissant par défaut) puis départage de façon stable', async (sort, primary) => {
+      expect(await orderByOf({ sort })).toEqual([...primary, ...TIE_BREAKERS]);
+    });
+
+    it('applique "direction" à chaque champ, valeurs absentes toujours en fin de liste', async () => {
+      expect(await orderByOf({ sort: 'collaborateur', direction: 'desc' })).toEqual([
+        { bon: { collaborateur: { displayName: 'desc' } } },
+        ...TIE_BREAKERS,
+      ]);
+      expect(await orderByOf({ sort: 'serialNumber', direction: 'desc' })).toEqual([
+        { serialNumber: { sort: 'desc', nulls: 'last' } },
+        ...TIE_BREAKERS,
+      ]);
+      expect(await orderByOf({ sort: 'dateRestitution', direction: 'desc' })).toEqual([
+        { bon: { dateRestitution: { sort: 'desc', nulls: 'last' } } },
+        ...TIE_BREAKERS,
+      ]);
+    });
+
+    describe('tri par situation (ordre métier, pas l’ordre physique de l’enum en base)', () => {
+      function whereStatuses(call: { where: { AND: [unknown, { bon: { status: { in: string[] } } }] } }) {
+        return call.where.AND[1].bon.status.in;
+      }
+
+      it('compte chaque situation puis ne lit que les tranches qui recoupent la page', async () => {
+        // Tranches : attente [0, 2[, circulation [2, 5[, litige [5, 9[. La page 2
+        // de 3 lignes (lignes 3 à 5) = circulation[1..2] + litige[0].
+        (prisma.bonEquipment.count as jest.Mock)
+          .mockResolvedValueOnce(2) // en_attente_signature
+          .mockResolvedValueOnce(3) // en_circulation
+          .mockResolvedValueOnce(4) // en_litige
+          .mockResolvedValueOnce(9); // total de la liste
+        (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
+
+        await service.getInventory({ sort: 'situation', page: 2, limit: 3 });
+
+        const calls = (prisma.bonEquipment.findMany as jest.Mock).mock.calls.map((c) => c[0]);
+        expect(calls).toHaveLength(2);
+        expect(whereStatuses(calls[0])).toEqual(['active', 'sent_restitution', 'partially_returned']);
+        expect(calls[0]).toMatchObject({ skip: 1, take: 2, orderBy: TIE_BREAKERS });
+        expect(whereStatuses(calls[1])).toEqual(['contested']);
+        expect(calls[1]).toMatchObject({ skip: 0, take: 1, orderBy: TIE_BREAKERS });
       });
-      expect(await orderByOf({ sort: 'dateMiseDisposition', direction: 'desc' })).toEqual({
-        bon: { dateMiseDisposition: 'desc' },
+
+      it('parcourt les situations dans l’ordre inverse en décroissant (export compris)', async () => {
+        (prisma.bonEquipment.count as jest.Mock)
+          .mockResolvedValueOnce(1) // en_litige
+          .mockResolvedValueOnce(0) // en_circulation
+          .mockResolvedValueOnce(2); // en_attente_signature
+        (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
+
+        await service.getExportCsv({ sort: 'situation', direction: 'desc' });
+
+        const calls = (prisma.bonEquipment.findMany as jest.Mock).mock.calls.map((c) => c[0]);
+        expect(calls.map(whereStatuses)).toEqual([['contested'], ['sent_mise_dispo']]);
+        expect(calls[1]).toMatchObject({ skip: 0, take: 2 });
       });
     });
 
-    it('trie par collaborateur/catégorie croissant par défaut, et applique "direction" si fournie', async () => {
-      expect(await orderByOf({ sort: 'collaborateur' })).toEqual({
-        bon: { collaborateur: { displayName: 'asc' } },
-      });
-      expect(await orderByOf({ sort: 'collaborateur', direction: 'desc' })).toEqual({
-        bon: { collaborateur: { displayName: 'desc' } },
-      });
-      expect(await orderByOf({ sort: 'category' })).toEqual({ catalogItem: { category: 'asc' } });
-      expect(await orderByOf({ sort: 'category', direction: 'desc' })).toEqual({
-        catalogItem: { category: 'desc' },
-      });
+    it('applique le même tri à l’export CSV qu’à la liste', async () => {
+      (prisma.bonEquipment.findMany as jest.Mock).mockResolvedValue([]);
+      await service.getExportCsv({ sort: 'filiale', direction: 'desc' });
+      expect((prisma.bonEquipment.findMany as jest.Mock).mock.calls.at(-1)[0].orderBy).toEqual([
+        { bon: { filiale: { displayName: 'desc' } } },
+        ...TIE_BREAKERS,
+      ]);
     });
   });
 
@@ -481,6 +570,29 @@ describe('InventoryService', () => {
       const dto = plainToInstance(InventoryQueryDto, { overdue: 'peut-être' });
       expect(await validate(dto)).toHaveLength(0);
       expect(dto.overdue).toBe(false);
+    });
+
+    it.each(['label', 'category', 'serialNumber', 'filiale', 'collaborateur', 'situation', 'dateMiseDisposition', 'dateRestitution'])(
+      'accepte le champ de tri « %s »',
+      async (sort) => {
+        const dto = plainToInstance(InventoryQueryDto, { sort, direction: 'asc' });
+        expect(await validate(dto)).toHaveLength(0);
+      },
+    );
+
+    it.each(['reference', 'bon.status', 'id; DROP TABLE bons', ''])(
+      'rejette le champ de tri hors liste blanche « %s »',
+      async (sort) => {
+        const errors = await validate(plainToInstance(InventoryQueryDto, { sort }));
+        expect(errors.length).toBeGreaterThan(0);
+        expect(errors[0].constraints).toHaveProperty('isIn');
+      },
+    );
+
+    it('accepte le filtre « sansNumeroSerie=1 » (même convention que overdue)', async () => {
+      const dto = plainToInstance(InventoryQueryDto, { sansNumeroSerie: '1' });
+      expect(await validate(dto)).toHaveLength(0);
+      expect(dto.sansNumeroSerie).toBe(true);
     });
 
     it('rejette une valeur "overdue" qui n\'est ni un booléen ni une chaîne', async () => {

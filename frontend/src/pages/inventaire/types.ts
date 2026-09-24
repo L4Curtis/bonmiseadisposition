@@ -5,6 +5,9 @@ export interface InventoryCollaborateur {
   displayName: string;
   email: string;
   department: string | null;
+  /** État du compte (`User.active`) — pastille « Compte désactivé » sur la
+   *  vue par équipement, comme sur la vue par collaborateur. */
+  active: boolean;
 }
 
 export interface InventoryFiliale {
@@ -24,10 +27,29 @@ export interface InventorySituationSummary {
   count: number;
 }
 
-/** Sens de tri de la colonne « Mise à disposition » (ancienneté) — seule
- *  colonne triable exposée dans l'interface pour l'instant, même si l'API
- *  accepte aussi `collaborateur`/`category` (cf. inventory-query.dto.ts). */
+/** Sens de tri d'une colonne de la vue par équipement. */
 export type SortDirection = 'asc' | 'desc';
+
+/** Colonnes triables de la vue par équipement — miroir de la liste blanche
+ *  du backend (INVENTORY_SORT_FIELDS, inventory-query.dto.ts ; toute autre
+ *  valeur y est refusée). `category` y est accepté mais n'a pas de colonne. */
+export const INVENTORY_SORT_FIELDS = [
+  'label',
+  'serialNumber',
+  'collaborateur',
+  'filiale',
+  'situation',
+  'dateMiseDisposition',
+  'dateRestitution',
+] as const;
+export type InventorySortField = (typeof INVENTORY_SORT_FIELDS)[number];
+
+/** Tri choisi dans le tableau ; `null` = ordre par défaut de l'API (mise à
+ *  disposition, la plus récente d'abord). */
+export interface InventorySort {
+  field: InventorySortField;
+  direction: SortDirection;
+}
 
 export interface InventoryItem {
   equipmentId: string;

@@ -17,7 +17,9 @@ export const ITEM_SELECT = {
       status: true,
       dateMiseDisposition: true,
       dateRestitution: true,
-      collaborateur: { select: { id: true, displayName: true, email: true, department: true } },
+      // `active` : état du compte, pour signaler un compte désactivé sur la vue
+      // par équipement comme sur la vue par collaborateur (même source serveur).
+      collaborateur: { select: { id: true, displayName: true, email: true, department: true, active: true } },
       filiale: { select: { id: true, name: true, displayName: true } },
     },
   },

@@ -1,4 +1,4 @@
-import { Search, UserX, X } from 'lucide-react';
+import { Search, ScanBarcode, UserX, X } from 'lucide-react';
 import type { Filiale } from '@/types';
 import type { CompteFilter, InventoryCategorySummary, InventorySituationSummary } from './types';
 
@@ -18,6 +18,11 @@ interface InventoryFiltersProps {
    *  comme un chip refermable, la tuile n'ayant pas d'état visuel persistant. */
   overdueFilter: boolean;
   onClearOverdue: () => void;
+  /** Qualité des données : matériel sans numéro de série, qu'on ne pourra ni
+   *  retracer (/materiel) ni rapprocher d'un autre outil. Commun aux deux vues
+   *  et transmis à l'export. */
+  missingSerialFilter: boolean;
+  onMissingSerialFilterChange: (value: boolean) => void;
   /** Lot D1 (départ d'un collaborateur) : bascule « comptes désactivés
    *  uniquement », propre à la vue « Par collaborateur » (cf. Inventaire.tsx). */
   compteFilter: CompteFilter;
@@ -27,7 +32,8 @@ interface InventoryFiltersProps {
   onReset: () => void;
 }
 
-/** Barre de filtres de l'inventaire : recherche texte, filiale, catégorie. */
+/** Barre de filtres de l'inventaire : recherche texte, filiale, catégorie,
+ *  situation, retards, sans numéro de série, comptes désactivés. */
 export function InventoryFilters({
   searchInput,
   onSearchInputChange,
@@ -42,6 +48,8 @@ export function InventoryFilters({
   categories,
   overdueFilter,
   onClearOverdue,
+  missingSerialFilter,
+  onMissingSerialFilterChange,
   compteFilter,
   onCompteFilterChange,
   showCompteFilter,
@@ -117,6 +125,21 @@ export function InventoryFilters({
           <X className="h-3 w-3" />
         </button>
       )}
+
+      <button
+        type="button"
+        onClick={() => onMissingSerialFilterChange(!missingSerialFilter)}
+        aria-pressed={missingSerialFilter}
+        title="Matériel qu'on ne pourra ni retracer ni rapprocher d'un autre outil"
+        className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${
+          missingSerialFilter
+            ? 'border-warning/40 bg-warning/10 text-warning'
+            : 'border-border bg-card text-muted-foreground hover:text-foreground'
+        }`}
+      >
+        <ScanBarcode className="h-3.5 w-3.5" aria-hidden="true" />
+        Sans numéro de série
+      </button>
 
       {showCompteFilter && (
         <button

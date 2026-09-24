@@ -11,7 +11,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
 import { api } from '@/lib/api';
 
 const EMPTY_FILTERS: InventoryBaseFilters = {
-  filialeFilter: '', categoryFilter: '', situationFilter: '', search: '', overdueFilter: false,
+  filialeFilter: '', categoryFilter: '', situationFilter: '', search: '', overdueFilter: false, missingSerialFilter: false,
 };
 
 const listResponse = {

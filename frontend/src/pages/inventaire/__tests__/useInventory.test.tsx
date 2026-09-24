@@ -44,7 +44,7 @@ const listResponse = {
       bonStatus: 'active',
       dateMiseDisposition: '2026-08-01T00:00:00.000Z',
       dateRestitution: null,
-      collaborateur: { id: 'u1', displayName: 'Jean Dupont', email: 'jean@example.com', department: null },
+      collaborateur: { id: 'u1', displayName: 'Jean Dupont', email: 'jean@example.com', department: null, active: true },
       filiale: { id: 'f1', name: 'Paris', displayName: 'Paris' },
     },
   ],
@@ -55,6 +55,20 @@ const listResponse = {
 
 function wrapper({ children }: { children: ReactNode }) {
   return <MemoryRouter initialEntries={['/inventaire']}>{children}</MemoryRouter>;
+}
+
+function wrapperAt(url: string) {
+  return function UrlWrapper({ children }: { children: ReactNode }) {
+    return <MemoryRouter initialEntries={[url]}>{children}</MemoryRouter>;
+  };
+}
+
+/** Dernier appel à la liste par équipement (hors résumé et regroupement). */
+function lastListCall(): string | undefined {
+  return vi.mocked(api.get).mock.calls
+    .map(([path]) => path as string)
+    .filter((path) => path.startsWith('/reporting/inventory?'))
+    .at(-1);
 }
 
 function mockApiGet(overrides: Record<string, unknown> = {}) {
@@ -157,7 +171,7 @@ describe('useInventory', () => {
     expect(result.current.page).toBe(1);
   });
 
-  it('toggleDateSort bascule asc/desc, transmet sort/direction à l’API et remet la page à 1', async () => {
+  it('changeSort : sans tri choisi, la mise à disposition passe en croissant, puis bascule ; page remise à 1', async () => {
     mockApiGet();
     const { result } = renderHook(() => useInventory(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
@@ -165,21 +179,65 @@ describe('useInventory', () => {
     act(() => result.current.setPage(2));
     await waitFor(() => expect(result.current.page).toBe(2));
 
-    act(() => result.current.toggleDateSort());
-    await waitFor(() => expect(result.current.sortDirection).toBe('asc'));
+    act(() => result.current.changeSort('dateMiseDisposition'));
+    await waitFor(() => expect(result.current.sort).toEqual({ field: 'dateMiseDisposition', direction: 'asc' }));
     expect(result.current.page).toBe(1);
 
     await waitFor(() => {
-      const lastCall = vi.mocked(api.get).mock.calls
-        .map(([path]) => path as string)
-        .filter((p) => p.startsWith('/reporting/inventory?'))
-        .at(-1);
+      const lastCall = lastListCall();
       expect(lastCall).toContain('sort=dateMiseDisposition');
       expect(lastCall).toContain('direction=asc');
     });
 
-    act(() => result.current.toggleDateSort());
-    await waitFor(() => expect(result.current.sortDirection).toBe('desc'));
+    act(() => result.current.changeSort('dateMiseDisposition'));
+    await waitFor(() => expect(result.current.sort?.direction).toBe('desc'));
+  });
+
+  it('changeSort sur une autre colonne part en croissant et la transmet à l’API', async () => {
+    mockApiGet();
+    const { result } = renderHook(() => useInventory(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(() => result.current.changeSort('filiale'));
+    await waitFor(() => expect(lastListCall()).toContain('sort=filiale'));
+    expect(lastListCall()).toContain('direction=asc');
+
+    act(() => result.current.changeSort('filiale'));
+    await waitFor(() => expect(lastListCall()).toContain('direction=desc'));
+
+    act(() => result.current.changeSort('situation'));
+    await waitFor(() => expect(result.current.sort).toEqual({ field: 'situation', direction: 'asc' }));
+  });
+
+  it('relit le tri depuis l’URL et ignore un champ hors liste blanche', async () => {
+    mockApiGet();
+    const { result } = renderHook(() => useInventory(), {
+      wrapper: wrapperAt('/inventaire?sort=collaborateur&direction=desc'),
+    });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.sort).toEqual({ field: 'collaborateur', direction: 'desc' });
+
+    const invalid = renderHook(() => useInventory(), { wrapper: wrapperAt('/inventaire?sort=reference&direction=asc') });
+    await waitFor(() => expect(invalid.result.current.loading).toBe(false));
+    expect(invalid.result.current.sort).toBeNull();
+  });
+
+  it('filtre « sans numéro de série » : relu depuis l’URL, transmis à la liste et à l’export, effacé par la réinitialisation', async () => {
+    mockApiGet();
+    vi.mocked(api.getBlob).mockResolvedValue(new Blob(['a,b'], { type: 'text/csv' }));
+    const { result } = renderHook(() => useInventory(), { wrapper: wrapperAt('/inventaire?sansNumeroSerie=1') });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.missingSerialFilter).toBe(true);
+    expect(result.current.hasActiveFilters).toBe(true);
+    expect(lastListCall()).toContain('sansNumeroSerie=1');
+
+    await act(async () => { await result.current.handleExport(); });
+    const [exportUrl] = vi.mocked(api.getBlob).mock.calls.at(-1) as [string];
+    expect(exportUrl).toContain('sansNumeroSerie=1');
+
+    act(() => result.current.resetFilters());
+    expect(result.current.missingSerialFilter).toBe(false);
   });
 
   it('setOverdueFilter transmet overdue=1 à l’API et le persiste dans l’URL', async () => {
@@ -220,14 +278,14 @@ describe('useInventory', () => {
     const { result } = renderHook(() => useInventory(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    act(() => { result.current.setOverdueFilter(true); result.current.toggleDateSort(); });
+    act(() => { result.current.setOverdueFilter(true); result.current.changeSort('dateRestitution'); });
     await waitFor(() => expect(result.current.overdueFilter).toBe(true));
 
     await act(async () => { await result.current.handleExport(); });
 
     const [exportUrl] = vi.mocked(api.getBlob).mock.calls.at(-1) as [string];
     expect(exportUrl).toContain('overdue=1');
-    expect(exportUrl).toContain('sort=dateMiseDisposition');
+    expect(exportUrl).toContain('sort=dateRestitution');
     expect(exportUrl).toContain('direction=asc');
   });
 

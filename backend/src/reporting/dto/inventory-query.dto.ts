@@ -3,13 +3,24 @@ import { IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, M
 import { EquipmentCategory } from '@prisma/client';
 import { EquipmentSituation, SITUATION_ORDER } from '../../common/bon-predicates';
 
-/** Champs de tri supportés par GET /reporting/inventory. */
-export const INVENTORY_SORT_FIELDS = ['collaborateur', 'category', 'dateMiseDisposition'] as const;
+/** Champs de tri supportés par GET /reporting/inventory (et son export CSV) —
+ *  liste blanche stricte : toute autre valeur est refusée (400). Une colonne
+ *  du tableau = un champ ; la traduction en `orderBy` Prisma est dans
+ *  inventory-sort.ts. */
+export const INVENTORY_SORT_FIELDS = [
+  'label',
+  'category',
+  'serialNumber',
+  'filiale',
+  'collaborateur',
+  'situation',
+  'dateMiseDisposition',
+  'dateRestitution',
+] as const;
 export type InventorySortField = (typeof INVENTORY_SORT_FIELDS)[number];
 
-/** Sens de tri appliqué au champ `sort` — indépendant du champ pour permettre
- *  à la colonne « Mise à disposition » (ancienneté) d'être triée dans les
- *  deux sens depuis le tableau. */
+/** Sens de tri appliqué au champ `sort` — indépendant du champ pour que
+ *  chaque colonne du tableau puisse être triée dans les deux sens. */
 export const SORT_DIRECTIONS = ['asc', 'desc'] as const;
 export type SortDirection = (typeof SORT_DIRECTIONS)[number];
 
@@ -54,6 +65,8 @@ export interface InventoryWhereFilters {
   search?: string;
   /** cf. COMPTE_FILTER_VALUES — seule InventoryByCollaborateurQueryDto le déclare. */
   compte?: CompteFilter;
+  /** Qualité des données : matériel sans numéro de série (NULL ou vide). */
+  sansNumeroSerie?: boolean;
 }
 
 /** Query DTO commun à la liste paginée et à l'export CSV de l'inventaire du
@@ -85,6 +98,14 @@ export class InventoryQueryDto implements InventoryWhereFilters {
   @Transform(toBoolean)
   @IsBoolean()
   overdue?: boolean;
+
+  /** Qualité des données : équipements sans numéro de série — ceux qu'on ne
+   *  pourra jamais retracer (page /materiel) ni rapprocher d'un autre outil
+   *  (rapprochement GLPI envisagé). */
+  @IsOptional()
+  @Transform(toBoolean)
+  @IsBoolean()
+  sansNumeroSerie?: boolean;
 
   @IsOptional()
   @IsString()

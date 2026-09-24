@@ -4,10 +4,14 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/StatusBadge';
 import { cn, formatDate } from '@/lib/utils';
 import { formatDays } from '@/lib/kpi-format';
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Boxes, X } from 'lucide-react';
+import { AlertTriangle, Boxes, X } from 'lucide-react';
 import { isOverdue } from './isOverdue';
 import { daysOverdue, daysSince } from './dateMetrics';
-import type { EquipmentSituation, InventoryItem, SortDirection } from './types';
+import { InventorySortHeader } from './InventorySortHeader';
+import { InventoryRowActions } from './InventoryRowActions';
+import type { EquipmentSituation, InventoryItem, InventorySort, InventorySortField } from './types';
+
+const HEADER_CLASS = 'px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider';
 
 /** Couleurs de situation, en classes sémantiques compatibles thème sombre. */
 const SITUATION_CLASSES: Record<EquipmentSituation, string> = {
@@ -45,31 +49,10 @@ interface InventoryTableProps {
   onResetFilters: () => void;
   /** Direction : lecture seule, aucun accès aux bons individuels (/bons/:id → 403). */
   canLinkToBon: boolean;
-  /** Tri serveur sur l'ancienneté (colonne « Mise à disposition »). '' = ordre
-   *  par défaut de l'API (le plus récent d'abord). */
-  sortDirection: '' | SortDirection;
-  onToggleDateSort: () => void;
-}
-
-/** En-tête triable de la colonne « Mise à disposition » (ancienneté) — seule
- *  colonne triable exposée pour l'instant (cf. types.SortDirection). */
-function DateSortHeader({ direction, onToggle }: { direction: '' | SortDirection; onToggle: () => void }) {
-  const Icon = direction === 'asc' ? ArrowUp : direction === 'desc' ? ArrowDown : ArrowUpDown;
-  return (
-    <th
-      className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden lg:table-cell"
-      aria-sort={direction === 'asc' ? 'ascending' : direction === 'desc' ? 'descending' : 'none'}
-    >
-      <button
-        type="button"
-        onClick={onToggle}
-        className="inline-flex items-center gap-1 normal-case tracking-normal hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 rounded"
-      >
-        Mise à disposition
-        <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-      </button>
-    </th>
-  );
+  /** Tri serveur choisi (`null` = ordre par défaut de l'API). */
+  sort: InventorySort | null;
+  /** Absent : en-têtes non triables (détail déplié de la vue par collaborateur). */
+  onSortChange?: (field: InventorySortField) => void;
 }
 
 /** Tableau de l'inventaire du parc prêté : gère lui-même le chargement,
@@ -82,9 +65,10 @@ export function InventoryTable({
   hasActiveFilters,
   onResetFilters,
   canLinkToBon,
-  sortDirection,
-  onToggleDateSort,
+  sort,
+  onSortChange,
 }: InventoryTableProps) {
+  const sortProps = { sort, onSortChange };
   return (
     <div className="bg-card rounded-xl border border-border card-elevated overflow-hidden">
       {loading ? (
@@ -122,15 +106,18 @@ export function InventoryTable({
           <table className="w-full text-sm" aria-label="Inventaire du parc prêté">
             <thead>
               <tr className="bg-muted/40 border-b border-border">
-                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Équipement</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden sm:table-cell">N° série</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden lg:table-cell">N° inventaire</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Collaborateur</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden md:table-cell">Filiale</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Situation</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Bon</th>
-                <DateSortHeader direction={sortDirection} onToggle={onToggleDateSort} />
-                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden xl:table-cell">Restitution prévue</th>
+                <InventorySortHeader field="label" label="Équipement" {...sortProps} />
+                <InventorySortHeader field="serialNumber" label="N° série" className="hidden sm:table-cell" {...sortProps} />
+                <th className={`${HEADER_CLASS} hidden lg:table-cell`}>N° inventaire</th>
+                <InventorySortHeader field="collaborateur" label="Collaborateur" {...sortProps} />
+                <InventorySortHeader field="filiale" label="Filiale" className="hidden md:table-cell" {...sortProps} />
+                <InventorySortHeader field="situation" label="Situation" {...sortProps} />
+                <th className={HEADER_CLASS}>Bon</th>
+                <InventorySortHeader field="dateMiseDisposition" label="Mise à disposition" className="hidden lg:table-cell" {...sortProps} />
+                <InventorySortHeader field="dateRestitution" label="Restitution prévue" className="hidden xl:table-cell" {...sortProps} />
+                <th className={HEADER_CLASS}>
+                  <span className="sr-only">Actions</span>
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -176,7 +163,14 @@ export function InventoryTable({
                       ) : '—'}
                     </td>
                     <td className="px-4 py-3.5">
-                      <div className="font-medium text-foreground leading-tight">{it.collaborateur.displayName}</div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="font-medium text-foreground leading-tight">{it.collaborateur.displayName}</span>
+                        {it.collaborateur.active === false && (
+                          <span className="inline-flex items-center rounded-full bg-warning/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning">
+                            Compte désactivé
+                          </span>
+                        )}
+                      </div>
                       <div className="text-xs text-muted-foreground/70 mt-0.5">
                         {it.collaborateur.department || '—'}
                       </div>
@@ -225,6 +219,9 @@ export function InventoryTable({
                       {retardJours !== null && (
                         <span className="ml-1.5 text-xs font-semibold">{`(+${retardJours} j)`}</span>
                       )}
+                    </td>
+                    <td className="px-2 py-3.5">
+                      <InventoryRowActions item={it} canLinkToBon={canLinkToBon} />
                     </td>
                   </tr>
                 );

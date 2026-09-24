@@ -36,6 +36,12 @@ export class InventoryByCollaborateurQueryDto implements InventoryWhereFilters {
   @IsBoolean()
   overdue?: boolean;
 
+  /** Même filtre que InventoryQueryDto.sansNumeroSerie. */
+  @IsOptional()
+  @Transform(toBoolean)
+  @IsBoolean()
+  sansNumeroSerie?: boolean;
+
   @IsOptional()
   @IsString()
   @Transform(trimSearch)
