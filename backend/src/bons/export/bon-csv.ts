@@ -4,6 +4,7 @@ import { STATUS_LABELS } from '../../common/status-labels';
 import { escapeCsvCell } from '../../common/bon-predicates';
 import { BonStatus } from '../../common/types';
 import { buildBonWhere, BonListFilters } from '../queries/bon-where';
+import { buildBonOrderBy, BonSortField, SortOrder } from '../queries/bon-order';
 
 /** Nombre maximal de lignes exportées en une fois (garde-fou mémoire / temps
  *  de réponse) — au-delà, l'export est tronqué et `truncated:true` renvoyé. */
@@ -92,18 +93,19 @@ export function buildExportCsv(bons: ExportBonRow[]): string {
 }
 
 /** Prépare l'export CSV des bons filtrés : requête Prisma (bornée à
- *  EXPORT_ROW_LIMIT + 1 lignes) puis mise en forme pure. */
+ *  EXPORT_ROW_LIMIT + 1 lignes) puis mise en forme pure. Le fichier suit le
+ *  même tri que la liste affichée (par défaut : les plus récents d'abord). */
 export async function getExportData(
   prisma: PrismaService,
   configService: AppConfigService,
-  filters: BonListFilters,
+  filters: BonListFilters & { sort?: BonSortField; order?: SortOrder },
 ): Promise<{ csv: string; truncated: boolean }> {
   const overdueThresholdDays = await configService.getSignatureOverdueDays();
   const where = buildBonWhere(filters, overdueThresholdDays);
 
   const rowsFetched = await prisma.bon.findMany({
     where,
-    orderBy: { createdAt: 'desc' },
+    orderBy: buildBonOrderBy(filters.sort, filters.order),
     take: EXPORT_ROW_LIMIT + 1,
     include: EXPORT_INCLUDE,
   });

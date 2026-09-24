@@ -31,6 +31,7 @@ function wrapper({ children }: { children: ReactNode }) {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  window.localStorage.clear();
   resetActiveFilialesForTests();
   vi.mocked(api.get).mockImplementation((path: string) => {
     if (path.startsWith('/filiales/active')) return Promise.resolve([]);
@@ -85,4 +86,79 @@ describe('useBonsListParams', () => {
     expect(result.current.hasActiveFilters).toBe(false);
     expect(result.current.page).toBe(1);
   });
+
+  it('trie via toggleSort, revient à la page 1 et transmet sort/order à l’API', async () => {
+    const { result } = renderHook(() => useBonsListParams(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(() => result.current.setPage(3));
+    act(() => result.current.toggleSort('reference'));
+
+    expect(result.current.query.sort).toBe('reference');
+    expect(result.current.query.order).toBe('asc');
+    expect(result.current.page).toBe(1);
+    await waitFor(() => expect(lastListCall()).toContain('sort=reference&order=asc'));
+
+    act(() => result.current.toggleSort('reference'));
+    expect(result.current.query.order).toBe('desc');
+  });
+
+  it('transmet période, « sans date de restitution » et créateur à l’API', async () => {
+    const { result } = renderHook(() => useBonsListParams(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(() => result.current.updateFilters({ dateFrom: '2026-01-01', dateTo: '2026-03-31', noReturnDate: true, createdById: 'u1' }));
+
+    await waitFor(() => {
+      const call = lastListCall() ?? '';
+      expect(call).toContain('dateFrom=2026-01-01');
+      expect(call).toContain('dateTo=2026-03-31');
+      expect(call).toContain('noReturnDate=1');
+      expect(call).toContain('createdById=u1');
+    });
+    expect(result.current.hasActiveFilters).toBe(true);
+  });
+
+  it('mémorise filtres et tri, et les restaure à l’ouverture sans paramètre d’URL', async () => {
+    const first = renderHook(() => useBonsListParams(), { wrapper });
+    await waitFor(() => expect(first.result.current.loading).toBe(false));
+    act(() => first.result.current.handleStatusSelect('draft'));
+    act(() => first.result.current.toggleSort('collaborateur'));
+    first.unmount();
+
+    const second = renderHook(() => useBonsListParams(), { wrapper });
+    expect(second.result.current.statusFilter).toBe('draft');
+    expect(second.result.current.query.sort).toBe('collaborateur');
+  });
+
+  it('un lien avec paramètres (tableau de bord) l’emporte sur les filtres mémorisés', async () => {
+    window.localStorage.setItem('bons-list:last-query:v1', 'status=draft');
+    const linkWrapper = ({ children }: { children: ReactNode }) => (
+      <MemoryRouter initialEntries={['/bons?overdue=1']}>{children}</MemoryRouter>
+    );
+    const { result } = renderHook(() => useBonsListParams(), { wrapper: linkWrapper });
+
+    expect(result.current.overdue).toBe(true);
+    expect(result.current.statusFilter).toBe('');
+    await waitFor(() => expect(result.current.loading).toBe(false));
+  });
+
+  it('resetFilters conserve le tri choisi', async () => {
+    const { result } = renderHook(() => useBonsListParams(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(() => {
+      result.current.toggleSort('status');
+      result.current.setOverdue(true);
+    });
+    act(() => result.current.resetFilters());
+
+    expect(result.current.overdue).toBe(false);
+    expect(result.current.query.sort).toBe('status');
+  });
 });
+
+function lastListCall(): string | undefined {
+  const calls = vi.mocked(api.get).mock.calls.filter(([p]) => p.startsWith('/bons?'));
+  return calls[calls.length - 1]?.[0];
+}

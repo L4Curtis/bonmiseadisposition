@@ -26,6 +26,7 @@ import {
 } from '../../common/__tests__/fixtures/bon.fixtures';
 import { collaboratorUser, technicianUser, manualAccountUser } from '../../common/__tests__/fixtures/user.fixtures';
 import { BonStatus } from '../../common/types';
+import { BON_LIST_SELECT } from '../queries/bon-list-select';
 
 // Vraie image PNG 1x1 valide (magic bytes corrects) — assertPngDataUrl (LOT A1
 // correction #6) rejette désormais un faux base64 comme l'ancien 'abc123'.
@@ -350,6 +351,32 @@ describe('BonsService', () => {
       };
       expect(findManyCall.where.OR).toBeDefined();
       expect(findManyCall.where.OR).toHaveLength(5);
+    });
+
+    it('uses the lightweight list projection, not the full bon select', async () => {
+      await service.findAll({});
+
+      const call = prisma.bon.findMany.mock.calls[0][0] as { select: Record<string, unknown> };
+      expect(call.select).toBe(BON_LIST_SELECT);
+      // Pas de colonnes inutiles à la liste (notes, fiche filiale complète…)
+      expect(call.select).not.toHaveProperty('notes');
+      expect(call.select.filiale).toEqual({ select: { id: true, displayName: true } });
+    });
+
+    it('sorts by createdAt desc with an id tiebreak by default', async () => {
+      await service.findAll({});
+
+      const call = prisma.bon.findMany.mock.calls[0][0] as { orderBy: unknown };
+      expect(call.orderBy).toEqual([{ createdAt: 'desc' }, { id: 'desc' }]);
+    });
+
+    it('applies the requested sort with a stable tiebreak', async () => {
+      await service.findAll({ sort: 'collaborateur', order: 'asc', page: 3, limit: 25 });
+
+      const call = prisma.bon.findMany.mock.calls[0][0] as { orderBy: unknown; skip: number; take: number };
+      expect(call.orderBy).toEqual([{ collaborateur: { displayName: 'asc' } }, { id: 'asc' }]);
+      expect(call.skip).toBe(50);
+      expect(call.take).toBe(25);
     });
 
     it('should apply the overdue filter (LOT A2)', async () => {
@@ -1899,6 +1926,110 @@ describe('BonsService', () => {
       expect(result.truncated).toBe(true);
       // 1 header line + 5000 data lines
       expect(result.csv.split('\n')).toHaveLength(5001);
+    });
+
+    it('should export in the same order as the list (sort + id tiebreak)', async () => {
+      prisma.bon.findMany.mockResolvedValue([]);
+
+      await service.getExportData({ sort: 'reference', order: 'asc', ids: ['bon-1'] });
+
+      const call = prisma.bon.findMany.mock.calls[0][0] as { orderBy: unknown; where: { id?: unknown } };
+      expect(call.orderBy).toEqual([{ reference: 'asc' }, { id: 'asc' }]);
+      expect(call.where.id).toEqual({ in: ['bon-1'] });
+    });
+  });
+
+  // ── resendSignatureLinks (relance groupée) ──────────────────────────────────
+
+  describe('resendSignatureLinks', () => {
+    const initiatedById = 'user-tech-001';
+
+    it('relance chaque bon l’un après l’autre et compte les envois', async () => {
+      prisma.bon.findUnique.mockResolvedValue(sentMiseDispoBon());
+      prisma.auditLog.create.mockResolvedValue({} as never);
+
+      const result = await service.resendSignatureLinks(['bon-1', 'bon-2'], initiatedById);
+
+      expect(result).toEqual({
+        results: [{ id: 'bon-1', outcome: 'sent' }, { id: 'bon-2', outcome: 'sent' }],
+        sent: 2,
+        skipped: 0,
+        failed: 0,
+      });
+      expect(signatureService.generateToken).toHaveBeenCalledTimes(2);
+      // Même ligne d'audit que le bouton de la fiche, une par bon
+      expect(prisma.auditLog.create).toHaveBeenCalledTimes(2);
+    });
+
+    it('ne relance qu’une fois un identifiant répété', async () => {
+      prisma.bon.findUnique.mockResolvedValue(sentMiseDispoBon());
+      prisma.auditLog.create.mockResolvedValue({} as never);
+
+      const result = await service.resendSignatureLinks(['bon-1', 'bon-1'], initiatedById);
+
+      expect(result.results).toHaveLength(1);
+      expect(signatureService.generateToken).toHaveBeenCalledTimes(1);
+    });
+
+    it('ignore (sans interrompre le lot) un bon relancé il y a moins d’une heure, avec sa date d’envoi', async () => {
+      const sentAt = new Date(Date.now() - 10 * 60 * 1000);
+      prisma.bon.findUnique.mockResolvedValue(sentMiseDispoBon());
+      prisma.signature.findFirst
+        .mockResolvedValueOnce({ id: 'sig-recent', createdAt: sentAt } as never)
+        .mockResolvedValue(null);
+      prisma.auditLog.create.mockResolvedValue({} as never);
+
+      const result = await service.resendSignatureLinks(['bon-recent', 'bon-ok'], initiatedById);
+
+      expect(result.results[0]).toEqual({
+        id: 'bon-recent',
+        outcome: 'skipped',
+        code: 'token_recent',
+        reason: expect.stringContaining('moins d’une heure'),
+        sentAt: sentAt.toISOString(),
+      });
+      expect(result.results[1]).toEqual({ id: 'bon-ok', outcome: 'sent' });
+      expect(result).toEqual(expect.objectContaining({ sent: 1, skipped: 1, failed: 0 }));
+    });
+
+    it('avec force, relance même un lien récent (sans consulter les liens récents)', async () => {
+      prisma.bon.findUnique.mockResolvedValue(sentMiseDispoBon());
+      prisma.auditLog.create.mockResolvedValue({} as never);
+
+      const result = await service.resendSignatureLinks(['bon-1'], initiatedById, true);
+
+      expect(result.sent).toBe(1);
+      expect(prisma.signature.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('ignore avec son motif un bon qui n’est plus en attente, ou introuvable', async () => {
+      prisma.bon.findUnique
+        .mockResolvedValueOnce(activeBon())
+        .mockResolvedValueOnce(null);
+
+      const result = await service.resendSignatureLinks(['bon-actif', 'bon-absent'], initiatedById);
+
+      expect(result.results[0]).toEqual({
+        id: 'bon-actif',
+        outcome: 'skipped',
+        reason: expect.stringContaining('en attente de signature'),
+      });
+      expect(result.results[1]).toEqual({ id: 'bon-absent', outcome: 'skipped', reason: 'Bon introuvable' });
+      expect(signatureService.generateToken).not.toHaveBeenCalled();
+    });
+
+    it('compte en échec une erreur imprévue, sans en divulguer le détail, et poursuit le lot', async () => {
+      prisma.bon.findUnique.mockResolvedValue(sentMiseDispoBon());
+      signatureService.generateToken
+        .mockRejectedValueOnce(new Error('connexion perdue'))
+        .mockResolvedValue({ token: 'tok' } as never);
+      prisma.auditLog.create.mockResolvedValue({} as never);
+
+      const result = await service.resendSignatureLinks(['bon-ko', 'bon-ok'], initiatedById);
+
+      expect(result.results[0]).toEqual({ id: 'bon-ko', outcome: 'failed', reason: 'Erreur inattendue lors du renvoi' });
+      expect(result.results[1].outcome).toBe('sent');
+      expect(result).toEqual(expect.objectContaining({ sent: 1, failed: 1 }));
     });
   });
 });

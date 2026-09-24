@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateBonDto, UpdateBonDto } from './dto/bon.dto';
@@ -11,6 +11,8 @@ import { SIGNATURE_SAFE_SELECT } from '../common/types';
 
 import { BON_SELECT, buildBonWhere, findBonOrThrow, BonListFilters } from './queries/bon-where';
 import { getBonStats } from './queries/bon-stats';
+import { BON_LIST_SELECT } from './queries/bon-list-select';
+import { buildBonOrderBy, BonSortField, SortOrder } from './queries/bon-order';
 import { getExportData as buildExportData } from './export/bon-csv';
 import { mapCollaborateurBons } from './bon-mappers';
 import { BonsWorkflowContext } from './workflow/bon-context';
@@ -20,6 +22,25 @@ import * as bonRestitution from './workflow/bon-restitution';
 import { markFound as markFoundWorkflow } from './workflow/bon-mark-found';
 import * as bonCloture from './workflow/bon-cloture';
 import { resendSignatureLink as resendSignatureLinkWorkflow } from './workflow/bon-resend';
+
+/** Compte rendu d'un bon dans une relance groupée. */
+export interface ResendBatchItem {
+  id: string;
+  outcome: 'sent' | 'skipped' | 'failed';
+  /** Motif lisible d'un bon ignoré ou en échec. */
+  reason?: string;
+  /** `token_recent` : lien envoyé il y a moins d'une heure (relançable avec force). */
+  code?: 'token_recent';
+  /** Date d'envoi du lien récent (code `token_recent`). */
+  sentAt?: string;
+}
+
+export interface ResendBatchResult {
+  results: ResendBatchItem[];
+  sent: number;
+  skipped: number;
+  failed: number;
+}
 
 /**
  * Façade du domaine « bons » : conserve le nom de classe / constructeur /
@@ -68,11 +89,18 @@ export class BonsService {
     return getBonStats(this.prisma, overdueThresholdDays);
   }
 
-  getExportData(filters: BonListFilters): Promise<{ csv: string; truncated: boolean }> {
+  getExportData(
+    filters: BonListFilters & { sort?: BonSortField; order?: SortOrder },
+  ): Promise<{ csv: string; truncated: boolean }> {
     return buildExportData(this.prisma, this.configService, filters);
   }
 
-  async findAll(filters: BonListFilters & { page?: number; limit?: number }) {
+  /** Liste paginée. Projection allégée (BON_LIST_SELECT, pas BON_SELECT : la
+   *  fiche complète reste sur GET /bons/:id) et tri stable (départage par id,
+   *  voir buildBonOrderBy). */
+  async findAll(
+    filters: BonListFilters & { page?: number; limit?: number; sort?: BonSortField; order?: SortOrder },
+  ) {
     const { page = 1, limit = 20 } = filters;
     const overdueThresholdDays = await this.configService.getSignatureOverdueDays();
     const where = buildBonWhere(filters, overdueThresholdDays);
@@ -80,8 +108,8 @@ export class BonsService {
     const [bons, total] = await Promise.all([
       this.prisma.bon.findMany({
         where,
-        ...BON_SELECT,
-        orderBy: { createdAt: 'desc' },
+        select: BON_LIST_SELECT,
+        orderBy: buildBonOrderBy(filters.sort, filters.order),
         skip: (page - 1) * limit,
         take: limit,
       }),
@@ -171,6 +199,62 @@ export class BonsService {
 
   resendSignatureLink(bonId: string, initiatedById: string, force = false) {
     return resendSignatureLinkWorkflow(this.ctx, bonId, initiatedById, force);
+  }
+
+  /**
+   * Relance groupée des liens de signature (liste des bons, sélection
+   * multiple). Chaque bon passe par exactement le même chemin que le bouton
+   * « Renvoyer le lien » de la fiche (resendSignatureLinkWorkflow : mêmes
+   * contrôles, même email, même ligne d'audit), l'un après l'autre — jamais en
+   * parallèle, pour ne pas envoyer une rafale d'emails ni saturer la base.
+   *
+   * Pourquoi une route groupée plutôt que N appels à POST /bons/:id/resend :
+   * celle-ci est limitée à 5 appels par minute (anti-spam d'un même lien), ce
+   * qui rendrait une relance de 20 bons impossible depuis le navigateur sans
+   * attendre plusieurs minutes. Un refus métier (lien envoyé il y a moins
+   * d'une heure sans `force`, bon plus en attente, collaborateur sans
+   * adresse…) n'interrompt pas le lot : le bon est compté « ignoré » avec son
+   * motif ; une erreur imprévue le compte « en échec » et est journalisée.
+   */
+  async resendSignatureLinks(ids: readonly string[], initiatedById: string, force = false): Promise<ResendBatchResult> {
+    const uniqueIds = [...new Set(ids)];
+    const results: ResendBatchItem[] = [];
+    for (const id of uniqueIds) {
+      results.push(await this.resendOne(id, initiatedById, force));
+    }
+    return {
+      results,
+      sent: results.filter((r) => r.outcome === 'sent').length,
+      skipped: results.filter((r) => r.outcome === 'skipped').length,
+      failed: results.filter((r) => r.outcome === 'failed').length,
+    };
+  }
+
+  private async resendOne(id: string, initiatedById: string, force: boolean): Promise<ResendBatchItem> {
+    try {
+      await resendSignatureLinkWorkflow(this.ctx, id, initiatedById, force);
+      return { id, outcome: 'sent' };
+    } catch (err: unknown) {
+      if (err instanceof ConflictException) {
+        const body = err.getResponse() as { code?: string; sentAt?: string };
+        if (body?.code === 'token_recent') {
+          return {
+            id,
+            outcome: 'skipped',
+            code: 'token_recent',
+            reason: 'Un lien a été envoyé il y a moins d’une heure',
+            sentAt: body.sentAt,
+          };
+        }
+      }
+      if (err instanceof BadRequestException || err instanceof NotFoundException) {
+        return { id, outcome: 'skipped', reason: err.message };
+      }
+      this.logger.error(
+        `Relance groupée : échec du renvoi pour le bon ${id} — ${err instanceof Error ? err.stack ?? err.message : String(err)}`,
+      );
+      return { id, outcome: 'failed', reason: 'Erreur inattendue lors du renvoi' };
+    }
   }
 
   closeUnilaterally(id: string, userId: string, reason: string) {

@@ -1,9 +1,12 @@
+import { useEffect, useRef } from 'react';
 import { Plus, FileText, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { StatusBadge } from '@/components/StatusBadge';
-import { formatDate } from '@/lib/utils';
 import type { Bon } from './types';
+import type { SortField, SortOrder } from './bonsListQuery';
+import { SortableHeader, TH_CLASS } from './SortableHeader';
+import { BonRow } from './BonRow';
+import type { BonsSelection } from './useBonsSelection';
 
 function TableSkeleton() {
   return (
@@ -25,6 +28,25 @@ function TableSkeleton() {
   );
 }
 
+/** Case « tout sélectionner » : état intermédiaire quand une partie de la
+ *  page seulement est cochée (propriété DOM, sans attribut HTML équivalent). */
+function SelectAllCheckbox({ selection }: { readonly selection: BonsSelection }) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = selection.someSelected;
+  }, [selection.someSelected]);
+  return (
+    <input
+      ref={ref}
+      type="checkbox"
+      className="h-4 w-4 cursor-pointer rounded border-border accent-[hsl(var(--primary))]"
+      checked={selection.allSelected}
+      onChange={selection.toggleAll}
+      aria-label="Sélectionner tous les bons de la page"
+    />
+  );
+}
+
 export interface BonsTableProps {
   readonly loading: boolean;
   readonly loadError: string | null;
@@ -33,7 +55,13 @@ export interface BonsTableProps {
   readonly onRetry: () => void;
   readonly onCreateNew: () => void;
   readonly onResetFilters: () => void;
-  readonly onRowClick: (bonId: string) => void;
+  readonly sort: SortField;
+  readonly order: SortOrder;
+  readonly onSort: (field: SortField) => void;
+  readonly selection: BonsSelection;
+  readonly onResend: (bon: Bon) => void;
+  readonly resendLoadingId: string | null;
+  readonly resendBusy: boolean;
 }
 
 /** Corps de la liste des bons : skeleton de chargement, erreur, vide, ou
@@ -46,8 +74,16 @@ export function BonsTable({
   onRetry,
   onCreateNew,
   onResetFilters,
-  onRowClick,
+  sort,
+  order,
+  onSort,
+  selection,
+  onResend,
+  resendLoadingId,
+  resendBusy,
 }: BonsTableProps) {
+  const header = { currentSort: sort, currentOrder: order, onSort };
+
   return (
     <div className="bg-card rounded-xl border border-border card-elevated overflow-hidden">
       {loading ? (
@@ -77,17 +113,14 @@ export function BonsTable({
               : 'Il n\'y a pas encore de bons de mise à disposition. Créez le premier.'}
           </p>
           {!hasActiveFilters && (
-            <Button
-              size="sm"
-              className="mt-4"
-              onClick={onCreateNew}
-            >
+            <Button size="sm" className="mt-4" onClick={onCreateNew}>
               <Plus className="mr-1.5 h-4 w-4" />
               Créer le premier bon
             </Button>
           )}
           {hasActiveFilters && (
             <button
+              type="button"
               onClick={onResetFilters}
               className="mt-3 text-sm text-[hsl(var(--primary))] hover:opacity-80 font-medium transition-colors"
             >
@@ -100,82 +133,34 @@ export function BonsTable({
           <table className="w-full text-sm" aria-label="Liste des bons de mise à disposition">
             <thead>
               <tr className="bg-muted/40 border-b border-border">
-                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  Référence
+                <th scope="col" className="w-10 pl-4 pr-0 py-3">
+                  <SelectAllCheckbox selection={selection} />
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  Collaborateur
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden md:table-cell">
-                  Filiale
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden lg:table-cell">
-                  Date
-                </th>
-                <th className="px-4 py-3 text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider hidden sm:table-cell">
+                <SortableHeader field="reference" label="Référence" {...header} />
+                <SortableHeader field="collaborateur" label="Collaborateur" {...header} />
+                <SortableHeader field="filiale" label="Filiale" className="hidden md:table-cell" {...header} />
+                <SortableHeader field="dateMiseDisposition" label="Mise à dispo." className="hidden lg:table-cell" {...header} />
+                <th scope="col" className={`${TH_CLASS} text-center hidden sm:table-cell`}>
                   Équip.
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  Statut
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                <SortableHeader field="status" label="Statut" {...header} />
+                <SortableHeader field="updatedAt" label="Dernière activité" className="hidden md:table-cell" {...header} />
+                <th scope="col" className={`${TH_CLASS} text-right`}>
                   <span className="sr-only">Actions</span>
                 </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {bons.map((bon) => (
-                <tr
+                <BonRow
                   key={bon.id}
-                  className="hover:bg-muted/40 cursor-pointer transition-colors group"
-                  onClick={() => onRowClick(bon.id)}
-                >
-                  {/* Reference */}
-                  <td className="px-4 py-3.5">
-                    <span className="inline-block bg-muted text-foreground/80 font-mono text-xs font-medium px-2 py-0.5 rounded">
-                      {bon.reference}
-                    </span>
-                  </td>
-
-                  {/* Collaborateur */}
-                  <td className="px-4 py-3.5">
-                    <div className="font-medium text-foreground leading-tight">
-                      {bon.collaborateur.displayName}
-                    </div>
-                    <div className="text-xs text-muted-foreground/70 mt-0.5">
-                      {bon.collaborateur.email}
-                    </div>
-                  </td>
-
-                  {/* Filiale */}
-                  <td className="px-4 py-3.5 text-sm text-muted-foreground hidden md:table-cell">
-                    {bon.filiale.displayName}
-                  </td>
-
-                  {/* Date */}
-                  <td className="px-4 py-3.5 text-sm text-muted-foreground hidden lg:table-cell whitespace-nowrap">
-                    {formatDate(bon.dateMiseDisposition)}
-                  </td>
-
-                  {/* Equipment count */}
-                  <td className="px-4 py-3.5 text-center hidden sm:table-cell">
-                    <span className="inline-block text-xs bg-[hsl(var(--primary)/0.08)] dark:bg-[hsl(var(--primary)/0.15)] text-[hsl(var(--primary))] font-medium px-2 py-0.5 rounded-full">
-                      {bon.equipments.length}
-                    </span>
-                  </td>
-
-                  {/* Status */}
-                  <td className="px-4 py-3.5">
-                    <StatusBadge status={bon.status} signatures={bon.signatures} size="md" />
-                  </td>
-
-                  {/* Action */}
-                  <td className="px-4 py-3.5 text-right">
-                    <span className="text-xs text-muted-foreground/70 group-hover:text-[hsl(var(--primary))] font-medium transition-colors">
-                      Voir
-                    </span>
-                  </td>
-                </tr>
+                  bon={bon}
+                  selected={selection.selectedIds.has(bon.id)}
+                  onToggleSelected={selection.toggle}
+                  onResend={onResend}
+                  resendLoading={resendLoadingId === bon.id}
+                  resendDisabled={resendBusy}
+                />
               ))}
             </tbody>
           </table>

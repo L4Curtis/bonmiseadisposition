@@ -1,6 +1,7 @@
 import {
   Controller,
   Get,
+  HttpCode,
   Post,
   Put,
   Delete,
@@ -19,7 +20,7 @@ import { SignatureService } from '../signature/signature.service';
 import { ContestationService } from '../contestation/contestation.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateBonDto, UpdateBonDto } from './dto/bon.dto';
-import { QueryBonsDto } from './dto/query-bons.dto';
+import { QueryBonsDto, toBonListQuery } from './dto/query-bons.dto';
 import {
   CreateContestationDto,
   InitiateRestitutionDto,
@@ -27,6 +28,7 @@ import {
   DeclareNotReturnedDto,
   MarkFoundDto,
   CloseUnilateralDto,
+  ResendBatchDto,
 } from './dto/actions.dto';
 import { SignItDto } from '../signature/dto/sign.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -79,6 +81,17 @@ export class BonsController {
     return this.bonsService.resendSignatureLink(id, user.id, body?.force === true);
   }
 
+  /** POST /bons/resend-batch — relance groupée depuis la liste des bons (au
+   *  plus MAX_RESEND_BATCH bons par appel, traités l'un après l'autre ; voir
+   *  BonsService.resendSignatureLinks pour le choix d'une route groupée).
+   *  Répond 200 avec un compte rendu par bon (envoyé / ignoré / en échec). */
+  @Post('resend-batch')
+  @HttpCode(200)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  resendBatch(@Body() dto: ResendBatchDto, @CurrentUser() user: AuthUser) {
+    return this.bonsService.resendSignatureLinks(dto.ids, user.id, dto.force === true);
+  }
+
   // Static routes BEFORE parameterized routes
   @Get('stats')
   getStats() {
@@ -94,14 +107,9 @@ export class BonsController {
 
   @Get('export')
   async exportCsv(@Query() dto: QueryBonsDto, @Res() res: Response) {
-    const { status, excludeStatus, filialeId, search, overdue } = dto;
-    const { csv, truncated } = await this.bonsService.getExportData({
-      status,
-      excludeStatus,
-      filialeId,
-      search,
-      overdue,
-    });
+    // Mêmes filtres et même tri que GET /bons (liste affichée), plus `ids`
+    // pour l'export d'une sélection ; page/limit sont ignorés ici.
+    const { csv, truncated } = await this.bonsService.getExportData(toBonListQuery(dto));
     const filename = `bons-export-${new Date().toISOString().slice(0, 10)}.csv`;
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -111,15 +119,10 @@ export class BonsController {
 
   @Get()
   findAll(@Query() dto: QueryBonsDto) {
-    const { status, excludeStatus, filialeId, search, overdue, page, limit } = dto;
     return this.bonsService.findAll({
-      status,
-      excludeStatus,
-      filialeId,
-      search,
-      overdue,
-      page: page ?? 1,
-      limit: Math.min(limit ?? 20, 100),
+      ...toBonListQuery(dto),
+      page: dto.page ?? 1,
+      limit: Math.min(dto.limit ?? 20, 100),
     });
   }
 

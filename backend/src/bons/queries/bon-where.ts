@@ -15,6 +15,22 @@ export interface BonListFilters {
   filialeId?: string;
   search?: string;
   overdue?: boolean;
+  /** Période sur la date de mise à disposition, bornes incluses (AAAA-MM-JJ). */
+  dateFrom?: string;
+  dateTo?: string;
+  /** Uniquement les bons sans date de restitution prévue. */
+  noReturnDate?: boolean;
+  /** Créateur du bon (Bon.createdById, toujours renseigné). */
+  createdById?: string;
+  /** Sélection explicite (export de la sélection de la liste). */
+  ids?: string[];
+}
+
+/** Une date AAAA-MM-JJ en minuit UTC : la colonne date_mise_disposition est un
+ *  `DATE` Postgres, que Prisma compare à minuit UTC — une date construite à
+ *  l'heure locale du serveur décalerait la borne d'un jour hors UTC. */
+function utcDay(day: string): Date {
+  return new Date(`${day}T00:00:00.000Z`);
 }
 
 /** Recherche libre : référence, nom/email du collaborateur, ou n° de série /
@@ -38,7 +54,7 @@ export function buildBonWhere(
   filters: BonListFilters,
   overdueDays: number = DEFAULT_SIGNATURE_OVERDUE_DAYS,
 ): Prisma.BonWhereInput {
-  const { status, excludeStatus, filialeId, search, overdue } = filters;
+  const { status, excludeStatus, filialeId, search, overdue, dateFrom, dateTo, noReturnDate, createdById, ids } = filters;
   const where: Prisma.BonWhereInput = {};
 
   // status and excludeStatus combine (AND) instead of one silently overriding the other
@@ -49,6 +65,15 @@ export function buildBonWhere(
     };
   }
   if (filialeId) where.filialeId = filialeId;
+  if (createdById) where.createdById = createdById;
+  if (ids?.length) where.id = { in: ids };
+  if (dateFrom || dateTo) {
+    where.dateMiseDisposition = {
+      ...(dateFrom ? { gte: utcDay(dateFrom) } : {}),
+      ...(dateTo ? { lte: utcDay(dateTo) } : {}),
+    };
+  }
+  if (noReturnDate) where.dateRestitution = null;
   if (search) {
     where.OR = buildSearchClauses(search);
   }

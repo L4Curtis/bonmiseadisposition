@@ -55,6 +55,42 @@ describe('buildBonWhere', () => {
   it('does not set AND when overdue is not requested', () => {
     expect(buildBonWhere({ overdue: false }).AND).toBeUndefined();
   });
+
+  it('borne la date de mise à disposition à minuit UTC, bornes incluses', () => {
+    const where = buildBonWhere({ dateFrom: '2026-01-01', dateTo: '2026-01-31' });
+    expect(where.dateMiseDisposition).toEqual({
+      gte: new Date('2026-01-01T00:00:00.000Z'),
+      lte: new Date('2026-01-31T00:00:00.000Z'),
+    });
+  });
+
+  it('accepte une période ouverte d’un seul côté', () => {
+    expect(buildBonWhere({ dateFrom: '2026-01-01' }).dateMiseDisposition).toEqual({
+      gte: new Date('2026-01-01T00:00:00.000Z'),
+    });
+    expect(buildBonWhere({ dateTo: '2026-01-31' }).dateMiseDisposition).toEqual({
+      lte: new Date('2026-01-31T00:00:00.000Z'),
+    });
+  });
+
+  it('filtre les bons sans date de restitution prévue', () => {
+    expect(buildBonWhere({ noReturnDate: true }).dateRestitution).toBeNull();
+    expect(buildBonWhere({ noReturnDate: false })).not.toHaveProperty('dateRestitution');
+  });
+
+  it('filtre par créateur et par sélection explicite', () => {
+    const where = buildBonWhere({ createdById: 'user-1', ids: ['a', 'b'] });
+    expect(where.createdById).toBe('user-1');
+    expect(where.id).toEqual({ in: ['a', 'b'] });
+    expect(buildBonWhere({ ids: [] })).not.toHaveProperty('id');
+  });
+
+  it('combine les nouveaux filtres avec « en retard » sans toucher à son AND', () => {
+    const where = buildBonWhere({ overdue: true, noReturnDate: true, createdById: 'u' }, 7);
+    expect(where.AND).toHaveLength(1);
+    expect(where.dateRestitution).toBeNull();
+    expect(where.createdById).toBe('u');
+  });
 });
 
 describe('findBonOrThrow', () => {
