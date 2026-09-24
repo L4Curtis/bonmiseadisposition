@@ -4,6 +4,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { UserRole } from '../common/types';
 import { normalizeEmail } from '../auth/utils/normalize-email.util';
 import { CreateManualUserDto, UpdateManualUserDto } from './dto/manual-user.dto';
+import { ImportManualUsersDto, ImportManualUsersResult } from './dto/import-users.dto';
+import { buildManualUsersExportCsv, buildManualUsersImportTemplateCsv } from './users-csv';
+import { importManualUsers } from './users-import';
 import {
   buildManualDisplayName,
   buildManualSamAccountBase,
@@ -251,6 +254,37 @@ export class UsersService {
     });
 
     return updated;
+  }
+
+  /** GET /users/manual/export — CSV des seuls comptes créés à la main (actifs
+   *  et inactifs) : les comptes de l'annuaire ne s'exportent pas ici, ils ne
+   *  se gèrent que dans Active Directory. Cf. users-csv.ts. */
+  async exportManualCsv(): Promise<string> {
+    const users = await this.prisma.user.findMany({
+      where: { isManualAccount: true },
+      select: {
+        samAccountName: true, displayName: true, email: true, department: true, active: true,
+        filiale: { select: { name: true } },
+      },
+      orderBy: { displayName: 'asc' },
+    });
+    return buildManualUsersExportCsv(users);
+  }
+
+  /** GET /users/manual/import/template — modèle CSV avec une ligne de
+   *  commentaire rappelant les valeurs acceptées (dont les filiales actives). */
+  async getManualImportTemplate(): Promise<string> {
+    const filiales = await this.prisma.filiale.findMany({
+      where: { active: true },
+      select: { name: true },
+      orderBy: { name: 'asc' },
+    });
+    return buildManualUsersImportTemplateCsv(filiales.map((f) => f.name));
+  }
+
+  /** POST /users/manual/import — voir users-import.ts pour le contrat exact. */
+  importManual(dto: ImportManualUsersDto, actorId: string): Promise<ImportManualUsersResult> {
+    return importManualUsers(this.prisma, dto.items, actorId);
   }
 
   private async samAccountNameTaken(candidate: string): Promise<boolean> {

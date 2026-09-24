@@ -5,10 +5,14 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
-import { Search, ChevronLeft, ChevronRight, UserPlus, XCircle } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, XCircle } from 'lucide-react';
 import type { User, UserRole } from '@/types';
 import { ManualUserDialog } from './utilisateurs/ManualUserDialog';
 import { UsersTable } from './utilisateurs/UsersTable';
+import { ManualUsersActionsBar } from './utilisateurs/ManualUsersActionsBar';
+import { ManualUsersImportDialog } from './utilisateurs/ManualUsersImportDialog';
+import { useManualUsersImport } from './utilisateurs/useManualUsersImport';
+import { useManualUsersExport } from './utilisateurs/useManualUsersExport';
 
 const LIMIT = 25;
 
@@ -156,6 +160,9 @@ export function UtilisateursPage() {
     load();
   };
 
+  const importState = useManualUsersImport(load);
+  const csvExport = useManualUsersExport();
+
   const totalPages = Math.ceil(total / LIMIT);
 
   return (
@@ -163,10 +170,13 @@ export function UtilisateursPage() {
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-xl font-bold text-foreground">Utilisateurs</h1>
         {isAdmin && (
-          <Button onClick={handleOpenCreate} className="gap-1.5">
-            <UserPlus className="h-4 w-4" />
-            Ajouter un collaborateur
-          </Button>
+          <ManualUsersActionsBar
+            onAdd={handleOpenCreate}
+            onImport={importState.openDialog}
+            onExportCsv={() => void csvExport.exportCsv()}
+            onDownloadTemplate={() => void csvExport.downloadTemplate()}
+            busy={csvExport.exporting || csvExport.downloadingTemplate}
+          />
         )}
       </div>
 
@@ -229,6 +239,8 @@ export function UtilisateursPage() {
           onSaved={handleManualUserSaved}
         />
       )}
+
+      {isAdmin && <ManualUsersImportDialog state={importState} />}
     </div>
   );
 }

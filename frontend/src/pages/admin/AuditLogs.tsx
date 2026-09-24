@@ -1,4 +1,4 @@
-import { Shield, ChevronLeft, ChevronRight, XCircle } from 'lucide-react';
+import { Shield, ChevronLeft, ChevronRight, XCircle, Download, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuditLogs } from './audit-logs/useAuditLogs';
 import { AuditLogsFilters } from './audit-logs/AuditLogsFilters';
@@ -12,8 +12,8 @@ export function AuditLogsPage() {
     load,
     page,
     setPage,
-    userEmailInput,
-    setUserEmailInput,
+    userInput,
+    setUserInput,
     action,
     setAction,
     dateFrom,
@@ -24,23 +24,36 @@ export function AuditLogsPage() {
     applySearch,
     resetFilters,
     totalPages,
+    exporting,
+    exportCsv,
   } = useAuditLogs();
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <Shield className="h-5 w-5 text-muted-foreground/70" />
-        <h1 className="text-xl font-bold text-foreground">Journal d'audit</h1>
-        {data && (
-          <span className="text-sm text-muted-foreground/70">
-            ({data.total} entrée{data.total > 1 ? 's' : ''})
-          </span>
-        )}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Shield className="h-5 w-5 text-muted-foreground/70" />
+          <h1 className="text-xl font-bold text-foreground">Journal d'audit</h1>
+          {data && (
+            <span className="text-sm text-muted-foreground/70">
+              ({data.total} entrée{data.total > 1 ? 's' : ''})
+            </span>
+          )}
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => void exportCsv()}
+          disabled={exporting || !data || data.total === 0}
+        >
+          <Download className="h-4 w-4" />
+          {exporting ? 'Export en cours...' : 'Exporter CSV'}
+        </Button>
       </div>
 
       <AuditLogsFilters
-        userEmailInput={userEmailInput}
-        onUserEmailInputChange={setUserEmailInput}
+        userInput={userInput}
+        onUserInputChange={setUserInput}
         onApplySearch={applySearch}
         action={action}
         onActionChange={setAction}
@@ -51,6 +64,17 @@ export function AuditLogsPage() {
         onDateToChange={setDateTo}
         onReset={resetFilters}
       />
+
+      {data?.exportTruncated && (
+        <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-foreground" role="status">
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-warning" />
+          <p>
+            L'export CSV est limité aux {data.exportLimit.toLocaleString('fr-FR')} entrées les plus récentes :
+            les {(data.total - data.exportLimit).toLocaleString('fr-FR')} plus anciennes n'y figureront pas.
+            Réduisez la période ou ajoutez un filtre pour tout exporter.
+          </p>
+        </div>
+      )}
 
       {/* Erreur de chargement */}
       {loadError && (

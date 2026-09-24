@@ -50,15 +50,15 @@ describe('useAuditLogs', () => {
     expect(result.current.availableActions).toEqual(['bon_created']);
   });
 
-  it('applySearch envoie userEmail et remet la page à 1', async () => {
+  it('applySearch envoie le filtre utilisateur et remet la page à 1', async () => {
     mockApiGet();
     const { result } = renderHook(() => useAuditLogs());
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    act(() => result.current.setUserEmailInput('jean@example.com'));
+    act(() => result.current.setUserInput(' jean@example.com '));
     act(() => result.current.applySearch());
 
-    await waitFor(() => expect(api.get).toHaveBeenLastCalledWith(expect.stringContaining('userEmail=jean%40example.com')));
+    await waitFor(() => expect(api.get).toHaveBeenLastCalledWith(expect.stringContaining('user=jean%40example.com')));
     expect(result.current.page).toBe(1);
   });
 
@@ -81,13 +81,35 @@ describe('useAuditLogs', () => {
     const { result } = renderHook(() => useAuditLogs());
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    act(() => { result.current.setUserEmailInput('x'); result.current.setAction('bon_created'); result.current.setDateFrom('2026-01-01'); });
+    act(() => { result.current.setUserInput('x'); result.current.setAction('bon_created'); result.current.setDateFrom('2026-01-01'); });
     act(() => result.current.resetFilters());
 
-    expect(result.current.userEmailInput).toBe('');
+    expect(result.current.userInput).toBe('');
     expect(result.current.action).toBe('');
     expect(result.current.dateFrom).toBe('');
     expect(result.current.page).toBe(1);
+  });
+
+  it("exporte en CSV avec les filtres appliqués (pas la page)", async () => {
+    mockApiGet();
+    vi.mocked(api.getBlob).mockResolvedValue(new Blob(['x']));
+    const createObjectURL = vi.fn(() => 'blob:x');
+    const revokeObjectURL = vi.fn();
+    Object.assign(URL, { createObjectURL, revokeObjectURL });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    const { result } = renderHook(() => useAuditLogs());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(() => { result.current.setUserInput('Jean'); result.current.setDateFrom('2026-09-01'); });
+    act(() => result.current.applySearch());
+    act(() => result.current.setPage(3));
+    await act(async () => { await result.current.exportCsv(); });
+
+    expect(api.getBlob).toHaveBeenCalledWith('/audit/export?user=Jean&dateFrom=2026-09-01');
+    expect(createObjectURL).toHaveBeenCalled();
+    expect(click).toHaveBeenCalled();
+    click.mockRestore();
+    expect(result.current.exporting).toBe(false);
   });
 
   it('signale une erreur de chargement', async () => {

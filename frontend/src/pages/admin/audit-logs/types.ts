@@ -15,4 +15,8 @@ export interface AuditResponse {
   total: number;
   page: number;
   limit: number;
+  /** Plafond de l'export CSV (GET /audit/export). */
+  exportLimit: number;
+  /** Vrai si les filtres courants dépassent ce plafond : l'export sera tronqué. */
+  exportTruncated: boolean;
 }

@@ -46,4 +46,26 @@ describe('AuditLogsPage', () => {
     expect(screen.getByText('jean@example.com')).toBeInTheDocument();
     expect(screen.getByText('(1 entrée)')).toBeInTheDocument();
   });
+
+  it("prévient que l'export sera tronqué quand les filtres dépassent le plafond", async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path.startsWith('/audit/actions')) return Promise.resolve([]);
+      if (path.startsWith('/audit')) {
+        return Promise.resolve({
+          logs: [log], total: 12000, page: 1, limit: 50, exportLimit: 10000, exportTruncated: true,
+        });
+      }
+      return Promise.resolve(null);
+    });
+    renderWithProviders(<AuditLogsPage />);
+
+    expect(await screen.findByText(/export CSV est limité aux/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Exporter CSV/ })).toBeEnabled();
+  });
+
+  it("n'affiche pas l'avertissement quand l'export est complet", async () => {
+    renderWithProviders(<AuditLogsPage />);
+    await screen.findByText('Bon créé');
+    expect(screen.queryByText(/export CSV est limité/)).not.toBeInTheDocument();
+  });
 });

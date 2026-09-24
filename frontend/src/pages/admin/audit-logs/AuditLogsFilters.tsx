@@ -12,8 +12,8 @@ import {
 import { ACTION_LABELS } from './actionMeta';
 
 interface AuditLogsFiltersProps {
-  userEmailInput: string;
-  onUserEmailInputChange: (value: string) => void;
+  userInput: string;
+  onUserInputChange: (value: string) => void;
   onApplySearch: () => void;
   action: string;
   onActionChange: (value: string) => void;
@@ -25,10 +25,11 @@ interface AuditLogsFiltersProps {
   onReset: () => void;
 }
 
-/** Barre de filtres du journal d'audit : email, action, plage de dates. */
+/** Barre de filtres du journal d'audit : auteur (nom ou email), action,
+ *  période (jours civils, bornes incluses). */
 export function AuditLogsFilters({
-  userEmailInput,
-  onUserEmailInputChange,
+  userInput,
+  onUserInputChange,
   onApplySearch,
   action,
   onActionChange,
@@ -47,9 +48,10 @@ export function AuditLogsFilters({
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/70" />
             <Input
               className="pl-9"
-              placeholder="Email utilisateur..."
-              value={userEmailInput}
-              onChange={(e) => onUserEmailInputChange(e.target.value)}
+              placeholder="Utilisateur (nom ou email)..."
+              aria-label="Utilisateur ayant fait l'action (nom ou email)"
+              value={userInput}
+              onChange={(e) => onUserInputChange(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') onApplySearch(); }}
             />
           </div>
@@ -58,7 +60,7 @@ export function AuditLogsFilters({
             value={action || '__all__'}
             onValueChange={(v) => onActionChange(v === '__all__' ? '' : v)}
           >
-            <SelectTrigger>
+            <SelectTrigger aria-label="Action">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -73,14 +75,18 @@ export function AuditLogsFilters({
             type="date"
             value={dateFrom}
             onChange={(e) => onDateFromChange(e.target.value)}
-            title="Date depuis"
+            max={dateTo || undefined}
+            title="Du (inclus)"
+            aria-label="Période : du (inclus)"
           />
 
           <Input
             type="date"
             value={dateTo}
             onChange={(e) => onDateToChange(e.target.value)}
-            title="Date jusqu'au"
+            min={dateFrom || undefined}
+            title="Au (inclus)"
+            aria-label="Période : au (inclus)"
           />
         </div>
 

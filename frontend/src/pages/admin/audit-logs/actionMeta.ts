@@ -48,6 +48,8 @@ export const ACTION_LABELS: Record<string, { label: string; color: string }> = {
   pdf_template_updated:        { label: 'Modèle PDF modifié',       color: VIGILANCE },
   pdf_template_reset:          { label: 'Modèle PDF réinitialisé',  color: MUTED },
   pdf_templates_imported:      { label: 'Modèles PDF importés',     color: VIGILANCE },
+  users_imported:              { label: 'Collaborateurs importés',  color: VIGILANCE },
+  audit_exported:              { label: "Journal d'audit exporté", color: MUTED },
 };
 
 export function actionMeta(action: string): { label: string; color: string } {

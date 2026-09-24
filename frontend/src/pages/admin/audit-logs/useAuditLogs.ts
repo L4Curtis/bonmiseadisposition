@@ -1,23 +1,45 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
-import { errorMessage } from '@/lib/errors';
+import { errorMessage, showActionError } from '@/lib/errors';
+import { toast } from '@/hooks/use-toast';
+import { downloadBlob } from '../filiales/lib/csv';
 import type { AuditResponse } from './types';
 
 const LIMIT = 50;
 
-/** Chargement + filtres (email, action, plage de dates) + pagination du journal d'audit. */
+interface AppliedFilters {
+  user: string;
+  action: string;
+  dateFrom: string;
+  dateTo: string;
+}
+
+/** Paramètres de filtre communs à la liste et à l'export CSV : l'export
+ *  reprend exactement ce que l'écran affiche. */
+function filterParams({ user, action, dateFrom, dateTo }: AppliedFilters): URLSearchParams {
+  const params = new URLSearchParams();
+  if (user) params.set('user', user);
+  if (action) params.set('action', action);
+  if (dateFrom) params.set('dateFrom', dateFrom);
+  if (dateTo) params.set('dateTo', dateTo);
+  return params;
+}
+
+/** Chargement + filtres (auteur par nom ou email, action, période) +
+ *  pagination + export CSV du journal d'audit. */
 export function useAuditLogs() {
   const [data, setData] = useState<AuditResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
 
-  const [userEmailInput, setUserEmailInput] = useState('');
-  const [userEmail, setUserEmail] = useState('');
+  const [userInput, setUserInput] = useState('');
+  const [user, setUser] = useState('');
   const [action, setActionState] = useState('');
   const [dateFrom, setDateFromState] = useState('');
   const [dateTo, setDateToState] = useState('');
   const [availableActions, setAvailableActions] = useState<string[]>([]);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     api.get<string[]>('/audit/actions').then(setAvailableActions).catch(() => {});
@@ -31,11 +53,7 @@ export function useAuditLogs() {
     const requestId = ++requestIdRef.current;
     setLoading(true);
     setLoadError(null);
-    const params = new URLSearchParams();
-    if (userEmail) params.set('userEmail', userEmail);
-    if (action) params.set('action', action);
-    if (dateFrom) params.set('dateFrom', dateFrom);
-    if (dateTo) params.set('dateTo', dateTo);
+    const params = filterParams({ user, action, dateFrom, dateTo });
     params.set('page', String(page));
     params.set('limit', String(LIMIT));
 
@@ -51,7 +69,7 @@ export function useAuditLogs() {
       .finally(() => {
         if (requestIdRef.current === requestId) setLoading(false);
       });
-  }, [userEmail, action, dateFrom, dateTo, page]);
+  }, [user, action, dateFrom, dateTo, page]);
 
   useEffect(() => {
     load();
@@ -64,10 +82,31 @@ export function useAuditLogs() {
   const setDateFrom = (value: string) => { setDateFromState(value); setPage(1); };
   const setDateTo = (value: string) => { setDateToState(value); setPage(1); };
 
-  const applySearch = () => { setUserEmail(userEmailInput); setPage(1); };
+  const applySearch = () => { setUser(userInput.trim()); setPage(1); };
   const resetFilters = () => {
-    setUserEmailInput(''); setUserEmail('');
+    setUserInput(''); setUser('');
     setActionState(''); setDateFromState(''); setDateToState(''); setPage(1);
+  };
+
+  const exportCsv = async () => {
+    setExporting(true);
+    try {
+      const params = filterParams({ user, action, dateFrom, dateTo });
+      const query = params.toString();
+      const blob = await api.getBlob(`/audit/export${query ? `?${query}` : ''}`);
+      downloadBlob(`journal-audit-${new Date().toISOString().slice(0, 10)}.csv`, blob);
+      toast({
+        title: 'Export réussi',
+        description: data?.exportTruncated
+          ? `Seules les ${data.exportLimit.toLocaleString('fr-FR')} entrées les plus récentes ont été exportées.`
+          : 'Le fichier CSV a été téléchargé.',
+        variant: data?.exportTruncated ? 'default' : 'success',
+      });
+    } catch (e: unknown) {
+      showActionError(e, "Erreur lors de l'export du journal");
+    } finally {
+      setExporting(false);
+    }
   };
 
   const totalPages = data ? Math.ceil(data.total / LIMIT) : 0;
@@ -79,8 +118,8 @@ export function useAuditLogs() {
     load,
     page,
     setPage,
-    userEmailInput,
-    setUserEmailInput,
+    userInput,
+    setUserInput,
     action,
     setAction,
     dateFrom,
@@ -91,5 +130,7 @@ export function useAuditLogs() {
     applySearch,
     resetFilters,
     totalPages,
+    exporting,
+    exportCsv,
   };
 }

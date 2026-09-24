@@ -1,6 +1,7 @@
 import {
-  BadRequestException, Body, Controller, Get, NotFoundException, Param, Patch, Post, Query, UseGuards,
+  BadRequestException, Body, Controller, Get, NotFoundException, Param, Patch, Post, Query, Res, UseGuards,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { UserRole } from '@prisma/client';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -9,6 +10,13 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth-user.interface';
 import { CreateManualUserDto, UpdateManualUserDto } from './dto/manual-user.dto';
+import { ImportManualUsersDto } from './dto/import-users.dto';
+
+function sendCsv(res: Response, filename: string, csv: string): void {
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send(csv);
+}
 
 @Controller('users')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -58,6 +66,33 @@ export class UsersController {
   @Post('manual')
   createManual(@Body() dto: CreateManualUserDto, @CurrentUser() user: AuthUser) {
     return this.usersService.createManual(dto, user.id);
+  }
+
+  /** GET /users/manual/export — CSV (BOM UTF-8, séparateur `;`) des
+   *  collaborateurs créés à la main :
+   *  identifiant;prenom;nom;email;service;filiale;actif (cf. users-csv.ts). */
+  @Get('manual/export')
+  @Roles('admin')
+  async exportManual(@Res() res: Response) {
+    const csv = await this.usersService.exportManualCsv();
+    sendCsv(res, `collaborateurs-manuels-${new Date().toISOString().slice(0, 10)}.csv`, csv);
+  }
+
+  /** GET /users/manual/import/template — même en-tête que l'export, plus une
+   *  ligne de commentaire des valeurs acceptées et une ligne d'exemple. */
+  @Get('manual/import/template')
+  @Roles('admin')
+  async importManualTemplate(@Res() res: Response) {
+    const csv = await this.usersService.getManualImportTemplate();
+    sendCsv(res, 'modele-import-collaborateurs.csv', csv);
+  }
+
+  /** POST /users/manual/import — import en masse (max 500 lignes) des
+   *  collaborateurs créés à la main : cf. users-import.ts pour le contrat. */
+  @Post('manual/import')
+  @Roles('admin')
+  importManual(@Body() dto: ImportManualUsersDto, @CurrentUser() user: AuthUser) {
+    return this.usersService.importManual(dto, user.id);
   }
 
   /** PATCH /users/:id/manual — modification d'un compte manuel uniquement
