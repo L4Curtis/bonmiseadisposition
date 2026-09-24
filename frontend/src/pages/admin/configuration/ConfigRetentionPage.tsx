@@ -1,217 +1,104 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ConfigSection } from '@/components/admin/ConfigSection';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 import { api } from '@/lib/api';
-import { toast } from '@/hooks/use-toast';
-import { AlertTriangle, Eye, Loader2, ShieldX } from 'lucide-react';
+import { errorMessage } from '@/lib/errors';
+import { RetentionSetupWizard } from './retention/RetentionSetupWizard';
+import { RetentionActions, TechnicalPurgeActions } from './retention/RetentionManualActions';
+import { RETENTION_DURATIONS } from './retention/retention-durations';
 
-interface RetentionResult {
-  eligible: number;
-  anonymized: number;
-  attachmentsPurged: number;
-  cutoff: string;
-  dryRun: boolean;
+function ManualActions() {
+  return (
+    <>
+      <RetentionActions />
+      <TechnicalPurgeActions />
+    </>
+  );
 }
 
-function RetentionActions() {
-  const [preview, setPreview] = useState<RetentionResult | null>(null);
-  const [loading, setLoading] = useState<'preview' | 'run' | null>(null);
-  const [confirming, setConfirming] = useState(false);
-
-  const doPreview = async () => {
-    setLoading('preview');
-    try {
-      setPreview(await api.get<RetentionResult>('/admin/retention/preview'));
-    } catch {
-      toast({ title: 'Aperçu impossible', variant: 'destructive' });
-    } finally {
-      setLoading(null);
-    }
-  };
-
-  const doRun = async () => {
-    setLoading('run');
-    try {
-      const r = await api.post<RetentionResult>('/admin/retention/run', { dryRun: false });
-      toast({
-        title: 'Anonymisation effectuée',
-        description: `${r.anonymized} bon(s) anonymisé(s), ${r.attachmentsPurged} pièce(s) jointe(s) purgée(s).`,
-        variant: 'success',
-      });
-      setPreview(null);
-      setConfirming(false);
-    } catch {
-      toast({ title: 'Échec de l’anonymisation', variant: 'destructive' });
-    } finally {
-      setLoading(null);
-    }
-  };
-
+/** Tant que la rétention n'est pas activée : parcours guidé de première
+ *  configuration (lot H4), puis actions manuelles repliées. */
+function FirstSetup({ saved, onActivated }: { saved: Record<string, string>; onActivated: () => void }) {
   return (
-    <div className="mt-4 space-y-3 border-t pt-4">
-      <div className="flex items-start gap-2 rounded-lg bg-warning/10 p-3 text-xs text-warning">
-        <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-        <p>
-          L’anonymisation purge définitivement les données personnelles (email, signatures, IP) et
-          <strong> détruit les preuves (PDF, archives, pièces jointes)</strong> des bons clôturés/annulés
-          plus anciens que la durée configurée. La référence, les dates et le statut sont conservés. Action irréversible.
-        </p>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-3">
-        <Button type="button" variant="outline" size="sm" onClick={doPreview} disabled={loading !== null}>
-          {loading === 'preview' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}
-          Aperçu
-        </Button>
-        {preview && (
-          <span className="text-sm text-muted-foreground">
-            <strong className="text-foreground">{preview.eligible}</strong> bon(s) éligible(s)
-            {' '}(antérieurs au {new Date(preview.cutoff).toLocaleDateString('fr-FR')})
-          </span>
-        )}
-      </div>
-
-      {preview && preview.eligible > 0 && (
-        confirming ? (
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="text-sm text-destructive font-medium">Confirmer l’anonymisation de {preview.eligible} bon(s) ?</span>
-            <Button type="button" variant="destructive" size="sm" onClick={doRun} disabled={loading !== null}>
-              {loading === 'run' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldX className="h-3.5 w-3.5" />}
-              Oui, anonymiser définitivement
-            </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setConfirming(false)} disabled={loading !== null}>
-              Annuler
-            </Button>
-          </div>
-        ) : (
-          <Button type="button" variant="destructive" size="sm" onClick={() => setConfirming(true)}>
-            <ShieldX className="h-3.5 w-3.5" /> Lancer l’anonymisation
-          </Button>
-        )
-      )}
+    <div className="space-y-4">
+      <RetentionSetupWizard saved={saved} onActivated={onActivated} />
+      <Card>
+        <CardContent className="pt-4">
+          <details>
+            <summary className="cursor-pointer text-sm font-medium">Actions manuelles (simulation, anonymisation, purge technique)</summary>
+            <ManualActions />
+          </details>
+        </CardContent>
+      </Card>
     </div>
   );
 }
 
-interface RetentionStats {
-  enabled: boolean;
-  config: { expiredTokensDays: number; auditLogsYears: number };
-  purgeable: { expiredTokens: number; oldAuditLogs: number };
-  totals: { auditLogs: number; signatures: number };
-}
-
-function TechnicalPurgeActions() {
-  const [stats, setStats] = useState<RetentionStats | null>(null);
-  const [loading, setLoading] = useState<'stats' | 'purge' | null>(null);
-  const [confirming, setConfirming] = useState(false);
-
-  const loadStats = async () => {
-    setLoading('stats');
-    try {
-      setStats(await api.get<RetentionStats>('/admin/retention/stats'));
-    } catch {
-      toast({ title: 'Statistiques indisponibles', variant: 'destructive' });
-    } finally {
-      setLoading(null);
-    }
-  };
-
-  const doPurge = async () => {
-    setLoading('purge');
-    try {
-      const r = await api.post<{ ok: boolean; expiredTokens: number; oldAuditLogs: number }>(
-        '/admin/retention/purge',
-        {},
-      );
-      toast({
-        title: 'Purge technique effectuée',
-        description: `${r.expiredTokens} token(s) expiré(s) et ${r.oldAuditLogs} journal/aux d’audit supprimé(s).`,
-        variant: 'success',
-      });
-      setConfirming(false);
-      await loadStats();
-    } catch {
-      toast({ title: 'Échec de la purge technique', variant: 'destructive' });
-    } finally {
-      setLoading(null);
-    }
-  };
-
-  const hasPurgeable = stats && (stats.purgeable.expiredTokens > 0 || stats.purgeable.oldAuditLogs > 0);
-
+/** Rétention active : réglages courants et actions manuelles. */
+function ActiveRetention() {
   return (
-    <div className="mt-4 space-y-3 border-t pt-4">
-      <div>
-        <h3 className="text-sm font-semibold text-foreground">Purge technique</h3>
-        <p className="text-xs text-muted-foreground">
-          Supprime les tokens de signature expirés (jamais signés) et les journaux d’audit au-delà de la durée légale.
-        </p>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-3">
-        <Button type="button" variant="outline" size="sm" onClick={loadStats} disabled={loading !== null}>
-          {loading === 'stats' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}
-          Statistiques
-        </Button>
-        {stats && (
-          <span className="text-sm text-muted-foreground">
-            <strong className="text-foreground">{stats.purgeable.expiredTokens}</strong> token(s) expiré(s),{' '}
-            <strong className="text-foreground">{stats.purgeable.oldAuditLogs}</strong> log(s) d’audit purgeable(s)
-          </span>
-        )}
-      </div>
-
-      {hasPurgeable && (
-        confirming ? (
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="text-sm text-destructive font-medium">Confirmer la purge technique ?</span>
-            <Button type="button" variant="destructive" size="sm" onClick={doPurge} disabled={loading !== null}>
-              {loading === 'purge' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldX className="h-3.5 w-3.5" />}
-              Oui, purger
-            </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setConfirming(false)} disabled={loading !== null}>
-              Annuler
-            </Button>
-          </div>
-        ) : (
-          <Button type="button" variant="destructive" size="sm" onClick={() => setConfirming(true)}>
-            <ShieldX className="h-3.5 w-3.5" /> Lancer la purge technique
-          </Button>
-        )
-      )}
-    </div>
+    <ConfigSection
+      title="Rétention RGPD"
+      category="retention"
+      fields={[
+        { key: 'enabled', label: 'Anonymisation automatique (cron hebdomadaire)', toggle: true },
+        ...RETENTION_DURATIONS.map((d) => ({
+          key: d.key,
+          label: `${d.label} (${d.unit})`,
+          placeholder: String(d.suggested),
+          type: 'number',
+          min: d.min,
+          help: d.key === 'anonymize_months' ? 'Minimum légal : 60 mois' : undefined,
+        })),
+      ]}
+      footer={<ManualActions />}
+    />
   );
 }
 
 export function ConfigRetentionPage() {
+  const [config, setConfig] = useState<Record<string, string> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    setError(null);
+    setConfig(null);
+    api.get<Record<string, string>>('/admin/config/retention')
+      .then(setConfig)
+      .catch((e: unknown) => setError(errorMessage(e, 'Erreur lors du chargement de la configuration')));
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
   return (
     <>
       {/* Lot F1 : titre de page caché, cf. ConfigLdapPage. */}
       <h1 className="sr-only">Configuration — Rétention RGPD</h1>
-      <ConfigSection
-        title="Rétention RGPD"
-        category="retention"
-        fields={[
-          { key: 'enabled', label: 'Anonymisation automatique (cron hebdomadaire)', toggle: true },
-          {
-            key: 'anonymize_months',
-            label: 'Anonymiser après (mois)',
-            placeholder: '36',
-            type: 'number',
-            min: 60,
-            help: 'Minimum légal : 60 mois',
-          },
-          { key: 'attachment_months', label: 'Purge pièces jointes après (mois)', placeholder: '36', type: 'number' },
-          { key: 'expired_tokens_days', label: 'Purge tokens de signature expirés après (jours)', placeholder: '30', type: 'number' },
-          { key: 'audit_logs_years', label: 'Purge journaux d’audit après (années)', placeholder: '5', type: 'number' },
-        ]}
-        footer={
-          <>
-            <RetentionActions />
-            <TechnicalPurgeActions />
-          </>
-        }
-      />
+      {error ? (
+        <Card>
+          <CardHeader><CardTitle>Rétention RGPD</CardTitle></CardHeader>
+          <CardContent>
+            <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-center" role="alert">
+              <p className="text-sm text-destructive">{error}</p>
+              <Button variant="outline" size="sm" className="mt-3" onClick={load}>Réessayer</Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : !config ? (
+        <Card>
+          <CardHeader><CardTitle>Rétention RGPD</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+            <Skeleton className="h-4 w-2/3" />
+            <Skeleton className="h-24 w-full" />
+          </CardContent>
+        </Card>
+      ) : config.enabled === 'true' ? (
+        <ActiveRetention />
+      ) : (
+        <FirstSetup saved={config} onActivated={load} />
+      )}
     </>
   );
 }

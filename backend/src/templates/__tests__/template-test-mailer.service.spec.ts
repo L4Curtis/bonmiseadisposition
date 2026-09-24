@@ -2,6 +2,7 @@ import { NotFoundException } from '@nestjs/common';
 import { TemplateTestMailerService } from '../template-test-mailer.service';
 import { TemplatesService } from '../templates.service';
 import { NotificationService } from '../../notification/notification.service';
+import { TemplateBonPreviewService } from '../template-bon-preview.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -11,6 +12,7 @@ describe('TemplateTestMailerService', () => {
   let prisma: ReturnType<typeof createMockPrismaService>;
   let templatesService: { getTemplateById: jest.Mock; getPreviewHtml: jest.Mock };
   let notificationService: { sendEmail: jest.Mock };
+  let bonPreviewService: { render: jest.Mock };
   let service: TemplateTestMailerService;
 
   beforeEach(() => {
@@ -20,10 +22,19 @@ describe('TemplateTestMailerService', () => {
       getPreviewHtml: jest.fn().mockResolvedValue('<html>apercu</html>'),
     };
     notificationService = { sendEmail: jest.fn() };
+    bonPreviewService = {
+      render: jest.fn().mockResolvedValue({
+        html: '<html>bon reel</html>',
+        subject: 'sujet',
+        reference: 'BMD-2026-0007',
+        sampleVariables: [],
+      }),
+    };
     service = new TemplateTestMailerService(
       templatesService as unknown as TemplatesService,
       notificationService as unknown as NotificationService,
       prisma as never,
+      bonPreviewService as unknown as TemplateBonPreviewService,
     );
   });
 
@@ -84,5 +95,51 @@ describe('TemplateTestMailerService', () => {
 
     await expect(service.sendTest('does_not_exist', 'admin@livio.fr')).rejects.toThrow(NotFoundException);
     expect(notificationService.sendEmail).not.toHaveBeenCalled();
+  });
+
+  describe('avec un vrai bon (lot H3)', () => {
+    const bonId = '11111111-2222-3333-4444-555555555555';
+
+    it('rend le modèle avec les données du bon et le signale dans le sujet', async () => {
+      notificationService.sendEmail.mockResolvedValue({ ok: true });
+
+      await service.sendTest('reminder', 'admin@livio.fr', 'admin-1', bonId);
+
+      expect(bonPreviewService.render).toHaveBeenCalledWith('reminder', bonId);
+      expect(templatesService.getPreviewHtml).not.toHaveBeenCalled();
+      expect(notificationService.sendEmail).toHaveBeenCalledWith(
+        'admin@livio.fr',
+        '[TEST] Rappel — Document en attente de signature — BMD-2026-0007',
+        '<html>bon reel</html>',
+      );
+    });
+
+    it("trace le bon utilisé dans l'audit, sans rattacher la ligne à l'historique du bon", async () => {
+      notificationService.sendEmail.mockResolvedValue({ ok: true });
+
+      await service.sendTest('reminder', 'admin@livio.fr', 'admin-1', bonId);
+
+      expect(prisma.auditLog.create).toHaveBeenCalledWith({
+        data: {
+          userId: 'admin-1',
+          action: 'email_template_test_sent',
+          details: {
+            templateId: 'reminder',
+            email: 'admin@livio.fr',
+            success: true,
+            bonId,
+            bonReference: 'BMD-2026-0007',
+          },
+        },
+      });
+    });
+
+    it("n'envoie rien si le bon est introuvable", async () => {
+      bonPreviewService.render.mockRejectedValue(new NotFoundException('Bon introuvable'));
+
+      await expect(service.sendTest('reminder', 'admin@livio.fr', 'admin-1', bonId)).rejects.toThrow(NotFoundException);
+      expect(notificationService.sendEmail).not.toHaveBeenCalled();
+      expect(prisma.auditLog.create).not.toHaveBeenCalled();
+    });
   });
 });
