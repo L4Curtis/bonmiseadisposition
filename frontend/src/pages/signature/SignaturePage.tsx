@@ -173,8 +173,10 @@ export function SignaturePage() {
     currentUser.email.toLowerCase().trim() !== bon.collaborateurEmail.toLowerCase().trim();
 
   return (
-    <div className="min-h-screen bg-background py-8 px-4">
-      <div className="mx-auto max-w-2xl space-y-5">
+    // Marges latérales réduites sur téléphone : chaque pixel de largeur
+    // profite à la zone de signature.
+    <div className="min-h-screen bg-background py-4 px-3 sm:py-8 sm:px-4">
+      <div className="mx-auto max-w-2xl space-y-4 sm:space-y-5">
         <BonSummary bon={bon} isPvCloture={isPvCloture} isRestitution={isRestitution} sigType={sigType} />
 
         <SignatureFormCard
@@ -203,7 +205,7 @@ export function SignaturePage() {
         />
 
         {/* Footer */}
-        <p className="text-center text-xs text-muted-foreground/60 pb-4">
+        <p className="text-center text-xs text-muted-foreground pb-4">
           Groupe Livio — Service informatique · Signature électronique sécurisée
         </p>
       </div>

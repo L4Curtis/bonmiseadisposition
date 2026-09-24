@@ -59,16 +59,18 @@ export function SignatureFormCard({
 }: SignatureFormCardProps) {
   return (
     <div className="rounded-xl bg-card border border-border shadow-sm overflow-hidden">
-      <div className="px-5 py-3 border-b flex items-center justify-between">
-        <h2 className="font-semibold text-sm text-foreground">Votre signature</h2>
-        <span className="text-xs text-muted-foreground/70">
-          Connecté en tant que <strong>{currentUser.displayName}</strong> ({currentUser.email})
+      {/* Titre et compte empilés sur téléphone : côte à côte, le titre se
+          coupait en deux lignes (« Votre / signature »). */}
+      <div className="px-4 sm:px-5 py-3 border-b flex flex-col gap-0.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+        <h2 className="font-semibold text-sm text-foreground shrink-0">Votre signature</h2>
+        <span className="text-xs text-muted-foreground [overflow-wrap:anywhere] sm:text-right">
+          Connecté en tant que <strong>{currentUser.displayName}</strong>{currentUser.email ? ` (${currentUser.email})` : ''}
         </span>
       </div>
 
       {/* Email mismatch warning */}
       {emailMismatch && (
-        <div role="alert" className="mx-5 mt-4 flex items-start gap-3 rounded-lg bg-destructive/10 border border-destructive/30 p-3 text-sm text-destructive">
+        <div role="alert" className="mx-4 sm:mx-5 mt-4 flex items-start gap-3 rounded-lg bg-destructive/10 border border-destructive/30 p-3 text-sm text-destructive">
           <XCircle className="h-4 w-4 shrink-0 mt-0.5" />
           <div>
             <p className="font-medium">Compte non autorisé</p>
@@ -80,7 +82,7 @@ export function SignatureFormCard({
       )}
 
       {isPvCloture && (
-        <div className="mx-5 mt-4 flex items-start gap-3 rounded-lg bg-destructive/10 border border-destructive/30 p-3 text-sm text-destructive">
+        <div className="mx-4 sm:mx-5 mt-4 flex items-start gap-3 rounded-lg bg-destructive/10 border border-destructive/30 p-3 text-sm text-destructive">
           <div>
             <p className="font-medium">Procès-verbal d'équipements non restitués</p>
             <p className="text-xs mt-0.5">
@@ -90,7 +92,7 @@ export function SignatureFormCard({
         </div>
       )}
       {isInPerson && !isPvCloture && (
-        <div className="mx-5 mt-4 flex items-start gap-3 rounded-lg bg-warning/10 border border-warning/30 p-3 text-sm text-warning">
+        <div className="mx-4 sm:mx-5 mt-4 flex items-start gap-3 rounded-lg bg-warning/10 border border-warning/30 p-3 text-sm text-warning">
           <div>
             <p className="font-medium">Signature présentielle</p>
             <p className="text-xs mt-0.5">
@@ -100,12 +102,13 @@ export function SignatureFormCard({
         </div>
       )}
 
-      <div className="p-5 space-y-4">
+      {/* Marges réduites sur téléphone : la zone de signature gagne en largeur. */}
+      <div className="p-4 sm:p-5 space-y-4">
         {/* Aperçu du document exact qui sera signé */}
         <button
           type="button"
           onClick={onPreview}
-          className="w-full flex items-center justify-center gap-2 rounded-lg border border-border bg-muted/30 px-4 py-2.5 text-sm font-medium text-foreground/80 hover:bg-muted/60 transition-colors"
+          className="w-full min-h-11 flex items-center justify-center gap-2 rounded-lg border border-border bg-muted/30 px-4 py-2.5 text-sm font-medium text-foreground/80 hover:bg-muted/60 transition-colors"
         >
           <FileText className="h-4 w-4" />
           Voir le document qui sera signé (PDF)
@@ -122,6 +125,7 @@ export function SignatureFormCard({
           onMouseMove={onMouseMove}
           onMouseUp={onMouseUp}
           onMouseLeave={onMouseLeave}
+          disabled={submitting}
         />
 
         <ConsentChecklist
@@ -141,9 +145,11 @@ export function SignatureFormCard({
 
         {/* Submit */}
         <button
+          type="button"
           onClick={onSubmit}
           disabled={disabled}
-          className={`w-full flex items-center justify-center gap-2 rounded-xl px-6 py-3 text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-[0.99] ${isPvCloture ? 'bg-destructive hover:bg-destructive/90 text-destructive-foreground shadow-sm' : 'btn-gradient text-primary-foreground'}`}
+          aria-busy={submitting}
+          className={`w-full min-h-12 flex items-center justify-center gap-2 rounded-xl px-6 py-3 text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-[0.99] ${isPvCloture ? 'bg-destructive hover:bg-destructive/90 text-destructive-foreground shadow-sm' : 'btn-gradient text-primary-foreground'}`}
         >
           {submitting ? (
             <><Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" /> Signature en cours…</>
@@ -154,7 +160,22 @@ export function SignatureFormCard({
           )}
         </button>
 
-        <p className="text-center text-xs text-muted-foreground/70">
+        {/* Ce qui manque encore, dit en clair : sur téléphone, le bouton grisé
+            seul ne dit pas pourquoi il ne répond pas. */}
+        {!submitting && (isEmpty || !luApprouve) && (
+          <p className="text-center text-sm text-muted-foreground">
+            {isEmpty && !luApprouve
+              ? 'Tracez votre signature et cochez « Lu et approuvé » pour signer.'
+              : isEmpty
+                ? 'Tracez votre signature pour signer.'
+                : 'Cochez « Lu et approuvé » pour signer.'}
+          </p>
+        )}
+        <p role="status" className="sr-only">
+          {submitting ? 'Envoi de la signature en cours, patientez.' : ''}
+        </p>
+
+        <p className="text-center text-xs text-muted-foreground">
           Lien valide jusqu'au {formatDateTime(tokenExpiresAt)}
         </p>
       </div>

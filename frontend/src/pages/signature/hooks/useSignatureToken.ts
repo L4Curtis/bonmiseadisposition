@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { errorMessage } from '@/lib/errors';
 import { isSafeReturnTo } from '@/lib/safe-return-to';
@@ -36,6 +36,10 @@ export function useSignatureToken(token: string | undefined): UseSignatureTokenR
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [signed, setSigned] = useState(false);
+  // Verrou synchrone contre le double appui : `submitting` n'est lu qu'au
+  // rendu suivant, alors que deux appuis rapprochés sur un écran tactile
+  // peuvent atteindre le gestionnaire avant ce rendu.
+  const submittingRef = useRef(false);
 
   // Cible de retour post-connexion, validée par comparaison d'origine (token
   // = segment d'URL non contrôlé par le serveur avant ce point).
@@ -116,12 +120,13 @@ export function useSignatureToken(token: string | undefined): UseSignatureTokenR
 
   // ── 4. Submit signature ──
   const submit = async (signatureDataUrl: string | null, luApprouve: boolean) => {
-    if (!signatureDataUrl) return;
+    if (!signatureDataUrl || submittingRef.current) return;
     if (!luApprouve) {
       setSubmitError('Veuillez cocher "Lu et approuvé" avant de signer.');
       return;
     }
 
+    submittingRef.current = true;
     setSubmitting(true);
     setSubmitError(null);
 
@@ -143,6 +148,7 @@ export function useSignatureToken(token: string | undefined): UseSignatureTokenR
         setSubmitError(errorMessage(e, 'Une erreur est survenue lors de la signature.'));
       }
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };

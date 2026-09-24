@@ -210,4 +210,67 @@ describe('SignaturePage', () => {
     resolvePost(undefined);
     await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
   });
+
+  it('says what is still missing while the "Signer" button is disabled', async () => {
+    mockAuthMe(currentUser);
+    vi.mocked(api.get).mockResolvedValue(pendingResponse);
+
+    const { user } = renderSignaturePage();
+
+    expect(await screen.findByText('Tracez votre signature et cochez « Lu et approuvé » pour signer.')).toBeInTheDocument();
+    drawOnCanvas();
+    expect(screen.getByText('Cochez « Lu et approuvé » pour signer.')).toBeInTheDocument();
+    await user.click(screen.getByRole('checkbox'));
+    expect(screen.queryByText(/pour signer\.$/)).not.toBeInTheDocument();
+  });
+
+  it('keeps "Effacer" disabled until something is drawn, then clears the canvas', async () => {
+    mockAuthMe(currentUser);
+    vi.mocked(api.get).mockResolvedValue(pendingResponse);
+
+    const { user } = renderSignaturePage();
+
+    const effacer = await screen.findByRole('button', { name: /effacer/i });
+    expect(effacer).toBeDisabled();
+    drawOnCanvas();
+    expect(effacer).not.toBeDisabled();
+    await user.click(effacer);
+    expect(effacer).toBeDisabled();
+  });
+
+  it('hides the "Email" row for a collaborateur without an address', async () => {
+    mockAuthMe(currentUser);
+    vi.mocked(api.get).mockResolvedValue({
+      ...pendingResponse,
+      bon: { ...pendingResponse.bon, collaborateurEmail: '' },
+      signature: { ...pendingResponse.signature, isInPerson: true },
+    });
+
+    renderSignaturePage();
+
+    expect(await screen.findByText('Destinataire')).toBeInTheDocument();
+    expect(screen.queryByText('Email')).not.toBeInTheDocument();
+  });
+
+  it('sends a single POST when "Signer" is pressed twice before the next render', async () => {
+    mockAuthMe(currentUser);
+    vi.mocked(api.get).mockResolvedValue(pendingResponse);
+    let resolvePost: (v: unknown) => void = () => {};
+    vi.mocked(api.post).mockImplementation(
+      () => new Promise((resolve) => { resolvePost = resolve; }),
+    );
+
+    const { user } = renderSignaturePage();
+
+    await user.click(await screen.findByRole('checkbox'));
+    drawOnCanvas();
+    const submit = screen.getByRole('button', { name: /signer le bon de mise à disposition/i });
+    // Deux appuis dans la même tâche : le bouton n'a pas encore été re-rendu
+    // désactivé, seul le verrou synchrone du hook empêche le second envoi.
+    submit.click();
+    submit.click();
+
+    resolvePost(undefined);
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+  });
 });
