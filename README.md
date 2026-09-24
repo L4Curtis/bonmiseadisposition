@@ -433,6 +433,23 @@ a servi à le retrouver — ils comptent désormais l'un autant que l'autre, y c
 globale (Ctrl+K). Accès IT (admin, technicien) ; la direction peut consulter, sans lien vers les bons
 (même règle que la liste ci-dessous).
 
+Dans la vue « Par équipement », toutes les colonnes sauf le n° d'inventaire et le bon sont triables
+(équipement, n° de série, collaborateur, filiale, situation, mise à disposition, restitution prévue) ;
+le tri est porté par l'URL (`sort`, `direction`) et l'export CSV le reprend. Chaque ligne propose
+d'ouvrir le bon, de voir l'historique du matériel et d'initier la restitution : ce dernier lien
+(`/bons/:id?action=restitution`) ouvre directement la boîte de dialogue sur la fiche du bon, pour un
+bon actif ou partiellement restitué. La direction ne voit ni le lien vers le bon ni la restitution. Un
+compte désactivé est signalé sur la colonne collaborateur, comme dans la vue par collaborateur. Le
+filtre « Sans numéro de série » (`sansNumeroSerie=1`, les deux vues et l'export) isole le matériel
+qu'on ne pourra ni retracer ni rapprocher d'un autre outil.
+
+Côté API, `GET /reporting/inventory` et son export acceptent `sort=label|category|serialNumber|filiale|
+collaborateur|situation|dateMiseDisposition|dateRestitution` (toute autre valeur : 400) et
+`direction=asc|desc`. Le tri est stable (départage par mise à disposition puis identifiant) : une
+ligne n'apparaît jamais sur deux pages. Les valeurs absentes (n° de série, restitution prévue) sont
+toujours en fin de liste. Le tri par situation suit l'ordre métier (attente de signature, en
+circulation, litige) et non l'ordre de l'enum `BonStatus` en base, qui diffère de celui du schéma.
+
 Côté API : `GET /reporting/inventory/by-collaborateur` accepte les mêmes filtres que la liste, plus
 `sort=count|oldest` et la pagination. Le regroupement est fait en mémoire, volontairement, pour
 réutiliser la construction des filtres de la liste plutôt que de la dupliquer en SQL ; il est donc
@@ -447,9 +464,10 @@ et d'envoyer un email de test à une adresse choisie. Le modèle est rendu avec 
 aucun bon n'est créé ni modifié, et l'envoi est tracé dans le journal d'audit. Si le SMTP n'est pas
 configuré, le message le dit explicitement.
 
-## Catalogue et filiales : import et export CSV
+## Catalogue, filiales et collaborateurs : import et export CSV
 
-Admin → Catalogue et Admin → Filiales proposent un export CSV, un modèle téléchargeable et un import.
+Admin → Catalogue, Admin → Filiales et Admin → Utilisateurs (collaborateurs créés à la main) proposent un
+export CSV, un modèle téléchargeable et un import.
 Le modèle rappelle les valeurs acceptées (catégories d'équipement notamment) ; les lignes commençant par
 « # » y sont des commentaires, ignorées à l'import. L'import affiche un aperçu, puis un compte rendu :
 créés, mis à jour, ignorés, et erreurs ligne par ligne.
@@ -459,6 +477,25 @@ devenant alors volumineux. À l'import, une image est acceptée seulement si ses
 correspondent réellement à du PNG ou du JPEG.
 
 Les éléments désactivés sont masqués par défaut dans les deux pages, un contrôle permet de les afficher.
+
+Côté Utilisateurs, l'import et l'export ne concernent que les collaborateurs **sans compte Active Directory**
+(gens de chantier, prestataires) : colonnes `identifiant;prenom;nom;email;service;filiale;actif`, 500 lignes
+au plus. L'identifiant sert de clé : vide, la ligne crée un collaborateur (identifiant généré
+`manuel.prenom.nom`) ; renseigné (tel que l'export le fournit), elle met à jour ce collaborateur. Une cellule
+vide ne modifie pas le champ. L'email reste facultatif, mais doit être valide et ne jamais être celui d'un
+compte de l'annuaire. Un import ne modifie jamais un compte synchronisé depuis l'annuaire. Les doublons
+internes au fichier (même identifiant, même email, mêmes prénom et nom sans identifiant) sont écartés dès
+l'aperçu, et une création est refusée si un collaborateur manuel du même nom existe déjà : un fichier
+importé deux fois ne crée pas de doublons.
+
+## Journal d'audit : filtres et export CSV
+
+Admin → Journal d'audit se filtre par auteur de l'action (nom ou email), par action et par période (jours
+civils à l'heure de Paris, bornes incluses). « Exporter CSV » reprend exactement ces filtres. L'export est
+plafonné aux 10 000 entrées les plus récentes : au-delà, la page prévient avant l'export et la réponse porte
+l'en-tête `X-Truncated: true`. L'adresse IP, l'agent utilisateur et les champs de détail que la rétention
+considère comme personnels (email, message, motif…) ne sont pas exportés. Chaque export est lui-même tracé
+(`audit_exported`).
 
 ## Données de démonstration
 

@@ -4,6 +4,154 @@ Historique des évolutions notables de l'application. Les entrées les plus réc
 
 ---
 
+## 2026-09-24 — Liste des bons : tri, filtres, relances groupées et réponse allégée
+
+### Ajouté
+- **Tri par colonne** : référence, collaborateur, filiale, date de mise à disposition, statut et dernière
+  activité se trient d'un clic sur l'en-tête (`aria-sort`, utilisable au clavier) ; un sélecteur « Trier »
+  couvre aussi la date de création et les petits écrans. Côté API, `sort` et `order` sur `GET /bons` et
+  `GET /bons/export`, avec une liste blanche de champs (toute autre valeur → 400) et un départage par
+  identifiant pour que la pagination ne saute ni ne répète aucune ligne. Le tri par statut suit l'ordre de
+  l'enum Postgres (brouillons d'abord, restitutions partielles en dernier) : il sert à regrouper.
+- **Nouveaux filtres** : période sur la date de mise à disposition (du / au, bornes incluses ; début après la
+  fin → 400), « en retard de signature » (le paramètre existait sans être proposé), « sans date de restitution
+  prévue » et « créé par » (le créateur est enregistré sur chaque bon).
+- **Colonne « Dernière activité »** en durée relative (« il y a 12 j »), triable ; date exacte au survol.
+- **Ligne entière cliquable** : la référence est un vrai lien étiré sur toute la ligne, donc clic du milieu et
+  Ctrl+clic ouvrent un nouvel onglet, avec un seul arrêt de tabulation par bon.
+- **Relance depuis la ligne** d'un bon en attente de signature : même route et même confirmation (lien envoyé
+  il y a moins d'une heure) que « Renvoyer le lien » sur la fiche.
+- **Sélection multiple** : « Relancer les liens » et « Exporter la sélection ». Les relances passent par une
+  nouvelle route `POST /bons/resend-batch` (10 bons par appel, 10 appels par minute) parce que la route
+  unitaire est limitée à 5 appels par minute : relancer 20 bons un par un aurait pris plusieurs minutes. Chaque
+  bon suit exactement le chemin du bouton de la fiche (contrôles, email, ligne d'audit `reminder_sent`), l'un
+  après l'autre. Le navigateur envoie des lots de 5 successifs, affiche la progression puis un compte rendu
+  envoyés / ignorés (avec le motif) / en échec. Les liens envoyés il y a moins d'une heure sont ignorés sauf
+  si l'on coche l'option prévue.
+- **Vues rapides** : « Mes brouillons », « En retard », « À relancer », « Sans date de restitution ». Les
+  derniers filtres et le tri sont mémorisés dans le navigateur et restaurés en revenant sur la liste sans
+  paramètre ; un lien avec paramètres (tableau de bord, recherche globale) l'emporte toujours.
+
+### Modifié
+- **Réponse de `GET /bons` allégée** : 71,6 ko → 28,5 ko pour 25 bons (−60 %, mesuré sur la base de
+  développement). La liste ne renvoie plus que ce que ses consommateurs lisent : filiale réduite à son nom,
+  équipements réduits à l'article et aux numéros de série et d'inventaire (recherche globale, « Repartir d'un
+  bon existant »), signatures réduites à celles en attente. La fiche complète reste sur `GET /bons/:id`.
+- L'export CSV suit le tri affiché.
+
+---
+
+## 2026-09-24 — Collaborateurs manuels en CSV, journal d'audit filtrable et exportable
+
+### Ajouté
+- **Import et export CSV des collaborateurs créés à la main** (Admin → Utilisateurs → Autres actions), sur le
+  modèle du catalogue et des filiales : modèle téléchargeable dont la ligne `#` rappelle les valeurs acceptées
+  (dont les filiales actives), aperçu avant import, compte rendu ligne par ligne (créés, mis à jour, ignorés,
+  erreurs), 500 lignes au plus, doublons internes au fichier écartés. L'identifiant (`samAccountName`) sert de
+  clé de rapprochement : unique, stable et toujours présent, contrairement à l'email (facultatif) et au nom
+  (homonymes). L'email, facultatif, doit être valide et ne peut jamais être celui d'un compte de l'annuaire ;
+  un import ne modifie jamais un compte synchronisé depuis l'annuaire. Import tracé (`users_imported`).
+- **Journal d'audit** : filtre par auteur de l'action (nom ou email, y compris pour les entrées tracées par
+  email seul), en plus de l'action et de la période, et **export CSV** qui reprend les filtres. L'export est
+  plafonné à 10 000 entrées ; le dépassement est annoncé sur la page avant l'export et signalé par l'en-tête
+  `X-Truncated`. Ni adresse IP, ni agent utilisateur, ni les champs de détail que la rétention tient pour
+  personnels. Chaque export est tracé (`audit_exported`).
+
+### Corrigé
+- **Période du journal d'audit dépendante du fuseau du serveur** : la date de fin était étendue à 23:59:59 à
+  l'heure de la machine (Paris en développement, UTC en production). Les bornes sont désormais des jours civils
+  à l'heure de Paris, jour de fin inclus en entier, et une date impossible (30 février) est refusée.
+
+---
+
+## 2026-09-24 — Modèles d'email vus avec un vrai bon, première configuration de la rétention guidée
+
+### Ajouté
+- **Aperçu d'un modèle d'email avec un vrai bon** : dans l'aperçu, « Un bon réel » permet de chercher un bon par
+  sa référence et de voir le modèle rendu avec ses données (civilité, nom, filiale, équipements, dates, sujet),
+  construites par les mêmes fonctions que l'envoi réel. Le lien de signature affiché est **factice**
+  (`/signer/APERCU-LIEN-FACTICE`) : l'aperçu ne lit ni ne crée aucun jeton, n'écrit rien en base et n'envoie rien.
+  Les variables que le bon ne renseigne pas (rang d'un rappel, message d'un bon jamais contesté) gardent leur
+  valeur d'exemple et sont signalées. Bons anonymisés exclus ; l'alerte « départs avec matériel », qui ne porte
+  pas sur un bon, garde ses données d'exemple.
+- **Email de test avec un vrai bon** : l'administrateur peut cocher « Utiliser les données d'un vrai bon » dans
+  la fenêtre d'envoi de test. Même règle que le test existant (administrateur seulement, tracé dans le journal
+  d'audit, qui retient aussi la référence du bon), même lien factice.
+- **Première configuration de la rétention RGPD guidée** : tant que la rétention n'est pas activée, la rubrique
+  propose un parcours en quatre étapes — ce que fait chaque durée et sur quelles données elle agit, le choix des
+  durées (valeurs de départ = celles que le serveur applique déjà sans configuration : 60 mois, 24 mois,
+  30 jours, 5 ans, chacune expliquée), une simulation qui dit combien de bons seraient anonymisés, de pièces
+  jointes et de lignes d'audit supprimées, puis l'activation, confirmée par la validation du référent RGPD.
+  L'activation n'est possible qu'avec des durées enregistrées, inchangées depuis la simulation, et une simulation
+  de moins de 24 h. Le plancher légal de 60 mois est expliqué et vérifié dès la saisie (le serveur l'impose
+  toujours).
+
+### Corrigé
+- **Lancement manuel de l'anonymisation refusé après un « Aperçu »** : l'aperçu ne comptait que les bons, sans
+  enregistrer la simulation que le serveur exige (moins de 24 h) avant tout lancement manuel ; le lancement
+  échouait donc systématiquement. Le bouton devient « Simuler » (dry-run serveur, rien n'est modifié) et affiche
+  aussi pièces jointes et lignes d'audit ; « Lancer l'anonymisation » n'apparaît qu'après une simulation fraîche.
+
+---
+
+## 2026-09-24 — Inventaire : trier, agir depuis la ligne, repérer ce qui manque
+
+L'inventaire servait à regarder le parc ; il sert désormais aussi à agir dessus.
+
+### Ajouté
+- **Tri sur toutes les colonnes** de la vue par équipement : équipement, n° de série, collaborateur,
+  filiale, situation, mise à disposition et restitution prévue, dans les deux sens. Le tri est annoncé aux
+  lecteurs d'écran (`aria-sort`), conservé dans l'URL et repris tel quel par l'export CSV. Il est stable :
+  un équipement n'apparaît plus sur deux pages ni ne disparaît entre deux pages quand plusieurs lignes ont
+  la même valeur. Les équipements sans n° de série ou sans restitution prévue restent en fin de liste.
+- **Agir depuis la ligne** : ouvrir le bon, voir l'historique du matériel, initier la restitution. Ce
+  dernier lien ouvre la fiche du bon avec la boîte de dialogue de restitution déjà affichée (bon actif ou
+  partiellement restitué) ; sinon, un message explique pourquoi elle ne s'ouvre pas. La direction garde
+  l'historique du matériel, sans lien vers le bon ni restitution.
+- **Compte désactivé signalé dans la vue par équipement**, par la même pastille que dans la vue par
+  collaborateur. L'information vient du serveur (état du compte ajouté à la réponse de l'inventaire).
+- **Filtre « Sans numéro de série »** : le matériel qu'on ne pourra jamais retracer ni rapprocher d'un autre
+  outil (un rapprochement avec GLPI est envisagé). Valable pour les deux vues, porté par l'URL et appliqué
+  à l'export.
+
+### À savoir
+- **Le tri par situation suit l'ordre métier** (attente de signature, en circulation, litige), pas le
+  statut en base : dans PostgreSQL, les valeurs de l'enum `BonStatus` ne sont pas dans l'ordre du schéma
+  (`partially_returned` y est après `contested`), et un retour partiel se serait classé après un litige.
+  Écart trouvé par le test contre une vraie base (`inventory-sort.real-db.spec.ts`, lancé avec
+  `RUN_DB_TESTS=1`).
+
+---
+
+## 2026-09-24 — Signer sur téléphone et tablette
+
+La signature présentielle se fait souvent sur une tablette, ou sur le téléphone du collaborateur après avoir
+scanné le QR code : c'est l'écran où le document devient probant, et où une gêne coûte le plus cher.
+
+### Corrigé
+- **Signature déformée en paysage et sur tablette** : à partir de 640 px de large, le cadre de signature passait
+  en 10:3 alors que le canevas restait en 2:1. Le tracé était étiré à l'écran, déformé d'un facteur 1,7 dans
+  l'image jointe au PDF, et changeait d'allure quand on tournait l'appareil. Le cadre garde désormais toujours
+  les proportions de l'image exportée : une rotation agrandit ou réduit le tracé sans le perdre ni le déformer.
+  Sur un téléphone en paysage, la zone est limitée pour tenir entière à l'écran.
+- **Zones de toucher trop petites** : « Effacer » (54 × 16 px) passe à 44 px de haut et n'est actif que s'il y a
+  quelque chose à effacer ; la case « Lu et approuvé » (13 px) passe à 24 px, sur une ligne entière cliquable.
+- **Double appui sur « Signer »** : un verrou synchrone garantit un seul envoi, même quand deux appuis arrivent
+  avant que le bouton ne soit redessiné désactivé. L'envoi en cours est annoncé aux lecteurs d'écran.
+- **Récapitulatif sur téléphone** : les noms longs ne sont plus coupés au milieu d'un mot (« COMPAGNO / N3 »),
+  la ligne « Email » disparaît pour un collaborateur sans adresse, les tableaux d'équipements défilent dans leur
+  cadre plutôt que d'élargir la page, et le titre « Votre signature » n'est plus coupé en deux lignes.
+  Marges réduites sur téléphone : la zone de signature gagne 16 px de large. Plus de texte sous 12 px.
+
+### Ajouté
+- **Ce qui manque pour signer, dit en clair** sous le bouton grisé (« Tracez votre signature et cochez « Lu et
+  approuvé » pour signer. »).
+- **QR code présentiel lisible à distance** : plus grand dans la modale (224 px), marge blanche normalisée de
+  4 modules, image haute définition, et bouton « Afficher en grand » qui le présente sur presque tout l'écran,
+  sur fond blanc quel que soit le thème, pour un scan depuis la place du collaborateur.
+
+---
+
 ## 2026-09-21 — Créer un bon : moins de friction à chaque saisie
 
 La tâche la plus répétitive de l'équipe IT — chaque amélioration s'y paie autant de fois qu'il y a de bons créés.

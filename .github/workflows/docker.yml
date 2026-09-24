@@ -97,7 +97,9 @@ jobs:
         # Les specs unitaires simulent $queryRaw et ne voient donc jamais les
         # erreurs que seul Postgres détecte (casts d'enum, GROUP BY, fuseau) :
         # voir backend/src/__tests__/sql-real-db.spec.ts. Base vide suffisante.
-        run: RUN_DB_TESTS=1 npx jest src/__tests__/sql-real-db.spec.ts
+        # Toutes les suites « real-db » (et pas un fichier nommé) : une nouvelle
+        # suite ajoutée ailleurs ne doit pas être oubliée silencieusement par la CI.
+        run: RUN_DB_TESTS=1 npx jest --testPathPatterns 'real-db'
 
       - name: Audit de sécurité (non bloquant)
         working-directory: ./backend

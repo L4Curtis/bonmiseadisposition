@@ -265,11 +265,12 @@ FRONTEND_URL=https://bons.exemple.local
 | `GET` | `/api/bons/mes-bons` | collaborator+ |
 | `POST` | `/api/bons/:id/contestation` | collaborator+ |
 | `POST` | `/api/bons/:id/resend` | admin/technician |
+| `POST` | `/api/bons/resend-batch` | admin/technician (body `{ ids, force? }`, 10 bons max par appel, 10 appels/min ; compte rendu par bon `sent`/`skipped`/`failed`) |
 | `GET` | `/api/bons/stats` | admin/technician (+ `overdueThresholdDays`, seuil configurable via `rappels.signature_overdue_days`) |
 | `GET` | `/api/bons/recent` | admin/technician |
-| `GET` | `/api/bons/export` | admin/technician |
-| `GET` | `/api/bons?overdue=1` | admin/technician (`overdue=1` : en retard > 7 j) |
-| `GET` | `/api/bons` | admin/technician |
+| `GET` | `/api/bons/export` | admin/technician (mêmes filtres et tri que la liste, + `ids=a,b` pour une sélection, 100 max) |
+| `GET` | `/api/bons?overdue=1` | admin/technician (`overdue=1` : en retard au-delà du seuil configuré) |
+| `GET` | `/api/bons` | admin/technician — filtres `status`, `excludeStatus`, `filialeId`, `search`, `overdue`, `dateFrom`/`dateTo` (mise à disposition, AAAA-MM-JJ inclus), `noReturnDate`, `createdById`, `ids` ; tri `sort` ∈ `reference`, `dateMiseDisposition`, `createdAt`, `updatedAt`, `status`, `collaborateur`, `filiale` et `order` ∈ `asc`/`desc` (autre valeur → 400, départage par id) ; projection allégée (la fiche complète reste sur `/bons/:id`) |
 | `GET` | `/api/bons/:id` | admin/technician |
 | `GET` | `/api/bons/:id/notifications` | tous* (historique emails du bon) |
 | `GET` | `/api/bons/:id/integrity` | tous* (vérif. sceaux HMAC) |
