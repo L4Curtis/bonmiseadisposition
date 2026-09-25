@@ -1,52 +1,8 @@
 import { BadRequestException } from '@nestjs/common';
-
-/** Fuseau de référence des dates civiles saisies dans les filtres du journal. */
-const PARIS_TZ = 'Europe/Paris';
-
-const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-const parisPartsFormatter = new Intl.DateTimeFormat('en-GB', {
-  timeZone: PARIS_TZ,
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hourCycle: 'h23',
-});
-
-function parisWallClockMs(instant: Date): number {
-  const parts = Object.fromEntries(
-    parisPartsFormatter.formatToParts(instant).map((p) => [p.type, p.value]),
-  ) as Record<string, string>;
-  return Date.UTC(
-    Number(parts.year), Number(parts.month) - 1, Number(parts.day),
-    Number(parts.hour), Number(parts.minute), Number(parts.second),
-  );
-}
-
-/** Instant UTC correspondant à minuit (heure de Paris) du jour civil
- *  `YYYY-MM-DD`, indépendamment du fuseau de la machine : le poste de dev est
- *  à l'heure de Paris, le conteneur de production en UTC — l'ancien
- *  `setHours(23, 59, …)` donnait une borne différente selon la machine. */
-export function parisDayStartUtc(isoDate: string): Date {
-  const [y, m, d] = isoDate.split('-').map(Number);
-  const naive = Date.UTC(y, m - 1, d);
-  // Décalage Paris/UTC à cet instant (1 h ou 2 h selon l'heure d'été), puis
-  // seconde passe pour le cas où minuit tombe de l'autre côté du changement.
-  const firstGuess = naive - (parisWallClockMs(new Date(naive)) - naive);
-  return new Date(naive - (parisWallClockMs(new Date(firstGuess)) - firstGuess));
-}
-
-function isRealCalendarDate(value: string): boolean {
-  const [y, m, d] = value.split('-').map(Number);
-  const check = new Date(Date.UTC(y, m - 1, d));
-  return check.getUTCFullYear() === y && check.getUTCMonth() === m - 1 && check.getUTCDate() === d;
-}
+import { addDaysToIsoDate, isRealCalendarDate, parisDayStartUtc } from '../common/dates/paris';
 
 function parseBound(value: string, name: string): string {
-  if (!ISO_DATE_RE.test(value) || !isRealCalendarDate(value)) {
+  if (!isRealCalendarDate(value)) {
     throw new BadRequestException(`Paramètre ${name} invalide (date AAAA-MM-JJ attendue)`);
   }
   return value;
@@ -69,26 +25,6 @@ export function resolveAuditPeriod(
   }
   return {
     ...(from ? { gte: parisDayStartUtc(from) } : {}),
-    ...(to ? { lt: parisDayStartUtc(nextIsoDay(to)) } : {}),
+    ...(to ? { lt: parisDayStartUtc(addDaysToIsoDate(to, 1)) } : {}),
   };
-}
-
-function nextIsoDay(isoDate: string): string {
-  const [y, m, d] = isoDate.split('-').map(Number);
-  return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
-}
-
-const parisDateTimeFormatter = new Intl.DateTimeFormat('sv-SE', {
-  timeZone: PARIS_TZ,
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-});
-
-/** Horodatage lisible à l'heure de Paris (« 2026-09-24 14:05:09 ») pour l'export. */
-export function formatParisDateTime(instant: Date): string {
-  return parisDateTimeFormatter.format(instant);
 }

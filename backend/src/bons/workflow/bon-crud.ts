@@ -11,6 +11,7 @@ import {
   normalizeEquipmentInput,
 } from '../validation/bon-validators';
 import { BonsWorkflowContext } from './bon-context';
+import { CANCELLABLE_BON_STATUSES, isBonStatusIn } from '../bon-status';
 
 export async function createBon(ctx: BonsWorkflowContext, dto: CreateBonDto, userId: string) {
   const { prisma } = ctx;
@@ -155,8 +156,12 @@ export async function updateBon(ctx: BonsWorkflowContext, id: string, dto: Updat
   // findBonOrThrow ci-dessus et l'écriture perd alors la course au lieu de
   // voir un bon déjà envoyé silencieusement réécrit ; (2) delete + recreate
   // des équipements rollbackés ensemble si l'update échoue (FK invalide, erreur DB).
+  // L'écriture neutre `status: 'draft'` est indispensable : avec `data: {}`,
+  // Prisma n'envoie aucun UPDATE, compte 0 ligne et tout brouillon serait
+  // refusé en 409. Ici l'UPDATE conditionnel pose le verrou de ligne jusqu'à
+  // la fin de la transaction.
   return prisma.$transaction(async (tx) => {
-    const claimed = await tx.bon.updateMany({ where: { id, status: 'draft' }, data: {} });
+    const claimed = await tx.bon.updateMany({ where: { id, status: 'draft' }, data: { status: 'draft' } });
     if (claimed.count === 0) {
       throw new ConflictException('Ce bon n\'est plus un brouillon — il a été envoyé entre-temps');
     }
@@ -174,7 +179,7 @@ export async function cancelBon(ctx: BonsWorkflowContext, id: string, userId?: s
   // peuvent être annulés. Dès qu'une signature a eu lieu (statut active ou
   // ultérieur), l'annulation est bloquée au profit de la restitution ou de
   // la clôture unilatérale.
-  if (!['draft', 'sent_mise_dispo'].includes(bon.status)) {
+  if (!isBonStatusIn(bon.status, CANCELLABLE_BON_STATUSES)) {
     throw new BadRequestException('Ce bon ne peut plus être annulé une fois signé');
   }
 
@@ -182,7 +187,7 @@ export async function cancelBon(ctx: BonsWorkflowContext, id: string, userId?: s
   // entre le findBonOrThrow et ici (course), elle a fait avancer le statut
   // hors de {draft, sent_mise_dispo} — on ne l'écrase pas avec 'cancelled'.
   const transition = await prisma.bon.updateMany({
-    where: { id, status: { in: ['draft', 'sent_mise_dispo'] } },
+    where: { id, status: { in: [...CANCELLABLE_BON_STATUSES] } },
     data: { status: 'cancelled' },
   });
   if (transition.count === 0) {

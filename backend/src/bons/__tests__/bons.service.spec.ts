@@ -1861,11 +1861,10 @@ describe('BonsService', () => {
       expect(stats.byFiliale).toHaveLength(1);
     });
 
-    it('should compute the month boundary in UTC, not local time (LOT A2)', async () => {
-      // 2026-03-01T00:30:00Z : en UTC-1 (ou plus à l'ouest), l'heure locale
-      // serait encore le 28/02 — un calcul en heure locale décalerait le
-      // début de mois d'une journée.
-      vi.useFakeTimers().setSystemTime(new Date('2026-03-01T00:30:00Z'));
+    it('should start « archivés ce mois-ci » on the 1st of the month in Paris', async () => {
+      // 2026-02-28T23:30:00Z = 1er mars, 0 h 30 à Paris : le mois courant est
+      // déjà mars, alors qu'il est encore février en UTC.
+      vi.useFakeTimers().setSystemTime(new Date('2026-02-28T23:30:00Z'));
       try {
         prisma.bon.count.mockResolvedValue(0);
         prisma.filiale.findMany.mockResolvedValue([]);
@@ -1877,7 +1876,7 @@ describe('BonsService', () => {
           (call) => (call[0] as { where?: { status?: string } })?.where?.status === 'archived',
         ) as [{ where: { archivedAt: { gte: Date } } }] | undefined;
         expect(archivedThisMonthCall).toBeDefined();
-        expect(archivedThisMonthCall?.[0].where.archivedAt.gte.toISOString()).toBe('2026-03-01T00:00:00.000Z');
+        expect(archivedThisMonthCall?.[0].where.archivedAt.gte.toISOString()).toBe('2026-02-28T23:00:00.000Z');
       } finally {
         vi.useRealTimers();
       }

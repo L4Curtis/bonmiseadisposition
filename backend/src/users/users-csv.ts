@@ -1,4 +1,4 @@
-import { escapeCsvCell } from '../common/bon-predicates';
+import { buildCsv } from '../common/csv';
 import { splitManualDisplayName } from './manual-account.util';
 import { IMPORT_MANUAL_USERS_MAX_ITEMS } from './dto/import-users.dto';
 
@@ -20,20 +20,15 @@ export interface ManualUserExportRow {
   filiale: { name: string } | null;
 }
 
+/** Fichier complet au format commun de common/csv (BOM UTF-8, séparateur
+ *  `;`, cellules protégées contre l'injection de formule). */
 function toCsv(rows: string[][]): string {
-  const csv = [
-    MANUAL_USERS_CSV_HEADERS.map(escapeCsvCell).join(';'),
-    ...rows.map((row) => row.map(escapeCsvCell).join(';')),
-  ].join('\n');
-  // BOM UTF-8 (U+FEFF) pour Excel — via fromCharCode pour éviter tout
-  // caractère littéral invisible dans le source (cf. filiales-csv.ts).
-  return String.fromCharCode(0xfeff) + csv;
+  return buildCsv({ header: MANUAL_USERS_CSV_HEADERS, rows });
 }
 
 /**
- * Construit le CSV d'export des collaborateurs créés à la main (BOM UTF-8,
- * séparateur `;`, cellules échappées via escapeCsvCell — protection contre
- * l'injection de formule). Fonction pure. Le prénom et le nom sont retrouvés
+ * Construit le CSV d'export des collaborateurs créés à la main. Fonction
+ * pure. Le prénom et le nom sont retrouvés
  * depuis le displayName (« Prénom NOM ») par splitManualDisplayName : le
  * fichier exporté peut être modifié puis réimporté tel quel.
  */

@@ -6,8 +6,8 @@ import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { AttachmentsService } from '../attachments/attachments.service';
 import { sanitizeAuditDetails } from './audit-sanitizer';
+import { SIGNATURES_DIR } from '../common/storage-paths';
 
-const SIGNATURES_DIR = path.join(process.cwd(), 'data', 'signatures');
 const ANONYMIZED_EMAIL = 'anonymise@rgpd.local';
 
 export interface AnonymizeBonDeps {

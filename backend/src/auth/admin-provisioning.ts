@@ -2,10 +2,10 @@ import { Logger } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 import { writeFileSync, existsSync, unlinkSync } from 'fs';
-import { join } from 'path';
 import { Prisma } from '@prisma/client';
 import { AppConfigService } from '../config/config.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { INITIAL_ADMIN_PASSWORD_FILE } from '../common/storage-paths';
 import { normalizeEmail } from './utils/normalize-email.util';
 
 export const ADMIN_LOCAL_EMAIL = normalizeEmail('admin@local');
@@ -16,15 +16,11 @@ export interface AdminProvisioningDeps {
   logger: Logger;
 }
 
-function initialAdminPasswordFilePath(): string {
-  return join(process.cwd(), 'data', 'initial-admin-password.txt');
-}
-
 /** Supprime data/initial-admin-password.txt après le premier changement de
  *  mot de passe réussi de admin@local — le fichier ne doit pas traîner
  *  indéfiniment sur le disque une fois le mot de passe temporaire consommé. */
 export function deleteInitialAdminPasswordFile(deps: Pick<AdminProvisioningDeps, 'logger'>): void {
-  const filePath = initialAdminPasswordFilePath();
+  const filePath = INITIAL_ADMIN_PASSWORD_FILE;
   try {
     if (existsSync(filePath)) {
       unlinkSync(filePath);
@@ -42,7 +38,7 @@ function generateDefaultAdminPassword(): string {
 /** Write the generated admin password to a restricted file instead of logging
  *  it in clear text (container logs persist and are widely readable). */
 function persistInitialAdminPassword(deps: Pick<AdminProvisioningDeps, 'logger'>, tempPassword: string): void {
-  const filePath = initialAdminPasswordFilePath();
+  const filePath = INITIAL_ADMIN_PASSWORD_FILE;
   try {
     writeFileSync(filePath, `admin@local : ${tempPassword}\n`, { encoding: 'utf8', mode: 0o600 });
     deps.logger.warn(

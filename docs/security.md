@@ -1,18 +1,133 @@
 # Sécurité — Référence complète
 
 > Document consolidé issu des phases 6 et 7 (2026-03-21), mis à jour le 2026-09-16 (revue
-> pré-production) et le 2026-09-17 (rôle Direction, tableau de bord KPI). Contient toutes les
+> pré-production), le 2026-09-17 (rôle Direction, tableau de bord KPI) et le 2026-09-24 (modèle d'accès :
+> refus par défaut, droits du technicien, cachet des filiales). Contient toutes les
 > corrections implémentées, les règles non-négociables pour le développement futur, et les
 > checklists de validation.
 
 ---
 
+## Modèle d'accès (depuis le 2026-09-24) — refus par défaut
+
+### La règle
+
+Chaque route de l'API déclare qui peut l'appeler, **sinon elle est refusée** :
+
+| Déclaration | Effet | Gardes |
+|---|---|---|
+| `@Public()` (`auth/decorators/public.decorator.ts`) | ouverte **sans session** | aucune garde de session (`JwtAuthGuard` interdit) |
+| `@Roles('admin', …)` (`auth/decorators/roles.decorator.ts`) | réservée aux rôles listés | `@UseGuards(JwtAuthGuard, RolesGuard)`, dans cet ordre |
+| `@Roles(...ALL_ROLES)` | toute personne connectée | idem |
+| rien | **refusée** (`403`) même pour un administrateur | — |
+
+- `RolesGuard` (`auth/guards/roles.guard.ts`) lit d'abord `@Roles` (celui de la méthode remplace celui de la
+  classe), puis `@Public`, et refuse tout le reste. Une déclaration contradictoire (`@Public` et `@Roles`)
+  se ferme : les rôles s'appliquent. Le refus répond **« Droits insuffisants pour cette action »** et une
+  route oubliée est signalée dans les journaux du serveur.
+- **Filet d'exécution** : `RolesGuard` ne protège que les contrôleurs qui le déclarent. `AccessDeclarationGuard`
+  (`auth/guards/access-declaration.guard.ts`), enregistré **globalement** par `AuthModule`, refuse donc en `403`,
+  avant les gardes du contrôleur, toute route qui n'est ni `@Public()` ni `@Roles(...)` derrière `JwtAuthGuard`
+  puis `RolesGuard` — même dans un contrôleur qui n'a déclaré aucune garde. Il ne lit que des métadonnées.
+- `@Roles` est typé sur l'énumération Prisma `UserRole` : une faute de frappe ne compile pas.
+- **Garde-fou automatique** : `backend/src/auth/__tests__/route-access.spec.ts` parcourt toutes les routes
+  de `AppModule` et échoue si l'une n'a ni `@Public` ni rôle, si une route à rôles ne passe pas par
+  `JwtAuthGuard` puis `RolesGuard`, si une route publique exige une session, ou si le filet d'exécution
+  refuserait une route livrée. Il vérifie aussi les décisions du propriétaire (ci-dessous) et quatre
+  invariants : `/admin/…` réservé à l'administrateur ; seules les routes « propriétaire » recensées sont
+  ouvertes à tout rôle connecté ; le collaborateur n'a rien d'autre ; la direction ne fait que lire en dehors
+  d'elles. Il compare enfin la table complète route → rôles au fichier versionné
+  [`backend/src/auth/__tests__/__snapshots__/route-access.md`](../backend/src/auth/__tests__/__snapshots__/route-access.md) :
+  **c'est la référence à jour des droits**, et tout changement de droits apparaît dans la revue de code.
+  Après une modification voulue : `cd backend && npx vitest run src/auth/__tests__/route-access.spec.ts -u`.
+
+### Routes publiques (sans session)
+
+Connexion locale et Microsoft (`GET /auth/login`, `GET /auth/callback`, `POST /auth/local-login`),
+rafraîchissement de session par cookie (`POST /auth/refresh`), informations lues par la page de connexion
+(`GET /auth/setup-required`, `GET /auth/local-auth-status`) et santé (`GET /health`, `GET /health/ready`).
+Rien d'autre.
+
+La **signature par jeton** (`/signature/:token…`) n'est pas publique : elle exige une session (tout rôle),
+puis le service vérifie que la personne connectée est bien le destinataire du lien (sauf en présentiel,
+où le technicien tend son appareil).
+
+### Qui fait quoi
+
+| Domaine | `admin` | `technician` | `direction` | `collaborator` |
+|---|---|---|---|---|
+| Bons : créer, envoyer, restituer, clôturer, annuler ; contestations : décider | oui | oui | non | non |
+| **Ses propres** bons : consulter, PDF, pièces jointes, contester, signer | oui | oui | oui | oui |
+| Catalogue (articles, packs) : lire et **modifier** | oui | oui | non | non |
+| Recherche du destinataire d'un bon (`GET /users/search`), fiche d'une personne en lecture (`GET /users/:id`), liste des comptes IT pour le filtre « Créé par » (`GET /users/it-staff`) | oui | oui | non | non |
+| **Gestion des utilisateurs** : liste de l'écran Utilisateurs (`GET /users`), comptes manuels (création — y compris depuis le formulaire de bon —, modification, désactivation, import, export), rôle, déverrouillage | oui | **non** | non | non |
+| **Gestion des filiales** : liste complète, création, modification, logo, cachet, désactivation, import, export | oui | **non** | non | non |
+| Liste des filiales actives, réduite à `{ id, name, displayName, active }` (`GET /filiales/active`) | oui | oui | oui | non |
+| Tableau de bord, inventaire, historique d'un équipement | oui | oui | lecture | non |
+| Administration : paramètres, annuaire (synchronisation LDAP), modèles d'email et de PDF, supervision, rétention, journal d'audit | oui | non | non | non |
+
+Sur les routes « propriétaire » (ouvertes à tout rôle connecté : `GET /bons/mes-bons`, `GET /bons/:id`,
+`/bons/:id/pdf`, `/pdf-snapshots`, `/integrity`, `POST /bons/:id/contestation`, pièces jointes), un compte non
+IT n'atteint **que ses propres bons** (`bons/bons-access.ts`, `attachments.controller.ts`). La direction y a
+accès comme tout le monde : elle peut, elle aussi, recevoir du matériel.
+
+### Cachet de la filiale
+
+- Aucune route ne sert les fichiers déposés (logos, cachets) : `GET /filiales/file/:filename`, qui n'était
+  appelée par aucun écran et laissait un collaborateur télécharger le cachet d'une filiale, est **supprimée**.
+  Un cachet ne quitte le serveur qu'imprimé sur un PDF.
+- Le chemin du cachet (`stampPath`) n'est jamais renvoyé à un collaborateur ni à la direction :
+  `FilialeStampRedactionInterceptor` (`auth/interceptors/`, enregistré globalement par `AuthModule`) le
+  retire de toutes leurs réponses, quelle que soit la profondeur. Les réponses envoyées à l'IT ne sont pas
+  touchées.
+- À la source : la session (`GET /auth/me`) et les lectures d'utilisateurs ne chargent de la filiale que son
+  identité ; `GET /filiales/active` ne renvoie que `{ id, name, displayName, active }`.
+- Pourquoi un intercepteur et pas seulement la source : la fiche d'un bon, « Mes bons » et la page de
+  signature chargent la filiale complète (`BON_SELECT_SHAPE.filiale` dans `common/types.ts`), et **la
+  génération des PDF lit le cachet dans ce même objet** (`pdf.service.ts`, une dizaine d'appelants dans
+  `bons/` et `signature/`). Retirer `stampPath` de ce select effacerait le cachet des PDF. La correction à la
+  source (le PDF charge lui-même le cachet de la filiale ; le select n'expose plus que l'identité, l'adresse,
+  le SIRET et le logo) relève du lot PDF ; l'intercepteur restera ensuite comme filet. Il renvoie une copie
+  et ne modifie jamais l'objet lu par la génération des PDF (vérifié sur une vraie réponse Prisma :
+  `filiale-stamp-redaction.real-db.spec.ts`).
+
+### Retour à la page demandée après une connexion Microsoft
+
+`GET /auth/login?returnTo=…` garde la page demandée dans le cookie `auth_return_to` (httpOnly,
+`SameSite=Lax`, `Secure` en production, 10 minutes). Seul un **chemin interne** est accepté
+(`isSafeReturnTo`, `auth.controller.ts`) : une chaîne de 2 048 caractères au plus, commençant par un seul `/`,
+sans `\` ni caractère de contrôle, qui reste sur l'origine du front une fois résolue. Sinon, aucun cookie
+n'est posé et celui d'une tentative précédente est effacé. `GET /auth/callback` lit puis efface le cookie
+**quelle que soit l'issue**, et le revalide avant de rediriger (un cookie peut être forgé) : à défaut, retour
+à l'accueil. Tests : `auth/__tests__/auth-return-to.spec.ts` (vraies requêtes HTTP).
+
+### Alertes IT
+
+Les alertes de contestation et de départ d'un collaborateur qui détient du matériel partent à **tous les
+administrateurs et techniciens actifs**, choisis par leur **rôle** (`notification/it-alert-recipients.ts`),
+avec une adresse délivrable. La colonne `isItStaff` n'est plus lue pour cela ; elle reste écrite, en
+attendant son retrait (vague 5).
+
+### Ajouter une route
+
+1. Poser `@Public()` (rare : uniquement pour ce qui précède toute session) **ou** `@Roles(...)` au niveau de la
+   classe ou de la méthode, avec `@UseGuards(JwtAuthGuard, RolesGuard)` sur la classe.
+2. Préférer au niveau de la classe le rôle le plus restrictif, et ouvrir route par route.
+3. Sur une route ouverte à un compte non IT, vérifier la propriété de la donnée dans la route ou le service,
+   puis l'ajouter à `ROUTES_PROPRIETAIRE` dans `route-access.spec.ts`.
+4. Relancer `route-access.spec.ts` avec `-u`, relire la table générée, la committer avec le code.
+
+---
+
 ## Mise à jour 2026-09-17 — rôle Direction (lecture seule)
+
+> Complété le 2026-09-24 : la direction consulte aussi **ses propres** bons (voir « Modèle d'accès »).
 
 - **Périmètre** : le rôle `direction` n'a accès qu'au tableau de bord KPI (`GET /api/kpi/*`,
   hors onglet Aujourd'hui côté frontend) et à l'inventaire (`GET /api/reporting/inventory*`,
   y compris l'export CSV). Aucun accès aux bons individuels, aux utilisateurs, aux
-  contestations ni à l'administration — ces routes restent réservées à `admin`/`technician`.
+  contestations ni à l'administration — ces routes restent réservées à l'IT (depuis le 2026-09-24 :
+  utilisateurs, filiales et administration à l'administrateur seul).
 - **`isItStaff` toujours faux** : contrairement à `admin` et `technician`, le rôle `direction`
   ne donne jamais `isItStaff = true`, y compris lorsqu'il est attribué manuellement.
 - **Contrôles d'accès** : les vérifications historiquement écrites « tout ce qui n'est pas
@@ -75,9 +190,14 @@ là où elles ont changé depuis.
 
 - La validation de `returnTo` (redirection post-login) se fait **par comparaison d'origine**
   (`new URL(returnTo, base).origin === new URL(base).origin`), backend (`isSafeReturnTo` dans
-  `auth.controller.ts`) et frontend (`Login.tsx`), jamais par une simple regex de préfixe
-  (`/^\/[^/]/`) : une regex seule reste contournable par des variantes d'encodage. La
-  vérification `origin` après résolution de l'URL couvre ce cas.
+  `auth.controller.ts`) et frontend (`safeReturnTo` dans `lib/safe-return-to.ts`, utilisé par la
+  connexion, le changement de mot de passe, la signature, la garde des routes et le client API),
+  jamais par une simple regex de préfixe (`/^\/[^/]/`) : une regex seule reste contournable par des
+  variantes d'encodage. Les deux côtés refusent en plus, avant toute résolution, une valeur qui ne
+  commence pas par `/`, qui commence par `//`, ou qui contient `\` ou un caractère de contrôle.
+- Un lien profond ouvert sans session (`ProtectedRoute`) mène à `/login?returnTo=<chemin et
+  paramètres>` ; pour Microsoft, le serveur garde l'adresse dans le cookie `auth_return_to` pendant
+  l'aller-retour et la revalide au retour.
 
 ### Emails — normalisation systématique
 
@@ -136,8 +256,8 @@ là où elles ont changé depuis.
 | SEC-06 | Haute | Password policy : min 12 chars, maj+min+spécial, max 128 | `auth.service.ts` |
 | SEC-07 | Haute | Brute force : verrouillage 30 min après 10 échecs | `auth.service.ts` |
 | SEC-08 | Haute | Config sensible (ldap/smtp/entra/smb) restreinte à `@Roles('admin')` | `admin.controller.ts` |
-| SEC-10 | Moyenne | CSP : `frame-ancestors 'none'`, `connect-src`, `font-src` | `main.ts` |
-| SEC-14 | Basse | HSTS : `maxAge 31536000 + includeSubDomains` | `main.ts` |
+| SEC-10 | Moyenne | CSP : `frame-ancestors 'none'`, `connect-src`, `font-src` | `bootstrap/configure-app.ts` |
+| SEC-14 | Basse | HSTS : `maxAge 31536000 + includeSubDomains` | `bootstrap/configure-app.ts` |
 | SEC-16 | Basse | Audit trail : `login_success/failed`, `logout`, `password_changed` | `auth.controller.ts` |
 
 ### Phase 7 — Audit OWASP complet (22 corrections supplémentaires)
@@ -152,7 +272,7 @@ là où elles ont changé depuis.
 | H-03 | Haute | SVG retiré des uploads ; anciens SVGs en `Content-Disposition: attachment` | `filiales.module.ts` |
 | H-04 | Haute | Audit logs restreints à `@Roles('admin')` | `audit.controller.ts` |
 | H-05 | Haute | Templates PATCH/DELETE/POST restreints à `@Roles('admin')` | `templates.controller.ts` |
-| H-06 | Haute | CSRF middleware `X-Requested-With` sur POST/PUT/PATCH/DELETE | `main.ts`, `api.ts` |
+| H-06 | Haute | CSRF middleware `X-Requested-With` sur POST/PUT/PATCH/DELETE | `bootstrap/configure-app.ts`, `api.ts` |
 | H-07 | Haute | SMB path validation `isSafeSmbExportPath()` | `smb/smb-path-safety.ts` |
 | M-01 | Moyenne | Brute-force persisté en DB via `AuditLog` (survit aux redémarrages) | `auth.service.ts` |
 | M-02 | Moyenne | `passwordHash` exclu de toutes les réponses API users | `users.service.ts` |
@@ -240,7 +360,19 @@ if (!isSafeSmbExportPath(smbPath)) return;   // smb/smb-path-safety.ts
 
 ### 7. Les logs d'audit sont réservés à `@Roles('admin')`
 
-### 8. La modification des templates email est réservée à `@Roles('admin')`
+### 8. Les modèles d'email et de PDF (lecture comme modification) sont réservés à `@Roles('admin')`
+
+### 9. Chaque route déclare son accès : `@Public()` ou `@Roles(...)`, sinon elle est refusée
+```typescript
+// INTERDIT — refusée par RolesGuard, signalée par route-access.spec.ts
+@Get('nouvelle')
+// OBLIGATOIRE
+@Get('nouvelle')
+@Roles('admin', 'technician')
+```
+
+### 10. Aucune réponse n'expose le cachet d'une filiale à un collaborateur
+Aucune route ne sert `data/uploads` ; `stampPath` est retiré des réponses non IT (voir « Modèle d'accès »).
 
 ---
 
@@ -256,6 +388,14 @@ if (!isSafeSmbExportPath(smbPath)) return;   // smb/smb-path-safety.ts
 - [ ] Upload SVG via `/api/filiales/:id/logo` → rejeté
 - [ ] `GET /api/audit` avec compte technician → `403`
 - [ ] `PATCH /api/admin/email-templates/:id` avec compte technician → `403`
+- [ ] `POST /api/users/manual`, `PATCH /api/users/:id/manual`, `GET /api/users`, `POST /api/filiales`,
+      `PUT /api/filiales/:id`, `PATCH /api/filiales/:id/stamp` avec compte technician → `403`
+      « Droits insuffisants pour cette action »
+- [ ] `GET /api/users/search?q=…`, `GET /api/users/it-staff`, `POST /api/equipment/catalog` avec compte
+      technician → `200` / `201`
+- [ ] `GET /api/filiales/file/<nom>` → `404` (route supprimée)
+- [ ] `GET /api/auth/me`, `GET /api/bons/mes-bons` avec compte collaborator → aucune clé `stampPath`
+- [ ] `GET /api/filiales/active` avec compte collaborator → `403`
 - [ ] `POST /api/bons/:id/sign-it` sans header `X-Requested-With` → `403`
 - [ ] SMB path `/etc` dans config → rejeté
 - [ ] `POST /api/bons/:id/contestation` par collaborateur sur un bon d'autrui → `403`
@@ -274,7 +414,7 @@ if (!isSafeSmbExportPath(smbPath)) return;   // smb/smb-path-safety.ts
 - [ ] `retention.anonymize_months` réglé à une valeur < 60 → rejeté
 - [ ] Anonymisation réelle sans dry-run < 24h → rejetée
 - [ ] Sync LDAP simulée avec > 20 % de comptes actifs absents → interrompue, `ldap_sync_aborted` journalisé
-- [ ] Un compte `direction` → `403` sur `GET /api/bons/stats`, `GET /api/bons/:id`, `GET /api/contestations`, `GET /api/users` et toute route `/api/admin/*`
+- [ ] Un compte `direction` → `403` sur `GET /api/bons/stats`, `GET /api/bons/:id` d'un bon dont il n'est pas le destinataire, `GET /api/contestations`, `GET /api/users` et toute route `/api/admin/*`
 - [ ] Un compte `direction` → `200` sur `GET /api/kpi/parc` (et `/kpi/delais`, `/kpi/incidents`, `/api/reporting/inventory*`)
 - [ ] `PATCH /api/admin/users/:id/role` refusé sur son propre compte (`400`) et sur le dernier administrateur actif (`400`)
 - [ ] `PUT /api/admin/config/rappels` avec `signature_overdue_days=0` → rejeté (minimum 1)

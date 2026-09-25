@@ -1,3 +1,4 @@
+import { useHostTimeZone } from '../../../common/__tests__/helpers/host-time-zone';
 import { sliceExportRows, buildExportCsv, EXPORT_ROW_LIMIT, ExportBonRow } from '../bon-csv';
 
 function makeRow(overrides: Partial<ExportBonRow> = {}): ExportBonRow {
@@ -77,5 +78,58 @@ describe('buildExportCsv', () => {
     expect(dataLine).toContain('"—"');
     expect(dataLine).not.toContain('"null"');
     expect(dataLine).not.toContain('"undefined"');
+  });
+});
+
+/** Cellules de la première ligne de données, indexées par nom de colonne. */
+function firstRowCells(csv: string): Record<string, string> {
+  const [header, data] = csv.slice(1).split('\n');
+  const unquote = (cell: string) => cell.slice(1, -1);
+  const names = header.split(';').map(unquote);
+  const values = data.split(';').map(unquote);
+  return Object.fromEntries(names.map((name, i) => [name, values[i]]));
+}
+
+describe('buildExportCsv — dates à l’heure de Paris, serveur réglé en UTC', () => {
+  useHostTimeZone('UTC');
+
+  it.each([
+    ['été', '2026-07-14T22:30:00.000Z', '15/07/2026'],
+    ['été, 1 h 59', '2026-07-14T23:59:00.000Z', '15/07/2026'],
+    ['hiver', '2026-01-14T23:30:00.000Z', '15/01/2026'],
+  ])('création et signatures entre 0 h et 2 h à Paris (%s)', (_season, instant, expected) => {
+    const row = makeRow({
+      createdAt: new Date(instant),
+      signatures: [
+        { type: 'mise_disposition', signedAt: new Date(instant) },
+        { type: 'restitution', signedAt: instant },
+      ],
+    });
+
+    const cells = firstRowCells(buildExportCsv([row]));
+
+    expect(cells['Date création']).toBe(expected);
+    expect(cells['Date signature mise à dispo']).toBe(expected);
+    expect(cells['Date signature restitution']).toBe(expected);
+  });
+
+  it('les dates civiles (mise à disposition, restitution) gardent leur jour', () => {
+    const row = makeRow({ dateMiseDisposition: new Date('2026-04-01'), dateRestitution: '2026-10-31' });
+
+    const cells = firstRowCells(buildExportCsv([row]));
+
+    expect(cells['Date mise à disposition']).toBe('01/04/2026');
+    expect(cells['Date restitution']).toBe('31/10/2026');
+  });
+});
+
+describe('buildExportCsv — libellés de statut', () => {
+  it.each([
+    ['active', 'En cours'],
+    ['archived', 'Clôturé'],
+    ['sent_mise_dispo', 'Remise à signer'],
+    ['partially_returned', 'Restitution en cours'],
+  ] as const)('%s → « %s »', (status, label) => {
+    expect(firstRowCells(buildExportCsv([makeRow({ status })])).Statut).toBe(label);
   });
 });

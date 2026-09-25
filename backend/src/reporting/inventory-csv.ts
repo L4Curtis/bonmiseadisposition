@@ -1,19 +1,15 @@
-import { STATUS_LABELS } from '../common/status-labels';
-import { escapeCsvCell } from '../common/bon-predicates';
-import { daysSince } from './inventory-dates';
+import { bonStatusLabel } from '../bons/bon-status';
+import { buildCsv, type CsvCell } from '../common/csv';
+import { formatParisDate, parisDaysSince } from '../common/dates/paris';
 import type { InventoryItemView } from './inventory-mapper';
 
-const HEADERS = [
+const HEADERS: readonly string[] = [
   'Équipement', 'Catégorie', 'N° série', 'N° inventaire',
   'Collaborateur', 'Email', 'Service', 'Filiale',
   'Référence bon', 'Statut bon', 'Situation',
   'Date mise à disposition', 'Ancienneté (jours)',
   'Date restitution prévue', 'Retard (jours)',
 ];
-
-function formatFrDate(date: Date | null): string {
-  return date ? new Date(date).toLocaleDateString('fr-FR') : '';
-}
 
 /**
  * Construit le CSV d'export de l'inventaire — reflète exactement les
@@ -24,33 +20,30 @@ function formatFrDate(date: Date | null): string {
  * `now` est injectable (tests) pour figer le calcul d'ancienneté/retard.
  */
 export function buildInventoryCsv(items: InventoryItemView[], now: Date = new Date()): string {
-  const dataRows = items.map((it) => {
-    const anciennete = daysSince(new Date(it.dateMiseDisposition), now);
-    const retard = it.dateRestitution ? daysSince(new Date(it.dateRestitution), now) : null;
+  return buildCsv({ header: HEADERS, rows: items.map((item) => inventoryRow(item, now)) });
+}
 
-    return [
-      it.label,
-      it.categoryLabel,
-      it.serialNumber ?? '',
-      it.inventoryNumber ?? '',
-      it.collaborateur.displayName,
-      // Compagnon de chantier sans compte email (voir User.isManualAccount) :
-      // « — » plutôt qu'une cellule vide/« null » dans l'export.
-      it.collaborateur.email ?? '—',
-      it.collaborateur.department ?? '',
-      it.filiale.displayName,
-      it.bonReference,
-      STATUS_LABELS[it.bonStatus] ?? it.bonStatus,
-      it.situationLabel,
-      formatFrDate(new Date(it.dateMiseDisposition)),
-      String(anciennete),
-      formatFrDate(it.dateRestitution ? new Date(it.dateRestitution) : null),
-      retard !== null && retard > 0 ? String(retard) : '',
-    ].map(escapeCsvCell);
-  });
-
-  const csv = [HEADERS.map(escapeCsvCell).join(';'), ...dataRows.map((r) => r.join(';'))].join('\n');
-  // BOM UTF-8 (U+FEFF) pour Excel — via fromCharCode pour éviter tout
-  // caractère littéral invisible dans le source.
-  return String.fromCharCode(0xfeff) + csv;
+/** Une ligne du fichier : ancienneté et retard en jours calendaires à Paris. */
+function inventoryRow(it: InventoryItemView, now: Date): CsvCell[] {
+  const anciennete = parisDaysSince(new Date(it.dateMiseDisposition), now);
+  const retard = it.dateRestitution ? parisDaysSince(new Date(it.dateRestitution), now) : null;
+  return [
+    it.label,
+    it.categoryLabel,
+    it.serialNumber ?? '',
+    it.inventoryNumber ?? '',
+    it.collaborateur.displayName,
+    // Compagnon de chantier sans compte email (voir User.isManualAccount) :
+    // « — » plutôt qu'une cellule vide/« null » dans l'export.
+    it.collaborateur.email ?? '—',
+    it.collaborateur.department ?? '',
+    it.filiale.displayName,
+    it.bonReference,
+    bonStatusLabel(it.bonStatus),
+    it.situationLabel,
+    formatParisDate(it.dateMiseDisposition),
+    String(anciennete),
+    formatParisDate(it.dateRestitution),
+    retard !== null && retard > 0 ? String(retard) : '',
+  ];
 }

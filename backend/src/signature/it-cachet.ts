@@ -8,6 +8,7 @@ import { BON_FOR_SIGNATURE_SELECT } from './select-shape';
 import { buildSealPayload } from './seal';
 import { saveSignatureFile } from './signature-file-store';
 import { generatePdfSnapshot, PdfSnapshotDeps } from './pdf-snapshot';
+import { NON_SIGNABLE_BON_STATUSES, RESTITUTION_PHASE_BON_STATUSES, isBonStatusIn } from '../bons/bon-status';
 
 export interface ItCachetDeps {
   prisma: PrismaService;
@@ -59,7 +60,7 @@ export async function signItCachet(
   // Un brouillon est accepté : le flux « Envoyer » de l'interface appose le
   // cachet IT AVANT l'envoi (le PDF envoyé au collaborateur porte ainsi le
   // cachet). Seuls les bons clos ou contestés sont refusés.
-  if (['cancelled', 'archived', 'contested'].includes(bon.status)) {
+  if (isBonStatusIn(bon.status, NON_SIGNABLE_BON_STATUSES)) {
     throw new BadRequestException('Ce bon est clôturé ou contesté et ne peut plus être modifié');
   }
 
@@ -140,7 +141,7 @@ export async function signItCachet(
   });
 
   // Snapshot PDF avec le cachet IT — attendu (cf. sign()), rendu déterministe
-  const isRestitution = pdfType === 'restitution' || ['sent_restitution', 'partially_returned'].includes(bon.status);
+  const isRestitution = pdfType === 'restitution' || isBonStatusIn(bon.status, RESTITUTION_PHASE_BON_STATUSES);
   const itSnapshotType = isRestitution ? 'signature_it_restitution' : 'signature_it_mise_disposition';
   try {
     await generatePdfSnapshot(deps.pdfSnapshot, updatedBon, itSnapshotType);

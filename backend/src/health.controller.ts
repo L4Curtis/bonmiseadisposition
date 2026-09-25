@@ -1,8 +1,11 @@
 import { Controller, Get, HttpException, HttpStatus } from '@nestjs/common';
 import { PrismaService } from './prisma/prisma.service';
 import { checkDatabase } from './monitoring/database-check.util';
+import { Public } from './auth/decorators/public.decorator';
 
+/** Sondes de santé (Docker, supervision) : ouvertes sans session. */
 @Controller('health')
+@Public()
 export class HealthController {
   constructor(private readonly prisma: PrismaService) {}
 

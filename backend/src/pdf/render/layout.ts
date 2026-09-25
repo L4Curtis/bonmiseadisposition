@@ -1,4 +1,5 @@
-import { STATUS_LABELS } from '../../common/status-labels';
+import { bonStatusLabel } from '../../bons/bon-status';
+import { PARIS_TIME_ZONE, formatParisDate } from '../../common/dates/paris';
 import { PdfColorScheme } from '../pdf-template-config';
 
 // ─── Mise en page partagée ────────────────────────────────────────────────────
@@ -16,15 +17,10 @@ export interface RenderFonts {
   bold: string;
 }
 
-/** Date courte (jj/mm/aaaa, fuseau Europe/Paris) — utilisée dans tout le document. */
+/** Date courte (jj/mm/aaaa, heure de Paris) — utilisée dans tout le
+ *  document ; « — » pour une date absente. */
 export function formatDate(date: Date | string | null): string {
-  if (!date) return '—';
-  return new Date(date).toLocaleDateString('fr-FR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    timeZone: 'Europe/Paris',
-  });
+  return formatParisDate(date, '—');
 }
 
 /**
@@ -44,12 +40,13 @@ export function formatDateTime(date: Date | string | null | undefined): string {
   return new Date(date).toLocaleString('fr-FR', {
     day: '2-digit', month: '2-digit', year: 'numeric',
     hour: '2-digit', minute: '2-digit',
-    timeZone: 'Europe/Paris', timeZoneName: 'short',
+    timeZone: PARIS_TIME_ZONE, timeZoneName: 'short',
   });
 }
 
+/** Libellé d'un statut de bon (vocabulaire commun, voir bons/bon-status.ts). */
 export function getStatusLabel(status: string): string {
-  return STATUS_LABELS[status] || status;
+  return bonStatusLabel(status);
 }
 
 /** Titre de section souligné (bandeau fin coloré) — utilisé par toutes les

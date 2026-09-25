@@ -216,7 +216,7 @@ describe('InventoryService', () => {
     });
 
     it.each([
-      ['sent_mise_dispo', 'en_attente_signature', 'En attente de signature'],
+      ['sent_mise_dispo', 'en_attente_signature', 'Remise à signer'],
       ['active', 'en_circulation', 'En circulation'],
       ['sent_restitution', 'en_circulation', 'En circulation'],
       ['partially_returned', 'en_circulation', 'En circulation'],
@@ -371,7 +371,7 @@ describe('InventoryService', () => {
       ]);
       expect(summary.byFiliale).toEqual([{ filialeId: 'f-1', name: 'Paris', count: 5 }]);
       expect(summary.bySituation).toEqual([
-        { situation: 'en_attente_signature', label: 'En attente de signature', count: 1 },
+        { situation: 'en_attente_signature', label: 'Remise à signer', count: 1 },
         { situation: 'en_circulation', label: 'En circulation', count: 4 },
         { situation: 'en_litige', label: 'En litige', count: 0 },
       ]);
@@ -456,7 +456,7 @@ describe('InventoryService', () => {
 
       expect(headerLine).toContain('"Situation"');
       const situationColumnIndex = headerLine.split(';').indexOf('"Situation"');
-      expect(dataLine.split(';')[situationColumnIndex]).toBe('"En attente de signature"');
+      expect(dataLine.split(';')[situationColumnIndex]).toBe('"Remise à signer"');
     });
 
     it('ajoute les colonnes « Ancienneté (jours) » et « Retard (jours) », calculées depuis `now`', async () => {

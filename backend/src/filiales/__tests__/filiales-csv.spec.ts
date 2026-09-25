@@ -102,6 +102,20 @@ describe('buildFilialesExportCsv (GET /filiales/export)', () => {
     expect(dataLine.split(';')[5]).toBe('""');
     expect(fs.readFileSync).not.toHaveBeenCalled();
   });
+
+  it.each(['../../etc/passwd', 'uploads/../../.env'])(
+    'never reads a file outside data/, even if the stored path points there (%s)',
+    (outside) => {
+      fs.existsSync.mockReturnValue(true);
+      fs.readFileSync.mockReturnValue(Buffer.from('secret'));
+
+      const csv = buildFilialesExportCsv([row({ logoPath: outside })], true);
+      const dataLine = csv.slice(1).split('\n')[1];
+
+      expect(dataLine.split(';')[5]).toBe('""');
+      expect(fs.readFileSync).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe('buildFilialesImportTemplateCsv (GET /filiales/import/template)', () => {

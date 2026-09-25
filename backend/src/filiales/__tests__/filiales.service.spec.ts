@@ -1,8 +1,18 @@
 import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import * as fs from 'fs';
+import { join } from 'path';
 import { FilialesService } from '../filiales.service';
+import { DATA_DIR } from '../../common/storage-paths';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
 import type { Mock } from 'vitest';
+
+// Doublures du disque : aucun test ne touche au dossier data/ du poste.
+vi.mock('fs', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('fs')>()),
+  existsSync: vi.fn(),
+  unlinkSync: vi.fn(),
+}));
 
 /**
  * Une contrainte d'unicité insensible à la casse sur le nom de filiale a été
@@ -83,4 +93,51 @@ describe('FilialesService — unique name constraint (P2002)', () => {
       expect(result).toEqual({ id: 'f1', name: 'Livio-Lyon' });
     });
   });
+});
+
+describe('FilialesService.findActive — identité seulement', () => {
+  it('ne charge ni le cachet, ni le logo, ni l’adresse des filiales actives', async () => {
+    const prisma = createMockPrismaService();
+    (prisma.filiale.findMany as Mock).mockResolvedValue([]);
+    await new FilialesService(prisma as never).findActive();
+    expect(prisma.filiale.findMany).toHaveBeenCalledWith({
+      where: { active: true },
+      select: { id: true, name: true, displayName: true, active: true },
+      orderBy: { displayName: 'asc' },
+    });
+  });
+});
+
+describe('FilialesService — suppression de l’ancien logo ou cachet', () => {
+  let prisma: ReturnType<typeof createMockPrismaService>;
+  let service: FilialesService;
+
+  beforeEach(() => {
+    prisma = createMockPrismaService();
+    service = new FilialesService(prisma as never);
+    (fs.existsSync as Mock).mockReset().mockReturnValue(true);
+    (fs.unlinkSync as Mock).mockReset();
+    (prisma.filiale.update as Mock).mockResolvedValue({ id: 'f1' });
+  });
+
+  it('supprime l’ancien fichier, rangé sous data/', async () => {
+    (prisma.filiale.findUnique as Mock).mockResolvedValue({ id: 'f1', logoPath: 'uploads/ancien.png' });
+
+    await service.updateLogo('f1', 'nouveau.png');
+
+    expect(fs.unlinkSync).toHaveBeenCalledWith(join(DATA_DIR, 'uploads', 'ancien.png'));
+    expect(prisma.filiale.update).toHaveBeenCalledWith({ where: { id: 'f1' }, data: { logoPath: 'uploads/nouveau.png' } });
+  });
+
+  it.each(['../../.env', 'uploads/../../etc/passwd'])(
+    'ne supprime jamais un fichier hors de data/, même si la base y pointe (%s)',
+    async (outside) => {
+      (prisma.filiale.findUnique as Mock).mockResolvedValue({ id: 'f1', stampPath: outside });
+
+      await service.updateStamp('f1', 'nouveau.png');
+
+      expect(fs.unlinkSync).not.toHaveBeenCalled();
+      expect(prisma.filiale.update).toHaveBeenCalledWith({ where: { id: 'f1' }, data: { stampPath: 'uploads/nouveau.png' } });
+    },
+  );
 });

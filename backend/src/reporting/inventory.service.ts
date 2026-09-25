@@ -2,19 +2,19 @@ import { Injectable } from '@nestjs/common';
 import { Prisma, EquipmentCategory } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
-  CATEGORY_LABELS,
   SITUATION_BON_STATUSES,
   buildParcEquipmentWhere,
   buildSituationBreakdown,
   parcEquipmentSql,
   situationCaseSql,
 } from '../common/bon-predicates';
+import { categoryLabel } from '../common/category-labels';
 import { InventoryQueryDto, InventoryWhereFilters } from './dto/inventory-query.dto';
 import { InventoryByCollaborateurQueryDto } from './dto/inventory-by-collaborateur-query.dto';
 import { toInventoryItem } from './inventory-mapper';
 import { buildInventoryCsv } from './inventory-csv';
 import { findSortedInventoryRows } from './inventory-sort';
-import { parisMidnightUtc } from './inventory-dates';
+import { parisTodayAsDbDate, parisTodaySql } from '../common/dates/paris';
 import {
   COLLABORATEUR_GROUP_SELECT,
   groupInventoryByCollaborateur,
@@ -84,7 +84,7 @@ export class InventoryService {
       // `situation` (un équipement en_circulation ou en_litige peut être en
       // retard). `lt` exclut naturellement les dateRestitution NULL (SQL
       // `NULL < x` est indéterminé, jamais vrai).
-      and.push({ bon: { dateRestitution: { lt: parisMidnightUtc(now) } } });
+      and.push({ bon: { dateRestitution: { lt: parisTodayAsDbDate(now) } } });
     }
     if (filters.sansNumeroSerie) {
       // Qualité des données : NULL et chaîne vide (saisie effacée) sont tous
@@ -220,7 +220,7 @@ export class InventoryService {
         JOIN bons b ON b.id = be.bon_id
         WHERE ${parcEquipmentSql()}
           AND b.date_restitution IS NOT NULL
-          AND b.date_restitution < (now() AT TIME ZONE 'Europe/Paris')::date
+          AND b.date_restitution < ${parisTodaySql()}
       `),
     ]);
 
@@ -228,7 +228,7 @@ export class InventoryService {
       total: Number(totalRows[0]?.count ?? 0),
       byCategory: byCategoryRows.map((r) => ({
         category: r.category,
-        label: CATEGORY_LABELS[r.category] ?? r.category,
+        label: categoryLabel(r.category),
         count: Number(r.count),
       })),
       byFiliale: byFilialeRows.map((r) => ({

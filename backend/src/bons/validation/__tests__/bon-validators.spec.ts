@@ -7,7 +7,6 @@ import {
   normalizeEquipmentInput,
   assertNoDuplicateSerials,
   assertSendable,
-  findSerialConflicts,
 } from '../bon-validators';
 
 describe('normalizeEquipmentInput', () => {
@@ -120,32 +119,5 @@ describe('assertSendable', () => {
     const prisma = createMockPrismaService();
     prisma.user.findUnique.mockResolvedValue({ active: false });
     await expect(assertSendable(prisma as unknown as PrismaService, baseBon)).rejects.toThrow(BadRequestException);
-  });
-});
-
-describe('findSerialConflicts', () => {
-  it('returns [] without querying when there is no serial to check', async () => {
-    const prisma = createMockPrismaService();
-    const result = await findSerialConflicts(prisma as unknown as PrismaService, ['', '   '], 'bon-001');
-    expect(result).toEqual([]);
-    expect(prisma.bonEquipment.findMany).not.toHaveBeenCalled();
-  });
-
-  it('maps conflicting equipment to { serialNumber, bonReference }', async () => {
-    const prisma = createMockPrismaService();
-    prisma.bonEquipment.findMany.mockResolvedValue([
-      { serialNumber: 'SN-001', bon: { reference: 'BON-2026-0099' } },
-    ]);
-
-    const result = await findSerialConflicts(prisma as unknown as PrismaService, ['SN-001'], 'bon-current');
-
-    expect(result).toEqual([{ serialNumber: 'SN-001', bonReference: 'BON-2026-0099' }]);
-    expect(prisma.bonEquipment.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          bon: expect.objectContaining({ id: { not: 'bon-current' } }),
-        }),
-      }),
-    );
   });
 });

@@ -85,7 +85,7 @@ function buildRouter(period: KpiPeriod, opts: RouterOptions = {}) {
     if (sql.includes('b.archived_at')) {
       return Promise.resolve([isPreviousRange ? closedPrevious : closedCurrent]);
     }
-    if (sql.includes("NOT IN ('archived', 'cancelled')")) {
+    if (sql.includes('b.status::text NOT IN (')) {
       return Promise.resolve([{ count: 7n }]);
     }
     return Promise.resolve([]);
@@ -133,7 +133,7 @@ describe('KpiParcService', () => {
     ]);
     expect(result.loaned.byFiliale).toEqual([{ filialeId: 'f1', name: 'Paris', count: 90 }]);
     expect(result.loaned.bySituation).toEqual([
-      { situation: 'en_attente_signature', label: 'En attente de signature', count: 20 },
+      { situation: 'en_attente_signature', label: 'Remise à signer', count: 20 },
       { situation: 'en_circulation', label: 'En circulation', count: 90 },
       { situation: 'en_litige', label: 'En litige', count: 10 },
     ]);
@@ -192,7 +192,7 @@ describe('KpiParcService', () => {
       expect(sql).not.toMatch(/b\.status\s+(NOT\s+)?IN\s*\(/);
     }
     expect(calls.some((sql) => sql.includes('b.status::text IN ('))).toBe(true);
-    expect(calls.some((sql) => sql.includes("b.status::text NOT IN ('archived', 'cancelled')"))).toBe(true);
+    expect(calls.some((sql) => sql.includes('b.status::text NOT IN ('))).toBe(true);
     expect(calls.some((sql) => sql.includes('ec.category::text'))).toBe(true);
     expect(calls.some((sql) => sql.includes('s.type::text'))).toBe(true);
 

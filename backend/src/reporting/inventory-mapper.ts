@@ -1,5 +1,6 @@
 import { Prisma, EquipmentCategory } from '@prisma/client';
-import { CATEGORY_LABELS, SITUATION_LABELS, situationForBonStatus } from '../common/bon-predicates';
+import { SITUATION_LABELS, situationForBonStatus } from '../common/bon-predicates';
+import { categoryLabel } from '../common/category-labels';
 
 /** Sélection Prisma commune à la liste paginée et à l'export CSV de
  *  l'inventaire — isolée ici pour que `InventoryRow` (le type de ligne brute)
@@ -46,7 +47,7 @@ export function toInventoryItem(row: InventoryRow) {
     equipmentId: row.id,
     label,
     category,
-    categoryLabel: CATEGORY_LABELS[category] ?? category,
+    categoryLabel: categoryLabel(category),
     serialNumber: row.serialNumber,
     inventoryNumber: row.inventoryNumber,
     bonId: row.bon.id,

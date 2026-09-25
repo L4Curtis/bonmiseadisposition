@@ -13,7 +13,9 @@
     "prisma:studio": "prisma studio",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:cov": "vitest run --coverage"
+    "test:cov": "vitest run --coverage",
+    "test:contract": "vitest run --config test/contract/vitest.contract.config.ts",
+    "sync-contracts": "node scripts/sync-contracts.mjs"
   },
   "dependencies": {
     "@azure/msal-node": "^6.0.1",
@@ -54,7 +56,9 @@
     "@types/ldapjs": "^2.2.5",
     "@types/node": "^22.0.0",
     "@types/passport-jwt": "^4.0.1",
+    "@types/supertest": "^7.2.1",
     "@vitest/coverage-v8": "^4.1.11",
+    "supertest": "^7.3.0",
     "typescript": "^5.6.0",
     "unplugin-swc": "^2.0.0",
     "vitest": "^4.1.11"

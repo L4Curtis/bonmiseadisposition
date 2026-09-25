@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UserRole } from '../common/types';
+import { IT_ROLES } from '../common/roles';
 import { normalizeEmail } from '../auth/utils/normalize-email.util';
 import { CreateManualUserDto, UpdateManualUserDto } from './dto/manual-user.dto';
 import { ImportManualUsersDto, ImportManualUsersResult } from './dto/import-users.dto';
@@ -20,7 +21,8 @@ export class UsersService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  // Fields safe to return in API responses (passwordHash intentionally excluded)
+  // Fields safe to return in API responses (passwordHash intentionally excluded).
+  // De la filiale, seulement son identité : ni cachet, ni logo, ni adresse.
   private readonly safeSelect = {
     id: true,
     samAccountName: true,
@@ -30,7 +32,7 @@ export class UsersService {
     company: true,
     title: true,
     filialeId: true,
-    filiale: true,
+    filiale: { select: { id: true, name: true, displayName: true, active: true } },
     isItStaff: true,
     role: true,
     isLocalAccount: true,
@@ -106,6 +108,17 @@ export class UsersService {
       },
       select: this.safeSelect,
       take: 15,
+      orderBy: { displayName: 'asc' },
+    });
+  }
+
+  /** Administrateurs et techniciens actifs (qui peuvent créer un bon), pour
+   *  le filtre « Créé par » de la liste des bons. Sélection par RÔLE, pas par
+   *  `isItStaff`, et réduite à ce que le filtre affiche. */
+  findItStaff() {
+    return this.prisma.user.findMany({
+      where: { role: { in: [...IT_ROLES] }, active: true },
+      select: { id: true, displayName: true },
       orderBy: { displayName: 'asc' },
     });
   }

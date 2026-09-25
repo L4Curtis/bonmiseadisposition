@@ -256,6 +256,28 @@ describe('importFilialeItems (POST /filiales/import)', () => {
     expect(fsp.unlink).toHaveBeenCalledTimes(1);
   });
 
+  it('never deletes a file outside data/, even if the replaced path points there', async () => {
+    prisma.filiale.findMany.mockResolvedValue([
+      {
+        id: 'f-001', name: 'Livio Nord', displayName: 'Livio Nord', address: null,
+        siret: null, active: true, logoPath: 'uploads/../../.env', stampPath: null,
+      },
+    ]);
+    prisma.filiale.update.mockResolvedValue({ id: 'f-001' });
+
+    await importFilialeItems(
+      prisma as unknown as PrismaService,
+      [{ name: 'Livio Nord', logoBase64: pngBase64() }],
+      USER_ID,
+    );
+
+    expect(prisma.filiale.update).toHaveBeenCalledWith({
+      where: { id: 'f-001' },
+      data: { logoPath: 'uploads/uuid-1.png' },
+    });
+    expect(fsp.unlink).not.toHaveBeenCalled();
+  });
+
   it('always writes a filiales_imported audit entry with the final counters', async () => {
     prisma.filiale.findMany.mockResolvedValue([]);
     prisma.filiale.create.mockResolvedValue({ id: 'f-new', name: 'Livio Est', displayName: 'Livio Est', active: true });

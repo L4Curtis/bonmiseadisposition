@@ -1,8 +1,5 @@
+import { LOANED_BON_STATUSES } from '../../bons/bon-status';
 import {
-  LOANED_BON_STATUSES,
-  CLOSED_BON_STATUSES,
-  IN_PROGRESS_BON_STATUSES,
-  WAITING_SIGNATURE_STATUSES,
   PARTIAL_PENDING_SIGNATURE_TYPES,
   COLLAB_SIGNATURE_TYPES,
   DEFAULT_SIGNATURE_OVERDUE_DAYS,
@@ -12,8 +9,6 @@ import {
   overdueSignatureSql,
   buildLoanedEquipmentWhere,
   loanedEquipmentSql,
-  CATEGORY_LABELS,
-  escapeCsvCell,
   SITUATION_ORDER,
   SITUATION_LABELS,
   SITUATION_BON_STATUSES,
@@ -26,13 +21,7 @@ import {
 } from '../bon-predicates';
 
 describe('bon-predicates — constantes', () => {
-  it('expose les listes de statuts attendues', () => {
-    expect(LOANED_BON_STATUSES).toEqual(['active', 'sent_restitution', 'partially_returned']);
-    expect(CLOSED_BON_STATUSES).toEqual(['archived', 'cancelled']);
-    expect(IN_PROGRESS_BON_STATUSES).toEqual([
-      'draft', 'sent_mise_dispo', 'active', 'sent_restitution', 'partially_returned', 'contested',
-    ]);
-    expect(WAITING_SIGNATURE_STATUSES).toEqual(['sent_mise_dispo', 'sent_restitution']);
+  it('expose les types de signature attendus', () => {
     expect(PARTIAL_PENDING_SIGNATURE_TYPES).toEqual(['restitution', 'pv_cloture']);
     expect(COLLAB_SIGNATURE_TYPES).toEqual(['mise_disposition', 'restitution', 'pv_cloture']);
   });
@@ -137,7 +126,7 @@ describe('situations — définition élargie du parc en circulation (audit 2026
 
   it('SITUATION_LABELS fournit un libellé FR par situation', () => {
     expect(SITUATION_LABELS).toEqual({
-      en_attente_signature: 'En attente de signature',
+      en_attente_signature: 'Remise à signer',
       en_circulation: 'En circulation',
       en_litige: 'En litige',
     });
@@ -223,7 +212,7 @@ describe('situations — définition élargie du parc en circulation (audit 2026
     it('zéro-complète les situations absentes du résultat SQL', () => {
       const breakdown = buildSituationBreakdown([{ situation: 'en_circulation', count: 4 }]);
       expect(breakdown).toEqual([
-        { situation: 'en_attente_signature', label: 'En attente de signature', count: 0 },
+        { situation: 'en_attente_signature', label: 'Remise à signer', count: 0 },
         { situation: 'en_circulation', label: 'En circulation', count: 4 },
         { situation: 'en_litige', label: 'En litige', count: 0 },
       ]);
@@ -241,39 +230,10 @@ describe('situations — définition élargie du parc en circulation (audit 2026
 
     it('tableau vide → les 3 situations à 0', () => {
       expect(buildSituationBreakdown([])).toEqual([
-        { situation: 'en_attente_signature', label: 'En attente de signature', count: 0 },
+        { situation: 'en_attente_signature', label: 'Remise à signer', count: 0 },
         { situation: 'en_circulation', label: 'En circulation', count: 0 },
         { situation: 'en_litige', label: 'En litige', count: 0 },
       ]);
     });
-  });
-});
-
-describe('CATEGORY_LABELS', () => {
-  it('couvre les catégories connues', () => {
-    expect(CATEGORY_LABELS.pc_portable).toBe('PC portable');
-    expect(CATEGORY_LABELS.ecran).toBe('Écran');
-    expect(CATEGORY_LABELS.autre).toBe('Autre');
-  });
-});
-
-describe('escapeCsvCell — anti-injection de formule (Excel/LibreOffice)', () => {
-  it.each([
-    ['=', '=SOMME(A1)'],
-    ['+', '+1234567'],
-    ['-', '-1234567'],
-    ['@', '@cmd|/c calc'],
-    ['tabulation', '\tcmd'],
-    ['retour chariot', '\rcmd'],
-  ])('préfixe d’une apostrophe une cellule commençant par « %s »', (_label, value) => {
-    expect(escapeCsvCell(value)).toBe(`"'${value}"`);
-  });
-
-  it('n’altère pas une cellule sans caractère déclencheur de formule', () => {
-    expect(escapeCsvCell('Dell')).toBe('"Dell"');
-  });
-
-  it('double les guillemets internes', () => {
-    expect(escapeCsvCell('12" écran')).toBe('"12"" écran"');
   });
 });

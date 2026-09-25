@@ -1,6 +1,6 @@
+import { useHostTimeZone } from '../../../common/__tests__/helpers/host-time-zone';
 import {
   parseNonNegativeInt,
-  formatDateInTimeZone,
   getRestitutionWindow,
 } from '../../reminders/restitution-due-reminders';
 
@@ -26,18 +26,17 @@ describe('parseNonNegativeInt', () => {
   });
 });
 
-describe('formatDateInTimeZone', () => {
-  it('formats a date as YYYY-MM-DD in the given time zone', () => {
-    // 2026-04-10T23:30:00Z is already 2026-04-11 in Europe/Paris (CEST, UTC+2)
-    expect(formatDateInTimeZone(new Date('2026-04-10T23:30:00Z'), 'Europe/Paris')).toBe('2026-04-11');
-  });
-
-  it('uses UTC directly when timeZone is UTC', () => {
-    expect(formatDateInTimeZone(new Date('2026-04-10T23:30:00Z'), 'UTC')).toBe('2026-04-10');
-  });
-});
-
 describe('getRestitutionWindow', () => {
+  useHostTimeZone('UTC');
+
+  it('takes the Paris calendar day between 0 h and 2 h (UTC server)', () => {
+    const now = new Date('2026-04-10T22:30:00Z'); // 0 h 30 à Paris le 11 avril
+    const { start, end } = getRestitutionWindow(7, now);
+
+    expect(start).toEqual(new Date('2026-04-11T00:00:00.000Z'));
+    expect(end).toEqual(new Date('2026-04-18T23:59:59.999Z'));
+  });
+
   it('returns [today 00:00, today+N 23:59:59.999] in Paris local calendar days', () => {
     const now = new Date('2026-04-10T08:00:00Z'); // 10h Paris (CEST, UTC+2)
     const { start, end } = getRestitutionWindow(7, now);

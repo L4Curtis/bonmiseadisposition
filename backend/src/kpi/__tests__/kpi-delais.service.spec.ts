@@ -166,7 +166,7 @@ describe('KpiDelaisService', () => {
       ]);
       expect(result.statusBreakdown.find((s) => s.status === 'active')).toEqual({
         status: 'active',
-        label: 'Actif',
+        label: 'En cours',
         count: 120,
       });
       expect(result.statusBreakdown.find((s) => s.status === 'draft')).toEqual({
@@ -222,7 +222,7 @@ describe('KpiDelaisService', () => {
       expect(result.waiting.steps).toEqual([
         { step: 'mise_disposition', label: 'Signature mise à disposition', count: 12, avgAgeDays: 4.1, overdue: 3 },
         { step: 'restitution', label: 'Signature restitution', count: 5, avgAgeDays: 2, overdue: 1 },
-        { step: 'pv_cloture', label: 'PV de clôture', count: 2, avgAgeDays: 9.5, overdue: 2 },
+        { step: 'pv_cloture', label: 'PV de non-restitution', count: 2, avgAgeDays: 9.5, overdue: 2 },
       ]);
     });
 

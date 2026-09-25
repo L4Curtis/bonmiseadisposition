@@ -16,10 +16,20 @@ import { SignatureService } from './signature.service';
 import { NotificationService } from '../notification/notification.service';
 import { SignDto } from './dto/sign.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles, ALL_ROLES } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth-user.interface';
 
+/**
+ * Signature par jeton (lien reçu par email, ou tablette en présentiel). Une
+ * session est exigée, quel que soit le rôle : le service vérifie ensuite que
+ * la personne connectée est bien le destinataire du lien (sauf présentiel,
+ * où le technicien tend son appareil au collaborateur).
+ */
 @Controller('signature')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(...ALL_ROLES)
 export class SignatureController {
   constructor(
     private readonly signatureService: SignatureService,
@@ -30,14 +40,12 @@ export class SignatureController {
    *  Le détail du bon n'est renvoyé qu'au destinataire du lien (ou en mode
    *  présentiel) : un autre compte authentifié reçoit un statut minimal. */
   @Get(':token')
-  @UseGuards(JwtAuthGuard)
   async getBonInfo(@Param('token') token: string, @CurrentUser() user: AuthUser) {
     return this.signatureService.getBonInfoByToken(token, user?.email, user?.id);
   }
 
   /** Aperçu PDF du document exact qui sera signé (avant signature). */
   @Get(':token/preview')
-  @UseGuards(JwtAuthGuard)
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   async preview(
     @Param('token') token: string,
@@ -55,7 +63,6 @@ export class SignatureController {
    * Rate-limited : 10 req / 60s par IP pour prévenir le bruteforce de tokens
    */
   @Post(':token/sign')
-  @UseGuards(JwtAuthGuard)
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
   async sign(

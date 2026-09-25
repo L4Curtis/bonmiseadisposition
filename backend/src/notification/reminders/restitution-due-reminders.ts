@@ -3,6 +3,11 @@ import * as nodemailer from 'nodemailer';
 import { AppConfigService } from '../../config/config.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationBon } from '../../common/types';
+import { addDaysToIsoDate, isoDateToUtc, todayInParis } from '../../common/dates/paris';
+import { RESTITUTION_START_BON_STATUSES } from '../../bons/bon-status';
+
+/** Dernière milliseconde d'un jour, comptée depuis minuit. */
+const LAST_MS_OF_DAY = 86_400_000 - 1;
 
 // ─── Cron: Rappel avant restitution prévue ───────────────────────────────────
 // Lit rappels.restitution_before_days (même catégorie que les rappels
@@ -26,17 +31,6 @@ export function parseNonNegativeInt(raw: string | null, fallback: number): numbe
   return Number.isFinite(n) && n >= 0 ? n : fallback;
 }
 
-/** Date calendaire (YYYY-MM-DD) d'un instant dans un fuseau donné. */
-export function formatDateInTimeZone(date: Date, timeZone: string): string {
-  // Locale en-CA : seule locale ICU dont le format court est nativement YYYY-MM-DD.
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(date);
-}
-
 /**
  * Fenêtre [aujourd'hui, aujourd'hui + N jours] en date locale Europe/Paris,
  * fin de journée incluse. Bornes exprimées en UTC minuit/23:59:59.999 :
@@ -45,10 +39,9 @@ export function formatDateInTimeZone(date: Date, timeZone: string): string {
  * `now` est injectable pour les tests (défaut : l'heure courante).
  */
 export function getRestitutionWindow(beforeDays: number, now: Date = new Date()): { start: Date; end: Date } {
-  const todayParis = formatDateInTimeZone(now, 'Europe/Paris');
-  const [year, month, day] = todayParis.split('-').map(Number);
-  const start = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
-  const end = new Date(Date.UTC(year, month - 1, day + beforeDays, 23, 59, 59, 999));
+  const today = todayInParis(now);
+  const start = isoDateToUtc(today);
+  const end = new Date(isoDateToUtc(addDaysToIsoDate(today, beforeDays)).getTime() + LAST_MS_OF_DAY);
   return { start, end };
 }
 
@@ -93,7 +86,7 @@ export async function runRestitutionDueReminders(deps: RestitutionDueRemindersDe
       // partially_returned inclus : équipements encore en possession du collaborateur
       // dont la date de restitution approche — le rappel reste pertinent même si
       // certains équipements ont déjà été restitués.
-      status: { in: ['active', 'partially_returned'] },
+      status: { in: [...RESTITUTION_START_BON_STATUSES] },
       dateRestitution: { gte: start, lte: end },
       notifications: { none: { type: 'restitution_due_reminder', status: 'sent' } },
       equipments: { some: { returnedAt: null, notReturned: false } },

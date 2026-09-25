@@ -1,3 +1,5 @@
+import { RESTITUTION_PHASE_BON_STATUSES, isBonStatusIn } from './bon-status';
+
 /**
  * GET /bons/:id/pdf-snapshots/missing — calcule les types de snapshot PDF
  * attendus (une signature signée existe) mais absents de PdfSnapshot, ex.
@@ -22,7 +24,7 @@ export function computeMissingPdfSnapshotTypes(
       // courant du bon (même heuristique que signItCachet).
       const isRestitution =
         sig.pdfType === 'restitution' ||
-        (sig.pdfType == null && ['sent_restitution', 'partially_returned', 'archived'].includes(bonStatus));
+        (sig.pdfType == null && (isBonStatusIn(bonStatus, RESTITUTION_PHASE_BON_STATUSES) || bonStatus === 'archived'));
       expectedTypes.add(isRestitution ? 'signature_it_restitution' : 'signature_it_mise_disposition');
     }
   }

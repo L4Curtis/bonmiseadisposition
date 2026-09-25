@@ -10,8 +10,11 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth-user.interface';
 
+/** Modèles d'email : lecture comme modification réservées à l'administrateur
+ *  (écran Modèles de l'administration). */
 @Controller('admin/email-templates')
 @UseGuards(JwtAuthGuard, RolesGuard)
+@Roles('admin')
 export class TemplatesController {
   constructor(
     private readonly templatesService: TemplatesService,
@@ -19,21 +22,18 @@ export class TemplatesController {
   ) {}
 
   @Get()
-  @Roles('admin', 'technician')
   findAll() {
     return this.templatesService.getAll();
   }
 
   /** Export all templates as JSON (custom or default) */
   @Get('export')
-  @Roles('admin', 'technician')
   exportAll() {
     return this.templatesService.exportAll();
   }
 
   /** Import templates from a JSON payload */
   @Post('import')
-  @Roles('admin')
   async importAll(
     @Body() body: { templates: { id: string; html: string }[] },
     @CurrentUser() user: AuthUser,
@@ -46,7 +46,6 @@ export class TemplatesController {
 
   /** Get current HTML for a template (custom or default) */
   @Get(':id/html')
-  @Roles('admin', 'technician')
   async getHtml(@Param('id') id: string) {
     const html = await this.templatesService.getTemplateHtml(id);
     const tpl = this.templatesService.getTemplateById(id);
@@ -61,14 +60,12 @@ export class TemplatesController {
 
   /** Get rendered preview HTML with sample data */
   @Get(':id/preview')
-  @Roles('admin', 'technician')
   async getPreview(@Param('id') id: string) {
     return { html: await this.templatesService.getPreviewHtml(id) };
   }
 
   /** Save a custom template */
   @Patch(':id')
-  @Roles('admin')
   async update(
     @Param('id') id: string,
     @Body() body: { html: string },
@@ -83,7 +80,6 @@ export class TemplatesController {
 
   /** Reset a template to its default */
   @Delete(':id')
-  @Roles('admin')
   async reset(@Param('id') id: string) {
     await this.templatesService.resetTemplate(id);
     return { success: true };
@@ -91,7 +87,6 @@ export class TemplatesController {
 
   /** Envoie un email de test (variables d'exemple) sans créer ni modifier de bon */
   @Post(':id/test')
-  @Roles('admin')
   async sendTest(
     @Param('id') id: string,
     @Body() body: { email: string },

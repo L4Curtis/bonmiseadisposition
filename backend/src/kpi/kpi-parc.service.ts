@@ -11,7 +11,8 @@ import {
   SeriesPoint,
 } from './kpi-types';
 import { toNumber, ratio, compared, bucketLabel } from './kpi-sql';
-import { CATEGORY_LABELS, buildSituationBreakdown } from '../common/bon-predicates';
+import { buildSituationBreakdown } from '../common/bon-predicates';
+import { categoryLabel } from '../common/category-labels';
 import {
   LoanedTotalsRow,
   CategoryRow,
@@ -122,7 +123,7 @@ export class KpiParcService {
         byCategory: categoryRows.map(
           (row): ParcCategoryCount => ({
             category: row.category,
-            label: CATEGORY_LABELS[row.category] ?? row.category,
+            label: categoryLabel(row.category),
             count: toNumber(row.count),
           }),
         ),

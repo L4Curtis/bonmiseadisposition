@@ -3,6 +3,7 @@ import { assertPngDataUrl } from '../../common/signature-data-url';
 import { BON_SELECT, findBonOrThrow } from '../queries/bon-where';
 import { BonsWorkflowContext, assertNoPendingRestitutionSignature, generateAndSaveSnapshot } from './bon-context';
 import { emitPvClotureIfDue } from './bon-cloture';
+import { FOUND_EQUIPMENT_BON_STATUSES, isBonStatusIn } from '../bon-status';
 
 /**
  * IT marks previously not-returned equipment as found.
@@ -24,7 +25,7 @@ export async function markFound(
   const bon = await findBonOrThrow(prisma, id);
   // 'active' is excluded: an active bon has no notReturned equipment, and the
   // no-op updateMany used to propel it straight into sent_restitution
-  if (!['partially_returned', 'archived'].includes(bon.status))
+  if (!isBonStatusIn(bon.status, FOUND_EQUIPMENT_BON_STATUSES))
     throw new BadRequestException('Action impossible sur ce bon');
 
   if (!equipmentIds?.length) throw new BadRequestException('Aucun équipement sélectionné');

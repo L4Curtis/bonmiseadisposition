@@ -23,6 +23,7 @@ import { drawEquipmentTable, drawAvenantNote } from './render/equipment-table';
 import { drawSignaturesSection, renderSignatureBox, SignatureBoxOptions } from './render/signatures';
 import { drawCertificateSection } from './render/certificate';
 import { drawFooterSection } from './render/footer';
+import { SIGNATURES_DIR, UPLOADS_DIR } from '../common/storage-paths';
 
 export interface SigImages {
   it: string | null;
@@ -107,10 +108,8 @@ export class PdfService {
   /** Nom de police (gras) à utiliser dans tout le document. */
   private readonly FONT_BOLD: string = this.customFontsAvailable ? 'Body-Bold' : 'Helvetica-Bold';
 
-  /** Signatures manuscrites chiffrées — même convention que SignatureService,
-   *  dupliquée ici pour éviter une dépendance croisée pdf ↔ signature (le
-   *  module signature dépend déjà du module pdf). */
-  private readonly signaturesDir = join(process.cwd(), 'data', 'signatures');
+  /** Signatures manuscrites chiffrées (même dossier que SignatureService). */
+  private readonly signaturesDir = SIGNATURES_DIR;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -376,7 +375,7 @@ export class PdfService {
   private async getLogoBuffer(logoPath: string | null): Promise<Buffer | null> {
     if (!logoPath) return null;
     const filename = logoPath.split('/').pop() || '';
-    const fullPath = join(process.cwd(), 'data', 'uploads', filename);
+    const fullPath = join(UPLOADS_DIR, filename);
     if (!existsSync(fullPath)) return null;
     try {
       return await readFile(fullPath);

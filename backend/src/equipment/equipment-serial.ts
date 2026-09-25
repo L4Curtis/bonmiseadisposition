@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { IN_PROGRESS_BON_STATUSES } from '../bons/bon-status';
 
 /** Limite de lignes renvoyées par getEquipmentHistory — au-delà, `truncated:
  *  true` signale explicitement que le résultat est partiel plutôt que de
@@ -9,11 +10,6 @@ const EQUIPMENT_HISTORY_LIMIT = 200;
 /** Plafond du nombre de numéros de série vérifiés en une seule fois par
  *  findSerialConflicts — garde-fou contre une requête IN() démesurée. */
 const SERIAL_CONFLICTS_LIMIT = 50;
-
-/** Statuts pour lesquels un équipement non rendu est considéré « en circulation ». */
-const ACTIVE_BON_STATUSES = [
-  'draft', 'sent_mise_dispo', 'active', 'sent_restitution', 'partially_returned', 'contested',
-] as const;
 
 /**
  * Historique d'un matériel : tous les bons où il apparaît, identifié par son
@@ -71,9 +67,12 @@ export async function getEquipmentHistory(prisma: PrismaService, reference: stri
 }
 
 /**
- * Conflits de numéros de série : pour chaque numéro fourni, les bons « en
- * circulation » où il figure déjà sans avoir été rendu. Avertissement non
- * bloquant à la création/édition d'un bon (l'IT confirme en connaissance).
+ * Conflits de numéros de série : pour chaque numéro fourni, les bons encore
+ * en cours de traitement (IN_PROGRESS_BON_STATUSES) où il figure déjà sans
+ * avoir été rendu. Seule implémentation : elle sert l'écran de saisie
+ * (GET /equipment/serial-conflicts) et l'envoi d'un bon (réponse 409
+ * `serial_conflicts`). Avertissement non bloquant : l'IT confirme en
+ * connaissance de cause.
  * Au plus SERIAL_CONFLICTS_LIMIT numéros distincts sont vérifiés par appel ;
  * `truncated` signale explicitement si la liste fournie dépassait ce plafond.
  */
@@ -93,7 +92,7 @@ export async function findSerialConflicts(
       returnedAt: null,
       notReturned: false,
       bon: {
-        status: { in: [...ACTIVE_BON_STATUSES] },
+        status: { in: [...IN_PROGRESS_BON_STATUSES] },
         ...(excludeBonId ? { id: { not: excludeBonId } } : {}),
       },
     },

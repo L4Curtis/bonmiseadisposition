@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateCatalogItemDto, UpdateCatalogItemDto } from './dto/equipment.dto';
 import { trimOptionalOrUndefined, trimRequired } from './equipment-validation';
 import { recordCatalogItemCreated, recordCatalogItemDisabled, recordCatalogItemUpdate } from './equipment-audit';
+import { CLOSED_BON_STATUSES } from '../bons/bon-status';
 
 export function findAllCatalog(prisma: PrismaService) {
   return prisma.equipmentCatalog.findMany({
@@ -141,7 +142,7 @@ export async function assertNotReferencedForDeactivation(prisma: PrismaService, 
   const activeBonCount = await prisma.bonEquipment.count({
     where: {
       catalogItemId: id,
-      bon: { status: { notIn: ['cancelled', 'archived'] } },
+      bon: { status: { notIn: [...CLOSED_BON_STATUSES] } },
     },
   });
   if (activeBonCount > 0) {

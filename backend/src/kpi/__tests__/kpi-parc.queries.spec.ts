@@ -41,7 +41,8 @@ describe('kpi-parc.queries', () => {
 
   it('notReturnedOpenNowQuery exclut toujours archived et cancelled (cast texte, pas de comparaison directe sur enum)', () => {
     const query = notReturnedOpenNowQuery();
-    expect(query.sql).toContain("b.status::text NOT IN ('archived', 'cancelled')");
+    expect(query.sql).toMatch(/b\.status::text NOT IN \(\?,\s?\?\)/);
+    expect(query.values).toEqual(['archived', 'cancelled']);
     expect(query.sql).not.toMatch(/b\.status\s+NOT\s+IN\s*\(/);
   });
 

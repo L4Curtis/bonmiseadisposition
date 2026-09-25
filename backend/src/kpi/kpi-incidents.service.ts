@@ -3,7 +3,8 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppConfigService } from '../config/config.service';
 import { KpiPeriod } from './kpi-period';
-import { compared, filialeFilter, inRange, ratio, toNumber } from './kpi-sql';
+import { parisPeriodSql } from '../common/dates/paris';
+import { compared, filialeFilter, ratio, toNumber } from './kpi-sql';
 import { ClosureReason, KpiIncidentsResponse, ReminderRankStat } from './kpi-types';
 
 type Range = { from: string; to: string };
@@ -157,7 +158,7 @@ export class KpiIncidentsService {
         COUNT(*) FILTER (WHERE a.action = 'bon_cancelled')::bigint AS cancelled
       FROM audit_logs a
       JOIN bons b ON b.id = a.bon_id
-      WHERE ${inRange(Prisma.raw('a.created_at'), range)}
+      WHERE ${parisPeriodSql(Prisma.raw('a.created_at'), range)}
       ${filialeFilter('b', filialeId)}
     `);
     const row = rows[0];
@@ -179,7 +180,7 @@ export class KpiIncidentsService {
       FROM audit_logs a
       JOIN bons b ON b.id = a.bon_id
       WHERE a.action = 'bon_closed_unilateral'
-        AND ${inRange(Prisma.raw('a.created_at'), range)}
+        AND ${parisPeriodSql(Prisma.raw('a.created_at'), range)}
         ${filialeFilter('b', filialeId)}
       GROUP BY reason
       ORDER BY count DESC
@@ -196,17 +197,17 @@ export class KpiIncidentsService {
   private async contestationsFlow(range: Range, filialeId?: string): Promise<ContestationsFlow> {
     const rows = await this.prisma.$queryRaw<ContestationsFlowRow[]>(Prisma.sql`
       SELECT
-        COUNT(*) FILTER (WHERE ${inRange(Prisma.raw('c.created_at'), range)})::bigint AS opened,
+        COUNT(*) FILTER (WHERE ${parisPeriodSql(Prisma.raw('c.created_at'), range)})::bigint AS opened,
         COUNT(*) FILTER (
-          WHERE c.status::text IN ('resolved', 'rejected') AND ${inRange(Prisma.raw('c.updated_at'), range)}
+          WHERE c.status::text IN ('resolved', 'rejected') AND ${parisPeriodSql(Prisma.raw('c.updated_at'), range)}
         )::bigint AS closed,
         COUNT(*) FILTER (
-          WHERE c.status::text = 'resolved' AND ${inRange(Prisma.raw('c.updated_at'), range)}
+          WHERE c.status::text = 'resolved' AND ${parisPeriodSql(Prisma.raw('c.updated_at'), range)}
         )::bigint AS resolved,
         percentile_cont(0.5) WITHIN GROUP (
           ORDER BY EXTRACT(EPOCH FROM (c.updated_at - c.created_at))::float8 / 86400
         ) FILTER (
-          WHERE c.status::text IN ('resolved', 'rejected') AND ${inRange(Prisma.raw('c.updated_at'), range)}
+          WHERE c.status::text IN ('resolved', 'rejected') AND ${parisPeriodSql(Prisma.raw('c.updated_at'), range)}
         ) AS "medianDays"
       FROM contestations c
       JOIN bons b ON b.id = c.bon_id
@@ -259,7 +260,7 @@ export class KpiIncidentsService {
       WHERE nl.type::text = 'reminder'
         AND nl.status::text = 'sent'
         AND nl.reminder_number IS NOT NULL
-        AND ${inRange(Prisma.raw('nl.sent_at'), range)}
+        AND ${parisPeriodSql(Prisma.raw('nl.sent_at'), range)}
         ${filialeFilter('b', filialeId)}
       GROUP BY nl.reminder_number
       ORDER BY nl.reminder_number
@@ -276,7 +277,7 @@ export class KpiIncidentsService {
       WHERE nl.type::text = 'reminder'
         AND nl.status::text = 'sent'
         AND nl.reminder_number >= 3
-        AND ${inRange(Prisma.raw('nl.sent_at'), range)}
+        AND ${parisPeriodSql(Prisma.raw('nl.sent_at'), range)}
         ${filialeFilter('b', filialeId)}
     `);
     return toNumber(rows[0]?.count);
@@ -289,7 +290,7 @@ export class KpiIncidentsService {
       FROM notification_logs nl
       JOIN bons b ON b.id = nl.bon_id
       WHERE nl.status::text = 'failed'
-        AND ${inRange(Prisma.raw('nl.sent_at'), range)}
+        AND ${parisPeriodSql(Prisma.raw('nl.sent_at'), range)}
         ${filialeFilter('b', filialeId)}
     `);
     return toNumber(rows[0]?.count);

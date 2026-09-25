@@ -2,7 +2,8 @@ import { BadRequestException, ConflictException } from '@nestjs/common';
 import { BonStatus } from '../../common/types';
 import { isDeliverableEmail, undeliverableEmailMessage } from '../../common/email';
 import { BON_SELECT, findBonOrThrow } from '../queries/bon-where';
-import { assertSendable, findSerialConflicts } from '../validation/bon-validators';
+import { assertSendable } from '../validation/bon-validators';
+import { findSerialConflicts } from '../../equipment/equipment-serial';
 import { BonsWorkflowContext } from './bon-context';
 
 export async function sendBon(
@@ -22,7 +23,10 @@ export async function sendBon(
   }
 
   const serials = bon.equipments.map((e) => e.serialNumber).filter((s): s is string => !!s);
-  const serialConflicts = await findSerialConflicts(prisma, serials, id);
+  // Même vérification que l'écran de saisie. La réponse 409 et l'audit ne
+  // gardent que le numéro et la référence du bon où il circule déjà.
+  const { items } = await findSerialConflicts(prisma, serials, id);
+  const serialConflicts = items.map(({ serialNumber, bonReference }) => ({ serialNumber, bonReference }));
   if (serialConflicts.length > 0 && !confirmSerialConflicts) {
     throw new ConflictException({ code: 'serial_conflicts', conflicts: serialConflicts });
   }

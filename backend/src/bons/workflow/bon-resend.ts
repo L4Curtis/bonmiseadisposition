@@ -3,6 +3,7 @@ import { isDeliverableEmail, undeliverableEmailMessage } from '../../common/emai
 import { findBonOrThrow } from '../queries/bon-where';
 import { BonsWorkflowContext } from './bon-context';
 import { emitPvClotureIfDue } from './bon-cloture';
+import { RESTITUTION_PHASE_BON_STATUSES, SIGNATURE_LINK_BON_STATUSES, isBonStatusIn } from '../bon-status';
 
 /**
  * Renvoi manuel du lien de signature (depuis BonDetail par l'IT).
@@ -12,7 +13,7 @@ export async function resendSignatureLink(ctx: BonsWorkflowContext, bonId: strin
   const { prisma, signatureService, notificationService, logger } = ctx;
   const bon = await findBonOrThrow(prisma, bonId);
 
-  if (!['sent_mise_dispo', 'sent_restitution', 'partially_returned'].includes(bon.status))
+  if (!isBonStatusIn(bon.status, SIGNATURE_LINK_BON_STATUSES))
     throw new BadRequestException(
       'Le renvoi est possible uniquement pour les bons en attente de signature',
     );
@@ -86,7 +87,7 @@ export async function resendSignatureLink(ctx: BonsWorkflowContext, bonId: strin
     notificationService.sendRestitutionRequest(bon, sig.token).catch((err: unknown) => logger.error(`Email fire-and-forget: ${err}`));
   } else {
     const type: 'mise_disposition' | 'restitution' =
-      ['sent_restitution', 'partially_returned'].includes(bon.status) ? 'restitution' : 'mise_disposition';
+      isBonStatusIn(bon.status, RESTITUTION_PHASE_BON_STATUSES) ? 'restitution' : 'mise_disposition';
 
     // Invalider le token précédent et en générer un nouveau
     await signatureService.invalidateUnsignedTokens(bonId);

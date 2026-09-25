@@ -15,8 +15,19 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth-user.interface';
 
+/**
+ * Filiales. Leur gestion (création, modification, cachet, logo, désactivation,
+ * import, export) est réservée à l'administrateur : c'est le rôle posé sur la
+ * classe. Seule la liste des filiales ACTIVES, réduite à leur identité, sert
+ * aussi aux filtres et formulaires de l'IT et de la direction. Le collaborateur
+ * n'a aucune route ici : le nom de la filiale lui parvient avec ses bons.
+ *
+ * Les fichiers déposés (logos, cachets) ne sont servis par aucune route : ils
+ * ne sortent du serveur qu'imprimés sur les PDF.
+ */
 @Controller('filiales')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles('admin')
 export class FilialesController {
   constructor(private readonly filialesService: FilialesService) {}
 
@@ -25,7 +36,10 @@ export class FilialesController {
     return this.filialesService.findAll();
   }
 
+  /** GET /filiales/active — `{ id, name, displayName, active }` des filiales
+   *  actives : filtres (bons, inventaire, tableau de bord) et formulaires. */
   @Get('active')
+  @Roles('admin', 'technician', 'direction')
   findActive() {
     return this.filialesService.findActive();
   }
@@ -35,8 +49,6 @@ export class FilialesController {
    *  Logo/cachet en base64 (sans préfixe data URL) uniquement si
    *  `images=1` — cf. filiales-csv.ts pour le détail du contrat. */
   @Get('export')
-  @UseGuards(RolesGuard)
-  @Roles('admin')
   async exportCsv(@Query('images') images: string | undefined, @Res() res: Response) {
     const csv = await this.filialesService.exportCsv(images === '1');
     const filename = `filiales-${new Date().toISOString().slice(0, 10)}.csv`;
@@ -48,8 +60,6 @@ export class FilialesController {
   /** GET /filiales/import/template — même en-tête que l'export, plus deux
    *  lignes d'exemple commentées (cf. filiales-csv.ts). */
   @Get('import/template')
-  @UseGuards(RolesGuard)
-  @Roles('admin')
   importTemplate(@Res() res: Response) {
     const csv = this.filialesService.getImportTemplate();
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -62,25 +72,7 @@ export class FilialesController {
     return this.filialesService.findOne(id);
   }
 
-  // Serve uploaded files (sanitized to prevent path traversal)
-  @Get('file/:filename')
-  serveFile(@Param('filename') filename: string, @Res() res: Response) {
-    const safe = basename(filename);
-    const fullPath = join(process.cwd(), 'data', 'uploads', safe);
-    if (!existsSync(fullPath)) {
-      return res.status(404).json({ message: 'Fichier introuvable' });
-    }
-    // Force download for SVG files to prevent stored XSS
-    if (/\.svg$/i.test(safe)) {
-      res.setHeader('Content-Disposition', 'attachment');
-      res.setHeader('Content-Type', 'text/plain');
-    }
-    return res.sendFile(fullPath);
-  }
-
   @Post()
-  @UseGuards(RolesGuard)
-  @Roles('admin', 'technician')
   create(@Body() dto: CreateFilialeDto) {
     return this.filialesService.create(dto);
   }
@@ -88,22 +80,16 @@ export class FilialesController {
   /** POST /filiales/import — import en masse (max 200 lignes) : cf.
    *  filiales-import.ts pour le détail exact du contrat. */
   @Post('import')
-  @UseGuards(RolesGuard)
-  @Roles('admin')
   importFiliales(@Body() dto: ImportFilialesDto, @CurrentUser() user: AuthUser) {
     return this.filialesService.importFiliales(dto, user.id);
   }
 
   @Put(':id')
-  @UseGuards(RolesGuard)
-  @Roles('admin', 'technician')
   update(@Param('id') id: string, @Body() dto: UpdateFilialeDto) {
     return this.filialesService.update(id, dto);
   }
 
   @Patch(':id/logo')
-  @UseGuards(RolesGuard)
-  @Roles('admin', 'technician')
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @UseInterceptors(FileInterceptor('file'))
   async uploadLogo(@Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
@@ -122,8 +108,6 @@ export class FilialesController {
   }
 
   @Patch(':id/stamp')
-  @UseGuards(RolesGuard)
-  @Roles('admin', 'technician')
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @UseInterceptors(FileInterceptor('file'))
   async uploadStamp(@Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
@@ -139,8 +123,6 @@ export class FilialesController {
   }
 
   @Delete(':id')
-  @UseGuards(RolesGuard)
-  @Roles('admin')
   remove(@Param('id') id: string) {
     return this.filialesService.remove(id);
   }

@@ -7,6 +7,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
 import { EquipmentCategoryEnum, PackItemDto } from '../dto/equipment.dto';
 import type { Mock } from 'vitest';
+import { IN_PROGRESS_BON_STATUSES } from '../../bons/bon-status';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type MockPrisma = Record<string, Record<string, Mock>>;
@@ -321,7 +322,7 @@ describe('EquipmentService', () => {
         service.updateCatalogItem('cat-001', { active: false }, USER_ID),
       ).rejects.toThrow(BadRequestException);
       expect(prisma.bonEquipment.count).toHaveBeenCalledWith({
-        where: { catalogItemId: 'cat-001', bon: { status: { notIn: ['cancelled', 'archived'] } } },
+        where: { catalogItemId: 'cat-001', bon: { status: { notIn: ['archived', 'cancelled'] } } },
       });
       expect(prisma.equipmentCatalog.update).not.toHaveBeenCalled();
     });
@@ -611,6 +612,35 @@ describe('EquipmentService', () => {
 
       expect(result).toEqual({ items: [], truncated: false });
       expect(prisma.bonEquipment.findMany).not.toHaveBeenCalled();
+    });
+
+    it('only looks at unreturned equipment on bons still in progress, excluding the given bon', async () => {
+      prisma.bonEquipment.findMany.mockResolvedValue([]);
+
+      await service.findSerialConflicts(['SN-1'], 'bon-current');
+
+      const { where } = prisma.bonEquipment.findMany.mock.calls[0][0];
+      expect(where).toMatchObject({ returnedAt: null, notReturned: false });
+      expect(where.bon.id).toEqual({ not: 'bon-current' });
+      expect(where.bon.status.in).toEqual([...IN_PROGRESS_BON_STATUSES]);
+    });
+
+    it('maps each conflict to the bon it is found on', async () => {
+      prisma.bonEquipment.findMany.mockResolvedValue([
+        {
+          serialNumber: 'SN-1',
+          bon: { id: 'bon-9', reference: 'BON-2026-0099', status: 'active', collaborateur: { displayName: 'Jean Dupont' } },
+        },
+      ]);
+
+      const result = await service.findSerialConflicts(['SN-1']);
+
+      expect(result).toEqual({
+        items: [
+          { serialNumber: 'SN-1', bonId: 'bon-9', bonReference: 'BON-2026-0099', bonStatus: 'active', collaborateur: 'Jean Dupont' },
+        ],
+        truncated: false,
+      });
     });
 
     it('should signal truncation explicitly when more than 50 distinct serials are provided', async () => {

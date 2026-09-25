@@ -18,6 +18,7 @@ import { buildSealPayload } from './seal';
 import { getNextBonStatus } from './status-transition';
 import { saveSignatureFile } from './signature-file-store';
 import { generatePdfSnapshot, PdfSnapshotDeps } from './pdf-snapshot';
+import { NON_SIGNABLE_BON_STATUSES, isBonStatusIn } from '../bons/bon-status';
 
 export interface SignDeps {
   prisma: PrismaService;
@@ -120,7 +121,7 @@ export async function sign(
     if (new Date() > freshSig.tokenExpiresAt) {
       throw new BadRequestException(expiredMessage(freshSig.tokenExpiresAt));
     }
-    if (['cancelled', 'contested', 'archived'].includes(freshSig.bon.status)) {
+    if (isBonStatusIn(freshSig.bon.status, NON_SIGNABLE_BON_STATUSES)) {
       throw new BadRequestException('Ce bon est clôturé, annulé ou contesté et ne peut plus être signé');
     }
 

@@ -1,5 +1,5 @@
 ﻿import {
-  Controller, Get, Put, Post, Patch, Delete, Body, Param, Query, UseGuards, BadRequestException, ForbiddenException, Logger,
+  Controller, Get, Put, Post, Patch, Delete, Body, Param, Query, UseGuards, BadRequestException, Logger,
 } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { NotificationFailuresService, DEFAULT_NOTIFICATION_FAILURES_WINDOW_DAYS } from './notification-failures.service';
@@ -63,9 +63,14 @@ const INTEGER_CONFIG_RULES: Record<string, { min: number; max?: number }> = {
   'smtp.port': { min: 1, max: 65535 },
 };
 
+/**
+ * Administration : réglages, supervision, annuaire (synchronisation LDAP) et
+ * gestion des comptes (rôle, déverrouillage). Tout y est réservé à
+ * l'administrateur ; le technicien n'a aucun écran qui appelle ces routes.
+ */
 @Controller('admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('admin', 'technician')
+@Roles('admin')
 export class AdminController {
   private readonly logger = new Logger(AdminController.name);
 
@@ -79,14 +84,10 @@ export class AdminController {
     private readonly monitoringService: MonitoringService,
   ) {}
 
-  // Catégories réservées aux admins (infos sensibles ou impact réglementaire)
-  private static readonly ADMIN_ONLY_CATEGORIES = ['entra', 'ldap', 'smtp', 'smb', 'timestamp', 'retention'];
-
   /** GET /admin/notifications/failed — emails en échec, migré depuis
    *  l'ancien module Reporting (supprimé). Déclaré avant `config/:category`
    *  par convention (routes statiques avant routes paramétrées). */
   @Get('notifications/failed')
-  @Roles('admin')
   async getFailedNotifications(@Query('days') days?: string) {
     const parsed = days !== undefined ? parseInt(days, 10) : DEFAULT_NOTIFICATION_FAILURES_WINDOW_DAYS;
     const windowDays = Number.isFinite(parsed)
@@ -98,7 +99,6 @@ export class AdminController {
   /** GET /admin/status — version/commit déployés, disponibilité de la base et
    *  dernier passage de chaque tâche planifiée (lot A5, supervision). */
   @Get('status')
-  @Roles('admin')
   async getStatus() {
     return this.monitoringService.getAdminStatus();
   }
@@ -107,7 +107,6 @@ export class AdminController {
    *  Rend visible le cas « la personne est dans le groupe Entra mais n'obtient
    *  pas son rôle » (revendication de groupes non configurée, identifiant erroné). */
   @Get('sso/diagnostic')
-  @Roles('admin')
   async getSsoDiagnostic(@Query('limit') limit?: string) {
     const parsed = limit !== undefined ? parseInt(limit, 10) : NaN;
     return this.ssoDiagnosticService.getRecent(Number.isFinite(parsed) ? parsed : undefined);
@@ -115,7 +114,6 @@ export class AdminController {
 
   /** PATCH /admin/users/:id/role — changement manuel de rôle (admin). */
   @Patch('users/:id/role')
-  @Roles('admin')
   async changeUserRole(
     @Param('id') id: string,
     @Body() dto: ChangeUserRoleDto,
@@ -126,19 +124,16 @@ export class AdminController {
 
   // ── SMB monitoring (MUST be declared before config/:category to avoid capture) ─
   @Get('smb/status')
-  @Roles('admin')
   async smbStatus() {
     return this.smbService.getStatus();
   }
 
   @Get('smb/failed')
-  @Roles('admin')
   async smbFailed() {
     return this.smbService.getFailedExports();
   }
 
   @Post('smb/retry/:id')
-  @Roles('admin')
   async smbRetryOne(@Param('id') id: string) {
     const result = await this.smbService.retryOne(id);
     if (!result.success && result.error === 'SMB non activé') {
@@ -148,7 +143,6 @@ export class AdminController {
   }
 
   @Post('smb/retry-all')
-  @Roles('admin')
   async smbRetryAll() {
     const enabled = await this.configService.get('smb', 'enabled');
     if (enabled !== 'true') {
@@ -163,32 +157,26 @@ export class AdminController {
    *  désactivé / non configuré), sans aucun secret. Déclaré AVANT
    *  config/:category pour ne pas être capturé comme category="health". */
   @Get('config/health')
-  @Roles('admin')
   async getConfigHealth() {
     return this.adminService.getConfigHealth();
   }
 
   @Get('config/:category')
-  async getConfig(@Param('category') category: string, @CurrentUser() user: AuthUser) {
+  async getConfig(@Param('category') category: string) {
     if (!ALLOWED_CATEGORIES.includes(category)) {
       throw new BadRequestException(`Catégorie de configuration inconnue : ${category}`);
-    }
-    if (AdminController.ADMIN_ONLY_CATEGORIES.includes(category) && user?.role !== 'admin') {
-      throw new ForbiddenException('Accès réservé aux administrateurs');
     }
     // Masque les secrets (bind_password, client_secret, smtp password) dans la réponse
     const data = await this.adminService.getConfigSection(category, { maskSecrets: true });
     // Pré-remplir l'URL publique avec la valeur effective (env FRONTEND_URL)
-    // quand elle n'a pas encore été personnalisée en base. Réservé à l'admin :
-    // lui seul peut écrire app_url (PUT @Roles('admin')).
-    if (category === 'general' && user?.role === 'admin' && !data['app_url'] && process.env.FRONTEND_URL) {
+    // quand elle n'a pas encore été personnalisée en base.
+    if (category === 'general' && !data['app_url'] && process.env.FRONTEND_URL) {
       data['app_url'] = process.env.FRONTEND_URL;
     }
     return data;
   }
 
   @Put('config/:category')
-  @Roles('admin')
   async setConfig(
     @Param('category') category: string,
     @Body() body: Record<string, string>,
@@ -291,25 +279,21 @@ export class AdminController {
 
   // ── Test endpoints ────────────────────────────────────────────────────────
   @Post('config/test/ldap')
-  @Roles('admin')
   async testLdap() {
     return this.ldapService.testConnection();
   }
 
   @Post('config/test/smtp')
-  @Roles('admin')
   async testSmtp(@Body('testEmail') testEmail?: string) {
     return this.adminService.testSmtp(testEmail);
   }
 
   @Post('config/test/entra')
-  @Roles('admin')
   async testEntra() {
     return this.adminService.testEntra();
   }
 
   @Post('config/test/smb')
-  @Roles('admin')
   async testSmb() {
     return this.smbService.testConnection();
   }
@@ -321,7 +305,6 @@ export class AdminController {
   }
 
   @Post('ldap/sync')
-  @Roles('admin')
   async triggerLdapSync() {
     // Run in background, return immediately
     this.ldapService.syncUsers().catch((err: unknown) => {
@@ -331,7 +314,6 @@ export class AdminController {
   }
 
   @Delete('ldap/users')
-  @Roles('admin')
   async purgeLdapUsers(@CurrentUser() user: AuthUser) {
     const result = await this.adminService.purgeLdapUsers(user.id);
     return { ok: true, message: `${result.deactivated} utilisateur(s) LDAP désactivé(s)` };
@@ -339,7 +321,6 @@ export class AdminController {
 
   // ── Déverrouillage brute-force ───────────────────────────────────────────
   @Post('users/:id/unlock')
-  @Roles('admin')
   async unlockUser(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.adminService.unlockUser(id, user.id);
   }

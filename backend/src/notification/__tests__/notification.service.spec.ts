@@ -389,7 +389,7 @@ describe('NotificationService', () => {
   // ─── sendContestationAlert ─────────────────────────────────────────────────
 
   describe('sendContestationAlert', () => {
-    it('should send email to all IT staff', async () => {
+    it('envoie l’alerte à chaque administrateur et technicien actif (sélection par rôle)', async () => {
       const bon = activeBon() as unknown as NotificationBon;
       const contestingUser = { displayName: 'Jean Dupont', email: 'jean@test.fr' };
       asMock(prisma.user.findMany).mockResolvedValue([
@@ -401,7 +401,7 @@ describe('NotificationService', () => {
       await service.sendContestationAlert(bon, contestingUser, 'Equipement manquant');
 
       expect(prisma.user.findMany).toHaveBeenCalledWith({
-        where: { isItStaff: true, active: true },
+        where: { role: { in: ['admin', 'technician'] }, active: true },
         select: { email: true },
       });
       expect(templatesService.renderTemplate).toHaveBeenCalledWith(
@@ -429,7 +429,7 @@ describe('NotificationService', () => {
           recipientEmail: '',
           type: 'contestation_alert',
           status: 'failed',
-          errorMessage: 'Aucun utilisateur IT actif avec une adresse email',
+          errorMessage: 'Aucun administrateur ni technicien actif avec une adresse email valide',
         },
       });
     });
@@ -470,7 +470,7 @@ describe('NotificationService', () => {
 
       expect(result).toBe(true);
       expect(prisma.user.findMany).toHaveBeenCalledWith({
-        where: { isItStaff: true, active: true },
+        where: { role: { in: ['admin', 'technician'] }, active: true },
         select: { email: true },
       });
       expect(templatesService.renderTemplate).toHaveBeenCalledWith(

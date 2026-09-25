@@ -3,15 +3,16 @@ import { writeFile, unlink } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { randomUUID } from 'node:crypto';
+import { UPLOADS_DIR, dataPath } from '../common/storage-paths';
 
 /** Taille max de l'image décodée (logo/cachet) acceptée à l'import CSV. */
 export const MAX_FILIALE_IMAGE_BYTES = 2 * 1024 * 1024; // 2 Mo
 
-/** Répertoire de stockage — identique à celui déclaré par le `diskStorage`
- *  de FilialesModule (uploads via formulaire), pour que `GET
- *  /filiales/file/:filename` et FilialesService#deleteFile servent/purgent
- *  indifféremment un fichier uploadé via formulaire ou via import CSV. */
-const UPLOADS_DIR = join(process.cwd(), 'data', 'uploads');
+// Les images sont rangées dans UPLOADS_DIR, le dossier du `diskStorage` de
+// FilialesModule (dépôt par formulaire) : la génération des PDF et
+// FilialesService#deleteFile lisent ou purgent de la même façon un fichier
+// déposé par formulaire ou par import CSV. Aucune route HTTP ne sert ces
+// fichiers : un cachet ne sort du serveur qu'imprimé sur un PDF.
 
 /** Une data URL (data:image/xxx;base64,....) est acceptée en plus d'une
  *  chaîne base64 nue — seul le préfixe est reconnu, le type annoncé n'est
@@ -80,10 +81,11 @@ export async function saveFilialeImageFromBase64(raw: string, fieldLabel: string
  *  FilialesService#deleteFile (dupliquée ici : ce module est appelé depuis
  *  filiales-import.ts, hors du service, pour rester une fonction pure et
  *  testable indépendamment). Un échec de suppression n'est jamais bloquant :
- *  au pire un fichier orphelin reste sur disque. */
+ *  au pire un fichier orphelin reste sur disque. Un chemin qui sortirait de
+ *  data/ n'est jamais supprimé. */
 export async function deleteFilialeUpload(relativePath: string): Promise<void> {
-  const fullPath = join(process.cwd(), 'data', relativePath);
   try {
+    const fullPath = dataPath(relativePath);
     if (existsSync(fullPath)) await unlink(fullPath);
   } catch {
     // best-effort : un fichier orphelin résiduel n'est pas bloquant

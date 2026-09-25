@@ -5,6 +5,7 @@ import { isDeliverableEmail, undeliverableEmailMessage } from '../../common/emai
 import { BON_SELECT, findBonOrThrow } from '../queries/bon-where';
 import { BonsWorkflowContext, assertNoPendingRestitutionSignature } from './bon-context';
 import { emitPvClotureIfDue } from './bon-cloture';
+import { LOANED_BON_STATUSES, RESTITUTION_START_BON_STATUSES, isBonStatusIn } from '../bon-status';
 
 export async function initiateRestitution(
   ctx: BonsWorkflowContext,
@@ -14,7 +15,7 @@ export async function initiateRestitution(
 ) {
   const { prisma, signatureService, notificationService, logger } = ctx;
   const bon = await findBonOrThrow(prisma, id);
-  if (!['active', 'partially_returned'].includes(bon.status))
+  if (!isBonStatusIn(bon.status, RESTITUTION_START_BON_STATUSES))
     throw new BadRequestException(
       'La restitution ne peut être initiée que sur un bon actif ou partiellement restitué',
     );
@@ -76,7 +77,7 @@ export async function initiateRestitution(
     const txNewStatus: BonStatus = fullyReturned ? 'sent_restitution' : 'partially_returned';
 
     const transition = await tx.bon.updateMany({
-      where: { id, status: { in: ['active', 'partially_returned'] } },
+      where: { id, status: { in: [...RESTITUTION_START_BON_STATUSES] } },
       data: { status: txNewStatus },
     });
     if (transition.count === 0) {
@@ -121,7 +122,7 @@ export async function declareNotReturned(
 ) {
   const { prisma, signatureService, logger } = ctx;
   const bon = await findBonOrThrow(prisma, id);
-  if (!['active', 'partially_returned', 'sent_restitution'].includes(bon.status))
+  if (!isBonStatusIn(bon.status, LOANED_BON_STATUSES))
     throw new BadRequestException('Action impossible sur ce bon');
 
   if (!equipmentIds?.length) throw new BadRequestException('Aucun équipement sélectionné');
@@ -180,7 +181,7 @@ export async function declareNotReturned(
     // Transition conditionnelle : un cancel/contestation concurrent gagne la
     // course plutôt que d'être écrasé.
     const transition = await tx.bon.updateMany({
-      where: { id, status: { in: ['active', 'sent_restitution', 'partially_returned'] } },
+      where: { id, status: { in: [...LOANED_BON_STATUSES] } },
       data: { status: 'partially_returned' },
     });
     if (transition.count === 0) {

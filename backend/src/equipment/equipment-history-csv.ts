@@ -1,15 +1,12 @@
-import { STATUS_LABELS } from '../common/status-labels';
-import { escapeCsvCell } from '../common/bon-predicates';
+import { bonStatusLabel } from '../bons/bon-status';
+import { buildCsv } from '../common/csv';
+import { formatParisDate } from '../common/dates/paris';
 
-const HEADERS = [
+const HEADERS: readonly string[] = [
   'Référence bon', 'Statut bon', 'Collaborateur', 'Email', 'Filiale',
   'Désignation', 'N° série', 'N° inventaire',
-  'Date mise à disposition', 'Restitution prévue', 'Rendu le', 'Non rendu',
+  'Date mise à disposition', 'Restitution prévue', 'Restitué le', 'Non restitué',
 ];
-
-function formatFrDate(date: Date | string | null | undefined): string {
-  return date ? new Date(date).toLocaleDateString('fr-FR') : '';
-}
 
 /** Une ligne de l'historique d'un matériel — même forme que les `items`
  *  renvoyés par `getEquipmentHistory` (equipment-serial.ts). */
@@ -33,29 +30,24 @@ export interface EquipmentHistoryCsvRow {
 }
 
 /**
- * Construit le CSV d'export de l'historique d'un matériel (page
- * `/materiel/:reference`, lot L1 — A4) : mêmes entrées, dans le même ordre
- * (plus récent d'abord), que celles affichées à l'écran.
+ * Construit le CSV d'export de l'historique d'un équipement : mêmes entrées,
+ * dans le même ordre (plus récent d'abord), que celles affichées à l'écran.
  */
 export function buildEquipmentHistoryCsv(items: readonly EquipmentHistoryCsvRow[]): string {
-  const dataRows = items.map((it) => [
+  const rows = items.map((it) => [
     it.bon.reference,
-    STATUS_LABELS[it.bon.status] ?? it.bon.status,
+    bonStatusLabel(it.bon.status),
     it.bon.collaborateur.displayName,
     it.bon.collaborateur.email ?? '—',
     it.bon.filiale.displayName,
     it.label ?? '',
     it.serialNumber ?? '',
     it.inventoryNumber ?? '',
-    formatFrDate(it.bon.dateMiseDisposition),
-    formatFrDate(it.bon.dateRestitution),
-    formatFrDate(it.returnedAt),
+    formatParisDate(it.bon.dateMiseDisposition),
+    formatParisDate(it.bon.dateRestitution),
+    // Instant du retour : daté à l'heure de Paris, pas dans le fuseau du serveur.
+    formatParisDate(it.returnedAt),
     it.notReturned ? 'Oui' : '',
-  ].map(escapeCsvCell));
-
-  const csv = [HEADERS.map(escapeCsvCell).join(';'), ...dataRows.map((r) => r.join(';'))].join('\n');
-  // BOM UTF-8 (U+FEFF) pour Excel — via fromCharCode pour éviter tout
-  // caractère littéral invisible dans le source (même convention que
-  // reporting/inventory-csv.ts).
-  return String.fromCharCode(0xfeff) + csv;
+  ]);
+  return buildCsv({ header: HEADERS, rows });
 }

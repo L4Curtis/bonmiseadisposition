@@ -13,15 +13,15 @@ import { AuthUser } from '../auth/auth-user.interface';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * Aperçu d'un modèle d'email avec un vrai bon (lot H3). Mêmes droits que
- * l'aperçu avec données d'exemple (admin, technicien) ; l'envoi d'un email de
- * test reste réservé à l'administrateur, comme POST :id/test.
+ * Aperçu d'un modèle d'email avec un vrai bon, et envoi d'un email de test :
+ * réservés à l'administrateur, comme tout l'écran Modèles.
  *
  * Les segments `preview-bons` et `:id/preview-bon/:bonId` ne recoupent aucune
  * route d'admin/templates.controller.ts (même préfixe).
  */
 @Controller('admin/email-templates')
 @UseGuards(JwtAuthGuard, RolesGuard)
+@Roles('admin')
 export class TemplateBonPreviewController {
   constructor(
     private readonly bonPreviewService: TemplateBonPreviewService,
@@ -30,14 +30,12 @@ export class TemplateBonPreviewController {
 
   /** Recherche d'un bon par référence pour l'aperçu (10 résultats au plus). */
   @Get('preview-bons')
-  @Roles('admin', 'technician')
   searchBons(@Query('q') q?: string) {
     return this.bonPreviewService.searchBons(typeof q === 'string' ? q : undefined);
   }
 
   /** Rendu du modèle avec les données du bon — lecture seule, lien de signature factice. */
   @Get(':id/preview-bon/:bonId')
-  @Roles('admin', 'technician')
   previewWithBon(
     @Param('id') id: string,
     @Param('bonId', new ParseUUIDPipe()) bonId: string,
@@ -47,7 +45,6 @@ export class TemplateBonPreviewController {
 
   /** Email de test rendu avec les données du bon, envoyé à l'adresse indiquée (tracé dans l'audit). */
   @Post(':id/test-bon')
-  @Roles('admin')
   async sendTestWithBon(
     @Param('id') id: string,
     @Body() body: { email?: unknown; bonId?: unknown },

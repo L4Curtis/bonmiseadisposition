@@ -22,6 +22,7 @@ import * as bonRestitution from './workflow/bon-restitution';
 import { markFound as markFoundWorkflow } from './workflow/bon-mark-found';
 import * as bonCloture from './workflow/bon-cloture';
 import { resendSignatureLink as resendSignatureLinkWorkflow } from './workflow/bon-resend';
+import { COLLAB_HIDDEN_BON_STATUSES } from './bon-status';
 
 /** Compte rendu d'un bon dans une relance groupée. */
 export interface ResendBatchItem {
@@ -181,7 +182,7 @@ export class BonsService {
         collaborateurId: userId,
         // Un brouillon n'a encore rien été envoyé au collaborateur — rien à
         // afficher/signer côté portail.
-        status: { notIn: ['cancelled', 'draft'] },
+        status: { notIn: [...COLLAB_HIDDEN_BON_STATUSES] },
       },
       select: {
         ...BON_SELECT.select,

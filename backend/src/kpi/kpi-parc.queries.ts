@@ -1,7 +1,9 @@
 import { Prisma } from '@prisma/client';
 import { KpiPeriod } from './kpi-period';
-import { filialeFilter, inRange, stepInterval } from './kpi-sql';
+import { parisMidnightUtcSql, parisPeriodSql, parisTodaySql } from '../common/dates/paris';
+import { filialeFilter, stepInterval } from './kpi-sql';
 import { PARC_BON_STATUSES, parcEquipmentSql, situationCaseSql } from '../common/bon-predicates';
+import { CLOSED_BON_STATUSES } from '../bons/bon-status';
 
 /**
  * Requêtes SQL brutes de `KpiParcService.getParc` — extraites sans
@@ -175,8 +177,8 @@ export function shareCountsQuery(filialeId?: string): Prisma.Sql {
 export function loanedSeriesQuery(period: KpiPeriod, filialeId?: string): Prisma.Sql {
   const step = stepInterval(period.granularity);
   // Fin de bucket = minuit Paris du bucket suivant, ramené en timestamp naïf UTC
-  // (même convention que parisStart) pour se comparer aux colonnes Prisma.
-  const bucketEnd = Prisma.sql`((LEAST(bk.d + ${step}, ${period.to}::date + 1)::timestamp AT TIME ZONE 'Europe/Paris') AT TIME ZONE 'UTC')`;
+  // pour se comparer aux colonnes Prisma.
+  const bucketEnd = parisMidnightUtcSql(Prisma.sql`LEAST(bk.d + ${step}, ${period.to}::date + 1)`);
 
   return Prisma.sql`
     WITH bk AS (
@@ -218,13 +220,13 @@ export function loanedSeriesQuery(period: KpiPeriod, filialeId?: string): Prisma
 function lateBonsCte(filialeId?: string): Prisma.Sql {
   return Prisma.sql`
     SELECT b.id AS bon_id, b.reference, b.date_restitution, b.collaborateur_id, b.filiale_id,
-           (now() AT TIME ZONE 'Europe/Paris')::date - b.date_restitution AS days_late,
+           ${parisTodaySql()} - b.date_restitution AS days_late,
            COUNT(be.id)::bigint AS equipments
     FROM bon_equipments be
     JOIN bons b ON b.id = be.bon_id
     WHERE ${parcEquipmentSql()}
       AND b.date_restitution IS NOT NULL
-      AND b.date_restitution < (now() AT TIME ZONE 'Europe/Paris')::date
+      AND b.date_restitution < ${parisTodaySql()}
       ${filialeFilter('b', filialeId)}
     GROUP BY b.id, b.reference, b.date_restitution, b.collaborateur_id, b.filiale_id
   `;
@@ -272,7 +274,7 @@ export function notReturnedFlowsQuery(range: { from: string; to: string }, filia
       COUNT(*) FILTER (WHERE a.action = 'mark_found')::bigint AS found
     FROM audit_logs a
     JOIN bons b ON b.id = a.bon_id
-    WHERE ${inRange(Prisma.sql`a.created_at`, range)}
+    WHERE ${parisPeriodSql(Prisma.sql`a.created_at`, range)}
     ${filialeFilter('b', filialeId)}
   `;
 }
@@ -287,7 +289,7 @@ export function closedBonsShareQuery(range: { from: string; to: string }, filial
         WHERE EXISTS (SELECT 1 FROM bon_equipments be WHERE be.bon_id = b.id AND be.not_returned = true)
       )::bigint AS "withNotReturned"
     FROM bons b
-    WHERE ${inRange(Prisma.sql`b.archived_at`, range)}
+    WHERE ${parisPeriodSql(Prisma.sql`b.archived_at`, range)}
     ${filialeFilter('b', filialeId)}
   `;
 }
@@ -300,7 +302,7 @@ export function notReturnedOpenNowQuery(filialeId?: string): Prisma.Sql {
     FROM bon_equipments be
     JOIN bons b ON b.id = be.bon_id
     WHERE be.not_returned = true
-      AND b.status::text NOT IN ('archived', 'cancelled')
+      AND b.status::text NOT IN (${Prisma.join(CLOSED_BON_STATUSES)})
       ${filialeFilter('b', filialeId)}
   `;
 }

@@ -34,7 +34,8 @@ interface ManualUserResponse {
 
 /** Boîte de dialogue de création d'un collaborateur sans compte Active
  *  Directory (compagnon de chantier). Ouverte depuis l'autocomplétion quand
- *  la recherche ne donne aucun résultat. Sans adresse email, le collaborateur
+ *  la recherche ne donne aucun résultat, pour un administrateur seulement
+ *  (POST /users/manual lui est réservé). Sans adresse email, le collaborateur
  *  créé signera ses bons en présentiel — le champ le précise et reste
  *  facultatif, tout comme le service et la filiale. */
 export function ManualUserDialog({ open, onOpenChange, initialLastName, onCreated }: ManualUserDialogProps) {

@@ -6,6 +6,9 @@ import * as crypto from 'crypto';
 import { AuthService, AccountLockedException, AccountConflictException } from './auth.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { UserThrottlerGuard } from './guards/user-throttler.guard';
+import { RolesGuard } from './guards/roles.guard';
+import { Public } from './decorators/public.decorator';
+import { Roles, ALL_ROLES } from './decorators/roles.decorator';
 import { normalizeEmail } from './utils/normalize-email.util';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { AuthUser } from './auth-user.interface';
@@ -22,21 +25,30 @@ function extractClientIp(req: Request): string {
     ?? 'unknown';
 }
 
+/** Au-delà, un « returnTo » n'est pas une adresse d'écran : refusé (et le
+ *  cookie qui le transporte reste petit). */
+const MAX_RETURN_TO_LENGTH = 2048;
+
+/** Cookie qui garde la page demandée pendant l'aller-retour vers Microsoft. */
+const RETURN_TO_COOKIE = 'auth_return_to';
+
 /**
  * Valide qu'un returnTo est un chemin relatif sûr vers CE frontend, pas une
  * redirection ouverte. L'ancienne regex (/^\/[^/]/) ne rejetait que le
  * double-slash ("//evil.com") : elle laissait passer des vecteurs comme
  * "/\evil.com" ou "/%09/evil.com", "/%0a/evil.com" — un backslash ou un
  * caractère de contrôle qu'un navigateur peut normaliser différemment de
- * `new URL()` côté serveur. Trois vérifications indépendantes :
- *  a) chemin relatif (commence par "/")
- *  b) aucun backslash ni caractère de contrôle dans la chaîne brute
- *  c) une fois résolu contre frontendUrl, l'origine reste bien celle du front
+ * `new URL()` côté serveur. Vérifications indépendantes :
+ *  a) une chaîne (un paramètre répété arrive en tableau), de taille raisonnable
+ *  b) chemin relatif : commence par un seul "/" (ni "//", ni adresse absolue)
+ *  c) aucun backslash ni caractère de contrôle (DEL compris) dans la chaîne brute
+ *  d) une fois résolu contre frontendUrl, l'origine reste bien celle du front
  */
-export function isSafeReturnTo(returnTo: string | undefined, frontendUrl: string): boolean {
-  if (!returnTo || !returnTo.startsWith('/')) return false;
+export function isSafeReturnTo(returnTo: unknown, frontendUrl: string): returnTo is string {
+  if (typeof returnTo !== 'string' || returnTo.length > MAX_RETURN_TO_LENGTH) return false;
+  if (!returnTo.startsWith('/') || returnTo.startsWith('//')) return false;
   // eslint-disable-next-line no-control-regex
-  if (/[\\\x00-\x1f]/.test(returnTo)) return false;
+  if (/[\\\x00-\x1f\x7f]/.test(returnTo)) return false;
   try {
     return new URL(returnTo, frontendUrl).origin === new URL(frontendUrl).origin;
   } catch {
@@ -44,6 +56,12 @@ export function isSafeReturnTo(returnTo: string | undefined, frontendUrl: string
   }
 }
 
+/**
+ * Connexion et session. Les routes qui établissent la session (connexion
+ * locale ou SSO, rafraîchissement par cookie) et celles que la page de
+ * connexion lit avant toute session sont `@Public()` ; les autres concernent
+ * la session courante et sont ouvertes à tout rôle connecté.
+ */
 @Controller('auth')
 export class AuthController {
   private readonly logger = new Logger(AuthController.name);
@@ -55,8 +73,9 @@ export class AuthController {
   ) {}
 
   @Get('login')
+  @Public()
   async login(
-    @Query('returnTo') returnTo: string | undefined,
+    @Query('returnTo') returnTo: unknown,
     @Query('prompt') prompt: string | undefined,
     @Res() res: Response,
   ) {
@@ -67,9 +86,13 @@ export class AuthController {
       const isProduction = process.env.NODE_ENV === 'production';
       res.cookie('oauth_state', state, { httpOnly: true, secure: isProduction, sameSite: 'lax', maxAge: 10 * 60 * 1000 });
       res.cookie('oauth_code_verifier', codeVerifier, { httpOnly: true, secure: isProduction, sameSite: 'lax', maxAge: 10 * 60 * 1000 });
-      // Store returnTo (safe relative paths only — see isSafeReturnTo)
+      // Page demandée, gardée le temps de l'aller-retour (chemins internes
+      // seulement, voir isSafeReturnTo). Sinon, on efface celle d'une tentative
+      // précédente : elle ne doit pas ressurgir après cette connexion-ci.
       if (isSafeReturnTo(returnTo, frontendUrl)) {
-        res.cookie('auth_return_to', returnTo, { httpOnly: true, secure: isProduction, sameSite: 'lax', maxAge: 10 * 60 * 1000 });
+        res.cookie(RETURN_TO_COOKIE, returnTo, { httpOnly: true, secure: isProduction, sameSite: 'lax', maxAge: 10 * 60 * 1000 });
+      } else {
+        res.clearCookie(RETURN_TO_COOKIE);
       }
       return res.redirect(loginUrl);
     } catch (err) {
@@ -78,6 +101,7 @@ export class AuthController {
   }
 
   @Get('callback')
+  @Public()
   async callback(
     @Query('code') code: string,
     @Query('state') state: string,
@@ -86,6 +110,11 @@ export class AuthController {
     @Res() res: Response,
   ) {
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+
+    // Lu puis effacé dès l'arrivée, quelle que soit l'issue (erreur Microsoft,
+    // état invalide, échec de l'échange) : il ne sert qu'une fois.
+    const returnTo: unknown = req.cookies?.[RETURN_TO_COOKIE];
+    res.clearCookie(RETURN_TO_COOKIE);
 
     if (error) {
       return res.redirect(`${frontendUrl}/login?error=${encodeURIComponent(error)}`);
@@ -106,10 +135,6 @@ export class AuthController {
     // Read and clear PKCE code verifier
     const codeVerifier = req.cookies['oauth_code_verifier'];
     res.clearCookie('oauth_code_verifier');
-
-    // Read and clear returnTo
-    const returnTo = req.cookies['auth_return_to'];
-    res.clearCookie('auth_return_to');
 
     const ip = extractClientIp(req);
     try {
@@ -149,6 +174,7 @@ export class AuthController {
   // (les deux guards partagent le même storage) ; UserThrottlerGuard applique
   // sa propre limite (20/min/utilisateur) — voir user-throttler.guard.ts.
   @Post('refresh')
+  @Public()
   @UseGuards(UserThrottlerGuard)
   @SkipThrottle()
   async refresh(@Req() req: Request, @Res() res: Response) {
@@ -161,7 +187,8 @@ export class AuthController {
   }
 
   @Post('logout')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...ALL_ROLES)
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   async logout(@CurrentUser() user: AuthUser, @Req() req: Request, @Res() res: Response) {
     const ip = extractClientIp(req);
@@ -189,18 +216,21 @@ export class AuthController {
   }
 
   @Get('me')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...ALL_ROLES)
   async me(@CurrentUser() user: AuthUser) {
     return user;
   }
 
   @Get('setup-required')
+  @Public()
   async setupRequired() {
     const required = await this.configService.isSetupRequired();
     return { setupRequired: required };
   }
 
   @Post('local-login')
+  @Public()
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   async localLogin(
     @Body() dto: LocalLoginDto,
@@ -236,7 +266,8 @@ export class AuthController {
   }
 
   @Post('change-password')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...ALL_ROLES)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   async changePassword(
     @Body() dto: ChangePasswordDto,
@@ -257,6 +288,7 @@ export class AuthController {
   }
 
   @Get('local-auth-status')
+  @Public()
   async localAuthStatus() {
     const enabled = await this.configService.get('general', 'local_auth_enabled');
     return { enabled: enabled !== 'false' };

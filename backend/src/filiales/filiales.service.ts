@@ -1,22 +1,32 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateFilialeDto, UpdateFilialeDto, ImportFilialesDto, ImportFilialesResult } from './dto/filiale.dto';
 import { buildFilialesExportCsv, buildFilialesImportTemplateCsv } from './filiales-csv';
 import { importFilialeItems } from './filiales-import';
 import { existsSync, unlinkSync } from 'fs';
-import { join } from 'path';
+import { dataPath } from '../common/storage-paths';
 
 @Injectable()
 export class FilialesService {
+  private readonly logger = new Logger(FilialesService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   findAll() {
     return this.prisma.filiale.findMany({ orderBy: { displayName: 'asc' } });
   }
 
+  /** Filiales actives, réduites à leur identité : c'est tout ce qu'utilisent
+   *  les filtres et formulaires de l'IT et de la direction (GET
+   *  /filiales/active). Cachet, logo, adresse et SIRET restent dans la liste
+   *  complète, réservée à l'administrateur. */
   findActive() {
-    return this.prisma.filiale.findMany({ where: { active: true }, orderBy: { displayName: 'asc' } });
+    return this.prisma.filiale.findMany({
+      where: { active: true },
+      select: { id: true, name: true, displayName: true, active: true },
+      orderBy: { displayName: 'asc' },
+    });
   }
 
   async findOne(id: string) {
@@ -88,8 +98,17 @@ export class FilialesService {
     return this.prisma.filiale.delete({ where: { id } });
   }
 
+  /** Supprime un logo ou un cachet remplacé (chemin relatif à data/). Un
+   *  chemin qui sortirait de data/ (valeur anormale en base) n'est jamais
+   *  supprimé : on le signale, sans bloquer le remplacement. */
   private deleteFile(relativePath: string) {
-    const fullPath = join(process.cwd(), 'data', relativePath);
+    let fullPath: string;
+    try {
+      fullPath = dataPath(relativePath);
+    } catch (err) {
+      this.logger.warn(`Fichier de filiale non supprimé : ${(err as Error).message}`);
+      return;
+    }
     if (existsSync(fullPath)) unlinkSync(fullPath);
   }
 

@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'fs';
-import { join } from 'path';
-import { escapeCsvCell } from '../common/bon-predicates';
+import { buildCsv, type CsvCell } from '../common/csv';
+import { dataPath } from '../common/storage-paths';
 
 /** En-tête exact partagé par l'export (GET /filiales/export) et le modèle
  *  (GET /filiales/import/template) — le contrat POST /filiales/import lit
@@ -24,13 +24,14 @@ export interface FilialeExportRow {
 /** Lit un fichier référencé (logoPath/stampPath, relatif à data/) et
  *  l'encode en base64 SANS préfixe de type — le type se déduit de
  *  l'extension déjà stockée dans le chemin. Chaîne vide si le champ est
- *  absent ou si le fichier n'est plus sur le disque (jamais d'exception :
- *  un export doit rester utilisable même avec un fichier manquant). */
+ *  absent, si le fichier n'est plus sur le disque ou si le chemin sortirait
+ *  du dossier de données (jamais d'exception : un export doit rester
+ *  utilisable même avec un fichier manquant). */
 function readUploadAsBase64(relativePath: string | null): string {
   if (!relativePath) return '';
-  const fullPath = join(process.cwd(), 'data', relativePath);
-  if (!existsSync(fullPath)) return '';
   try {
+    const fullPath = dataPath(relativePath);
+    if (!existsSync(fullPath)) return '';
     return readFileSync(fullPath).toString('base64');
   } catch {
     return '';
@@ -38,8 +39,8 @@ function readUploadAsBase64(relativePath: string | null): string {
 }
 
 /**
- * Construit le CSV d'export des filiales (BOM UTF-8 inclus, séparateur `;`,
- * cellules échappées via escapeCsvCell — protection contre l'injection de
+ * Construit le CSV d'export des filiales (format commun de common/csv :
+ * BOM UTF-8, séparateur `;`, cellules protégées contre l'injection de
  * formule Excel/LibreOffice). Fonction pure.
  *
  * Les colonnes image ne sont remplies que si `includeImages` est vrai (export
@@ -47,22 +48,16 @@ function readUploadAsBase64(relativePath: string | null): string {
  * lisible dans un tableur.
  */
 export function buildFilialesExportCsv(filiales: FilialeExportRow[], includeImages: boolean): string {
-  const rows = filiales.map((f) =>
-    [
-      f.name,
-      f.displayName,
-      f.address ?? '',
-      f.siret ?? '',
-      f.active ? 'oui' : 'non',
-      includeImages ? readUploadAsBase64(f.logoPath) : '',
-      includeImages ? readUploadAsBase64(f.stampPath) : '',
-    ].map(escapeCsvCell),
-  );
-
-  const csv = [FILIALES_CSV_HEADERS.map(escapeCsvCell).join(';'), ...rows.map((r) => r.join(';'))].join('\n');
-  // BOM UTF-8 (U+FEFF) pour Excel — via fromCharCode pour éviter tout
-  // caractère littéral invisible dans le source (cf. inventory.service.ts).
-  return String.fromCharCode(0xfeff) + csv;
+  const rows = filiales.map((f): CsvCell[] => [
+    f.name,
+    f.displayName,
+    f.address ?? '',
+    f.siret ?? '',
+    f.active ? 'oui' : 'non',
+    includeImages ? readUploadAsBase64(f.logoPath) : '',
+    includeImages ? readUploadAsBase64(f.stampPath) : '',
+  ]);
+  return buildCsv({ header: FILIALES_CSV_HEADERS, rows });
 }
 
 /**
@@ -93,10 +88,5 @@ export function buildFilialesImportTemplateCsv(): string {
       '',
     ],
   ];
-
-  const csv = [
-    FILIALES_CSV_HEADERS.map(escapeCsvCell).join(';'),
-    ...exampleRows.map((row) => row.map(escapeCsvCell).join(';')),
-  ].join('\n');
-  return String.fromCharCode(0xfeff) + csv;
+  return buildCsv({ header: FILIALES_CSV_HEADERS, rows: exampleRows });
 }

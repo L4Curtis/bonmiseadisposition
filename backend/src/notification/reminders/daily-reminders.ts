@@ -6,6 +6,7 @@ import { TemplatesService } from '../../templates/templates.service';
 import { generateSignatureToken } from '../../common/tokens';
 import { SendEmailResult, logNotificationResult, blockIfAppUrlMissing, blockIfEmailMissing } from '../notification-log';
 import { buildReminderMessage } from '../messages/reminder-message';
+import { SIGNATURE_LINK_BON_STATUSES } from '../../bons/bon-status';
 
 // ─── Cron: Rappels quotidiens ────────────────────────────────────────────────
 // Reads the SAME config category/keys as the admin UI (category "rappels",
@@ -109,7 +110,7 @@ export async function runDailyReminders(deps: DailyRemindersDeps): Promise<Daily
       // partially_returned inclus : PV de non-restitution (ou restitution
       // partielle) en attente de signature — sans rappel, ces bons restaient
       // bloqués en silence indéfiniment
-      status: { in: ['sent_mise_dispo', 'sent_restitution', 'partially_returned'] },
+      status: { in: [...SIGNATURE_LINK_BON_STATUSES] },
       updatedAt: { lt: firstCutoff },
     },
     include: {

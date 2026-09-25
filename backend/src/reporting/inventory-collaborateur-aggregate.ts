@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import { daysSince, parisMidnightUtc } from './inventory-dates';
+import { parisDaysSince, parisTodayAsDbDate } from '../common/dates/paris';
 import type { CollaborateurSortField } from './dto/inventory-by-collaborateur-query.dto';
 
 /** Sélection Prisma minimale nécessaire au regroupement par collaborateur —
@@ -72,7 +72,7 @@ export function groupInventoryByCollaborateur(
     }
   }
 
-  const overdueCutoff = parisMidnightUtc(now);
+  const overdueCutoff = parisTodayAsDbDate(now);
 
   return Array.from(groups.values(), (groupRows) => {
     const { collaborateur } = groupRows[0].bon;
@@ -96,7 +96,7 @@ export function groupInventoryByCollaborateur(
       count: groupRows.length,
       overdueCount,
       oldestDateMiseDisposition: oldestRow.bon.dateMiseDisposition,
-      oldestAgeDays: daysSince(oldestRow.bon.dateMiseDisposition, now),
+      oldestAgeDays: parisDaysSince(oldestRow.bon.dateMiseDisposition, now),
     };
   });
 }

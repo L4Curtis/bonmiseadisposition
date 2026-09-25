@@ -1,10 +1,7 @@
 import { PrismaService } from '../../prisma/prisma.service';
-import {
-  CLOSED_BON_STATUSES,
-  WAITING_SIGNATURE_STATUSES,
-  PARTIAL_PENDING_SIGNATURE_TYPES,
-  INVALIDATED_TOKEN_SENTINEL,
-} from '../../common/bon-predicates';
+import { PARTIAL_PENDING_SIGNATURE_TYPES, INVALIDATED_TOKEN_SENTINEL } from '../../common/bon-predicates';
+import { parisMonthStartUtc } from '../../common/dates/paris';
+import { CLOSED_BON_STATUSES, TO_SIGN_BON_STATUSES } from '../bon-status';
 import { buildBonWhere } from './bon-where';
 
 export interface BonStats {
@@ -25,17 +22,16 @@ export interface BonStats {
  * l'appelant (BonsService.getStats).
  */
 export async function getBonStats(prisma: PrismaService, overdueThresholdDays: number): Promise<BonStats> {
-  // UTC (pas l'heure locale du serveur) : un serveur dans un fuseau à l'ouest
-  // de l'UTC décalerait sinon le début de mois d'une journée.
-  const now = new Date();
-  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
+  // « Ce mois-ci » = depuis le 1er du mois à Paris, comme les indicateurs :
+  // le soir du dernier jour du mois en UTC, Paris est déjà le 1er.
+  const monthStart = parisMonthStartUtc();
   const closedStatuses = [...CLOSED_BON_STATUSES];
 
   const [waitingSignature, active, overdue, total, archivedThisMonth, partiallyReturned, filialesRaw] = await Promise.all([
     prisma.bon.count({
       where: {
         OR: [
-          { status: { in: [...WAITING_SIGNATURE_STATUSES] } },
+          { status: { in: [...TO_SIGN_BON_STATUSES] } },
           {
             status: 'partially_returned',
             // tokenExpiresAt > sentinelle (epoch + 1s) exclut uniquement les

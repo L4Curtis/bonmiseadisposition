@@ -1,4 +1,4 @@
-import { STATUS_LABELS } from '../../common/status-labels';
+import { BON_STATUS_ORDER, bonStatusLabel } from '../../bons/bon-status';
 import { buildBuckets, fillSeries, KpiPeriod } from '../kpi-period';
 import { bucketLabel, compared, ratio, toNumber } from '../kpi-sql';
 import {
@@ -31,19 +31,6 @@ import {
  * l'accès base pour garder chaque fichier du lot sous 400 lignes.
  */
 
-/** Ordre fixe d'affichage des statuts — les statuts absents des lignes SQL
- *  sont renvoyés à 0 (jamais omis de la réponse). */
-const STATUS_ORDER = [
-  'draft',
-  'sent_mise_dispo',
-  'active',
-  'sent_restitution',
-  'partially_returned',
-  'contested',
-  'archived',
-  'cancelled',
-] as const;
-
 /** Les trois étapes de workflow suivies par `sendToSignature` et `waiting`,
  *  dans l'ordre d'affichage attendu par le contrat JSON. */
 const WORKFLOW_STEP_ORDER: readonly WaitingStepId[] = ['mise_disposition', 'restitution', 'pv_cloture'];
@@ -51,7 +38,7 @@ const WORKFLOW_STEP_ORDER: readonly WaitingStepId[] = ['mise_disposition', 'rest
 const WAITING_STEP_LABELS: Record<WaitingStepId, string> = {
   mise_disposition: 'Signature mise à disposition',
   restitution: 'Signature restitution',
-  pv_cloture: 'PV de clôture',
+  pv_cloture: 'PV de non-restitution',
 };
 
 const EMPTY_METRICS: SendToSignatureMetrics = {
@@ -65,9 +52,11 @@ const EMPTY_METRICS: SendToSignatureMetrics = {
 
 export function buildStatusBreakdown(rows: readonly StatusRow[]): StatusBreakdownItem[] {
   const counts = new Map(rows.map((r) => [r.status, toNumber(r.count)]));
-  return STATUS_ORDER.map((status) => ({
+  // Ordre fixe du cycle de vie : un statut absent des lignes SQL est renvoyé
+  // à 0, jamais omis de la réponse.
+  return BON_STATUS_ORDER.map((status) => ({
     status,
-    label: STATUS_LABELS[status] ?? status,
+    label: bonStatusLabel(status),
     count: counts.get(status) ?? 0,
   }));
 }

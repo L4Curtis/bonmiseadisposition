@@ -1,5 +1,6 @@
 import { createMockPrismaService } from '../../../common/__tests__/helpers/mock-prisma';
 import { PrismaService } from '../../../prisma/prisma.service';
+import { useHostTimeZone } from '../../../common/__tests__/helpers/host-time-zone';
 import { getBonStats } from '../bon-stats';
 
 describe('getBonStats', () => {
@@ -45,8 +46,10 @@ describe('getBonStats', () => {
     expect(overdueCountCall?.[0].where.AND[0].updatedAt.lt).toBeInstanceOf(Date);
   });
 
-  it('computes the month boundary in UTC, not local time', async () => {
-    vi.useFakeTimers().setSystemTime(new Date('2026-03-01T00:30:00Z'));
+  /** Borne basse du compteur « clôturés ce mois-ci » pour une horloge figée. */
+  async function archivedThisMonthStart(now: string): Promise<string | undefined> {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(now));
     try {
       const prisma = createMockPrismaService();
       prisma.bon.count.mockResolvedValue(0);
@@ -57,10 +60,23 @@ describe('getBonStats', () => {
       const archivedThisMonthCall = prisma.bon.count.mock.calls.find(
         (call) => (call[0] as { where?: { status?: string } })?.where?.status === 'archived',
       ) as [{ where: { archivedAt: { gte: Date } } }] | undefined;
-      expect(archivedThisMonthCall).toBeDefined();
-      expect(archivedThisMonthCall?.[0].where.archivedAt.gte.toISOString()).toBe('2026-03-01T00:00:00.000Z');
+      return archivedThisMonthCall?.[0].where.archivedAt.gte.toISOString();
     } finally {
       vi.useRealTimers();
     }
+  }
+
+  describe('« clôturés ce mois-ci » compte depuis le 1er du mois à Paris', () => {
+    useHostTimeZone('UTC');
+
+    it.each([
+      ['1er mars, 0 h 30 à Paris (hiver)', '2026-02-28T23:30:00.000Z', '2026-02-28T23:00:00.000Z'],
+      ['1er août, 0 h 30 à Paris (été)', '2026-07-31T22:30:00.000Z', '2026-07-31T22:00:00.000Z'],
+      ['1er août, 1 h 59 à Paris (été)', '2026-07-31T23:59:00.000Z', '2026-07-31T22:00:00.000Z'],
+      ['1er mars, 1 h 30 à Paris (hiver)', '2026-03-01T00:30:00.000Z', '2026-02-28T23:00:00.000Z'],
+      ['31 juillet, 23 h à Paris : encore juillet', '2026-07-31T21:00:00.000Z', '2026-06-30T22:00:00.000Z'],
+    ])('%s', async (_label, now, expected) => {
+      expect(await archivedThisMonthStart(now)).toBe(expected);
+    });
   });
 });

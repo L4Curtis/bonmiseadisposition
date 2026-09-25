@@ -2,10 +2,8 @@ import { Logger } from '@nestjs/common';
 import { unlink } from 'fs/promises';
 import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
-
-// Chemin de stockage des pièces jointes — recopié depuis AttachmentsService
-// (UPLOADS_DIR y est privé, non exporté). À synchroniser si ce chemin change.
-const ATTACHMENTS_DIR = path.join(process.cwd(), 'data', 'attachments');
+import { CLOSED_BON_STATUSES } from '../bons/bon-status';
+import { ATTACHMENTS_DIR } from '../common/storage-paths';
 
 export interface PurgeOldAttachmentsDeps {
   prisma: PrismaService;
@@ -20,7 +18,7 @@ export interface PurgeOldAttachmentsDeps {
 export async function purgeOldAttachments(deps: PurgeOldAttachmentsDeps, cutoff: Date): Promise<number> {
   const { prisma, logger } = deps;
   const targets = await prisma.attachment.findMany({
-    where: { bon: { status: { in: ['archived', 'cancelled'] }, updatedAt: { lt: cutoff } } },
+    where: { bon: { status: { in: [...CLOSED_BON_STATUSES] }, updatedAt: { lt: cutoff } } },
     select: { id: true, storedPath: true },
   });
 

@@ -14,7 +14,9 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth-user.interface';
 
 // Catalogue et packs sont des données IT internes : lecture comme écriture
-// réservées aux rôles admin/technician (les collaborateurs n'en ont pas l'usage)
+// réservées aux rôles admin/technician, posés une fois sur la classe (les
+// collaborateurs n'en ont pas l'usage) ; seul l'historique d'un équipement
+// s'ouvre en plus à la direction.
 @Controller('equipment')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('admin', 'technician')
@@ -89,8 +91,6 @@ export class EquipmentController {
   }
 
   @Post('catalog')
-  @UseGuards(RolesGuard)
-  @Roles('admin', 'technician')
   createCatalogItem(@Body() dto: CreateCatalogItemDto, @CurrentUser() user: AuthUser) {
     return this.equipmentService.createCatalogItem(dto, user.id);
   }
@@ -98,22 +98,16 @@ export class EquipmentController {
   /** POST /equipment/catalog/import — import en masse (max 500 lignes) :
    *  cf. equipment-catalog-import.ts pour le détail du contrat. */
   @Post('catalog/import')
-  @UseGuards(RolesGuard)
-  @Roles('admin', 'technician')
   importCatalog(@Body() dto: ImportCatalogDto, @CurrentUser() user: AuthUser) {
     return this.equipmentService.importCatalog(dto, user.id);
   }
 
   @Put('catalog/:id')
-  @UseGuards(RolesGuard)
-  @Roles('admin', 'technician')
   updateCatalogItem(@Param('id') id: string, @Body() dto: UpdateCatalogItemDto, @CurrentUser() user: AuthUser) {
     return this.equipmentService.updateCatalogItem(id, dto, user.id);
   }
 
   @Delete('catalog/:id')
-  @UseGuards(RolesGuard)
-  @Roles('admin', 'technician')
   removeCatalogItem(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.equipmentService.removeCatalogItem(id, user.id);
   }
@@ -135,22 +129,16 @@ export class EquipmentController {
   }
 
   @Post('packs')
-  @UseGuards(RolesGuard)
-  @Roles('admin', 'technician')
   createPack(@Body() dto: CreatePackDto, @CurrentUser() user: AuthUser) {
     return this.equipmentService.createPack(dto, user.id);
   }
 
   @Put('packs/:id')
-  @UseGuards(RolesGuard)
-  @Roles('admin', 'technician')
   updatePack(@Param('id') id: string, @Body() dto: UpdatePackDto, @CurrentUser() user: AuthUser) {
     return this.equipmentService.updatePack(id, dto, user.id);
   }
 
   @Delete('packs/:id')
-  @UseGuards(RolesGuard)
-  @Roles('admin', 'technician')
   removePack(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.equipmentService.removePack(id, user.id);
   }

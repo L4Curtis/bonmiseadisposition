@@ -9,6 +9,8 @@ import { anonymizeBon as anonymizeBonPure } from './anonymize-bon';
 import { purgeOldAttachments as purgeOldAttachmentsPure } from './purge-old-attachments';
 import { purgeExpiredTokens as purgeExpiredTokensPure, purgeOldAuditLogs as purgeOldAuditLogsPure } from './purge-technical';
 import { computeRetentionStats, RetentionStats } from './retention-stats';
+import { CLOSED_BON_STATUSES } from '../bons/bon-status';
+import { PARIS_TIME_ZONE } from '../common/dates/paris';
 
 const DEFAULT_ANONYMIZE_MONTHS = 60; // 5 ans par défaut — plancher légal RGPD
 const ANONYMIZE_MONTHS_FLOOR = 60; // Plancher légal : aucune config ne peut descendre en dessous
@@ -76,7 +78,7 @@ export class RetentionService {
   private async findEligible(cutoff: Date) {
     return this.prisma.bon.findMany({
       where: {
-        status: { in: ['archived', 'cancelled'] },
+        status: { in: [...CLOSED_BON_STATUSES] },
         anonymizedAt: null,
         updatedAt: { lt: cutoff },
       },
@@ -87,7 +89,7 @@ export class RetentionService {
 
   private async countOldAttachments(cutoff: Date): Promise<number> {
     return this.prisma.attachment.count({
-      where: { bon: { status: { in: ['archived', 'cancelled'] }, updatedAt: { lt: cutoff } } },
+      where: { bon: { status: { in: [...CLOSED_BON_STATUSES] }, updatedAt: { lt: cutoff } } },
     });
   }
 
@@ -97,7 +99,7 @@ export class RetentionService {
     const cutoff = this.cutoffDate(months);
     const eligible = await this.prisma.bon.count({
       where: {
-        status: { in: ['archived', 'cancelled'] },
+        status: { in: [...CLOSED_BON_STATUSES] },
         anonymizedAt: null,
         updatedAt: { lt: cutoff },
       },
@@ -225,7 +227,7 @@ export class RetentionService {
   }
 
   /** Cron hebdomadaire (dimanche 03h, heure de Paris) — anonymisation si la rétention est activée. */
-  @Cron('0 3 * * 0', { timeZone: 'Europe/Paris' })
+  @Cron('0 3 * * 0', { timeZone: PARIS_TIME_ZONE })
   async cronRetention(): Promise<void> {
     try {
       await this.jobTracker.track<void>(JOB_KEYS.RETENTION, async (): Promise<void | JobOutcome> => {

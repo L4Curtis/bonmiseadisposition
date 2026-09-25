@@ -10,6 +10,7 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { EncryptionService } from '../config/encryption.service';
+import { ATTACHMENTS_DIR } from '../common/storage-paths';
 
 export interface UploadedFile {
   buffer: Buffer;
@@ -53,7 +54,7 @@ const EXT_BY_MIME: Record<string, string> = {
 @Injectable()
 export class AttachmentsService {
   private readonly logger = new Logger(AttachmentsService.name);
-  private readonly UPLOADS_DIR = path.join(process.cwd(), 'data', 'attachments');
+  private readonly UPLOADS_DIR = ATTACHMENTS_DIR;
 
   constructor(
     private readonly prisma: PrismaService,

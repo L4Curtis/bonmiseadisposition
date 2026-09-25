@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import * as fs from 'fs';
-import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { EncryptionService } from '../config/encryption.service';
 import { AppConfigService } from '../config/config.service';
@@ -20,6 +19,7 @@ import {
   SignatureFileStoreDeps,
 } from './signature-file-store';
 import { computeSignatureIntegrity } from './seal';
+import { SIGNATURES_DIR } from '../common/storage-paths';
 
 /**
  * Façade fine : chaque méthode publique délègue à un module pur/dédié sous
@@ -34,7 +34,7 @@ import { computeSignatureIntegrity } from './seal';
 @Injectable()
 export class SignatureService {
   private readonly logger = new Logger(SignatureService.name);
-  private readonly UPLOADS_DIR = path.join(process.cwd(), 'data', 'signatures');
+  private readonly UPLOADS_DIR = SIGNATURES_DIR;
   private readonly DEFAULT_TOKEN_VALIDITY_DAYS = 7;
   // Décision produit : un lien présentiel (signature recueillie en direct sur
   // tablette) est bien plus court-vécu qu'un lien envoyé par email — 2h suffisent

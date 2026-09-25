@@ -14,8 +14,11 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth-user.interface';
 import { UpdatePdfTemplateDto } from '../pdf/dto/update-pdf-template.dto';
 
+/** Modèles PDF : lecture comme modification réservées à l'administrateur
+ *  (écran Modèles de l'administration). */
 @Controller('admin/pdf-templates')
 @UseGuards(JwtAuthGuard, RolesGuard)
+@Roles('admin')
 export class PdfTemplatesController {
   constructor(
     private readonly pdfTemplatesService: PdfTemplatesService,
@@ -23,21 +26,18 @@ export class PdfTemplatesController {
   ) {}
 
   @Get()
-  @Roles('admin', 'technician')
   findAll() {
     return this.pdfTemplatesService.getAll();
   }
 
   /** Export all PDF template configs as JSON */
   @Get('export')
-  @Roles('admin', 'technician')
   exportAll() {
     return this.pdfTemplatesService.exportAll();
   }
 
   /** Import PDF template configs from JSON payload */
   @Post('import')
-  @Roles('admin')
   async importAll(
     @Body() body: { templates: { id: string; config: Record<string, unknown> }[] },
     @CurrentUser() user: AuthUser,
@@ -50,7 +50,6 @@ export class PdfTemplatesController {
 
   /** Get current config for a template (custom merged with default) */
   @Get(':id/config')
-  @Roles('admin', 'technician')
   async getConfig(@Param('id') id: string) {
     const tpl = this.pdfTemplatesService.getTemplateById(id);
     const config = await this.pdfTemplatesService.getTemplateConfig(id);
@@ -65,7 +64,6 @@ export class PdfTemplatesController {
 
   /** Generate a preview PDF with sample data */
   @Get(':id/preview')
-  @Roles('admin', 'technician')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   async getPreview(@Param('id') id: string, @Res() res: Response) {
     const tpl = this.pdfTemplatesService.getTemplateById(id);
@@ -87,7 +85,6 @@ export class PdfTemplatesController {
 
   /** Update a PDF template config (partial) */
   @Patch(':id')
-  @Roles('admin')
   async update(
     @Param('id') id: string,
     @Body() body: UpdatePdfTemplateDto,
@@ -102,7 +99,6 @@ export class PdfTemplatesController {
 
   /** Reset a PDF template to its default */
   @Delete(':id')
-  @Roles('admin')
   async reset(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     await this.pdfTemplatesService.resetTemplate(id, user?.id);
     return { success: true };

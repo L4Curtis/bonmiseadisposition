@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Logger, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Prisma } from '@prisma/client';
@@ -47,12 +48,18 @@ export async function createTokensForUser(
 ): Promise<{ accessToken: string; refreshToken: string }> {
   const jwtSecret = deps.getJwtSecret();
   const payload = { sub: user.id, email: user.email ?? '', role: user.role };
-  const accessToken = deps.jwtService.sign(payload, { secret: jwtSecret, expiresIn: '15m' });
+  // jwtid aléatoire : deux connexions dans la même seconde donneraient sinon le
+  // même jeton, et se déconnecter d'un appareil révoquerait aussi l'autre.
+  const accessToken = deps.jwtService.sign(payload, {
+    secret: jwtSecret,
+    expiresIn: '15m',
+    jwtid: randomUUID(),
+  });
   // authTime = epoch seconds of the ORIGINAL login, carried across rotations
   // to enforce an absolute session lifetime.
   const refreshToken = deps.jwtService.sign(
     { sub: user.id, type: 'refresh', authTime: authTime ?? Math.floor(Date.now() / 1000) },
-    { secret: jwtSecret, expiresIn: '8h' },
+    { secret: jwtSecret, expiresIn: '8h', jwtid: randomUUID() },
   );
   return { accessToken, refreshToken };
 }

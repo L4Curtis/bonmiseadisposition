@@ -5,9 +5,9 @@ import { AppConfigService } from '../config/config.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { TemplatesService } from '../templates/templates.service';
 import { NotificationBon } from '../common/types';
-import { isDeliverableEmail } from '../common/email';
 import type { CollaborateurInventoryItem } from '../reporting/inventory-collaborateur-aggregate';
 import { resolveAppUrl } from './app-url';
+import { findItAlertRecipients } from './it-alert-recipients';
 import {
   readSmtpSettings,
   readFromAddress,
@@ -199,16 +199,11 @@ export class NotificationService {
   // ─── Contestation ────────────────────────────────────────────────────────────
 
   async sendContestationAlert(bon: NotificationBon, contestingUser: { displayName?: string; email?: string | null }, message: string): Promise<void> {
-    // Un membre IT sans adresse email (compte manuel, cas théorique) ne peut
-    // pas recevoir l'alerte — il est simplement exclu des destinataires.
-    const itStaff = (
-      await this.prisma.user.findMany({
-        where: { isItStaff: true, active: true },
-        select: { email: true },
-      })
-    ).filter((staff): staff is { email: string } => !!staff.email);
-    if (itStaff.length === 0) {
-      const errorMessage = 'Aucun utilisateur IT actif avec une adresse email';
+    // Tous les administrateurs et techniciens actifs (voir it-alert-recipients.ts) ;
+    // un compte sans adresse délivrable est simplement écarté.
+    const recipients = await findItAlertRecipients(this.prisma);
+    if (recipients.length === 0) {
+      const errorMessage = 'Aucun administrateur ni technicien actif avec une adresse email valide';
       this.logger.warn(`Alerte contestation non envoyée (bon ${bon.reference}) : ${errorMessage}`);
       await logFailedNotification(this.prisma, {
         bonId: bon.id,
@@ -223,7 +218,7 @@ export class NotificationService {
     const html = await this.templatesService.renderTemplate('contestation_alert', vars);
 
     const results = await Promise.all(
-      itStaff.map((staff) => this.sendEmail(staff.email, subject, html)),
+      recipients.map((email) => this.sendEmail(email, subject, html)),
     );
     const anyOk = results.some((r) => r.ok);
     const combinedError = results
@@ -233,7 +228,7 @@ export class NotificationService {
 
     await logNotificationResult(this.prisma, {
       bonId: bon.id,
-      recipientEmail: itStaff.map((s) => s.email).join(', '),
+      recipientEmail: recipients.join(', '),
       type: 'contestation_alert',
       result: anyOk ? { ok: true } : { ok: false, error: combinedError },
     });
@@ -262,8 +257,8 @@ export class NotificationService {
   // ─── Départ d'un collaborateur (lot D1) ──────────────────────────────────────
 
   /**
-   * Alerte récapitulative unique envoyée au staff IT (admin + technicien actifs,
-   * même sélection que sendContestationAlert) quand la synchronisation LDAP
+   * Alerte récapitulative unique envoyée aux administrateurs et techniciens
+   * actifs (même sélection que sendContestationAlert) quand la synchronisation LDAP
    * vient de désactiver un ou plusieurs comptes qui détiennent encore du
    * matériel. Un seul email pour tout le lot (pas un par collaborateur) —
    * l'appelant (LdapService / departure-notifications.ts) a déjà résolu la
@@ -290,13 +285,8 @@ export class NotificationService {
       return false;
     }
 
-    const itStaff = (
-      await this.prisma.user.findMany({
-        where: { isItStaff: true, active: true },
-        select: { email: true },
-      })
-    ).filter((staff): staff is { email: string } => isDeliverableEmail(staff.email));
-    if (itStaff.length === 0) {
+    const recipients = await findItAlertRecipients(this.prisma);
+    if (recipients.length === 0) {
       this.logger.warn(
         `Alerte départ non envoyée (${candidates.length} collaborateur(s) concerné(s)) : aucun utilisateur IT actif avec une adresse email délivrable`,
       );
@@ -307,7 +297,7 @@ export class NotificationService {
     const { vars, subject } = buildDepartureAlertMessage(candidates, inventoryUrl);
     const html = await this.templatesService.renderTemplate('departure_alert', vars);
 
-    const results = await Promise.all(itStaff.map((staff) => this.sendEmail(staff.email, subject, html)));
+    const results = await Promise.all(recipients.map((email) => this.sendEmail(email, subject, html)));
     const anyOk = results.some((r) => r.ok);
     if (!anyOk) {
       const combinedError = results.map((r) => r.error ?? "Erreur d'envoi inconnue").join('; ');

@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { LOANED_BON_STATUSES, TO_SIGN_BON_STATUSES } from '../bons/bon-status';
 
 /**
  * Définitions métier unifiées, partagées par `/bons`, `/reporting/inventory`
@@ -8,29 +9,12 @@ import { Prisma } from '@prisma/client';
  * signature », « clôturé ».
  */
 
-/** [Ancienne définition, avant l'audit du 2026-09-18] Statuts pour lesquels un
- *  équipement non rendu était considéré « prêté ». Sous-ensemble plus étroit
- *  que PARC_BON_STATUSES (ci-dessous) : il excluait `sent_mise_dispo` (bon
- *  envoyé, matériel déjà remis au collaborateur, signature en attente jusqu'à
- *  DEFAULT_SIGNATURE_OVERDUE_DAYS jours) et `contested` (litige ouvert) — alors
- *  que dans les deux cas le matériel est physiquement chez le collaborateur.
- *  Conservée pour tout code qui aurait explicitement besoin de cette
- *  définition plus étroite (aucun appelant actuel) ; /reporting/inventory et
- *  /kpi/parc utilisent désormais PARC_BON_STATUSES / buildParcEquipmentWhere /
- *  parcEquipmentSql, définis plus bas. */
-export const LOANED_BON_STATUSES = ['active', 'sent_restitution', 'partially_returned'] as const;
-
-/** Statuts d'un bon définitivement clos (n'apparaît plus dans les listes actives). */
-export const CLOSED_BON_STATUSES = ['archived', 'cancelled'] as const;
-
-/** Statuts d'un bon encore « vivant » (workflow en cours). */
-export const IN_PROGRESS_BON_STATUSES = [
-  'draft', 'sent_mise_dispo', 'active', 'sent_restitution', 'partially_returned', 'contested',
-] as const;
-
-/** Statuts en attente d'une signature collaborateur (hors partially_returned,
- *  traité séparément car partiel). */
-export const WAITING_SIGNATURE_STATUSES = ['sent_mise_dispo', 'sent_restitution'] as const;
+// Les listes de statuts (clôturés, en cours, « à signer », prêtés…) sont
+// définies dans bons/bon-status.ts ; ce fichier garde les prédicats qui les
+// combinent. Les prédicats « prêté » (buildLoanedEquipmentWhere,
+// loanedEquipmentSql) reposent sur LOANED_BON_STATUSES, ancienne définition
+// du parc, plus étroite : /reporting/inventory et /kpi/parc utilisent
+// PARC_BON_STATUSES (plus bas).
 
 /** Types de signature pouvant rester en attente sur un bon partially_returned
  *  (PV de clôture ou co-signature de restitution résiduelle). */
@@ -58,7 +42,7 @@ export function overdueCutoff(thresholdDays: number, now: Date = new Date()): Da
 
 /**
  * En retard de signature (N = thresholdDays) : `updatedAt` antérieur au seuil
- * ET (statut ∈ WAITING_SIGNATURE_STATUSES OU (partially_returned ET une
+ * ET (statut ∈ TO_SIGN_BON_STATUSES OU (partially_returned ET une
  * signature non signée de type ∈ PARTIAL_PENDING_SIGNATURE_TYPES dont le token
  * n'est pas invalidé volontairement)).
  *
@@ -72,7 +56,7 @@ export function buildOverdueSignatureWhere(
   return {
     updatedAt: { lt: overdueCutoff(thresholdDays, now) },
     OR: [
-      { status: { in: [...WAITING_SIGNATURE_STATUSES] } },
+      { status: { in: [...TO_SIGN_BON_STATUSES] } },
       {
         status: 'partially_returned',
         signatures: {
@@ -91,7 +75,7 @@ export function buildOverdueSignatureWhere(
  *  utilisé dans les requêtes `$queryRaw` du module KPI. `to_timestamp(1)`
  *  correspond exactement à `INVALIDATED_TOKEN_SENTINEL` (epoch + 1 seconde). */
 export function overdueSignatureSql(thresholdDays: number): Prisma.Sql {
-  return Prisma.sql`b.updated_at < now() - (${thresholdDays}::int * interval '1 day') AND (b.status::text IN (${Prisma.join(WAITING_SIGNATURE_STATUSES)}) OR (b.status::text = 'partially_returned' AND EXISTS (SELECT 1 FROM signatures s WHERE s.bon_id = b.id AND s.signed = false AND s.type::text IN (${Prisma.join(PARTIAL_PENDING_SIGNATURE_TYPES)}) AND s.token_expires_at > to_timestamp(1))))`;
+  return Prisma.sql`b.updated_at < now() - (${thresholdDays}::int * interval '1 day') AND (b.status::text IN (${Prisma.join(TO_SIGN_BON_STATUSES)}) OR (b.status::text = 'partially_returned' AND EXISTS (SELECT 1 FROM signatures s WHERE s.bon_id = b.id AND s.signed = false AND s.type::text IN (${Prisma.join(PARTIAL_PENDING_SIGNATURE_TYPES)}) AND s.token_expires_at > to_timestamp(1))))`;
 }
 
 /** [Ancienne définition, cf. LOANED_BON_STATUSES] Équipement « prêté » : ni
@@ -143,7 +127,7 @@ export const SITUATION_ORDER: readonly EquipmentSituation[] = [
 /** Libellés FR des situations — utilisés par le résumé et l'export CSV de
  *  l'inventaire, et par la répartition `bySituation` du KPI parc. */
 export const SITUATION_LABELS: Record<EquipmentSituation, string> = {
-  en_attente_signature: 'En attente de signature',
+  en_attente_signature: 'Remise à signer',
   en_circulation: 'En circulation',
   en_litige: 'En litige',
 };
@@ -225,31 +209,4 @@ export function buildSituationBreakdown(
     label: SITUATION_LABELS[situation],
     count: counts.get(situation) ?? 0,
   }));
-}
-
-/** Libellés FR des catégories d'équipement — copie unique (anciennement
- *  dupliquée dans inventory.service.ts et l'ancien service de reporting,
- *  supprimé). */
-export const CATEGORY_LABELS: Record<string, string> = {
-  pc_portable: 'PC portable',
-  pc_fixe: 'PC fixe',
-  ecran: 'Écran',
-  souris: 'Souris',
-  clavier: 'Clavier',
-  casque: 'Casque',
-  telephone: 'Téléphone',
-  housse: 'Housse',
-  dock: 'Station d’accueil',
-  cable: 'Câble',
-  autre: 'Autre',
-};
-
-/** Échappement CSV : neutralise l'injection de formule (Excel/LibreOffice
- *  exécutent une cellule commençant par = + - @) et double les guillemets
- *  internes — copie unique (anciennement dupliquée dans inventory.service.ts,
- *  bons.service.ts et l'ancien service de reporting, supprimé). */
-export function escapeCsvCell(value: string): string {
-  let s = String(value ?? '').replace(/"/g, '""');
-  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
-  return `"${s}"`;
 }

@@ -52,8 +52,8 @@ describe('formatOptionalText', () => {
 
 describe('getStatusLabel', () => {
   it('returns the known French label for a status', () => {
-    expect(getStatusLabel('active')).toBe('Actif');
-    expect(getStatusLabel('archived')).toBe('Archivé');
+    expect(getStatusLabel('active')).toBe('En cours');
+    expect(getStatusLabel('archived')).toBe('Clôturé');
   });
 
   it('falls back to the raw status when unknown', () => {

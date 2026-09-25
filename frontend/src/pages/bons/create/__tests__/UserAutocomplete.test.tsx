@@ -22,11 +22,25 @@ vi.mock('@/lib/api', async (importOriginal) => {
 });
 
 import { api } from '@/lib/api';
+import type { UserRole } from '@/types';
 
-describe('UserAutocomplete — création d\'un collaborateur manuel', () => {
+// Rôle de la personne connectée, modifiable test par test : la création d'un
+// compte manuel depuis le formulaire de bon est réservée à l'administrateur.
+let roleConnecte: UserRole = 'admin';
+vi.mock('@/contexts/AuthContext', () => ({
+  useAuth: () => ({
+    user: { id: 'moi', role: roleConnecte, displayName: 'Moi', email: 'moi@groupe-livio.fr' },
+    loading: false,
+    refetch: vi.fn(),
+    logout: vi.fn(),
+  }),
+}));
+
+describe('UserAutocomplete — création d\'un collaborateur manuel (administrateur)', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     resetActiveFilialesForTests();
+    roleConnecte = 'admin';
     vi.mocked(api.get).mockImplementation((path: string) => {
       if (path.startsWith('/users/search')) return Promise.resolve([]);
       if (path.startsWith('/filiales/active')) return Promise.resolve([]);
@@ -127,6 +141,7 @@ describe('UserAutocomplete — le dialogue ne soumet pas le formulaire parent', 
   beforeEach(() => {
     vi.resetAllMocks();
     resetActiveFilialesForTests();
+    roleConnecte = 'admin';
     vi.mocked(api.get).mockImplementation((path: string) => {
       if (path.startsWith('/users/search')) return Promise.resolve([]);
       if (path.startsWith('/filiales/active')) return Promise.resolve([]);
@@ -165,5 +180,34 @@ describe('UserAutocomplete — le dialogue ne soumet pas le formulaire parent', 
 
     await waitFor(() => expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ id: 'u-chantier' })));
     expect(onSubmitParent).not.toHaveBeenCalled();
+  });
+});
+
+describe('UserAutocomplete — technicien : pas de création de compte', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    resetActiveFilialesForTests();
+    roleConnecte = 'technician';
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path.startsWith('/users/search')) return Promise.resolve([]);
+      return Promise.reject(new Error(`GET non mocké dans ce test : ${path}`));
+    });
+  });
+
+  it('cherche toujours le destinataire, mais ne propose pas de créer un collaborateur', async () => {
+    const user = userEvent.setup();
+    render(<UserAutocomplete value={null} onChange={vi.fn()} />);
+
+    await user.type(screen.getByPlaceholderText('Rechercher un collaborateur...'), 'Ouvrier');
+    await screen.findByText('Aucun collaborateur trouvé');
+
+    // La recherche part après la saisie (anti-rebond) : on attend son appel.
+    await waitFor(() => {
+      expect(vi.mocked(api.get).mock.calls.map(([path]) => path)).toContain('/users/search?q=Ouvrier');
+    });
+    expect(screen.queryByRole('button', { name: /Créer un collaborateur/i })).not.toBeInTheDocument();
+    expect(screen.getByText('Collaborateur introuvable ? Demandez à un administrateur de créer sa fiche.')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
   });
 });

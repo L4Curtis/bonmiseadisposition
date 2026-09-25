@@ -5,7 +5,6 @@ import {
   pickGranularity,
   previousRange,
   resolvePeriod,
-  todayInParis,
 } from '../kpi-period';
 
 describe('kpi-period', () => {
@@ -112,13 +111,6 @@ describe('kpi-period', () => {
 
     it('renvoie un tableau vide si aucun bucket', () => {
       expect(fillSeries([], [{ bucket: '2026-01-01', count: 1 }], 'count', 0)).toEqual([]);
-    });
-  });
-
-  describe('todayInParis', () => {
-    it('formate en AAAA-MM-JJ', () => {
-      const value = todayInParis(new Date('2026-06-15T22:30:00Z'));
-      expect(value).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     });
   });
 

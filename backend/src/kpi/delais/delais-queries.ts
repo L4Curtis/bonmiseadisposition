@@ -1,12 +1,10 @@
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import {
-  PARTIAL_PENDING_SIGNATURE_TYPES,
-  WAITING_SIGNATURE_STATUSES,
-  overdueSignatureSql,
-} from '../../common/bon-predicates';
+import { PARTIAL_PENDING_SIGNATURE_TYPES, overdueSignatureSql } from '../../common/bon-predicates';
+import { SIGNATURE_LINK_BON_STATUSES, TO_SIGN_BON_STATUSES } from '../../bons/bon-status';
 import { Granularity } from '../kpi-types';
-import { bucketExpr, filialeFilter, inRange, toNumber } from '../kpi-sql';
+import { parisBucketSql, parisPeriodSql } from '../../common/dates/paris';
+import { filialeFilter, toNumber } from '../kpi-sql';
 
 /**
  * Requêtes SQL brutes de `GET /kpi/delais` (lot 2b). Chaque fonction isole un
@@ -45,13 +43,13 @@ export async function queryVolumeAggregate(
   const rows = await prisma.$queryRaw<VolumeAggregateRow[]>(Prisma.sql`
     SELECT
       (SELECT COUNT(*)::bigint FROM bons b
-        WHERE ${inRange(Prisma.sql`b.created_at`, range)} ${filialeFilter('b', filialeId)}) AS created,
+        WHERE ${parisPeriodSql(Prisma.sql`b.created_at`, range)} ${filialeFilter('b', filialeId)}) AS created,
       (SELECT COUNT(DISTINCT a.bon_id)::bigint FROM audit_logs a JOIN bons b ON b.id = a.bon_id
-        WHERE a.action = 'bon_sent' AND ${inRange(Prisma.sql`a.created_at`, range)} ${filialeFilter('b', filialeId)}) AS sent,
+        WHERE a.action = 'bon_sent' AND ${parisPeriodSql(Prisma.sql`a.created_at`, range)} ${filialeFilter('b', filialeId)}) AS sent,
       (SELECT COUNT(*)::bigint FROM bons b
-        WHERE ${inRange(Prisma.sql`b.archived_at`, range)} ${filialeFilter('b', filialeId)}) AS archived,
+        WHERE ${parisPeriodSql(Prisma.sql`b.archived_at`, range)} ${filialeFilter('b', filialeId)}) AS archived,
       (SELECT COUNT(DISTINCT a.bon_id)::bigint FROM audit_logs a JOIN bons b ON b.id = a.bon_id
-        WHERE a.action = 'bon_cancelled' AND ${inRange(Prisma.sql`a.created_at`, range)} ${filialeFilter('b', filialeId)}) AS cancelled
+        WHERE a.action = 'bon_cancelled' AND ${parisPeriodSql(Prisma.sql`a.created_at`, range)} ${filialeFilter('b', filialeId)}) AS cancelled
   `);
   const row = rows[0];
   return {
@@ -76,9 +74,9 @@ export async function querySeriesFromBons(
   filialeId?: string,
 ): Promise<SeriesRow[]> {
   return prisma.$queryRaw<SeriesRow[]>(Prisma.sql`
-    SELECT ${bucketExpr(column, granularity)} AS bucket, COUNT(*)::bigint AS count
+    SELECT ${parisBucketSql(column, granularity)} AS bucket, COUNT(*)::bigint AS count
     FROM bons b
-    WHERE ${inRange(column, range)} ${filialeFilter('b', filialeId)}
+    WHERE ${parisPeriodSql(column, range)} ${filialeFilter('b', filialeId)}
     GROUP BY bucket
     ORDER BY bucket
   `);
@@ -92,10 +90,10 @@ export async function querySentSeries(
   filialeId?: string,
 ): Promise<SeriesRow[]> {
   return prisma.$queryRaw<SeriesRow[]>(Prisma.sql`
-    SELECT ${bucketExpr(Prisma.sql`a.created_at`, granularity)} AS bucket, COUNT(DISTINCT a.bon_id)::bigint AS count
+    SELECT ${parisBucketSql(Prisma.sql`a.created_at`, granularity)} AS bucket, COUNT(DISTINCT a.bon_id)::bigint AS count
     FROM audit_logs a
     JOIN bons b ON b.id = a.bon_id
-    WHERE a.action = 'bon_sent' AND ${inRange(Prisma.sql`a.created_at`, range)} ${filialeFilter('b', filialeId)}
+    WHERE a.action = 'bon_sent' AND ${parisPeriodSql(Prisma.sql`a.created_at`, range)} ${filialeFilter('b', filialeId)}
     GROUP BY bucket
     ORDER BY bucket
   `);
@@ -153,7 +151,7 @@ export async function queryCreationToSend(
       SELECT EXTRACT(EPOCH FROM (fs.sent_at - b.created_at))::float8 / 3600 AS h
       FROM first_sent fs
       JOIN bons b ON b.id = fs.bon_id
-      WHERE ${inRange(Prisma.sql`fs.sent_at`, range)} ${filialeFilter('b', filialeId)}
+      WHERE ${parisPeriodSql(Prisma.sql`fs.sent_at`, range)} ${filialeFilter('b', filialeId)}
     ) t
   `);
   const row = rows[0];
@@ -218,7 +216,7 @@ export async function querySendToSignature(
           AND nl.sent_at <= sg.signed_at
           AND nl.sent_at > COALESCE(sg.prev_signed_at, '-infinity'::timestamp)
       ) st ON true
-      WHERE ${inRange(Prisma.sql`sg.signed_at`, range)} ${filialeFilter('b', filialeId)}
+      WHERE ${parisPeriodSql(Prisma.sql`sg.signed_at`, range)} ${filialeFilter('b', filialeId)}
     ) x
     GROUP BY x.type
   `);
@@ -258,7 +256,7 @@ export async function queryLoanDuration(
         FROM signatures s
         WHERE s.bon_id = b.id AND s.type::text = 'mise_disposition' AND s.signed
       ) ls ON true
-      WHERE b.archived_at IS NOT NULL AND ${inRange(Prisma.sql`b.archived_at`, range)} ${filialeFilter('b', filialeId)}
+      WHERE b.archived_at IS NOT NULL AND ${parisPeriodSql(Prisma.sql`b.archived_at`, range)} ${filialeFilter('b', filialeId)}
     ) t
   `);
   const row = rows[0];
@@ -309,9 +307,9 @@ export async function queryWaitingSteps(
       ORDER BY s.created_at DESC
       LIMIT 1
     ) ps ON true
-    WHERE b.status::text IN (${Prisma.join([...WAITING_SIGNATURE_STATUSES, 'partially_returned'])})
+    WHERE b.status::text IN (${Prisma.join(SIGNATURE_LINK_BON_STATUSES)})
       AND (
-        b.status::text IN (${Prisma.join(WAITING_SIGNATURE_STATUSES)})
+        b.status::text IN (${Prisma.join(TO_SIGN_BON_STATUSES)})
         OR (b.status::text = 'partially_returned' AND ps.type IS NOT NULL)
       )
     ${filialeFilter('b', filialeId)}

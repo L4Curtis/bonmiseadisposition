@@ -2,61 +2,20 @@ import { Prisma } from '@prisma/client';
 import { Compared, Granularity } from './kpi-types';
 
 /**
- * Fragments SQL partagés par les services KPI (bornes de période, filtre
- * filiale, expressions de bucket) et conversions bigint/Decimal → number.
+ * Fragments SQL propres aux indicateurs (filtre filiale, pas de
+ * `generate_series`) et conversions bigint/Decimal → number. Les bornes de
+ * période et les regroupements à l'heure de Paris viennent de
+ * `common/dates/paris.ts`.
  *
  * Règle non négociable (cf. kpi-design.md) : toute requête utilise ces
  * fragments via `Prisma.sql` — jamais de concaténation de chaîne côté SQL.
  */
-
-/**
- * Convention de fuseau (Prisma) : les colonnes DateTime sont des `timestamp(3)`
- * SANS fuseau qui contiennent des instants UTC. Pour rester indépendants du
- * paramètre `TimeZone` de la session Postgres, toutes les bornes produites
- * ici sont ramenées en timestamp naïf UTC (`… AT TIME ZONE 'UTC'`), donc
- * directement comparables aux colonnes sans cast implicite.
- *
- * Rappel de la sémantique Postgres :
- *   - `timestamp AT TIME ZONE 'Europe/Paris'` : lit des chiffres naïfs comme
- *     une heure de Paris et renvoie un timestamptz ;
- *   - `timestamptz AT TIME ZONE 'UTC'` : renvoie les chiffres naïfs en UTC.
- */
-
-/** Borne basse (incluse) d'une date civile Europe/Paris, en timestamp naïf UTC. */
-export function parisStart(dateIso: string): Prisma.Sql {
-  return Prisma.sql`((${dateIso}::date::timestamp AT TIME ZONE 'Europe/Paris') AT TIME ZONE 'UTC')`;
-}
-
-/** Borne haute (exclue) d'une date civile Europe/Paris : le lendemain minuit, en timestamp naïf UTC. */
-export function parisEndExclusive(dateIso: string): Prisma.Sql {
-  return Prisma.sql`(((${dateIso}::date + 1)::timestamp AT TIME ZONE 'Europe/Paris') AT TIME ZONE 'UTC')`;
-}
-
-/** Condition `col >= début AND col < fin` sur une période civile Europe/Paris. */
-export function inRange(col: Prisma.Sql, range: { from: string; to: string }): Prisma.Sql {
-  return Prisma.sql`${col} >= ${parisStart(range.from)} AND ${col} < ${parisEndExclusive(range.to)}`;
-}
 
 /** Filtre filiale optionnel sur l'alias de table donné (ex. `filialeFilter('b', id)`
  *  → `AND b.filiale_id = $1`). `Prisma.empty` si `filialeId` est absent. */
 export function filialeFilter(alias: string, filialeId?: string): Prisma.Sql {
   if (!filialeId) return Prisma.empty;
   return Prisma.sql`AND ${Prisma.raw(alias)}.filiale_id = ${filialeId}`;
-}
-
-const BUCKET_UNIT: Record<Granularity, string> = {
-  day: 'day',
-  week: 'week',
-  month: 'month',
-};
-
-/** Expression SQL du bucket (début de jour/semaine/mois, en fuseau Paris)
- *  auquel appartient une colonne timestamp naïve UTC : on la convertit
- *  d'abord explicitement depuis UTC (`AT TIME ZONE 'UTC'` → timestamptz),
- *  puis vers l'heure de Paris — sans ce premier cast, les chiffres UTC
- *  seraient lus comme une heure de Paris (décalage d'une à deux heures). */
-export function bucketExpr(col: Prisma.Sql, granularity: Granularity): Prisma.Sql {
-  return Prisma.sql`date_trunc(${BUCKET_UNIT[granularity]}::text, (${col} AT TIME ZONE 'UTC') AT TIME ZONE 'Europe/Paris')::date`;
 }
 
 const STEP_INTERVAL: Record<Granularity, string> = {

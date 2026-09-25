@@ -18,7 +18,7 @@ import { AttachmentsService } from './attachments.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
-import { Roles } from '../auth/decorators/roles.decorator';
+import { Roles, ALL_ROLES } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth-user.interface';
 import { isItRole } from '../common/roles';
@@ -33,9 +33,15 @@ const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
  */
 const COLLAB_ATTACHMENT_WINDOW_STATUSES = ['sent_mise_dispo', 'sent_restitution', 'partially_returned'];
 
+/**
+ * Pièces jointes d'un bon. Ouvert à tout rôle connecté comme les autres routes
+ * « propriétaire » des bons : un compte non IT n'accède qu'aux pièces de SES
+ * bons (verifyAccess), et n'en ajoute ou n'en retire que pendant la période de
+ * signature.
+ */
 @Controller('bons/:bonId/attachments')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('admin', 'technician', 'collaborator')
+@Roles(...ALL_ROLES)
 export class AttachmentsController {
   constructor(
     private readonly attachments: AttachmentsService,
@@ -91,8 +97,8 @@ export class AttachmentsController {
 
   // Un collaborateur ne peut supprimer que SES PROPRES pièces jointes,
   // pendant la même fenêtre que l'upload — pas de @Roles restrictif ici :
-  // hérite du niveau classe (admin, technician, collaborator), la
-  // restriction fine est appliquée dans le corps de la méthode.
+  // hérite du niveau classe (tout rôle connecté), la restriction fine est
+  // appliquée dans le corps de la méthode.
   @Delete(':attachmentId')
   async remove(
     @Param('bonId') bonId: string,

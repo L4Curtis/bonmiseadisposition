@@ -33,13 +33,19 @@ import {
 import { SignItDto } from '../signature/dto/sign.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
-import { Roles } from '../auth/decorators/roles.decorator';
+import { Roles, ALL_ROLES } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth-user.interface';
 import { verifyCollaboratorAccess as verifyCollaboratorAccessImpl } from './bons-access';
 import { assertValidPdfQuery, resolveBonPdf } from './bons-pdf-lookup';
 import { computeMissingPdfSnapshotTypes } from './bons-missing-snapshots';
 
+/**
+ * Bons : réservés à l'IT (admin, technicien), sauf les routes « propriétaire »
+ * — ses propres bons, leurs PDF, la contestation — ouvertes à tout rôle
+ * connecté, car chacun peut recevoir du matériel. Sur ces routes-là,
+ * verifyCollaboratorAccess limite un compte non IT à SES bons.
+ */
 @Controller('bons')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('admin', 'technician')
@@ -52,17 +58,18 @@ export class BonsController {
     private readonly prisma: PrismaService,
   ) {}
 
-  // ─── Routes collaborateur (override du guard global) ───────────────────────
+  // ─── Routes propriétaire (tout rôle connecté, limité à ses propres bons) ────
 
   @Get('mes-bons')
-  @Roles('admin', 'technician', 'collaborator')
+  @Roles(...ALL_ROLES)
   getMyBons(@CurrentUser() user: AuthUser) {
     return this.bonsService.findByCollaborateur(user.id);
   }
 
-  /** POST /bons/:id/contestation — collaborateur conteste son bon */
+  /** POST /bons/:id/contestation — le destinataire conteste son bon (le
+   *  service refuse tout autre compte, IT compris). */
   @Post(':id/contestation')
-  @Roles('admin', 'technician', 'collaborator')
+  @Roles(...ALL_ROLES)
   async createContestation(
     @Param('id') id: string,
     @Body() dto: CreateContestationDto,
@@ -127,15 +134,14 @@ export class BonsController {
   }
 
   @Get(':id')
-  @Roles('admin', 'technician', 'collaborator')
+  @Roles(...ALL_ROLES)
   async findOne(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     await this.verifyCollaboratorAccess(id, user);
     return this.bonsService.findOne(id);
   }
 
   @Get(':id/notifications')
-  async getNotifications(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    await this.verifyCollaboratorAccess(id, user);
+  getNotifications(@Param('id') id: string) {
     return this.bonsService.getNotificationLogs(id);
   }
 
@@ -145,71 +151,64 @@ export class BonsController {
   }
 
   @Put(':id')
-  async update(@Param('id') id: string, @Body() dto: UpdateBonDto, @CurrentUser() user: AuthUser) {
-    await this.verifyCollaboratorAccess(id, user);
+  update(@Param('id') id: string, @Body() dto: UpdateBonDto) {
     return this.bonsService.update(id, dto);
   }
 
   @Delete(':id')
-  async cancel(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    await this.verifyCollaboratorAccess(id, user);
+  cancel(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.bonsService.cancel(id, user?.id);
   }
 
   @Post(':id/send')
-  async send(
+  send(
     @Param('id') id: string,
     @Body() body: { confirmSerialConflicts?: boolean },
     @CurrentUser() user: AuthUser,
   ) {
-    await this.verifyCollaboratorAccess(id, user);
     return this.bonsService.send(id, user?.id, body?.confirmSerialConflicts === true);
   }
 
   @Post(':id/initiate-restitution')
-  async initiateRestitution(
+  initiateRestitution(
     @Param('id') id: string,
     @Body() dto: InitiateRestitutionDto,
     @CurrentUser() user: AuthUser,
   ) {
-    await this.verifyCollaboratorAccess(id, user);
     return this.bonsService.initiateRestitution(id, user?.id, dto.returnedEquipmentIds);
   }
 
   @Post(':id/initiate-inperson')
-  async initiateInPerson(
+  initiateInPerson(
     @Param('id') id: string,
     @Body() dto: InitiateInPersonDto,
     @CurrentUser() user: AuthUser,
   ) {
-    await this.verifyCollaboratorAccess(id, user);
     return this.bonsService.initiateInPersonSignature(id, dto.type, user.id);
   }
 
   @Post(':id/declare-not-returned')
-  async declareNotReturned(
+  declareNotReturned(
     @Param('id') id: string,
     @Body() dto: DeclareNotReturnedDto,
     @CurrentUser() user: AuthUser,
   ) {
-    await this.verifyCollaboratorAccess(id, user);
     return this.bonsService.declareNotReturned(id, dto.equipmentIds, dto.reason, user.id, dto.signatureDataUrl);
   }
 
   @Post(':id/mark-found')
-  async markFound(
+  markFound(
     @Param('id') id: string,
     @Body() dto: MarkFoundDto,
     @CurrentUser() user: AuthUser,
   ) {
-    await this.verifyCollaboratorAccess(id, user);
     return this.bonsService.markFound(id, dto.equipmentIds, user.id, dto.signatureDataUrl);
   }
 
   /** GET /bons/:id/integrity — vérifie les sceaux HMAC des signatures (preuve
    *  d'intégrité : détecte toute altération directe en base). */
   @Get(':id/integrity')
-  @Roles('admin', 'technician', 'collaborator')
+  @Roles(...ALL_ROLES)
   async getIntegrity(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     await this.verifyCollaboratorAccess(id, user);
     return this.signatureService.verifyBonIntegrity(id);
@@ -222,7 +221,7 @@ export class BonsController {
    *  défensivement les deux formes, mais changer la forme ici casserait le
    *  portail collaborateur — d'où l'endpoint séparé ci-dessous. */
   @Get(':id/pdf-snapshots')
-  @Roles('admin', 'technician', 'collaborator')
+  @Roles(...ALL_ROLES)
   async getPdfSnapshots(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     await this.verifyCollaboratorAccess(id, user);
     const snapshots = await this.prisma.pdfSnapshot.findMany({
@@ -238,9 +237,7 @@ export class BonsController {
    *  d'un generateAndSave passé (cf. audit pdf_snapshot_failed). Régénérable
    *  via POST /admin/pdf/regenerate-missing. */
   @Get(':id/pdf-snapshots/missing')
-  @Roles('admin', 'technician', 'collaborator')
-  async getMissingPdfSnapshots(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    await this.verifyCollaboratorAccess(id, user);
+  async getMissingPdfSnapshots(@Param('id') id: string) {
     const bon = await this.bonsService.findOne(id);
     const [signedSignatures, existingSnapshots] = await Promise.all([
       this.prisma.signature.findMany({ where: { bonId: id, signed: true }, select: { type: true, pdfType: true } }),
@@ -252,7 +249,7 @@ export class BonsController {
   }
 
   @Get(':id/pdf')
-  @Roles('admin', 'technician', 'collaborator')
+  @Roles(...ALL_ROLES)
   async getPdf(
     @Param('id') id: string,
     @CurrentUser() user: AuthUser,
@@ -283,9 +280,10 @@ export class BonsController {
     res.send(pdf);
   }
 
-  /** Verify access: collaborators see only their own bons. Admins and
-   *  technicians have cross-filiale access (modèle « IT centrale »,
-   *  décision produit 2026-06-11). Implémentation dans bons-access.ts. */
+  /** Routes propriétaire : un compte non IT ne voit que ses propres bons ;
+   *  admins et techniciens ont un accès transverse (modèle « IT centrale »,
+   *  décision produit 2026-06-11). Implémentation dans bons-access.ts.
+   *  Inutile sur les routes réservées à l'IT, où elle ne vérifierait rien. */
   private async verifyCollaboratorAccess(bonId: string, user: AuthUser): Promise<void> {
     return verifyCollaboratorAccessImpl(this.prisma, bonId, user);
   }
@@ -293,24 +291,22 @@ export class BonsController {
   /** POST /bons/:id/close-unilateral — clôture sans signature du collaborateur
    *  (motif obligatoire, mention sur le PDF, traçage audit). */
   @Post(':id/close-unilateral')
-  async closeUnilateral(
+  closeUnilateral(
     @Param('id') id: string,
     @Body() dto: CloseUnilateralDto,
     @CurrentUser() user: AuthUser,
   ) {
-    await this.verifyCollaboratorAccess(id, user);
     return this.bonsService.closeUnilaterally(id, user.id, dto.reason.trim());
   }
 
   @Post(':id/sign-it')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
-  async signIt(
+  signIt(
     @Param('id') id: string,
     @Body() body: SignItDto,
     @CurrentUser() user: AuthUser,
     @Req() req: Request,
   ) {
-    await this.verifyCollaboratorAccess(id, user);
     // Use X-Real-IP (set by nginx to $remote_addr) — cannot be spoofed by clients
     const ip =
       (req.headers['x-real-ip'] as string)?.trim() ??

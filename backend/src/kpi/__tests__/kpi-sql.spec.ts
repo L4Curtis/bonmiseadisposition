@@ -1,12 +1,8 @@
 import { Prisma } from '@prisma/client';
 import {
-  bucketExpr,
   bucketLabel,
   compared,
   filialeFilter,
-  inRange,
-  parisEndExclusive,
-  parisStart,
   ratio,
   stepInterval,
   toNumber,
@@ -68,28 +64,6 @@ describe('kpi-sql', () => {
     });
   });
 
-  describe('inRange', () => {
-    it('contient AT TIME ZONE Europe/Paris sur les deux bornes', () => {
-      const col = Prisma.raw('b.created_at');
-      const frag = inRange(col, { from: '2026-01-01', to: '2026-01-31' });
-      expect(frag.sql).toContain("AT TIME ZONE 'Europe/Paris'");
-      // Bornes ramenées en naïf UTC : indépendantes du fuseau de session Postgres.
-      expect(frag.sql.match(/AT TIME ZONE 'UTC'/g)).toHaveLength(2);
-      expect(frag.sql).toContain('>=');
-      expect(frag.sql).toContain('<');
-    });
-  });
-
-  describe('bucketExpr', () => {
-    it('contient date_trunc et AT TIME ZONE Europe/Paris', () => {
-      const col = Prisma.raw('b.created_at');
-      const frag = bucketExpr(col, 'week');
-      expect(frag.sql).toContain('date_trunc');
-      // La colonne (naïve UTC) est convertie depuis UTC AVANT d'être exprimée en heure de Paris.
-      expect(frag.sql).toContain("AT TIME ZONE 'UTC') AT TIME ZONE 'Europe/Paris'");
-    });
-  });
-
   describe('stepInterval', () => {
     it.each([
       ['day', '1 day'],
@@ -109,18 +83,6 @@ describe('kpi-sql', () => {
 
     it('laisse passer une chaîne déjà formatée', () => {
       expect(bucketLabel('2026-08-18')).toBe('2026-08-18');
-    });
-  });
-
-  describe('parisStart / parisEndExclusive', () => {
-    it('parisStart contient AT TIME ZONE Europe/Paris', () => {
-      expect(parisStart('2026-01-01').sql).toContain("AT TIME ZONE 'Europe/Paris'");
-    });
-
-    it('parisEndExclusive ajoute un jour à la date de fin', () => {
-      const frag = parisEndExclusive('2026-01-01');
-      expect(frag.sql).toContain("AT TIME ZONE 'Europe/Paris'");
-      expect(frag.sql).toContain('+ 1');
     });
   });
 });

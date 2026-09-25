@@ -1,8 +1,9 @@
 import { PrismaService } from '../../prisma/prisma.service';
 import { AppConfigService } from '../../config/config.service';
-import { STATUS_LABELS } from '../../common/status-labels';
-import { escapeCsvCell } from '../../common/bon-predicates';
 import { BonStatus } from '../../common/types';
+import { buildCsv, type CsvCell } from '../../common/csv';
+import { formatParisDate } from '../../common/dates/paris';
+import { bonStatusLabel } from '../bon-status';
 import { buildBonWhere, BonListFilters } from '../queries/bon-where';
 import { buildBonOrderBy, BonSortField, SortOrder } from '../queries/bon-order';
 
@@ -39,7 +40,7 @@ export interface ExportBonRow {
   signatures: Array<{ type: string; signedAt: Date | string | null }>;
 }
 
-const EXPORT_HEADERS = [
+const EXPORT_HEADERS: readonly string[] = [
   'Référence', 'Statut', 'Filiale', 'Collaborateur', 'Email collaborateur',
   'Service', 'Date mise à disposition', 'Date restitution', 'Nb équipements',
   'Équipements', 'Créé par', 'Date création',
@@ -56,40 +57,42 @@ export function sliceExportRows<T>(
   return { rows: truncated ? rowsFetched.slice(0, limit) : rowsFetched, truncated };
 }
 
+/** Désignation des équipements d'un bon, séparés par « | ». */
+function equipmentLabels(bon: ExportBonRow): string {
+  return bon.equipments
+    .map((e) => (e.catalogItem ? `${e.catalogItem.brand} ${e.catalogItem.model}` : e.customLabel ?? ''))
+    .join(' | ');
+}
+
+/** Une ligne du fichier. Les instants (création, signatures) sont datés à
+ *  l'heure de Paris : le serveur tourne en UTC, et un bon signé entre 0 h et
+ *  2 h serait sinon daté de la veille. */
+function exportRow(bon: ExportBonRow): CsvCell[] {
+  const signedAt = (type: string) => bon.signatures.find((s) => s.type === type)?.signedAt;
+  return [
+    bon.reference,
+    bonStatusLabel(bon.status),
+    bon.filiale.displayName,
+    bon.collaborateur.displayName,
+    // Compagnon de chantier sans compte email (voir User.isManualAccount) :
+    // « — » plutôt qu'une cellule vide/« null » dans l'export.
+    bon.collaborateur.email ?? '—',
+    bon.collaborateur.department ?? '',
+    formatParisDate(bon.dateMiseDisposition),
+    formatParisDate(bon.dateRestitution),
+    bon.equipments.length,
+    equipmentLabels(bon),
+    bon.createdBy.displayName,
+    formatParisDate(bon.createdAt),
+    formatParisDate(signedAt('mise_disposition')),
+    formatParisDate(signedAt('restitution')),
+  ];
+}
+
 /** Construit le CSV (BOM UTF-8 inclus, pour Excel) à partir des lignes déjà
  *  tronquées. Fonction pure. */
 export function buildExportCsv(bons: ExportBonRow[]): string {
-  const rows = bons.map((b) => {
-    const sigMise = b.signatures.find((s) => s.type === 'mise_disposition');
-    const sigRest = b.signatures.find((s) => s.type === 'restitution');
-    const equipLabel = b.equipments
-      .map((e) =>
-        e.catalogItem
-          ? `${e.catalogItem.brand} ${e.catalogItem.model}`
-          : e.customLabel ?? '',
-      )
-      .join(' | ');
-    return [
-      b.reference,
-      STATUS_LABELS[b.status] ?? b.status,
-      b.filiale.displayName,
-      b.collaborateur.displayName,
-      // Compagnon de chantier sans compte email (voir User.isManualAccount) :
-      // « — » plutôt qu'une cellule vide/« null » dans l'export.
-      b.collaborateur.email ?? '—',
-      b.collaborateur.department ?? '',
-      b.dateMiseDisposition ? new Date(b.dateMiseDisposition).toLocaleDateString('fr-FR') : '',
-      b.dateRestitution ? new Date(b.dateRestitution).toLocaleDateString('fr-FR') : '',
-      String(b.equipments.length),
-      equipLabel,
-      b.createdBy.displayName,
-      new Date(b.createdAt).toLocaleDateString('fr-FR'),
-      sigMise?.signedAt ? new Date(sigMise.signedAt).toLocaleDateString('fr-FR') : '',
-      sigRest?.signedAt ? new Date(sigRest.signedAt).toLocaleDateString('fr-FR') : '',
-    ].map(escapeCsvCell);
-  });
-
-  return '﻿' + [EXPORT_HEADERS.map(escapeCsvCell).join(';'), ...rows.map((r) => r.join(';'))].join('\n');
+  return buildCsv({ header: EXPORT_HEADERS, rows: bons.map(exportRow) });
 }
 
 /** Prépare l'export CSV des bons filtrés : requête Prisma (bornée à

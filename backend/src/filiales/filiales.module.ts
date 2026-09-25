@@ -1,16 +1,17 @@
 import { BadRequestException, Module } from '@nestjs/common';
 import { MulterModule } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
-import { extname, join } from 'path';
+import { extname } from 'path';
 import { randomUUID } from 'node:crypto';
 import { FilialesController } from './filiales.controller';
 import { FilialesService } from './filiales.service';
+import { UPLOADS_DIR } from '../common/storage-paths';
 
 @Module({
   imports: [
     MulterModule.register({
       storage: diskStorage({
-        destination: join(process.cwd(), 'data', 'uploads'),
+        destination: UPLOADS_DIR,
         filename: (_req, file, cb) => {
           cb(null, `${randomUUID()}${extname(file.originalname)}`);
         },

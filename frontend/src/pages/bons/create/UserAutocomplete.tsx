@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { api } from '@/lib/api';
+import { useAuth } from '@/contexts/AuthContext';
 import { Search, X, UserPlus } from 'lucide-react';
 import type { UserResult } from './types';
 import { ManualUserDialog } from './ManualUserDialog';
@@ -19,6 +20,10 @@ export function UserAutocomplete({
   const [open, setOpen] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  // Créer un compte manuel est réservé à l'administrateur (le serveur refuse
+  // POST /users/manual aux autres rôles) : le technicien cherche seulement.
+  const { user } = useAuth();
+  const canCreateManualUser = user?.role === 'admin';
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -104,22 +109,30 @@ export function UserAutocomplete({
       {open && query.length >= 2 && results.length === 0 && (
         <div className="absolute z-10 mt-1 w-full rounded-md border bg-card shadow-lg px-3 py-2 text-sm">
           <p className="text-muted-foreground/70">Aucun collaborateur trouvé</p>
-          <button
-            type="button"
-            onClick={(e) => { e.preventDefault(); setCreateDialogOpen(true); }}
-            className="mt-2 flex items-center gap-1.5 font-medium text-primary hover:underline"
-          >
-            <UserPlus className="h-3.5 w-3.5" aria-hidden="true" />
-            Créer un collaborateur
-          </button>
+          {canCreateManualUser ? (
+            <button
+              type="button"
+              onClick={(e) => { e.preventDefault(); setCreateDialogOpen(true); }}
+              className="mt-1 flex min-h-11 items-center gap-1.5 font-medium text-primary hover:underline"
+            >
+              <UserPlus className="h-3.5 w-3.5" aria-hidden="true" />
+              Créer un collaborateur
+            </button>
+          ) : (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Collaborateur introuvable ? Demandez à un administrateur de créer sa fiche.
+            </p>
+          )}
         </div>
       )}
-      <ManualUserDialog
-        open={createDialogOpen}
-        onOpenChange={setCreateDialogOpen}
-        initialLastName={query}
-        onCreated={handleCreated}
-      />
+      {canCreateManualUser && (
+        <ManualUserDialog
+          open={createDialogOpen}
+          onOpenChange={setCreateDialogOpen}
+          initialLastName={query}
+          onCreated={handleCreated}
+        />
+      )}
     </div>
   );
 }

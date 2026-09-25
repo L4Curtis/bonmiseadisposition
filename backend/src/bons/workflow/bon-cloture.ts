@@ -5,6 +5,8 @@ import { assertPngDataUrl } from '../../common/signature-data-url';
 import { generateSignatureToken } from '../../common/tokens';
 import { BON_SELECT, findBonOrThrow } from '../queries/bon-where';
 import { BonsWorkflowContext, generateAndSaveSnapshot, getPvTokenValidityDays } from './bon-context';
+import { SIGNATURE_LINK_BON_STATUSES, isBonStatusIn } from '../bon-status';
+import { formatParisDate } from '../../common/dates/paris';
 
 /**
  * Émet le procès-verbal de clôture (équipements non rendus) si — et
@@ -151,8 +153,7 @@ export async function emitPvClotureIfDue(
 export async function closeUnilaterally(ctx: BonsWorkflowContext, id: string, userId: string, reason: string) {
   const { prisma, notificationService, smbService, signatureService, logger } = ctx;
   const bon = await findBonOrThrow(prisma, id);
-  const allowed: BonStatus[] = ['sent_mise_dispo', 'sent_restitution', 'partially_returned'];
-  if (!allowed.includes(bon.status as BonStatus)) {
+  if (!isBonStatusIn(bon.status, SIGNATURE_LINK_BON_STATUSES)) {
     throw new BadRequestException(
       'La clôture unilatérale n\'est possible que sur un bon en attente de signature',
     );
@@ -218,9 +219,7 @@ export async function closeUnilaterally(ctx: BonsWorkflowContext, id: string, us
   // signature collaborateur (le hash SHA-256 est tracé par generateAndSave)
   const note =
     `CLÔTURE UNILATÉRALE — constaté sans signature du collaborateur le ` +
-    // timeZone explicite : sans elle, la date affichée dépend du fuseau du
-    // serveur (LOT A2, simple ajout — la logique de clôture n'est pas touchée).
-    `${new Date().toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' })} par ${closer?.displayName ?? 'le service IT'}. Motif : ${reason}`;
+    `${formatParisDate(new Date())} par ${closer?.displayName ?? 'le service IT'}. Motif : ${reason}`;
   const snapshotType =
     bon.status === 'sent_mise_dispo'
       ? 'signature_collab_mise_disposition'

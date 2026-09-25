@@ -1,13 +1,13 @@
 import { Prisma } from '@prisma/client';
-import { escapeCsvCell } from '../common/bon-predicates';
+import { buildCsv } from '../common/csv';
+import { formatParisDateTime } from '../common/dates/paris';
 import { sanitizeAuditDetails } from '../retention/audit-sanitizer';
-import { formatParisDateTime } from './audit-period';
 
 /** En-tête de l'export CSV du journal d'audit (GET /audit/export). L'adresse
  *  IP et l'agent utilisateur ne sont volontairement PAS exportés : ce sont
  *  des données personnelles que la rétention efface (anonymize-bon.ts), et
  *  un fichier CSV circule hors de l'application. */
-export const AUDIT_CSV_HEADERS = ['date', 'action', 'utilisateur', 'email_utilisateur', 'bon', 'details'];
+export const AUDIT_CSV_HEADERS: readonly string[] = ['date', 'action', 'utilisateur', 'email_utilisateur', 'bon', 'details'];
 
 /** Nombre maximal d'entrées exportées : au-delà, l'export est tronqué aux
  *  plus récentes et le dépassement est signalé (`X-Truncated`, et
@@ -42,21 +42,20 @@ export function exportableDetails(details: Prisma.JsonValue): string {
 }
 
 /**
- * Construit le CSV d'export du journal d'audit (BOM UTF-8, séparateur `;`,
- * cellules échappées via escapeCsvCell contre l'injection de formule).
- * Horodatage à l'heure de Paris. Fonction pure.
+ * Construit le CSV d'export du journal d'audit (format commun de
+ * common/csv : BOM UTF-8, séparateur `;`, cellules protégées contre
+ * l'injection de formule). Horodatage à l'heure de Paris. Fonction pure.
  */
 export function buildAuditExportCsv(rows: AuditExportRow[]): string {
-  const lines = rows.map((row) =>
-    [
+  return buildCsv({
+    header: AUDIT_CSV_HEADERS,
+    rows: rows.map((row) => [
       formatParisDateTime(row.createdAt),
       row.action,
       row.user?.displayName ?? '',
       row.user?.email ?? row.userEmail ?? '',
       row.bon?.reference ?? '',
       exportableDetails(row.details),
-    ].map(escapeCsvCell).join(';'),
-  );
-  const csv = [AUDIT_CSV_HEADERS.map(escapeCsvCell).join(';'), ...lines].join('\n');
-  return String.fromCharCode(0xfeff) + csv;
+    ]),
+  });
 }

@@ -43,7 +43,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         company: true,
         title: true,
         filialeId: true,
-        filiale: true,
+        // Ce que déclare AuthUser, rien de plus : l'utilisateur est renvoyé
+        // tel quel par GET /auth/me (le cachet et l'adresse de la filiale n'ont
+        // rien à faire dans la session d'un collaborateur).
+        filiale: { select: { id: true, name: true, displayName: true } },
         isItStaff: true,
         role: true,
         isLocalAccount: true,
