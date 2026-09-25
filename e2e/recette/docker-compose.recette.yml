@@ -1,0 +1,98 @@
+# Banc de recette jetable « bmad-recette » : même application que la pile E2E
+# (images construites depuis les sources, mêmes Dockerfiles que la production),
+# isolée du poste de développement et de la pile E2E : autre nom de projet,
+# autres ports, aucun volume persistant.
+#
+# Ne pas lancer à la main : passer par e2e/recette/recette-up.sh, qui construit
+# les images l'une après l'autre, attend /api/health/ready puis amorce le jeu
+# de données de recette (voir e2e/recette/GUIDE-TESTEUR.md).
+#   Démarrage : bash e2e/recette/recette-up.sh
+#   Arrêt     : bash e2e/recette/recette-down.sh   (supprime aussi les données)
+#
+# Ports publiés (sur 127.0.0.1 uniquement) :
+#   8082 → application (frontend nginx, qui relaie /api vers le backend)
+#   8027 → Mailpit (interface web et API HTTP des emails capturés)
+#
+# Secrets : ENCRYPTION_KEY / JWT_SECRET ci-dessous sont des valeurs FACTICES,
+# générées pour ce banc jetable uniquement (openssl rand -hex 32), jamais
+# réutilisées ailleurs, sans conséquence si elles fuitent.
+
+name: bmad-recette
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: bons_disposition_recette
+      POSTGRES_USER: recette
+      POSTGRES_PASSWORD: recette_jetable
+      # Fuseau explicite, identique à la pile E2E et au dev : les requêtes SQL
+      # brutes ($queryRaw) en dépendent. Ne pas modifier.
+      TZ: UTC
+    # Pas de volume nommé : la base disparaît avec le conteneur. Chaque
+    # démarrage repart d'un schéma vierge, puis du même jeu de données.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U recette -d bons_disposition_recette"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  mailpit:
+    # Faux serveur SMTP : capture tous les emails envoyés par le backend sans
+    # jamais rien livrer. Interface web et API HTTP sur le port 8027 de l'hôte.
+    image: axllent/mailpit
+    environment:
+      # Défaut de Mailpit : 500 messages, les plus anciens étant supprimés au
+      # delà. L'amorçage en envoie déjà plus d'une centaine ; une vague de
+      # recette complète doit pouvoir tout conserver.
+      MP_MAX_MESSAGES: 5000
+    ports:
+      - "127.0.0.1:8027:8025"
+
+  backend:
+    build:
+      # Par défaut : l'arbre de travail du dépôt. recette-up.sh --sources <révision>
+      # construit plutôt depuis une révision git exportée dans .sources/.
+      context: ${RECETTE_SOURCES:-../..}/backend
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql://recette:recette_jetable@db:5432/bons_disposition_recette
+      # Valeurs factices propres à ce banc (voir l'en-tête).
+      ENCRYPTION_KEY: "5f0b3c9a2e7d41c68b9a0f3e2d1c4b5a69788766554433221100ffeeddccbbaa"
+      JWT_SECRET: "a1b2c3d4e5f60718293a4b5c6d7e8f90112233445566778899aabbccddeeff00"
+      # Pas "production" : les cookies de session seraient marqués Secure,
+      # que le navigateur refuse sur le HTTP simple de ce banc.
+      NODE_ENV: test
+      # Adresse PUBLIÉE sur l'hôte : elle figure telle quelle dans les liens
+      # de signature des emails, que les testeurs ouvrent dans Chrome.
+      FRONTEND_URL: "http://localhost:8082"
+      # Mot de passe initial du compte technique admin@local (changement
+      # imposé au premier login). Les comptes de recette nominatifs, eux, sont
+      # créés par l'amorçage : voir GUIDE-TESTEUR.md.
+      DEFAULT_ADMIN_PASSWORD: "RecetteInitial#2026"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4000/api/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+
+  frontend:
+    build:
+      context: ${RECETTE_SOURCES:-../..}/frontend
+      dockerfile: Dockerfile
+    environment:
+      # Les testeurs travaillent en parallèle depuis le même poste : chacun se
+      # présente avec sa propre adresse client (en-tête CF-Connecting-IP, voir
+      # gabarit-testeur.cjs) pour ne pas partager les plafonds de débit par
+      # adresse du backend. Le nginx du frontend ne croit cet en-tête que si
+      # cette option est activée (même réglage que la pile E2E).
+      TRUST_CF_CONNECTING_IP: "1"
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8082:8080"

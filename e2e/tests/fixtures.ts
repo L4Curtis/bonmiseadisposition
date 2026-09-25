@@ -1,4 +1,5 @@
-import { test as base, expect } from '@playwright/test';
+import { test as base, expect, type BrowserContext } from '@playwright/test';
+import { BASE_URL } from './helpers/env';
 
 /**
  * Chaque test se présente avec **sa propre adresse client**.
@@ -22,11 +23,27 @@ export function adresseClient(graine: string): string {
   return `10.${(h >>> 16) % 250}.${(h >>> 8) % 250}.${(h % 250) + 1}`;
 }
 
+const ORIGINE_APPLICATION = new URL(BASE_URL).origin;
+
+/**
+ * Pose l'adresse client sur les seules requêtes vers l'application. Pas
+ * d'`extraHTTPHeaders` : l'en-tête partirait aussi vers les polices Google,
+ * dont le contrôle CORS préalable refuse cet en-tête inconnu ; l'application
+ * s'afficherait alors avec une police de secours, loin de ce que voit un
+ * utilisateur.
+ */
+export async function poserAdresseClient(context: BrowserContext, ip: string): Promise<void> {
+  await context.route(
+    (url) => url.origin === ORIGINE_APPLICATION,
+    (route) => route.continue({ headers: { ...route.request().headers(), 'cf-connecting-ip': ip } }),
+  );
+}
+
 export const test = base.extend<{ adresseDuTest: string }>({
   adresseDuTest: [
     async ({ context }, use, testInfo) => {
       const ip = adresseClient(testInfo.titlePath.join(' › '));
-      await context.setExtraHTTPHeaders({ 'CF-Connecting-IP': ip });
+      await poserAdresseClient(context, ip);
       await use(ip);
     },
     { auto: true },
