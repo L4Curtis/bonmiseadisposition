@@ -1,5 +1,7 @@
 # Phase 2 — Administration et données de base
 
+> **Archive.** Compte rendu de la phase 2 du développement (mars 2026). Il ne décrit pas l'application actuelle : voir [l'architecture](../architecture.md) et le [journal des modifications](../../CHANGELOG.md).
+
 ## Nouvelles dépendances backend
 Ajoutées dans `backend/package.json` :
 - `ldapjs` + `@types/ldapjs` — connexion LDAP/LDAPS

@@ -1,5 +1,7 @@
 # Phase 3 — Bons, Signature, Notifications, Portail collaborateur
 
+> **Archive.** Compte rendu de la phase 3 du développement (mars 2026). Il ne décrit pas l'application actuelle : voir [l'architecture](../architecture.md) et le [journal des modifications](../../CHANGELOG.md).
+
 > Cette phase couvre les semaines 5 à 14 du planning initial (phases 3, 4, 5 et 6 fusionnées).
 > Tout est implémenté et fonctionnel.
 

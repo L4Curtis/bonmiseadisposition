@@ -1,5 +1,7 @@
 # Plan de développement v2 — Application de gestion des bons de mise à disposition
 
+> **Archive.** Plan de développement initial (mars 2026). Le périmètre, les choix techniques et le vocabulaire ont évolué depuis. Il ne décrit pas l'application actuelle : voir [l'architecture](../architecture.md) et le [journal des modifications](../../CHANGELOG.md).
+
 ## Contexte et objectifs
 
 ### Situation actuelle

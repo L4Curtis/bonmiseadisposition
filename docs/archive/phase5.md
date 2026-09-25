@@ -1,5 +1,7 @@
 # Phase 5 — Sécurisation, Contestations, Déploiement
 
+> **Archive.** Compte rendu de la phase 5 du développement (mars 2026). Il ne décrit pas l'application actuelle : voir [l'architecture](../architecture.md) et le [journal des modifications](../../CHANGELOG.md).
+
 > Tout est implémenté et fonctionnel.
 
 ---

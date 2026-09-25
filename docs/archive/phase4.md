@@ -1,5 +1,7 @@
 # Phase 4 — Dashboard IT enrichi, Audit, Export CSV
 
+> **Archive.** Compte rendu de la phase 4 du développement (mars 2026). Il ne décrit pas l'application actuelle : voir [l'architecture](../architecture.md) et le [journal des modifications](../../CHANGELOG.md).
+
 > Cette phase couvre la semaine 15 du planning initial (phase 7 du plan v2).
 > Tout est implémenté et fonctionnel.
 

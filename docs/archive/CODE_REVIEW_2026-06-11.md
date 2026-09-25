@@ -1,5 +1,7 @@
 # Code Review complète — bonmiseadisposition
 
+> **Archive.** Revue de code du 11 juin 2026 sur le commit `8a8bab4`, constats traités depuis (voir l'addendum). Les chemins, numéros de ligne et chiffres cités ne correspondent plus au code. Il ne décrit pas l'application actuelle : voir [l'architecture](../architecture.md) et le [journal des modifications](../../CHANGELOG.md).
+
 > **Addendum 2026-06-11 (soir)** — Les correctifs ont été appliqués sur la branche
 > `fix/code-review-2026-06-11` (3 commits : backend, frontend+dépendances, infra).
 > Tous les findings élevés et moyens sont corrigés, ainsi que la quasi-totalité

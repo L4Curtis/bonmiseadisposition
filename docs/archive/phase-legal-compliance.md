@@ -1,5 +1,7 @@
 # Phases de Conformité Légale — Bons de Mise à Disposition
 
+> **Archive.** Proposition de conception de mars 2026, jamais réalisée telle quelle (voir l'avertissement ci-dessous). Il ne décrit pas l'application actuelle : voir [l'architecture](../architecture.md) et le [journal des modifications](../../CHANGELOG.md).
+
 **Mise à jour** : 31 mars 2026 — requalifié le 19 septembre 2026
 **Auteur** : Analyse technique
 **Statut** : Proposition non implémentée (Phases A, B, C1-C3) — seule la Phase C4 (rétention) existe en production
@@ -30,8 +32,8 @@
 ## Table des matières
 
 1. [Vue d'ensemble](#vue-densemble)
-2. [Phase A — Conformité légale (Clauses & Conditions)](#phase-a--conformité-légale-clauses--conditions)
-3. [Phase B — Photos d'équipements](#phase-b--photos-déquipements)
+2. [Phase A — Conformité légale (Clauses & Conditions)](#phase-a--conformité-légale-clauses--conditions-proposition-non-implémentée)
+3. [Phase B — Photos d'équipements](#phase-b--photos-déquipements-proposition-non-implémentée)
 4. [Phase C — Améliorations complémentaires](#phase-c--améliorations-complémentaires)
 5. [Migrations de base de données](#migrations-de-base-de-données)
 6. [Points de vérification](#points-de-vérification)

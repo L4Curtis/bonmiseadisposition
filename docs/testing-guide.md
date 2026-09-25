@@ -1,39 +1,43 @@
-# Guide de Tests — Bons de Mise a Disposition
+# Guide des tests
 
-> Guide pratique pour ecrire et executer les tests du projet. Destine a l'equipe IT et aux sessions Claude Code.
+> Écrire et lancer les tests du projet : backend, frontend, base réelle, bout en bout. Destiné aux
+> développeurs. Le nombre de tests change à chaque lot : il n'est volontairement pas écrit ici.
 
 ---
 
-## Table des matieres
+## Table des matières
 
-1. [Strategie de test](#1-strategie-de-test)
+1. [Stratégie de test](#1-stratégie-de-test)
 2. [Tests backend](#2-tests-backend)
-3. [Tests frontend (futur)](#3-tests-frontend-futur)
+3. [Tests frontend](#3-tests-frontend)
 4. [Objectifs de couverture](#4-objectifs-de-couverture)
-5. [Tests existants](#5-tests-existants)
-6. [Priorites de test](#6-priorites-de-test)
+5. [Tests à connaître](#5-tests-à-connaître)
+6. [Ce qu'un nouveau test doit couvrir](#6-ce-quun-nouveau-test-doit-couvrir)
 7. [Tests E2E](#7-tests-e2e)
 
 ---
 
-## 1. Strategie de test
+## 1. Stratégie de test
 
-Le projet suit une approche de test en trois couches :
-
-| Couche | Outil | Scope | Statut |
-|--------|-------|-------|--------|
-| **Tests unitaires** | Vitest + @nestjs/testing | Services, utilitaires, validation | Actif |
-| **Tests d'integration** | Vitest + base reelle (Docker) | Endpoints API avec PostgreSQL | Futur |
-| **Tests E2E** | Playwright + Docker Compose | Parcours utilisateur complets | Actif (`e2e/`) |
+| Couche | Outil | Portée | Où | En CI |
+|--------|-------|--------|----|-------|
+| **Tests unitaires backend** | Vitest 4 + `@nestjs/testing` | Services, contrôleurs, gardes, utilitaires, validation | `backend/src/**/__tests__/*.spec.ts` | job `backend` |
+| **Tests sur base réelle** | Vitest + PostgreSQL | Requêtes SQL brutes, tris et filtres exécutés pour de bon | fichiers dont le nom contient `real-db` | job `backend` |
+| **Tests frontend** | Vitest 5 + Testing Library (jsdom) | Composants, pages, hooks, logique pure | `frontend/src/**/__tests__/*.test.ts(x)` | job `frontend` |
+| **Tests E2E** | Playwright + Docker Compose | Parcours complets dans l'application construite | `e2e/tests/` | job `e2e` |
 
 ### Principes
 
-- Les **tests unitaires** mockent toutes les dependances externes (BDD, SMTP, LDAP, SMB).
-- Les **tests d'integration** utiliseront une base PostgreSQL ephemere via Docker.
-- Les **tests E2E** couvrent les flux critiques : creation de bon, cachet IT, envoi par email,
-  signature (email et presentielle), restitution, non-rendu et PV de cloture, inventaire. Voir
-  section 7.
-- Objectif global : **80% de couverture** sur le backend.
+- Les **tests unitaires** remplacent par des doublures les dépendances externes (base, SMTP, LDAP, SMB).
+- Une **réponse simulée doit avoir la forme réelle** de ce qu'elle remplace. Un test qui inventait la forme de
+  la réponse d'une route a laissé passer un défaut en production (commit `650508f`, lecture de l'enveloppe des
+  routes de numéro de série).
+- Ce que seule une base détecte (casts d'énumération, `GROUP BY`, tri Prisma) se vérifie sur une **base
+  réelle** (§ 2.6).
+- Les **tests E2E** couvrent les parcours critiques : création de bon, signature IT, envoi par email,
+  signature par email et en présentiel, restitution, non-restitution et PV, inventaire, portail du
+  collaborateur, contestation, signature sur téléphone. Voir § 7.
+- Aucune image n'est publiée si un de ces jobs échoue.
 
 ---
 
@@ -41,44 +45,42 @@ Le projet suit une approche de test en trois couches :
 
 ### 2.1 Framework et configuration
 
-| Element | Valeur |
+| Élément | Valeur |
 |---------|--------|
-| Runner | Vitest 4 (depuis le 24/09/2026 ; Jest auparavant) |
-| Transform | SWC via `unplugin-swc` (emet les metadonnees de decorateurs dont depend l'injection NestJS) |
-| Module testing | @nestjs/testing |
-| Config | `backend/vitest.config.ts` |
-| Pattern de nommage | `*.spec.ts` |
-| Emplacement | Dossiers `__tests__/` a cote des sources |
-| Couverture | `@vitest/coverage-v8`, seuils dans `vitest.config.ts` (cliquet 65/72/80/80) |
+| Lanceur | Vitest 4 |
+| Transformation | SWC via `unplugin-swc` (émet les métadonnées de décorateurs dont dépend l'injection de NestJS) |
+| Module de test | `@nestjs/testing` |
+| Configuration | `backend/vitest.config.ts` |
+| Nommage | `*.spec.ts` |
+| Emplacement | Dossiers `__tests__/` à côté des sources |
+| Couverture | `@vitest/coverage-v8`, seuils dans `vitest.config.ts` (effet cliquet : ils ne font que monter, cible 80 partout) |
 
-Pourquoi Vitest : depuis NestJS 12, les paquets `@nestjs/*` sont publies en ESM pur. Jest execute
-tout en CommonJS avec son propre chargeur ; il fallait retranscrire NestJS avec Babel et remplacer un
-de ses fichiers internes par une doublure. Vitest laisse Node charger `node_modules` : les tests
-executent le vrai code de NestJS, comme la production. Le build de production (`nest build`, CommonJS)
-n'a pas change.
+Pourquoi Vitest : les paquets `@nestjs/*` sont publiés en ESM pur. Vitest laisse Node charger
+`node_modules` : les tests exécutent le vrai code de NestJS, comme la production. La construction de
+production (`nest build`, CommonJS) n'en dépend pas.
 
-Ce qui change par rapport a Jest :
+Différences avec Jest à connaître :
 
 - `vi` remplace `jest` : `vi.fn()`, `vi.spyOn()`, `vi.mock()`, `vi.useFakeTimers()`… Les globales
-  (`describe`, `it`, `expect`, `vi`) restent disponibles sans import dans les `*.spec.ts`
+  (`describe`, `it`, `expect`, `vi`) sont disponibles sans import dans les `*.spec.ts`
   (types : `backend/test/vitest-globals.d.ts`). Les types s'importent : `import type { Mock } from 'vitest'`.
 - Les utilitaires de test qui ne sont pas des `*.spec.ts` (`common/__tests__/helpers`, fixtures) sont
-  compiles par `nest build` : ils importent `vi` explicitement (`import { vi } from 'vitest'`).
-- Les tests s'executent en ESM : pas de `require()` d'un module simule. Pour manipuler un module
-  remplace par `vi.mock('fs/promises', …)`, l'importer normalement (`import * as fsp from 'fs/promises'`) :
-  l'import recoit la doublure. Pour garder le reste du vrai module :
+  compilés par `nest build` : ils importent `vi` explicitement (`import { vi } from 'vitest'`).
+- Les tests s'exécutent en ESM : pas de `require()` d'un module simulé. Pour manipuler un module
+  remplacé par `vi.mock('fs/promises', …)`, importez-le normalement (`import * as fsp from 'fs/promises'`) :
+  l'import reçoit la doublure. Pour garder le reste du vrai module :
   `vi.mock('fs', async (importOriginal) => ({ ...(await importOriginal<typeof import('fs')>()), existsSync: vi.fn() }))`.
-- Un module CommonJS dont l'export est lui-meme une classe ou une fonction (`module.exports = X`,
-  ex. `pdfkit`) s'importe avec `import X = require('x')`, pas `import * as X` (un espace de noms ESM
+- Un module CommonJS dont l'export est lui-même une classe ou une fonction (`module.exports = X`,
+  par exemple `pdfkit`) s'importe avec `import X = require('x')`, pas `import * as X` (un espace de noms ESM
   n'est pas constructible). La compilation de production est identique.
-- `di-metadata.spec.ts` et `import-order.spec.ts` (garde-fous contre les cycles d'import qui ont deja
-  casse la production) ne passent pas par Vitest pour charger le code : ils lancent un processus Node
+- `di-metadata.spec.ts` et `import-order.spec.ts` (garde-fous contre les cycles d'import, qui ont déjà
+  cassé la production) ne passent pas par Vitest pour charger le code : ils lancent un processus Node
   neuf qui compile les sources avec le compilateur TypeScript (programme complet de
   `tsconfig.build.json`, comme `nest build`) et les charge par `require()`
   (`backend/test/helpers/production-load-report.cjs`). Une transpilation fichier par fichier, ou SWC,
   remplacerait l'`undefined` d'un cycle par `Object` et rendrait ces garde-fous aveugles.
 
-### 2.2 Commandes d'execution
+### 2.2 Commandes d'exécution
 
 ```bash
 cd backend
@@ -86,7 +88,7 @@ cd backend
 # Lancer tous les tests
 npm test
 
-# Mode watch (relance a chaque modification)
+# Mode surveillance (relance à chaque modification)
 npm run test:watch
 
 # Rapport de couverture avec seuils (HTML dans ./coverage/index.html)
@@ -95,14 +97,14 @@ npm run test:cov
 # Lancer les fichiers dont le chemin contient « bons »
 npx vitest run bons
 
-# Lancer un fichier de test precis
+# Lancer un fichier de test précis
 npx vitest run src/auth/__tests__/auth-security.spec.ts
 
-# Mode verbose (detail de chaque test)
+# Mode détaillé (une ligne par test)
 npx vitest run --reporter=verbose
 
-# Suites sur base reelle (base lancee, migrations appliquees ; fichiers executes
-# l'un apres l'autre, voir vitest.config.ts)
+# Suites sur base réelle (base lancée, migrations appliquées ; fichiers exécutés
+# l'un après l'autre, voir vitest.config.ts et § 2.6)
 RUN_DB_TESTS=1 npx vitest run real-db
 ```
 
@@ -116,553 +118,244 @@ MSYS_NO_PATHCONV=1 docker run --rm -v "C:/Users/clemieux/Claude/BonDeMiseADispos
    && cd /app && apk add --no-cache openssl >/dev/null && npm ci && npx prisma generate && npm run test:cov'
 ```
 
-### 2.3 Pattern NestJS TestingModule
+### 2.3 Écrire un test de service
 
-Chaque service NestJS depend d'autres services injectes via le constructeur. Dans les tests, on remplace ces dependances par des mocks.
-
-#### Exemple complet : tester `BonsService`
+Chaque service NestJS reçoit ses dépendances par le constructeur. Dans un test, on construit un module de
+test avec le vrai service et des doublures pour ses dépendances, fournies par les fabriques partagées de
+`backend/src/common/__tests__/helpers/`. Modèle complet : `backend/src/bons/__tests__/bons.service.spec.ts`.
 
 ```typescript
-import { Test, TestingModule } from '@nestjs/testing';
+import { BadRequestException } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
 import { BonsService } from '../bons.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SignatureService } from '../../signature/signature.service';
 import { NotificationService } from '../../notification/notification.service';
 import { PdfService } from '../../pdf/pdf.service';
 import { SmbService } from '../../smb/smb.service';
+import { AppConfigService } from '../../config/config.service';
+import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
+import {
+  createMockConfigService,
+  createMockNotificationService,
+  createMockPdfService,
+  createMockSignatureService,
+  createMockSmbService,
+} from '../../common/__tests__/helpers/mock-services';
+import { activeBon } from '../../common/__tests__/fixtures/bon.fixtures';
 
 describe('BonsService', () => {
   let service: BonsService;
-  let mockPrisma: Mocked<Record<string, any>>;
+  let prisma: ReturnType<typeof createMockPrismaService>;
 
   beforeEach(async () => {
-    // Mock PrismaService avec tous les modeles utilises
-    mockPrisma = {
-      bon: {
-        findMany: vi.fn(),
-        findUnique: vi.fn(),
-        create: vi.fn(),
-        update: vi.fn(),
-        count: vi.fn(),
-        deleteMany: vi.fn(),
-      },
-      signature: {
-        findFirst: vi.fn(),
-        findMany: vi.fn(),
-        create: vi.fn(),
-        update: vi.fn(),
-        deleteMany: vi.fn(),
-      },
-      filiale: {
-        findMany: vi.fn(),
-      },
-      $transaction: vi.fn((cb) => cb(mockPrisma)),
-    };
-
-    const mockSignatureService = {
-      generateToken: vi.fn(),
-      getSignatureImages: vi.fn(),
-    };
-
-    const mockNotificationService = {
-      sendBonNotification: vi.fn(),
-    };
-
-    const mockPdfService = {
-      generateMiseDisposition: vi.fn(),
-      generateRestitution: vi.fn(),
-    };
-
-    const mockSmbService = {
-      uploadPdf: vi.fn(),
-    };
-
-    const module: TestingModule = await Test.createTestingModule({
+    prisma = createMockPrismaService();
+    const moduleRef = await Test.createTestingModule({
       providers: [
         BonsService,
-        { provide: PrismaService, useValue: mockPrisma },
-        { provide: SignatureService, useValue: mockSignatureService },
-        { provide: NotificationService, useValue: mockNotificationService },
-        { provide: PdfService, useValue: mockPdfService },
-        { provide: SmbService, useValue: mockSmbService },
+        { provide: PrismaService, useValue: prisma },
+        { provide: SignatureService, useValue: createMockSignatureService() },
+        { provide: NotificationService, useValue: createMockNotificationService() },
+        { provide: PdfService, useValue: createMockPdfService() },
+        { provide: SmbService, useValue: createMockSmbService() },
+        { provide: AppConfigService, useValue: createMockConfigService() },
       ],
     }).compile();
-
-    service = module.get<BonsService>(BonsService);
+    service = moduleRef.get(BonsService);
   });
 
-  it('should be defined', () => {
-    expect(service).toBeDefined();
-  });
-
-  describe('findAll', () => {
-    it('should return paginated bons', async () => {
-      const mockBons = [{ id: 'bon-1', reference: 'BMD-2026-001', status: 'draft' }];
-      mockPrisma.bon.findMany.mockResolvedValue(mockBons);
-      mockPrisma.bon.count.mockResolvedValue(1);
-
-      const result = await service.findAll({ page: 1, limit: 10 });
-
-      expect(mockPrisma.bon.findMany).toHaveBeenCalled();
-      expect(result.data).toEqual(mockBons);
-      expect(result.total).toBe(1);
-    });
+  it('refuse d\'annuler un bon déjà signé', async () => {
+    prisma.bon.findUnique.mockResolvedValue(activeBon());
+    await expect(service.cancel(activeBon().id, 'user-tech-001')).rejects.toThrow(BadRequestException);
+    expect(prisma.bon.updateMany).not.toHaveBeenCalled();
   });
 });
 ```
 
-#### Exemple : tester `ContestationService`
+Beaucoup d'étapes du métier sont des fonctions à dépendances explicites (`bons/workflow/*.ts`,
+`signature/*.ts`, `kpi/*.ts`) : elles se testent sans module NestJS, en leur passant directement les
+doublures. Une fonction pure (`escapeHtml`, calcul de période, prédicat) se teste sans aucune doublure.
 
-```typescript
-import { Test, TestingModule } from '@nestjs/testing';
-import { ContestationService } from '../contestation.service';
-import { PrismaService } from '../../prisma/prisma.service';
-import { NotificationService } from '../../notification/notification.service';
-import { SignatureService } from '../../signature/signature.service';
+### 2.4 Doublures
 
-describe('ContestationService', () => {
-  let service: ContestationService;
-  let mockPrisma: Mocked<Record<string, any>>;
+**Prisma.** `createMockPrismaService()` renvoie un `PrismaService` dont chaque méthode de chaque modèle est
+une `vi.fn()`. Sa méthode `$transaction` exécute le rappel en lui passant la doublure elle-même, comme Prisma
+passe un client transactionnel : ne la remplacez pas par un `vi.fn()` nu, qui ne renverrait rien.
 
-  beforeEach(async () => {
-    mockPrisma = {
-      bon: {
-        findUnique: vi.fn(),
-        update: vi.fn(),
-      },
-      contestation: {
-        create: vi.fn(),
-        findMany: vi.fn(),
-        update: vi.fn(),
-      },
-      $transaction: vi.fn((cb) => cb(mockPrisma)),
-    };
+**Services.** `mock-services.ts` fournit une fabrique par service partagé : notifications, signature, PDF,
+SMB, configuration, chiffrement, horodatage, modèles PDF et d'email, suivi des tâches planifiées. Aucun test
+unitaire n'appelle un vrai serveur SMTP, LDAP ou SMB.
 
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        ContestationService,
-        { provide: PrismaService, useValue: mockPrisma },
-        { provide: NotificationService, useValue: { sendContestationNotification: vi.fn() } },
-        { provide: SignatureService, useValue: { generateToken: vi.fn() } },
-      ],
-    }).compile();
+**Ne doublez que les dépendances directes.** Un test de `BonsService` remplace `SignatureService`, pas les
+dépendances de `SignatureService`.
 
-    service = module.get<ContestationService>(ContestationService);
-  });
+**Forme des réponses.** Une valeur simulée reprend la forme réelle : une ligne Prisma telle que la requête la
+sélectionne, la réponse d'une route telle que son contrôleur la renvoie. Pour une route consommée par le
+frontend, la forme de référence est celle que vérifient les tests de contrat HTTP (section « Tests de contrat
+HTTP »).
 
-  it('should throw NotFoundException when bon does not exist', async () => {
-    mockPrisma.bon.findUnique.mockResolvedValue(null);
-    await expect(service.create('non-existent', 'user-1', 'message'))
-      .rejects.toThrow('Bon introuvable');
-  });
-});
+### 2.5 Jeux de données
+
+`backend/src/common/__tests__/fixtures/` contient des fabriques qui renvoient un **objet neuf à chaque
+appel** : un test peut modifier le sien sans toucher aux autres.
+
+| Fichier | Fabriques |
+|---|---|
+| `bon.fixtures.ts` | `draftBon`, `sentMiseDispoBon`, `activeBon`, `sentRestitutionBon`, `partiallyReturnedBon`, `archivedBon`, `cancelledBon`, `contestedBon` |
+| `user.fixtures.ts` | `adminUser`, `technicianUser`, `collaboratorUser`, `localAdminUser`, `manualAccountUser` |
+
+Les bons suivent le format réel des références (`BON-AAAA-NNNN`) et la forme sélectionnée par les requêtes
+du service.
+
+### 2.6 Tests sur base réelle
+
+Les services qui écrivent du SQL brut (`$queryRaw`) sont testés deux fois :
+
+1. **Unitairement**, en vérifiant le texte SQL généré : présence des casts `::text` sur les colonnes
+   d'énumération, `::float8` sur les moyennes, absence de comparaison d'énumération sans cast (voir § 5).
+2. **Contre une vraie base PostgreSQL**, dans les fichiers dont le nom contient `real-db` :
+   `backend/src/__tests__/sql-real-db.spec.ts` (inventaire et indicateurs),
+   `backend/src/reporting/__tests__/inventory-sort.real-db.spec.ts` (tris, filtres et pagination de
+   l'inventaire) et `backend/src/common/dates/__tests__/paris-sql.real-db.spec.ts` (fragments SQL « heure
+   de Paris », comparés aux fonctions JavaScript, quel que soit le fuseau de la session). Sans
+   `RUN_DB_TESTS=1`, ces suites sont ignorées.
+
+En CI, le job `backend` démarre un PostgreSQL 16 jetable (`TZ=UTC`), applique les migrations puis lance
+`RUN_DB_TESTS=1 npx vitest run real-db`. Une nouvelle suite dont le nom contient `real-db` y est prise
+automatiquement. Avec la base, les fichiers s'exécutent l'un après l'autre (`fileParallelism` dans
+`vitest.config.ts`).
+
+En local, utilisez une **base jetable** plutôt que la base de développement : certaines suites insèrent
+leurs propres données.
+
+```bash
+docker run --rm -d --name bons-test-db -p 127.0.0.1:5433:5432 -e TZ=UTC \
+  -e POSTGRES_DB=bons_disposition -e POSTGRES_USER=app -e POSTGRES_PASSWORD=test postgres:16-alpine
+cd backend
+export DATABASE_URL=postgresql://app:test@127.0.0.1:5433/bons_disposition
+npx prisma migrate deploy && RUN_DB_TESTS=1 npx vitest run real-db
+docker stop bons-test-db
 ```
 
-### 2.4 Strategie de mock
+### 2.7 Transitions d'état et erreurs
 
-#### PrismaService
+Pour une action sur un bon, vérifiez au minimum :
 
-Le PrismaService etend PrismaClient. Dans les tests, on le remplace par un objet plain contenant des mocks pour chaque modele Prisma utilise par le service teste.
-
-```typescript
-// Modeles frequemment mockes
-const mockPrisma = {
-  bon: { findMany, findUnique, create, update, count, deleteMany },
-  user: { findUnique, findMany, update, count },
-  signature: { findFirst, findMany, create, update, deleteMany },
-  equipment: { findMany, create, update, delete, deleteMany },
-  contestation: { create, findMany, update },
-  filiale: { findMany, findUnique },
-  notification: { create, findMany, update, updateMany, count },
-  auditLog: { create },
-  appConfig: { findFirst, findUnique, upsert },
-  $transaction: vi.fn((callback) => callback(mockPrisma)),
-};
-```
-
-**Important** : Le mock `$transaction` doit executer le callback en passant le mock lui-meme comme argument, car Prisma fournit un client transactionnel au callback :
-
-```typescript
-// CORRECT : execute le callback avec le mock client
-$transaction: vi.fn((cb) => cb(mockPrisma)),
-
-// INCORRECT : ne retourne rien
-$transaction: vi.fn(),
-```
-
-#### Services externes (jamais d'appel reel)
-
-| Service | Pourquoi mocker | Methodes principales |
-|---------|----------------|---------------------|
-| **NotificationService** (SMTP) | Pas de serveur mail en test | `sendBonNotification`, `sendContestationNotification` |
-| **LdapService** | Pas d'Active Directory en test | `ldap-search.ts`, `ldap-user-upsert.ts` |
-| **SmbService** | Pas de partage reseau en test | `uploadPdf`, `fileExists` |
-| **PdfService** (pdfkit) | Lent et produit des binaires | `generateMiseDisposition`, `generateRestitution` |
-
-#### EncryptionService et ConfigService
-
-```typescript
-const mockEncryption = {
-  encrypt: vi.fn((val: string) => `encrypted:${val}`),
-  decrypt: vi.fn((val: string) => val.replace('encrypted:', '')),
-};
-
-const mockConfigService = {
-  get: vi.fn((category: string, key: string) => {
-    const defaults: Record<string, string> = {
-      'smtp:host': 'localhost',
-      'smtp:port': '587',
-      'app:base_url': 'http://localhost:3000',
-    };
-    return defaults[`${category}:${key}`] ?? null;
-  }),
-};
-```
-
-### 2.5 Fixtures
-
-Les fixtures fournissent des objets pre-construits pour eviter la duplication de donnees de test.
-
-**Emplacement** : `backend/src/common/__tests__/fixtures/`
-
-#### `bon.fixtures.ts`
-
-```typescript
-import { v4 as uuid } from 'uuid';
-
-const BASE_FILIALE = {
-  id: uuid(),
-  name: 'demo',
-  displayName: 'Filiale Demo',
-  logoPath: null,
-  stampPath: null,
-  address: '123 rue Exemple',
-  siret: '12345678901234',
-  active: true,
-  createdAt: new Date('2026-01-01'),
-  updatedAt: new Date('2026-01-01'),
-};
-
-const BASE_USER = {
-  id: uuid(),
-  displayName: 'Jean Dupont',
-  email: 'jean.dupont@exemple.fr',
-};
-
-const BASE_BON = {
-  id: uuid(),
-  reference: 'BMD-2026-001',
-  filialeId: BASE_FILIALE.id,
-  collaborateurId: uuid(),
-  collaborateurEmail: 'collab@exemple.fr',
-  createdById: BASE_USER.id,
-  civilite: 'M.',
-  notes: null,
-  dateMiseDisposition: new Date('2026-03-01'),
-  dateRestitution: null,
-  createdAt: new Date('2026-03-01'),
-  updatedAt: new Date('2026-03-01'),
-  filiale: BASE_FILIALE,
-  collaborateur: { id: uuid(), displayName: 'Paul Martin', email: 'paul@exemple.fr', department: 'IT' },
-  createdBy: BASE_USER,
-  equipments: [],
-  signatures: [],
-};
-
-// Bons dans differents etats du workflow
-export const BON_DRAFT = { ...BASE_BON, status: 'draft' };
-export const BON_SENT = { ...BASE_BON, id: uuid(), status: 'sent_mise_dispo' };
-export const BON_ACTIVE = { ...BASE_BON, id: uuid(), status: 'active' };
-export const BON_CONTESTED = { ...BASE_BON, id: uuid(), status: 'contested' };
-export const BON_PARTIALLY_RETURNED = { ...BASE_BON, id: uuid(), status: 'partially_returned' };
-export const BON_ARCHIVED = { ...BASE_BON, id: uuid(), status: 'archived', dateRestitution: new Date() };
-export const BON_CANCELLED = { ...BASE_BON, id: uuid(), status: 'cancelled' };
-```
-
-#### `user.fixtures.ts`
-
-```typescript
-import { v4 as uuid } from 'uuid';
-
-export const ADMIN_USER = {
-  id: uuid(),
-  samAccountName: 'admin.test',
-  displayName: 'Admin Test',
-  email: 'admin@exemple.fr',
-  role: 'admin',
-  isItStaff: true,
-  filialeId: null,
-  active: true,
-};
-
-export const TECHNICIAN_USER = {
-  id: uuid(),
-  samAccountName: 'tech.test',
-  displayName: 'Technicien Test',
-  email: 'tech@exemple.fr',
-  role: 'technician',
-  isItStaff: true,
-  filialeId: 'filiale-1',
-  active: true,
-};
-
-export const COLLABORATOR_USER = {
-  id: uuid(),
-  samAccountName: 'collab.test',
-  displayName: 'Collaborateur Test',
-  email: 'collab@exemple.fr',
-  role: 'collaborator',
-  isItStaff: false,
-  filialeId: 'filiale-1',
-  active: true,
-};
-```
-
-### 2.6 Patterns de test recommandes
-
-#### Tester les transitions d'etat (machine a etats des bons)
-
-```typescript
-describe('Status transitions', () => {
-  it('should transition from draft to sent_mise_dispo on send', async () => {
-    mockPrisma.bon.findUnique.mockResolvedValue(BON_DRAFT);
-    mockPrisma.bon.update.mockResolvedValue({ ...BON_DRAFT, status: 'sent_mise_dispo' });
-
-    const result = await service.send(BON_DRAFT.id, ADMIN_USER.id);
-
-    expect(mockPrisma.bon.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: BON_DRAFT.id },
-        data: expect.objectContaining({ status: 'sent_mise_dispo' }),
-      }),
-    );
-    expect(result.status).toBe('sent_mise_dispo');
-  });
-
-  it('should reject invalid transition from archived to active', async () => {
-    mockPrisma.bon.findUnique.mockResolvedValue(BON_ARCHIVED);
-
-    await expect(service.send(BON_ARCHIVED.id, ADMIN_USER.id))
-      .rejects.toThrow(BadRequestException);
-  });
-});
-```
-
-#### Tester les erreurs et cas limites
-
-```typescript
-describe('Error handling', () => {
-  it('should throw NotFoundException for non-existent bon', async () => {
-    mockPrisma.bon.findUnique.mockResolvedValue(null);
-
-    await expect(service.findById('non-existent'))
-      .rejects.toThrow(NotFoundException);
-  });
-
-  it('should throw ForbiddenException for unauthorized access', async () => {
-    mockPrisma.bon.findUnique.mockResolvedValue(BON_ACTIVE);
-
-    await expect(service.contest(BON_ACTIVE.id, 'wrong-user-id', 'motif'))
-      .rejects.toThrow(ForbiddenException);
-  });
-});
-```
-
-#### Tester les fonctions utilitaires pures (sans TestingModule)
-
-Pour les fonctions pures comme `escapeHtml`, pas besoin de NestJS TestingModule :
-
-```typescript
-describe('escapeHtml', () => {
-  it('should escape script tags', () => {
-    expect(escapeHtml('<script>alert(1)</script>'))
-      .toBe('&lt;script&gt;alert(1)&lt;/script&gt;');
-  });
-
-  it('should preserve safe strings', () => {
-    expect(escapeHtml('Lenovo ThinkBook 16 G6'))
-      .toBe('Lenovo ThinkBook 16 G6');
-  });
-});
-```
+- la transition permise : le statut écrit, et la condition sur le statut de départ dans la même écriture
+  (`updateMany` avec le statut attendu), qui produit un `409` si le bon a changé entre-temps ;
+- les transitions refusées depuis chaque autre statut (`BadRequestException` ou `ConflictException`) ;
+- le bon introuvable (`NotFoundException`) et l'accès d'un collaborateur au bon d'un autre
+  (`ForbiddenException`) ;
+- les effets de bord attendus, et leur absence en cas d'échec : email, PDF, ligne d'audit.
 
 ---
 
-## 3. Tests frontend (futur)
+## 3. Tests frontend
 
-> Non encore implemente. Plan prevu ci-dessous.
+### 3.1 Framework et configuration
 
-### 3.1 Framework cible
-
-| Element | Choix |
-|---------|-------|
-| Runner | Vitest (integre a Vite) |
-| DOM | @testing-library/react |
-| API mocking | MSW (Mock Service Worker) |
-| Config | `vite.config.ts` (section `test`) |
-| Setup | `src/test/setup.ts` |
-
-### 3.2 Installation des dependances
+| Élément | Valeur |
+|---------|--------|
+| Lanceur | Vitest 5, environnement jsdom |
+| Rendu et interactions | `@testing-library/react`, `@testing-library/user-event`, `@testing-library/jest-dom` |
+| Configuration | `frontend/vitest.config.ts` (séparée de `vite.config.ts`) |
+| Préparation | `frontend/src/test/setup.ts` : nettoyage entre les tests, délai d'attente des `findBy*` porté à 5 s, compléments jsdom dont Radix a besoin (`hasPointerCapture`, `scrollIntoView`, `ResizeObserver`) |
+| Rendu avec routeur | `frontend/src/test/render.tsx` : `renderWithProviders(ui, { route, path })` renvoie aussi une instance `user` de `userEvent` |
+| Typage des tests | `tsconfig.test.json`, vérifié en CI |
+| Nommage | `*.test.ts` ou `*.test.tsx`, dans des dossiers `__tests__/` à côté des sources |
 
 ```bash
 cd frontend
-npm install -D vitest @testing-library/react @testing-library/jest-dom @testing-library/user-event msw jsdom
+npm test                                   # toute la suite
+npx vitest run src/pages/bons              # un dossier
+npx vitest                                 # mode surveillance
+npx tsc --noEmit -p tsconfig.test.json     # typage des tests, comme la CI
 ```
 
-### 3.3 Configuration Vitest
+### 3.2 Simuler l'API
 
-Ajouter dans `vite.config.ts` :
+Il n'y a pas de serveur simulé (pas de MSW). Chaque test remplace le module `@/lib/api` et répond selon le
+chemin appelé :
 
 ```typescript
-/// <reference types="vitest" />
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
+vi.mock('@/lib/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api')>();
+  return { ...actual, api: { get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn(), delete: vi.fn() } };
+});
 
-export default defineConfig({
-  plugins: [react()],
-  test: {
-    globals: true,
-    environment: 'jsdom',
-    setupFiles: './src/test/setup.ts',
-    include: ['src/**/*.{test,spec}.{ts,tsx}'],
-  },
+import { api } from '@/lib/api';
+
+vi.mocked(api.get).mockImplementation((path: string) => {
+  if (path === '/admin/retention/stats') return Promise.resolve(STATS);
+  return Promise.resolve(null);
 });
 ```
 
-### 3.4 Setup file (`src/test/setup.ts`)
+Modèle complet : `frontend/src/pages/admin/configuration/__tests__/ConfigRetentionPage.test.tsx`. Les
+réponses simulées reprennent la forme réelle des routes (§ 2.4). Un composant qui lit `useAuth()` se teste
+en simulant `@/contexts/AuthContext`.
 
-```typescript
-import '@testing-library/jest-dom';
-import { afterAll, afterEach, beforeAll } from 'vitest';
-import { server } from './server';
+### 3.3 Règles
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
-afterEach(() => server.resetHandlers());
-afterAll(() => server.close());
-```
-
-### 3.5 MSW (Mock Service Worker)
-
-Les handlers MSW interceptent les appels API pendant les tests pour retourner des donnees controlees.
-
-`src/test/handlers.ts` :
-
-```typescript
-import { http, HttpResponse } from 'msw';
-
-export const handlers = [
-  http.get('/api/bons', () => {
-    return HttpResponse.json({
-      data: [
-        { id: '1', reference: 'BMD-2026-001', status: 'draft' },
-      ],
-      total: 1,
-      page: 1,
-      limit: 10,
-    });
-  }),
-
-  http.get('/api/auth/me', () => {
-    return HttpResponse.json({
-      id: 'user-1',
-      displayName: 'Admin Test',
-      role: 'admin',
-    });
-  }),
-];
-```
-
-`src/test/server.ts` :
-
-```typescript
-import { setupServer } from 'msw/node';
-import { handlers } from './handlers';
-
-export const server = setupServer(...handlers);
-```
-
-### 3.6 Exemple de test de composant
-
-```typescript
-import { render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
-import { BonsList } from '../BonsList';
-
-describe('BonsList', () => {
-  it('should render the list of bons', async () => {
-    render(
-      <MemoryRouter>
-        <BonsList />
-      </MemoryRouter>
-    );
-
-    expect(await screen.findByText('BMD-2026-001')).toBeInTheDocument();
-  });
-});
-```
+- Sélecteurs par rôle, libellé ou texte visible (`getByRole`, `getByLabelText`), jamais par classe CSS.
+- Aucune attente fixe : `findBy*` et `waitFor`.
+- Recharts ne rend rien sous jsdom sans simuler `ResponsiveContainer`.
+- La logique pure (filtres, calculs, formats) vit dans des fichiers `lib/` testés sans rendu.
 
 ---
 
 ## 4. Objectifs de couverture
 
-| Cible | Couverture minimale | Commentaire |
-|-------|-------------------|-------------|
-| **Services backend** | 80% | Logique metier critique |
-| **Controllers backend** | 70% | Principalement delegation vers services |
-| **Guards / Pipes** | 80% | Securite, validation |
-| **Backend global** | 80% | Mesure par `npm run test:cov` |
-| **Frontend (initial)** | 60% | Cible a augmenter progressivement |
+| Cible | Règle |
+|-------|-------|
+| **Backend** | Seuils appliqués en CI par `npm run test:cov`, définis dans `backend/vitest.config.ts` pour les instructions, les branches, les fonctions et les lignes. Effet cliquet : chaque seuil suit la mesure réelle et ne redescend jamais. Cible à terme : 80 pour les quatre. |
+| **Frontend** | Aucune mesure de couverture configurée. Chaque écran ou hook modifié reçoit ses tests. |
 
-Pour generer le rapport de couverture :
+Un seuil se relève quand la couverture progresse d'elle-même, jamais en ajoutant des tests sans valeur pour
+atteindre un chiffre.
 
 ```bash
 cd backend
-npm run test:cov
-
-# Le rapport HTML est dans backend/coverage/index.html
+npm run test:cov    # rapport HTML dans backend/coverage/index.html
 ```
 
 ---
 
-## 5. Tests existants
+## 5. Tests à connaître
 
-### Tableau de bord KPI et rôle Direction (2026-09-17)
+Les garde-fous transverses, à ne jamais désactiver :
 
-Suite ajoutée avec le tableau de bord KPI et le rôle Direction. Backend :
+| Fichier | Ce qu'il protège |
+|---------|------------------|
+| `backend/src/__tests__/di-metadata.spec.ts`, `import-order.spec.ts` | Aucun cycle d'import ne casse l'injection de dépendances au démarrage de la production (§ 2.1) |
+| `backend/src/__tests__/sql-real-db.spec.ts`, `backend/src/reporting/__tests__/inventory-sort.real-db.spec.ts` | Les requêtes SQL brutes, les tris et la pagination s'exécutent sur une vraie base (§ 2.6) |
+| `backend/src/auth/__tests__/route-access.spec.ts` | Chaque route déclare qui peut l'appeler (`@Roles` ou `@Public`) ; la table complète route → rôles est comparée à `__snapshots__/route-access.md`, versionnée, pour que tout changement de droits se voie en revue. Après un changement voulu : `npx vitest run src/auth/__tests__/route-access.spec.ts -u` |
+| `backend/src/auth/guards/__tests__/roles.guard.spec.ts` | Le contrôle des rôles, refus par défaut compris |
+| `backend/src/auth/__tests__/auth-security.spec.ts` | Révocation des jetons, mot de passe initial de `admin@local`, politique de mot de passe |
+| `backend/src/notification/__tests__/email-xss.spec.ts` | Échappement HTML des valeurs insérées dans les emails |
+| `backend/src/common/__tests__/bon-predicates.spec.ts` | Les prédicats métier partagés (retard de signature, équipement prêté, situation) |
+| `backend/src/common/dates/__tests__/paris.spec.ts` et les tests d'export qui appellent `useHostTimeZone('UTC')` (`common/__tests__/helpers/host-time-zone.ts`) | Les dates « à l'heure de Paris » restent justes sur un serveur réglé en UTC, comme la production, alors que le poste de développement est à l'heure de Paris : un instant entre 0 h et 2 h garde son jour parisien |
 
-| Fichier | Ce qui est vérifié |
-|---------|---------------------|
-| `backend/src/common/__tests__/bon-predicates.spec.ts` | Prédicats métier partagés (retard de signature, équipement prêté), `CATEGORY_LABELS`, `escapeCsvCell` |
-| `backend/src/common/__tests__/roles.spec.ts` | `isItRole()` sur chaque rôle |
-| `backend/src/auth/guards/__tests__/roles.guard.spec.ts` | Garde RBAC, y compris le rôle `direction` |
-| `backend/src/admin/__tests__/admin.controller.spec.ts` | Clés de config `entra.direction_group_id`/`rappels.signature_overdue_days`, `PATCH users/:id/role`, `GET notifications/failed` |
-| `backend/src/kpi/__tests__/kpi-period.spec.ts` | Période par défaut, période précédente, granularité aux bornes 31/32 et 182/183 jours, buckets, `fillSeries`, rejets (`from > to`, date invalide, écart > 731 j) |
-| `backend/src/kpi/__tests__/kpi-sql.spec.ts` | Fragments SQL communs (bornes de période en UTC naïf, filtre filiale) |
-| `backend/src/kpi/__tests__/kpi-cache.service.spec.ts` | TTL 60 s, dédoublonnage des promesses en vol, éviction |
-| `backend/src/kpi/__tests__/kpi.controller.spec.ts` | Rôles autorisés (`@Roles`), construction de la clé de cache |
-| `backend/src/kpi/__tests__/kpi-parc.service.spec.ts`, `kpi-delais.service.spec.ts`, `kpi-incidents.service.spec.ts` | Un spec par service d'onglet (voir pattern ci-dessous) |
-
-Frontend :
+Le tableau de bord, bon exemple de tests d'indicateurs :
 
 | Fichier | Ce qui est vérifié |
 |---------|---------------------|
-| `frontend/src/components/dashboard/__tests__/StatCard.test.tsx` | Delta (positif/négatif/inversé), valeur nulle, format pourcentage |
-| `frontend/src/components/dashboard/charts/__tests__/charts.test.tsx` | `TimeSeriesChart`, `DonutChart`, `HorizontalBars` (avec `ResponsiveContainer` mocké) |
-| `frontend/src/hooks/__tests__/use-api-resource.test.ts` | Anti-course (seule la dernière requête émise met à jour l'état) |
-| `frontend/src/pages/dashboard/__tests__/DashboardPage.test.tsx` | Onglets affichés selon le rôle, sélection via `?tab=` |
-| `frontend/src/pages/dashboard/__tests__/PeriodSelector.test.tsx` | Écriture des presets de période dans l'URL |
-| `frontend/src/pages/dashboard/tabs/__tests__/{TodayTab,ParcTab,DelaisTab,IncidentsTab}.test.tsx` | Appel API avec `from`/`to`/`filialeId`, rendu des tuiles/graphiques, état d'erreur avec Réessayer |
-| `frontend/src/components/layout/__tests__/Sidebar.test.tsx` | Navigation réduite pour la vue direction (Tableau de bord, Inventaire), badge contestations pour la vue technicien |
-| `frontend/src/pages/__tests__/App.direction.test.tsx` | Redirection `/` → tableau de bord (onglet Parc) pour direction, accès refusé sur `/bons`, redirection `/admin/reports` |
-| `frontend/src/pages/admin/__tests__/Utilisateurs.test.tsx` | Sélecteur de rôle réservé à l'admin, désactivé sur sa propre ligne, note SSO, `PATCH /admin/users/:id/role` |
+| `backend/src/kpi/__tests__/kpi-period.spec.ts` | Période par défaut, période précédente, granularité aux bornes 31/32 et 182/183 jours, regroupements, rejets (`from > to`, date invalide, écart de plus de 731 jours) |
+| `backend/src/kpi/__tests__/kpi-sql.spec.ts` | Fragments SQL communs (bornes de période ramenées en UTC, filtre de filiale) |
+| `backend/src/kpi/__tests__/kpi-cache.service.spec.ts` | Durée de vie de 60 s, requêtes identiques simultanées calculées une seule fois, éviction |
+| `backend/src/kpi/__tests__/kpi.controller.spec.ts` | Rôles autorisés, clé de cache |
+| `backend/src/kpi/__tests__/kpi-{parc,delais,incidents}.service.spec.ts` | Un fichier par onglet (voir le modèle ci-dessous) |
+| `frontend/src/pages/dashboard/__tests__/DashboardPage.test.tsx` | Onglets affichés selon le rôle, choix de l'onglet par `?tab=` |
+| `frontend/src/pages/dashboard/tabs/__tests__/*.test.tsx` | Appel de l'API avec `from`, `to` et `filialeId`, rendu des tuiles et graphiques, erreur avec « Réessayer » |
+| `frontend/src/components/dashboard/charts/__tests__/charts.test.tsx` | Graphiques, avec `ResponsiveContainer` simulé |
+| `frontend/src/pages/__tests__/App.direction.test.tsx` | Rôle `direction` : arrivée sur l'onglet Parc, `/bons` refusé, redirection de `/admin/reports` |
 
-#### Pattern : `$queryRaw` mocké par routage sur le texte SQL
+### Modèle : `$queryRaw` simulé selon le texte SQL
 
-Les services KPI enchaînent plusieurs requêtes `Prisma.sql` distinctes sur le même
-`$queryRaw`. Plutôt que de mocker par ordre d'appel (fragile dès qu'une requête est
-ajoutée/réordonnée), chaque test route la réponse simulée sur un fragment de texte unique
-présent dans le SQL généré, et distingue période courante/précédente par la présence de la date
-`from` de la période précédente parmi les valeurs liées :
+Les services d'indicateurs enchaînent plusieurs requêtes `Prisma.sql` sur le même `$queryRaw`. Plutôt que de
+répondre selon l'ordre des appels (fragile dès qu'une requête est ajoutée ou déplacée), chaque test choisit
+la réponse d'après un fragment unique du SQL généré, et reconnaît la période précédente à la présence de sa
+date de début parmi les valeurs liées :
 
 ```typescript
 function buildRouter(period: KpiPeriod) {
@@ -682,69 +375,35 @@ function buildRouter(period: KpiPeriod) {
 }
 ```
 
-Chaque spec vérifie ensuite, sur le texte SQL collecté (`prisma.$queryRaw.mock.calls`), la
-présence des casts non négociables plutôt que de recalculer le SQL attendu :
+Les réponses sont des `bigint` (`120n`), comme celles de PostgreSQL pour un `COUNT`. Chaque test vérifie
+ensuite, sur le texte SQL collecté (`prisma.$queryRaw.mock.calls`), la présence des casts obligatoires :
 
 ```typescript
 expect(calls.some((sql) => sql.includes('b.status::text IN ('))).toBe(true);
 expect(calls.some((sql) => sql.includes('ec.category::text'))).toBe(true);
-expect(sql).not.toMatch(/b\.status\s+(NOT\s+)?IN\s*\(/); // jamais de comparaison enum sans cast
+expect(sql).not.toMatch(/b\.status\s+(NOT\s+)?IN\s*\(/); // jamais de comparaison d'énumération sans cast
 ```
 
-Cette assertion sur le texte SQL (plutôt que sur le résultat renvoyé) est ce qui aurait
-détecté le bug réel `operator does not exist: "BonStatus" = text` avant qu'il n'atteigne la
-production (commit `a19ea00`).
-
-### `backend/src/auth/__tests__/auth-security.spec.ts`
-
-**19 tests** couvrant la securite de l'authentification :
-
-| Groupe | Tests | Ce qui est verifie |
-|--------|-------|--------------------|
-| JWT Token Blacklist | 5 | Revocation, cleanup, hachage SHA-256 |
-| Default Admin Password | 3 | Lecture env, generation aleatoire, unicite |
-| Password Strength Validation | 8+3 | Longueur min/max, majuscule, minuscule, chiffre, caractere special |
-
-### `backend/src/notification/__tests__/email-xss.spec.ts`
-
-**13 tests** couvrant la prevention XSS dans les templates email :
-
-| Groupe | Tests | Ce qui est verifie |
-|--------|-------|--------------------|
-| escapeHtml | 6 | Tags, entites, guillemets, chaines vides, chaines sures |
-| buildEquipList XSS | 4 | customLabel, serialNumber, catalogItem, donnees normales |
-| buildNotReturnedList XSS | 3 | notReturnedReason, champs multiples, raison par defaut |
-| Template variables | 3 (dans le meme fichier) | COLLAB_NAME, FILIALE_NOM, caracteres accentues |
+Cette vérification du texte SQL aurait détecté le défaut `operator does not exist: "BonStatus" = text` avant la
+production (commit `a19ea00`). Elle ne remplace pas l'exécution sur une vraie base (§ 2.6), qui seule voit
+les erreurs de `GROUP BY` ou de tri.
 
 ---
 
-## 6. Priorites de test
+## 6. Ce qu'un nouveau test doit couvrir
 
-Ordre d'implementation recommande, base sur la criticite metier et la complexite :
+Pour un service ou une action :
 
-| Priorite | Service | Fichier source | Focus principal | Dependances a mocker |
-|----------|---------|---------------|-----------------|---------------------|
-| **P1** | `BonsService` | `src/bons/bons.service.ts` | Machine a etats (draft, sent, active, archived, contested, cancelled), CRUD, pagination, stats | PrismaService, SignatureService, NotificationService, PdfService, SmbService |
-| **P2** | `SignatureService` | `src/signature/signature.service.ts` | Cycle de vie des tokens, signature, idempotence, expiration | PrismaService, EncryptionService, PdfService, SmbService |
-| **P3** | `AuthService` | `src/auth/auth.service.ts` | Login, refresh token, revocation, blacklist JWT | PrismaService, JwtService, ConfigService |
-| **P4** | `NotificationService` | `src/notification/notification.service.ts` | Templates email, cron de relance, XSS prevention | AppConfigService, PrismaService, TemplatesService |
-| **P5** | `ContestationService` | `src/contestation/contestation.service.ts` | Creation, resolution, restauration du statut precedent | PrismaService, NotificationService, SignatureService |
-| **P6** | `EquipmentService` | `src/equipment/equipment.service.ts` | CRUD, packs, soft delete, catalogue | PrismaService |
-| **P7** | `PdfService` | `src/pdf/pdf.service.ts` | Generation PDF, snapshots, formatage | PrismaService (pour les donnees), pdfkit (mock partiel) |
-| **P8** | `LdapService` | `src/ldap/ldap.service.ts` | Validation des filtres, synchronisation utilisateurs | ldapjs (mock complet) |
+- [ ] le cas nominal, avec ses effets (écritures, email, PDF, audit) ;
+- [ ] chaque transition d'état permise, et les transitions refusées ;
+- [ ] l'entité introuvable (`NotFoundException`) et l'accès refusé (`ForbiddenException`) ;
+- [ ] les données invalides (`BadRequestException`) et le conflit de concurrence (`ConflictException`) ;
+- [ ] l'échec au milieu d'une `$transaction` : rien n'est écrit à moitié ;
+- [ ] les cas limites : liste vide, pagination hors bornes, champ facultatif absent, dates autour de minuit
+      à Paris.
 
-### Checklist par service
-
-Pour chaque service, verifier :
-
-- [ ] Tous les cas nominaux (happy path)
-- [ ] Toutes les transitions d'etat valides
-- [ ] Les transitions invalides (doivent lever une exception)
-- [ ] Les entites inexistantes (`NotFoundException`)
-- [ ] Les acces non autorises (`ForbiddenException`)
-- [ ] Les donnees invalides (`BadRequestException`)
-- [ ] Le comportement du `$transaction` (rollback implicite en cas d'erreur)
-- [ ] Les cas limites : listes vides, pagination hors bornes, champs optionnels null
+Pour un écran : l'affichage nominal, le chargement, la liste vide, l'erreur avec nouvelle tentative, les
+actions permises selon le rôle, et la largeur d'un téléphone quand l'écran s'y utilise.
 
 ---
 
@@ -754,25 +413,29 @@ Suite Playwright dans `e2e/`, exécutée à chaque push par le job `e2e` de la C
 réellement construite depuis les sources (mêmes Dockerfiles qu'en production), contre une base et un serveur
 d'emails jetables.
 
-Ces tests existent parce qu'une suite unitaire ne les remplace pas : la régression « cachet IT refusé sur un
-brouillon », qui rendait tout envoi impossible depuis l'interface, n'a été vue que par un parcours navigateur.
+Ces tests existent parce qu'une suite unitaire ne les remplace pas : la régression « signature IT refusée sur
+un brouillon », qui rendait tout envoi impossible depuis l'interface, n'a été vue que par un parcours
+navigateur.
 
 ### 7.1 Ce qui est couvert
 
+**Onze parcours**, un par fichier, numérotés de `02` à `12` (il n'y a pas de fichier `01`). Ils sont précédés
+de la connexion partagée (`auth.setup.ts`) et s'appuient sur `tests/fixtures.ts` et `tests/helpers/`.
+
 | Fichier | Parcours |
 |---------|----------|
-| `tests/auth.setup.ts` | Connexion locale de l'administrateur, changement de mot de passe imposé, session réutilisée par les autres tests |
-| `tests/02-envoi-email.spec.ts` | Création d'un bon, cachet IT, envoi : l'email de demande de signature arrive avec son lien |
-| `tests/03-presentiel-signature.spec.ts` | Signature en présentiel jusqu'au bon actif et au PDF disponible |
+| `tests/auth.setup.ts` | Connexion locale de l'administrateur, changement de mot de passe imposé, session réutilisée par les parcours |
+| `tests/02-envoi-email.spec.ts` | Création d'un bon, signature IT, envoi : l'email de demande de signature arrive avec son lien |
+| `tests/03-presentiel-signature.spec.ts` | Signature en présentiel jusqu'au bon en cours et au PDF disponible |
 | `tests/04-sans-adresse.spec.ts` | Collaborateur sans adresse : envoi par email refusé avec la bonne explication, présentiel possible |
-| `tests/05-restitution-non-rendu.spec.ts` | Restitution partielle, équipement déclaré non rendu, PV de clôture, archivage |
-| `tests/06-inventaire-par-collaborateur.spec.ts` | Vue « Par collaborateur » de l'inventaire : la personne apparaît avec son matériel |
-| `tests/07-restitution-sans-adresse.spec.ts` | Collaborateur sans adresse : restitution par email refusée, le bon reste actif |
+| `tests/05-restitution-non-rendu.spec.ts` | Restitution partielle, équipement déclaré non restitué, PV de non-restitution, clôture |
+| `tests/06-inventaire-par-collaborateur.spec.ts` | Vue « Par collaborateur » de l'inventaire : la personne apparaît avec ses équipements |
+| `tests/07-restitution-sans-adresse.spec.ts` | Collaborateur sans adresse : restitution par email refusée, le bon reste en cours |
 | `tests/08-portail-collaborateur.spec.ts` | Portail `/mes-bons`, côté collaborateur connecté : il voit son bon, l'ouvre, télécharge le PDF ; le bon d'un autre n'apparaît pas et son adresse directe est refusée (« Accès refusé à ce bon ») |
-| `tests/09-contestation.spec.ts` | Le collaborateur conteste depuis le portail ; l'IT voit le badge du menu, traite la contestation dans Admin → Contestations (rejet avec réponse) ; le collaborateur retrouve son bon actif et reçoit l'email de réponse (Mailpit) |
-| `tests/10-fiche-materiel.spec.ts` | Depuis l'inventaire, le n° de série puis le n° d'inventaire ouvrent la fiche `/materiel/:reference`, qui nomme le détenteur actuel |
-| `tests/11-creation-rapide.spec.ts` | Création rapide : date du jour pré-remplie, filiale remplie par le choix du collaborateur, n° de série déjà en circulation signalé à la sortie du champ, Entrée dans « N° Série » ajoute une ligne sans soumettre |
-| `tests/12-signature-mobile.spec.ts` | Signature présentielle au doigt sur téléphone (390 × 844, tactile) : le bon devient actif |
+| `tests/09-contestation.spec.ts` | Le collaborateur conteste depuis le portail ; l'IT voit la pastille du menu, traite la contestation dans la page Contestations (rejet avec réponse) ; le collaborateur retrouve son bon en cours et reçoit l'email de réponse (Mailpit) |
+| `tests/10-fiche-materiel.spec.ts` | Depuis l'inventaire, le n° de série puis le n° d'inventaire ouvrent l'historique de l'équipement (`/materiel/:reference`), qui nomme le détenteur actuel |
+| `tests/11-creation-rapide.spec.ts` | Création rapide : date du jour pré-remplie, filiale remplie par le choix du collaborateur, n° de série déjà prêté signalé à la sortie du champ, Entrée dans « N° Série » ajoute une ligne sans soumettre |
+| `tests/12-signature-mobile.spec.ts` | Signature présentielle au doigt sur téléphone (390 × 844, tactile) : le bon passe en cours |
 
 ### 7.2 Lancer la suite en local
 
@@ -814,7 +477,7 @@ filiale et les collaborateurs amorcés et le nettoyage échoue : repartir de `do
 
 - **Importer `test` et `expect` depuis `./fixtures`**, jamais directement depuis `@playwright/test`. La
   fixture donne à chaque test sa propre adresse client (en-tête `CF-Connecting-IP`, que le nginx du
-  frontend reconnaît). Le backend plafonne certaines routes par adresse (cachet IT : 10 par minute) : en CI,
+  frontend reconnaît). Le backend plafonne certaines routes par adresse (signature IT : 10 par minute) : en CI,
   les parcours s'enchaînent en moins d'une minute depuis une seule adresse et recevaient des 429 « Trop de
   requêtes » en plein parcours. Un contexte créé à la main (`browser.newContext`) représente un autre
   appareil : lui donner sa propre adresse avec `adresseClient()`.
@@ -830,7 +493,6 @@ filiale et les collaborateurs amorcés et le nettoyage échoue : repartir de `do
   avec un délai maximal généreux : l'envoi SMTP réel prend parfois quelques secondes sur une machine chargée.
 - La suite s'exécute en série (`workers: 1`) : tous les tests partagent la même boîte Mailpit et la même
   session administrateur. C'est volontaire, et sans coût réel vu la taille de la suite.
-
 - Deux points de vue dans un même test : la fixture `page` porte la session admin ; `openPortailSession`
   (`tests/helpers/portail.ts`) ouvre un second contexte, connecté avec le compte collaborateur. Pour un
   téléphone, un contexte avec `viewport`, `isMobile` et `hasTouch`, et `drawSignatureByTouch` qui envoie de
@@ -852,11 +514,13 @@ Le job `e2e` publie `playwright-report` en artefact quand il échoue. Il contien
 capture d'écran, la vidéo et la trace (`npx playwright show-trace <fichier>` rejoue le parcours pas à pas).
 Les journaux des conteneurs sont affichés dans le job lui-même : ils permettent de distinguer un vrai défaut
 de l'application d'un test instable.
+
 ---
 
-## Annexe : Carte des dependances des services
+## Annexe : dépendances des principaux services
 
-Utile pour savoir quoi mocker lors de l'ecriture des tests :
+Ce qu'un test doit doubler, d'après le constructeur de chaque service. Le constructeur fait foi : relisez-le
+si ce tableau vous semble en retard.
 
 ```
 BonsService
@@ -864,31 +528,132 @@ BonsService
   ├── SignatureService
   │     ├── PrismaService
   │     ├── EncryptionService
+  │     ├── AppConfigService
+  │     ├── TimestampService
   │     ├── PdfService
-  │     └── SmbService
+  │     ├── SmbService
+  │     └── ModuleRef (résout BonsService au moment de l'appel, jeton BONS_SERVICE)
   ├── NotificationService
   │     ├── AppConfigService
   │     ├── PrismaService
-  │     └── TemplatesService
+  │     ├── TemplatesService
+  │     └── JobTrackerService
   ├── PdfService
-  └── SmbService
+  │     ├── PrismaService
+  │     ├── PdfTemplatesService
+  │     └── EncryptionService
+  ├── SmbService
+  │     ├── AppConfigService
+  │     ├── PrismaService
+  │     └── JobTrackerService
+  └── AppConfigService
 
 ContestationService
   ├── PrismaService
   ├── NotificationService
-  └── SignatureService
+  ├── SignatureService
+  └── BonsService (injecté par forwardRef)
 
 AuthService
+  ├── AppConfigService
   ├── PrismaService
-  ├── JwtService
-  └── AppConfigService
+  └── JwtService
 
 EquipmentService
   └── PrismaService
 
 LdapService
+  ├── AppConfigService
   ├── PrismaService
-  └── AppConfigService
+  ├── JobTrackerService
+  └── NotificationService
 ```
 
-> **Note** : Chaque service ne doit mocker que ses dependances **directes**. `BonsService` mocke `SignatureService`, pas les sous-dependances de `SignatureService`.
+Un test ne double que les dépendances **directes** du service testé (§ 2.4) : celui de `BonsService` remplace
+`SignatureService`, pas les dépendances de `SignatureService`. Les doublures des services partagés viennent
+de `common/__tests__/helpers/mock-services.ts`.
+
+## Tests de contrat HTTP
+
+**Pourquoi.** Les tests unitaires du backend appellent les services directement, et ceux du front
+simulent l'API avec des réponses écrites à la main. Aucun d'eux ne voit une réponse qui change de forme :
+c'est ce qui a caché le bug du commit `650508f` (`/equipment/serial-conflicts` passé d'un tableau à
+`{ items, truncated }`, avertissement disparu, tests verts). Les tests de contrat interrogent
+l'application Nest **réelle** par de vraies requêtes HTTP (supertest) et vérifient, pour chaque route
+appelée par le front :
+
+- le **code HTTP** ;
+- la **forme exacte** de la réponse (clés et types, ni plus ni moins) ;
+- les **droits** : 401 sans session, 403 pour chaque rôle non autorisé, accès pour les rôles autorisés.
+
+**Où.**
+
+| Emplacement | Contenu |
+|---|---|
+| `backend/src/contracts/` | Types TypeScript des réponses actuelles, un fichier par domaine (types seuls, aucun import hors du dossier). |
+| `frontend/src/contracts/` | Copie **générée** de ces types (en-tête « ne pas modifier »), par `npm run sync-contracts`. |
+| `backend/test/contract/*.contract.ts` | Les tests, un fichier par domaine. Les règles d'accès sont regroupées en tête de chaque fichier (tableau `ACCESS`). |
+| `backend/test/contract/shapes/` | Les formes vérifiées, écrites avec `object<TypeDuContrat>({ … })`. |
+| `backend/test/contract/support/` | Application montée avec la configuration HTTP de production (`src/bootstrap/configure-app.ts`, la même que `main.ts`), jeu de données, client HTTP, garde-fous. |
+
+`object<T>()` exige à la compilation une entrée par clé du type `T` (une clé facultative passe par
+`optional()`, une clé nullable par `nullable()`), et à l'exécution exactement ces clés dans la réponse.
+Forme déclarée et forme vérifiée ne peuvent donc plus diverger : modifier un contrat sans son test ne
+compile pas, modifier une réponse sans son contrat fait échouer le test.
+
+**Lancer en local** (base jetable, jamais la base de développement) :
+
+```bash
+# 1. Une base PostgreSQL jetable sur le port 5433
+docker run -d --name bmad-contract-db -e POSTGRES_DB=bons_contract -e POSTGRES_USER=app \
+  -e POSTGRES_PASSWORD=contract -e TZ=UTC -p 127.0.0.1:5433:5432 postgres:16-alpine
+
+# 2. La suite (applique les migrations, puis chaque fichier vide et remplit la base)
+cd backend
+CONTRACT_DATABASE_URL=postgresql://app:contract@127.0.0.1:5433/bons_contract npm run test:contract
+# PowerShell : $env:CONTRACT_DATABASE_URL = "postgresql://app:contract@127.0.0.1:5433/bons_contract"; npm run test:contract
+
+# Un seul fichier
+CONTRACT_DATABASE_URL=… npm run test:contract -- test/contract/equipment.contract.ts
+
+# 3. Nettoyer
+docker rm -f bmad-contract-db
+```
+
+Compter environ deux minutes pour la suite complète. `CONTRACT_LOGS=1` affiche les journaux d'erreur de
+l'application pour enquêter sur un échec.
+
+**Garde-fous.**
+
+- La suite ne lit jamais `DATABASE_URL` (qui vise la base de développement via `backend/.env`) mais
+  `CONTRACT_DATABASE_URL`, et refuse toute base dont le nom ne contient pas `contract` (seul le nom de
+  la base compte, pas l'utilisateur, l'hôte ni les paramètres). Une `DATABASE_URL` héritée de
+  l'environnement est remplacée avant le chargement de l'application. Avant le moindre hook de
+  démarrage, elle revérifie auprès de PostgreSQL (`current_database()`) le nom de la base réellement
+  connectée. Ces règles sont testées par `npm test` (`test/contract/support/__tests__/database.spec.ts`).
+- Les fichiers écrits par l'application (signatures, pièces jointes, logos) vont dans un dossier
+  temporaire, jamais dans `backend/data`.
+- `npm test` ne voit pas ces fichiers (suffixe `.contract.ts`, configuration
+  `test/contract/vitest.contract.config.ts`) : il n'a besoin d'aucune base.
+
+**En CI** (job `backend` de `.github/workflows/docker.yml`) :
+
+- « Contrats partagés à jour » régénère `frontend/src/contracts/` et échoue si la copie versionnée diffère
+  (fichier modifié, ajouté ou supprimé) ;
+- « Contrat HTTP » lance la suite sur la base `bons_contract` du service Postgres de la CI.
+
+**Ajouter ou modifier une route appelée par le front.**
+
+1. Déclarer ou corriger le type de la réponse dans `backend/src/contracts/<domaine>.ts`.
+2. Écrire la forme correspondante dans `backend/test/contract/shapes/<domaine>.ts`.
+3. Ajouter la règle d'accès dans le tableau `ACCESS` du fichier de contrat, puis un test de la réponse
+   (données du jeu `support/seed*.ts`, complété si la liste serait vide : `arrayOf(…, { minLength: 1 })`
+   refuse de valider une liste vide).
+4. Lancer `npm run sync-contracts` dans `backend/` et versionner les deux dossiers de contrats.
+
+**Même configuration que la production.** La configuration HTTP (préfixe `/api`, proxy de confiance,
+taille des corps, cookies, en-têtes de sécurité, protection CSRF, CORS, `ValidationPipe`, filtre
+d'erreurs) vit dans une seule fonction, `configureApp` (`backend/src/bootstrap/configure-app.ts`),
+appelée par `main.ts` et par `test/contract/support/app.ts`. Un réglage qui change les réponses s'y
+ajoute : les tests de contrat le voient alors sans rien recopier. Son comportement est aussi vérifié
+sans base par `src/bootstrap/__tests__/configure-app.spec.ts`.
