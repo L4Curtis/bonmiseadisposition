@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '@/lib/api';
 import { showActionError } from '@/lib/errors';
+import { formatDateTime } from '@/lib/dates';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -154,7 +155,7 @@ export function ConfigMonitoringPage() {
 
           {status.lastSuccessAt && (
             <p className="text-xs text-muted-foreground">
-              Dernier export réussi : {new Date(status.lastSuccessAt).toLocaleString('fr-FR')}
+              Dernier export réussi : {formatDateTime(status.lastSuccessAt)}
             </p>
           )}
 

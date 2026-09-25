@@ -47,7 +47,7 @@ export function ParcStatCards({ data, loading }: ParcStatCardsProps) {
       />
       <StatCard
         className={staggerClass(2)}
-        label="Non rendus déclarés"
+        label="Non restitués déclarés"
         value={data?.notReturned.declared.current ?? null}
         icon={PackageX}
         loading={loading}

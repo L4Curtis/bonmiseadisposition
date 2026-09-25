@@ -1,8 +1,8 @@
 import { Link } from 'react-router';
 import { ChartCard } from '@/components/dashboard/ChartCard';
 import { useApiResource } from '@/hooks/use-api-resource';
-import { formatDateTime } from '@/lib/utils';
-import { notifTypeLabel } from '@/lib/labels';
+import { formatDateTime } from '@/lib/dates';
+import { notificationTypeLabel } from '@/domain/labels';
 
 interface FailedEmailItem {
   id: string;
@@ -62,7 +62,7 @@ export function FailedEmailsCard() {
                     n.reference
                   )}
                 </td>
-                <td className="px-4 py-2">{notifTypeLabel(n.type)}</td>
+                <td className="px-4 py-2">{notificationTypeLabel(n.type)}</td>
                 <td className="hidden px-4 py-2 text-muted-foreground sm:table-cell">{n.recipient}</td>
                 <td className="hidden px-4 py-2 text-muted-foreground md:table-cell">{formatDateTime(n.sentAt)}</td>
               </tr>

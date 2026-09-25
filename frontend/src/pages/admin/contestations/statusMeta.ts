@@ -1,9 +1,8 @@
-export const STATUS_LABELS: Record<string, string> = {
-  open: 'Ouverte',
-  in_review: 'En cours d\'examen',
-  resolved: 'Résolue',
-  rejected: 'Rejetée',
-};
+/** Libellés et options de statut : lexique commun (`@/domain/labels`). */
+export {
+  CONTESTATION_STATUS_LABELS as STATUS_LABELS,
+  CONTESTATION_STATUS_OPTIONS as STATUS_OPTIONS,
+} from '@/domain/labels';
 
 export const STATUS_COLORS: Record<string, string> = {
   open: 'bg-destructive/10 text-destructive',
@@ -11,11 +10,3 @@ export const STATUS_COLORS: Record<string, string> = {
   resolved: 'bg-success/10 text-success',
   rejected: 'bg-muted text-muted-foreground',
 };
-
-export const STATUS_OPTIONS = [
-  { value: '', label: 'Tous les statuts' },
-  { value: 'open', label: 'Ouverte' },
-  { value: 'in_review', label: 'En cours d\'examen' },
-  { value: 'resolved', label: 'Résolue' },
-  { value: 'rejected', label: 'Rejetée' },
-];

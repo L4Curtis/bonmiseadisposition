@@ -15,6 +15,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
       patch: vi.fn(),
       delete: vi.fn(),
       getBlob: vi.fn(),
+      getFile: vi.fn(),
       postForm: vi.fn(),
       patchForm: vi.fn(),
     },
@@ -120,20 +121,20 @@ describe('FilialesPage', () => {
     URL.createObjectURL = vi.fn(() => 'blob:mock-url');
     URL.revokeObjectURL = vi.fn();
     const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-    vi.mocked(api.getBlob).mockResolvedValue(new Blob(['csv']));
+    vi.mocked(api.getFile).mockResolvedValue({ blob: new Blob(['a,b'], { type: 'text/csv' }), filename: 'export.csv', truncated: false });
 
     const { user } = renderWithProviders(<FilialesPage />);
     await screen.findByText('Fresse GDO SAS');
 
     await user.click(screen.getByRole('button', { name: /Autres actions/ }));
     await user.click(await screen.findByRole('menuitem', { name: 'Exporter CSV' }));
-    await waitFor(() => expect(api.getBlob).toHaveBeenCalledWith('/filiales/export'));
+    await waitFor(() => expect(api.getFile).toHaveBeenCalledWith('/filiales/export'));
     // Attend la fin de l'export (bouton réactivé) avant de rouvrir le menu.
     await waitFor(() => expect(screen.getByRole('button', { name: /Autres actions/ })).not.toBeDisabled());
 
     await user.click(screen.getByRole('button', { name: /Autres actions/ }));
     await user.click(await screen.findByRole('menuitem', { name: /Exporter CSV avec images/ }));
-    await waitFor(() => expect(api.getBlob).toHaveBeenCalledWith('/filiales/export?images=1'));
+    await waitFor(() => expect(api.getFile).toHaveBeenCalledWith('/filiales/export?images=1'));
 
     URL.createObjectURL = originalCreate;
     URL.revokeObjectURL = originalRevoke;
@@ -146,14 +147,14 @@ describe('FilialesPage', () => {
     URL.createObjectURL = vi.fn(() => 'blob:mock-url');
     URL.revokeObjectURL = vi.fn();
     const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-    vi.mocked(api.getBlob).mockResolvedValue(new Blob(['csv']));
+    vi.mocked(api.getFile).mockResolvedValue({ blob: new Blob(['a,b'], { type: 'text/csv' }), filename: 'export.csv', truncated: false });
 
     const { user } = renderWithProviders(<FilialesPage />);
     await screen.findByText('Fresse GDO SAS');
 
     await user.click(screen.getByRole('button', { name: /Autres actions/ }));
     await user.click(await screen.findByRole('menuitem', { name: 'Télécharger un modèle' }));
-    await waitFor(() => expect(api.getBlob).toHaveBeenCalledWith('/filiales/import/template'));
+    await waitFor(() => expect(api.getFile).toHaveBeenCalledWith('/filiales/import/template'));
 
     URL.createObjectURL = originalCreate;
     URL.revokeObjectURL = originalRevoke;

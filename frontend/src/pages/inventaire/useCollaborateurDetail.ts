@@ -33,7 +33,6 @@ export function useCollaborateurDetail(filters: InventoryBaseFilters) {
   useEffect(() => {
     setExpandedIds(new Set());
     setDetailById({});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters.filialeFilter, filters.categoryFilter, filters.situationFilter, filters.search, filters.overdueFilter, filters.missingSerialFilter]);
 
   function loadDetail(collaborateurId: string) {

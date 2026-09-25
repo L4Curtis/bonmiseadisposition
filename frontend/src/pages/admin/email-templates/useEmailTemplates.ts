@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { saveBlob } from '@/lib/download';
+import { todayInParis } from '@/lib/dates';
 import { api } from '@/lib/api';
 import { toast } from '@/hooks/use-toast';
 import type { TemplateDefinition } from './types';
@@ -51,12 +53,7 @@ export function useEmailTemplates(): UseEmailTemplatesResult {
     try {
       const data = await api.get<object>('/admin/email-templates/export');
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `email-templates-export-${new Date().toISOString().slice(0, 10)}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
+      saveBlob(blob, `email-templates-export-${todayInParis()}.json`);
       toast({ title: 'Export réussi' });
     } catch {
       toast({ title: 'Erreur', description: "Impossible d'exporter.", variant: 'destructive' });

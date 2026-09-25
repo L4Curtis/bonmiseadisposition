@@ -11,7 +11,8 @@ import { StatCard, StatCardSkeleton, type StatCardProps } from '@/components/das
 import { BreakdownBars } from '@/components/dashboard/BreakdownBars';
 import { staggerClass } from '@/components/dashboard/stagger';
 import { useApiResource } from '@/hooks/use-api-resource';
-import { formatDate } from '@/lib/utils';
+import { formatDate } from '@/lib/dates';
+import { BON_STATUS_LABELS, LATENESS_LABELS } from '@/domain/labels';
 import { isWaitingStatus, type SignatureSummary } from '@/lib/bon-helpers';
 import type { BonStatus } from '@/types';
 import type { CollaborateurInventoryResponse } from '@/pages/inventaire/types';
@@ -104,42 +105,42 @@ export function TodayTab() {
   const statCards: Array<StatCardProps & { key: string }> = useMemo(() => [
     {
       key: 'total',
-      label: 'Total bons en cours',
+      label: 'Bons ouverts',
       value: stats?.total ?? null,
       icon: FileText,
       onClick: () => navigate('/bons?excludeStatus=cancelled,archived'),
     },
     {
       key: 'waiting',
-      label: 'En attente de signature',
+      label: 'Signatures attendues',
       value: stats?.waitingSignature ?? null,
       icon: Clock,
       onClick: () => navigate('/bons?status=sent_mise_dispo,sent_restitution,partially_returned'),
     },
     {
       key: 'active',
-      label: 'Bons actifs',
+      label: 'Bons en cours',
       value: stats?.active ?? null,
       icon: CheckCircle,
       onClick: () => navigate('/bons?status=active'),
     },
     {
       key: 'partial',
-      label: 'Restitution partielle',
+      label: BON_STATUS_LABELS.partially_returned,
       value: stats?.partiallyReturned ?? null,
       icon: RotateCcw,
       onClick: () => navigate('/bons?status=partially_returned'),
     },
     {
       key: 'archived',
-      label: 'Archivés ce mois',
+      label: 'Clôturés ce mois',
       value: stats?.archivedThisMonth ?? null,
       icon: Archive,
       onClick: () => navigate('/bons?status=archived'),
     },
     {
       key: 'overdue',
-      label: `En retard (> ${thresholdDays} j)`,
+      label: `${LATENESS_LABELS.signature} (> ${thresholdDays} j)`,
       value: stats?.overdue ?? null,
       icon: AlertTriangle,
       tone: 'danger',
@@ -260,7 +261,7 @@ export function TodayTab() {
                     {late && (
                       <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-destructive">
                         <AlertTriangle className="h-3 w-3" />
-                        En retard
+                        {LATENESS_LABELS.signature}
                       </span>
                     )}
 

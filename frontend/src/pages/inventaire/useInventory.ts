@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { api } from '@/lib/api';
-import { errorMessage, showActionError } from '@/lib/errors';
-import { toast } from '@/hooks/use-toast';
+import { errorMessage } from '@/lib/errors';
+import { todayInParis } from '@/lib/dates';
+import { CSV_EXPORT_SUCCESS, useDownload } from '@/hooks/useDownload';
 import { useActiveFiliales } from '@/hooks/use-active-filiales';
 import { buildBaseFilterEntries, PAGE_LIMIT, type InventoryBaseFilters } from './inventoryFilterParams';
 import { INVENTORY_SORT_FIELDS } from './types';
@@ -115,7 +116,7 @@ export function useInventory() {
   const [sort, setSortState] = useState<InventorySort | null>(() =>
     readSort(searchParams.get('sort'), searchParams.get('direction')),
   );
-  const [exportLoading, setExportLoading] = useState(false);
+  const { download, downloading: exportLoading } = useDownload();
 
   const setView = (value: InventoryView) => { setViewState(value); setPage(1); };
   const setFilialeFilter = (value: string) => { setFilialeFilterState(value); setPage(1); };
@@ -159,8 +160,7 @@ export function useInventory() {
   // ne les recharge donc plus explicitement, le cache 60 s suffit.
   useEffect(() => {
     loadSummary();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reloadKey]);
+  }, [reloadKey, loadSummary]);
 
   // ── Debounce de la recherche texte (300 ms), sans bloquer les autres filtres ──
   useEffect(() => {
@@ -219,30 +219,21 @@ export function useInventory() {
     return () => {
       ignore = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- setSearchParams change à chaque navigation : l'ajouter relancerait la requête en boucle.
   }, [filialeFilter, categoryFilter, situationFilter, search, overdueFilter, missingSerialFilter, compteFilter, sort, page, reloadKey, view]);
 
-  const handleExport = async () => {
-    setExportLoading(true);
-    try {
-      const params = new URLSearchParams(
-        buildFilterEntries({
-          filialeFilter, categoryFilter, situationFilter, search, overdueFilter, missingSerialFilter, sort,
-        }),
-      );
-      const blob = await api.getBlob(`/reporting/inventory/export?${params}`);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `inventaire-${new Date().toISOString().slice(0, 10)}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
-      toast({ title: 'Export réussi', description: 'Le fichier CSV a été téléchargé.', variant: 'success' });
-    } catch (e: unknown) {
-      showActionError(e, "Erreur lors de l'export CSV.");
-    } finally {
-      setExportLoading(false);
-    }
+  const handleExport = async (): Promise<void> => {
+    const params = new URLSearchParams(
+      buildFilterEntries({
+        filialeFilter, categoryFilter, situationFilter, search, overdueFilter, missingSerialFilter, sort,
+      }),
+    );
+    await download({
+      path: `/reporting/inventory/export?${params}`,
+      fallbackFilename: `inventaire-${todayInParis()}.csv`,
+      errorMessage: "Erreur lors de l'export CSV.",
+      success: CSV_EXPORT_SUCCESS,
+    });
   };
 
   const hasActiveFilters = !!(

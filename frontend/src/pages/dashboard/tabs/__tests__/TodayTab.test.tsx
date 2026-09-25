@@ -71,7 +71,7 @@ describe('TodayTab', () => {
 
     const { user } = renderWithProviders(<TodayTab />);
 
-    const overdueCard = await screen.findByRole('button', { name: /En retard \(> 10 j\)/ });
+    const overdueCard = await screen.findByRole('button', { name: /Signature en retard \(> 10 j\)/ });
     expect(overdueCard).toBeInTheDocument();
 
     await user.click(overdueCard);
@@ -91,7 +91,7 @@ describe('TodayTab', () => {
     });
 
     renderWithProviders(<TodayTab />);
-    expect(await screen.findByText('En retard (> 7 j)')).toBeInTheDocument();
+    expect(await screen.findByText('Signature en retard (> 7 j)')).toBeInTheDocument();
   });
 
   // ─── Départs avec matériel (lot D1) ─────────────────────────────────────────
@@ -130,7 +130,7 @@ describe('TodayTab', () => {
       renderWithProviders(<TodayTab />);
 
       // Attend la fin du chargement des tuiles avant de vérifier l'absence.
-      await screen.findByRole('button', { name: /Total bons en cours/ });
+      await screen.findByRole('button', { name: /Bons ouverts/ });
       expect(screen.queryByText('Départs avec matériel')).not.toBeInTheDocument();
     });
 
@@ -138,7 +138,7 @@ describe('TodayTab', () => {
       mockApi(null);
       renderWithProviders(<TodayTab />);
 
-      await screen.findByRole('button', { name: /Total bons en cours/ });
+      await screen.findByRole('button', { name: /Bons ouverts/ });
       expect(screen.queryByText('Départs avec matériel')).not.toBeInTheDocument();
     });
   });
@@ -282,7 +282,7 @@ describe('TodayTab', () => {
 
       renderWithProviders(<TodayTab />);
 
-      await screen.findByRole('button', { name: /Total bons en cours/ });
+      await screen.findByRole('button', { name: /Bons ouverts/ });
       expect(screen.queryByRole('link', { name: 'Voir le monitoring' })).not.toBeInTheDocument();
     });
 
@@ -299,7 +299,7 @@ describe('TodayTab', () => {
 
       renderWithProviders(<TodayTab />);
 
-      await screen.findByRole('button', { name: /Total bons en cours/ });
+      await screen.findByRole('button', { name: /Bons ouverts/ });
       expect(screen.queryByRole('link', { name: 'Voir le monitoring' })).not.toBeInTheDocument();
       expect(api.get).not.toHaveBeenCalledWith(expect.stringContaining('/admin/status'));
     });
@@ -310,7 +310,7 @@ describe('TodayTab', () => {
 
       renderWithProviders(<TodayTab />);
 
-      await screen.findByRole('button', { name: /Total bons en cours/ });
+      await screen.findByRole('button', { name: /Bons ouverts/ });
       expect(screen.queryByRole('link', { name: 'Voir le monitoring' })).not.toBeInTheDocument();
     });
   });

@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router';
-import { detectPreset, presetRange, todayInParis, type DateRange, type Preset } from '@/lib/kpi-period';
+import { detectPreset, presetRange, type DateRange, type Preset } from '@/lib/kpi-period';
+import { todayInParis } from '@/lib/dates';
 
 const DEFAULT_PRESET: Preset = '30d';
 

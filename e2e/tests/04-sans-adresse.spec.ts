@@ -49,5 +49,5 @@ test('collaborateur sans adresse : envoi refusé, présentiel fonctionnel', asyn
   await completeSignature(page, signerPath);
 
   await page.goto(url);
-  await expect(page.getByText('Actif', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('En cours', { exact: true }).first()).toBeVisible();
 });

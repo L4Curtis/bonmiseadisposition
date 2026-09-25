@@ -53,5 +53,5 @@ test('signature présentielle au doigt sur téléphone : bon actif', async ({ pa
   }
 
   await page.goto(url);
-  await expect(page.getByText('Actif', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('En cours', { exact: true }).first()).toBeVisible();
 });

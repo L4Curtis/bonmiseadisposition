@@ -33,7 +33,7 @@ export function useDocumentActions(token: string | undefined): UseDocumentAction
       setPreviewError(POPUP_BLOCKED_MESSAGE);
       return;
     }
-    const err = await loadBlobIntoTab(win, () => api.getBlob(`/signature/${token}/preview`));
+    const err = await loadBlobIntoTab(win, () => api.getFile(`/signature/${token}/preview`).then((file) => file.blob));
     if (err) setPreviewError(err);
   };
 
@@ -50,7 +50,7 @@ export function useDocumentActions(token: string | undefined): UseDocumentAction
       return;
     }
     const path = stage ? `/bons/${bonId}/pdf?stage=${stage}` : `/bons/${bonId}/pdf`;
-    const err = await loadBlobIntoTab(win, () => api.getBlob(path));
+    const err = await loadBlobIntoTab(win, () => api.getFile(path).then((file) => file.blob));
     if (err) setDownloadError(err);
   };
 

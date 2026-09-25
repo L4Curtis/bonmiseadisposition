@@ -1,3 +1,4 @@
+import { formatDateLong, formatTime } from '@/lib/dates';
 import type { RetentionSimulation } from './retention-api';
 
 interface RetentionSimulationSummaryProps {
@@ -5,10 +6,6 @@ interface RetentionSimulationSummaryProps {
   /** La durée des pièces jointes dépasse celle de l'anonymisation : les
    *  pièces jointes des bons anonymisés s'ajoutent au décompte affiché. */
   attachmentsUndercounted?: boolean;
-}
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
 function Figure({ value, label, detail }: { value: string; label: string; detail: string }) {
@@ -25,7 +22,7 @@ function Figure({ value, label, detail }: { value: string; label: string; detail
 
 /** Résultat d'une simulation de rétention : ce qui serait touché, par donnée. */
 export function RetentionSimulationSummary({ simulation, attachmentsUndercounted = false }: RetentionSimulationSummaryProps) {
-  const simulatedAt = new Date(simulation.simulatedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  const simulatedAt = formatTime(simulation.simulatedAt);
   return (
     <div className="space-y-2" aria-live="polite">
       <p className="text-xs text-muted-foreground">
@@ -35,7 +32,7 @@ export function RetentionSimulationSummary({ simulation, attachmentsUndercounted
         <Figure
           value={String(simulation.bons)}
           label="Bons anonymisés"
-          detail={`Clôturés ou annulés, sans modification depuis le ${formatDate(simulation.anonymizeCutoff)}.`}
+          detail={`Clôturés ou annulés, sans modification depuis le ${formatDateLong(simulation.anonymizeCutoff)}.`}
         />
         <Figure
           value={`${attachmentsUndercounted ? 'au moins ' : ''}${simulation.attachments}`}

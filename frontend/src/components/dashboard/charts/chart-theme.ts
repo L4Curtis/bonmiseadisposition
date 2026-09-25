@@ -48,8 +48,6 @@ export function useChartTheme(): ChartTheme {
       border: readColorVar('--border'),
       muted: readColorVar('--muted'),
     };
-    // `theme` déclenche le recalcul : les variables CSS elles-mêmes ne sont pas
-    // des dépendances React valides, seul le thème qui les fait changer l'est.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- les variables CSS lues ne sont pas des dépendances React : c'est le thème qui les change.
   }, [theme]);
 }

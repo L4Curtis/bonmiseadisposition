@@ -4,6 +4,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CheckCircle2, AlertTriangle, XCircle, MinusCircle, ChevronRight } from 'lucide-react';
 import { useConfigHealth, type ConfigHealthState, type ConfigHealthSection } from '@/hooks/use-config-health';
+import { formatDate } from '@/lib/dates';
 
 export type { ConfigHealthState, ConfigHealthSection };
 
@@ -25,7 +26,7 @@ const STATE_META: Record<ConfigHealthState, { icon: typeof CheckCircle2; classNa
 
 function formatUpdatedAt(value: string | null): string {
   if (!value) return 'Jamais modifié';
-  return `Modifié le ${new Date(value).toLocaleDateString('fr-FR')}`;
+  return `Modifié le ${formatDate(value)}`;
 }
 
 /**

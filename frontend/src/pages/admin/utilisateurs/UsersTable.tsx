@@ -2,7 +2,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ROLE_LABELS } from '@/lib/labels';
+import { ROLE_LABELS } from '@/domain/labels';
 import type { User, UserRole } from '@/types';
 import { UserActionsCell } from './UserActionsCell';
 

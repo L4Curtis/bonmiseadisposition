@@ -2,7 +2,7 @@ import { useNavigate } from 'react-router';
 import { CheckCircle, Eye, XCircle, AlertOctagon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { formatDateTime } from '@/lib/utils';
+import { formatDateTime } from '@/lib/dates';
 import { STATUS_COLORS, STATUS_LABELS } from './statusMeta';
 import type { Contestation } from './types';
 

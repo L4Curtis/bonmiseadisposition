@@ -13,6 +13,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
       patch: vi.fn(),
       delete: vi.fn(),
       getBlob: vi.fn(),
+      getFile: vi.fn(),
       postForm: vi.fn(),
       patchForm: vi.fn(),
     },
@@ -92,7 +93,7 @@ describe('useAuditLogs', () => {
 
   it("exporte en CSV avec les filtres appliqués (pas la page)", async () => {
     mockApiGet();
-    vi.mocked(api.getBlob).mockResolvedValue(new Blob(['x']));
+    vi.mocked(api.getFile).mockResolvedValue({ blob: new Blob(['a,b'], { type: 'text/csv' }), filename: 'export.csv', truncated: false });
     const createObjectURL = vi.fn(() => 'blob:x');
     const revokeObjectURL = vi.fn();
     Object.assign(URL, { createObjectURL, revokeObjectURL });
@@ -105,9 +106,11 @@ describe('useAuditLogs', () => {
     act(() => result.current.setPage(3));
     await act(async () => { await result.current.exportCsv(); });
 
-    expect(api.getBlob).toHaveBeenCalledWith('/audit/export?user=Jean&dateFrom=2026-09-01');
+    expect(api.getFile).toHaveBeenCalledWith('/audit/export?user=Jean&dateFrom=2026-09-01');
     expect(createObjectURL).toHaveBeenCalled();
     expect(click).toHaveBeenCalled();
+    // Le fichier porte le nom annoncé par le serveur, pas un nom reconstruit.
+    expect((click.mock.contexts[0] as HTMLAnchorElement).download).toBe('export.csv');
     click.mockRestore();
     expect(result.current.exporting).toBe(false);
   });

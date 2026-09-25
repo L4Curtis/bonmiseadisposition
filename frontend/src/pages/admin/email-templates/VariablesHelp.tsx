@@ -15,10 +15,11 @@ export function VariablesHelp({ variables }: VariablesHelpProps) {
       <p className="text-xs font-medium text-muted-foreground mb-2">Variables disponibles :</p>
       <div className="flex flex-wrap gap-2">
         {variables.map((v) => (
-          <span
+          <button
+            type="button"
             key={v.name}
             title={v.description}
-            className="inline-flex items-center rounded bg-muted px-2 py-0.5 text-xs font-mono cursor-pointer hover:bg-muted/80"
+            className="inline-flex items-center rounded bg-muted px-2 py-0.5 text-xs font-mono cursor-pointer hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             onClick={() => {
               const token = `{{${v.name}}}`;
               navigator.clipboard?.writeText(token);
@@ -26,7 +27,7 @@ export function VariablesHelp({ variables }: VariablesHelpProps) {
             }}
           >
             {`{{${v.name}}}`}
-          </span>
+          </button>
         ))}
       </div>
       <p className="text-xs text-muted-foreground mt-1.5">Cliquez sur une variable pour la copier.</p>

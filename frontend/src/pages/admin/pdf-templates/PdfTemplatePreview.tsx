@@ -21,8 +21,8 @@ export function PdfTemplatePreview({ templateId, open, onClose }: PdfTemplatePre
     // Capture locale : le cleanup doit révoquer l'URL réellement créée par CET
     // effet, pas la valeur (périmée) de l'état au moment de son exécution
     let createdUrl: string | null = null;
-    api.getBlob(`/admin/pdf-templates/${templateId}/preview`)
-      .then((blob) => {
+    api.getFile(`/admin/pdf-templates/${templateId}/preview`)
+      .then(({ blob }) => {
         createdUrl = URL.createObjectURL(blob);
         setPdfUrl(createdUrl);
       })

@@ -1,7 +1,7 @@
 import { Archive, ChevronRight } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { StatusBadge } from '@/components/StatusBadge';
-import { formatDateLong } from '@/lib/utils';
+import { formatDateLong } from '@/lib/dates';
 import type { BonCollab } from '../types';
 
 interface HistoryTableProps {

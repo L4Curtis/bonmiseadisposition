@@ -37,6 +37,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
       patch: vi.fn(),
       delete: vi.fn(),
       getBlob: vi.fn(),
+      getFile: vi.fn(),
       postForm: vi.fn(),
       patchForm: vi.fn(),
     },
@@ -166,7 +167,7 @@ describe('ParcTab', () => {
     expect(within(overdueTile).getByText('moy. 12,4 j')).toBeInTheDocument();
     expect(within(overdueTile).getByText('14').className).toContain('text-destructive');
 
-    expect(screen.getByLabelText('Non rendus déclarés : 4')).toBeInTheDocument();
+    expect(screen.getByLabelText('Non restitués déclarés : 4')).toBeInTheDocument();
     expect(screen.getByLabelText('Retrouvés : 1')).toBeInTheDocument();
     expect(screen.getByLabelText('Part hors catalogue : 8 %')).toBeInTheDocument();
     expect(screen.getByLabelText('Couverture n° de série : 93 %')).toBeInTheDocument();
@@ -258,15 +259,15 @@ describe('ParcTab', () => {
     expect(api.get).toHaveBeenCalled();
   });
 
-  it('exports the inventory CSV via api.getBlob with the current filiale filter', async () => {
+  it('exporte le CSV de l’inventaire (nom donné par le serveur) avec le filtre filiale courant', async () => {
     mockApiGet(fixture);
-    vi.mocked(api.getBlob).mockResolvedValue(new Blob(['a,b'], { type: 'text/csv' }));
+    vi.mocked(api.getFile).mockResolvedValue({ blob: new Blob(['a,b'], { type: 'text/csv' }), filename: 'export.csv', truncated: false });
     const { user } = renderWithProviders(<ParcTab />, { route: `${ROUTE}&filialeId=f1` });
 
     await screen.findByText('Évolution du parc prêté');
     const exportButton = screen.getByRole('button', { name: /Exporter l'inventaire \(CSV\)/ });
     await user.click(exportButton);
 
-    expect(api.getBlob).toHaveBeenCalledWith('/reporting/inventory/export?filialeId=f1');
+    expect(api.getFile).toHaveBeenCalledWith('/reporting/inventory/export?filialeId=f1');
   });
 });

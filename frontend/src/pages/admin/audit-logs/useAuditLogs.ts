@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
-import { errorMessage, showActionError } from '@/lib/errors';
-import { toast } from '@/hooks/use-toast';
-import { downloadBlob } from '../filiales/lib/csv';
+import { errorMessage } from '@/lib/errors';
+import { todayInParis } from '@/lib/dates';
+import { CSV_EXPORT_SUCCESS, useDownload } from '@/hooks/useDownload';
 import type { AuditResponse } from './types';
 
 const LIMIT = 50;
@@ -39,7 +39,7 @@ export function useAuditLogs() {
   const [dateFrom, setDateFromState] = useState('');
   const [dateTo, setDateToState] = useState('');
   const [availableActions, setAvailableActions] = useState<string[]>([]);
-  const [exporting, setExporting] = useState(false);
+  const { download, downloading: exporting } = useDownload();
 
   useEffect(() => {
     api.get<string[]>('/audit/actions').then(setAvailableActions).catch(() => {});
@@ -88,25 +88,16 @@ export function useAuditLogs() {
     setActionState(''); setDateFromState(''); setDateToState(''); setPage(1);
   };
 
-  const exportCsv = async () => {
-    setExporting(true);
-    try {
-      const params = filterParams({ user, action, dateFrom, dateTo });
-      const query = params.toString();
-      const blob = await api.getBlob(`/audit/export${query ? `?${query}` : ''}`);
-      downloadBlob(`journal-audit-${new Date().toISOString().slice(0, 10)}.csv`, blob);
-      toast({
-        title: 'Export réussi',
-        description: data?.exportTruncated
-          ? `Seules les ${data.exportLimit.toLocaleString('fr-FR')} entrées les plus récentes ont été exportées.`
-          : 'Le fichier CSV a été téléchargé.',
-        variant: data?.exportTruncated ? 'default' : 'success',
-      });
-    } catch (e: unknown) {
-      showActionError(e, "Erreur lors de l'export du journal");
-    } finally {
-      setExporting(false);
-    }
+  // Export au-delà du plafond : le serveur coupe le fichier et le signale
+  // (en-tête X-Truncated) ; useDownload prévient alors l'utilisateur.
+  const exportCsv = async (): Promise<void> => {
+    const query = filterParams({ user, action, dateFrom, dateTo }).toString();
+    await download({
+      path: `/audit/export${query ? `?${query}` : ''}`,
+      fallbackFilename: `journal-audit-${todayInParis()}.csv`,
+      errorMessage: "Erreur lors de l'export du journal",
+      success: CSV_EXPORT_SUCCESS,
+    });
   };
 
   const totalPages = data ? Math.ceil(data.total / LIMIT) : 0;

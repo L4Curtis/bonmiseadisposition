@@ -72,7 +72,7 @@ describe('DashboardPage', () => {
 
     // Laisse les appels de TodayTab se résoudre pour ne pas terminer le test
     // avec une mise à jour d'état en attente.
-    await screen.findByText('Total bons en cours');
+    await screen.findByText('Bons ouverts');
   });
 
   it('selects "Délais" when ?tab=delais is present in the URL', async () => {

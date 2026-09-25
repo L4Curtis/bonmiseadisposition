@@ -181,9 +181,7 @@ export function ConfigSection({
       })
       .catch((e: unknown) => setLoadError(errorMessage(e, 'Erreur lors du chargement de la configuration')))
       .finally(() => setLoading(false));
-    // La liste des champs est stable pour une catégorie donnée (définie par la
-    // page appelante) : on ne recharge que si la catégorie change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- les champs sont fixés par la page pour une catégorie : seul un changement de catégorie recharge.
   }, [category]);
 
   useEffect(() => { load(); }, [load]);

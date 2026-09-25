@@ -85,6 +85,30 @@ describe('Sidebar', () => {
     expect(api.get).toHaveBeenCalledWith(expect.stringContaining('/contestations'));
   });
 
+  it('vue technicien : Catalogue et Inventaire, mais ni Utilisateurs ni Filiales (admin seul)', async () => {
+    mockRole = 'technician';
+    mockView = 'technicien';
+    renderWithProviders(<Sidebar />);
+
+    expect(await screen.findByRole('link', { name: 'Catalogue' })).toHaveAttribute('href', '/admin/catalogue');
+    expect(screen.getByRole('link', { name: 'Inventaire' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Utilisateurs' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Filiales' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Configuration' })).not.toBeInTheDocument();
+  });
+
+  it('vue administrateur : Utilisateurs, Filiales et Catalogue, avec le vocabulaire retenu', async () => {
+    mockRole = 'admin';
+    mockView = 'administrateur';
+    renderWithProviders(<Sidebar />);
+
+    expect(await screen.findByRole('link', { name: 'Utilisateurs' })).toHaveAttribute('href', '/admin/utilisateurs');
+    expect(screen.getByRole('link', { name: 'Filiales' })).toHaveAttribute('href', '/admin/filiales');
+    expect(screen.getByRole('link', { name: 'Catalogue' })).toHaveAttribute('href', '/admin/catalogue');
+    expect(screen.queryByRole('link', { name: 'Collaborateurs' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Équipements' })).not.toBeInTheDocument();
+  });
+
   it('vue direction : aucun appel à /contestations (rôle non-IT)', async () => {
     renderWithProviders(<Sidebar />);
 

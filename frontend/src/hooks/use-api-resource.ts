@@ -52,8 +52,7 @@ export function useApiResource<T>(path: string | null, fallbackMessage: string):
     return () => {
       requestIdRef.current += 1;
     };
-    // fallbackMessage est stable par appelant ; seuls path/reloadKey doivent redéclencher la requête.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fallbackMessage est un texte fixe par appelant : seuls path et reloadKey relancent la requête.
   }, [path, reloadKey]);
 
   const reload = useCallback(() => setReloadKey((k) => k + 1), []);

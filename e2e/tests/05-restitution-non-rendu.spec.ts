@@ -37,7 +37,7 @@ import { uniqueSuffix } from './helpers/ids';
  * bon est ensuite clôturé sans signature (IT), motif obligatoire, jusqu'à
  * l'archivage.
  */
-test('équipement non rendu, restitution présentielle du second, PV émis, clôture sans signature : bon archivé', async ({ page }) => {
+test('équipement non rendu, restitution présentielle du second, PV émis, clôture sans signature : bon clôturé', async ({ page }) => {
   const suffix = uniqueSuffix();
   const serialRendu = `SN-RESTITUE-${suffix}`;
   const serialPerdu = `SN-NONRENDU-${suffix}`;
@@ -51,7 +51,7 @@ test('équipement non rendu, restitution présentielle du second, PV émis, clô
   const signerPath1 = await initiatePresentiel(page, 'mise_disposition');
   await completeSignature(page, signerPath1);
   await page.goto(url);
-  await expect(page.getByText('Actif', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('En cours', { exact: true }).first()).toBeVisible();
 
   // ── Déclaration du second équipement comme non rendu (AVANT la
   //    restitution — voir le commentaire d'en-tête pour le pourquoi) ────────
@@ -63,7 +63,7 @@ test('équipement non rendu, restitution présentielle du second, PV émis, clô
   await drawSignature(page, nonRenduDialog);
   await nonRenduDialog.getByRole('button', { name: /Certifier et déclarer/ }).click();
   await expect(nonRenduDialog).not.toBeVisible();
-  await expect(page.getByText('Restitution partielle', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('Restitution en cours', { exact: true }).first()).toBeVisible();
 
   // ── Restitution présentielle du seul équipement encore en attente ─────────
   const signerPath2 = await initiatePresentiel(page, 'restitution');
@@ -73,7 +73,7 @@ test('équipement non rendu, restitution présentielle du second, PV émis, clô
   // Le bon reste en restitution partielle (pas archivé directement) : un
   // équipement est déjà déclaré non rendu, le PV de clôture doit d'abord
   // être émis — voir le commentaire d'en-tête.
-  await expect(page.getByText('Restitution partielle', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('Restitution en cours', { exact: true }).first()).toBeVisible();
   await expect(page.getByText('Non rendu', { exact: true }).first()).toBeVisible();
   await expect(page.getByText('Rendu', { exact: true }).first()).toBeVisible();
   // PV émis : document disponible (l'email de co-signature, lui, ne peut pas
@@ -91,5 +91,5 @@ test('équipement non rendu, restitution présentielle du second, PV émis, clô
   await expect(closeDialog).not.toBeVisible();
 
   await page.goto(url);
-  await expect(page.getByText('Archivé', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('Clôturé', { exact: true }).first()).toBeVisible();
 });

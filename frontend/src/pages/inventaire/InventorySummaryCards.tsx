@@ -3,6 +3,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { StatCard } from '@/components/dashboard/StatCard';
 import { Package, AlertTriangle, Clock, Building2 } from 'lucide-react';
 import type { InventorySummary } from './types';
+import { BON_STATUS_LABELS, LATENESS_LABELS } from '@/domain/labels';
 
 interface InventorySummaryCardsProps {
   summary: InventorySummary | null;
@@ -17,7 +18,7 @@ interface InventorySummaryCardsProps {
 }
 
 /** Tuiles de résumé du parc prêté : total, retards, catégories, filiales.
- *  « En retard de restitution » et « En attente de signature » filtrent la
+ *  « Retour en retard » et « Remise à signer » filtrent la
  *  liste au clic (état persisté dans l'URL par useInventory).
  *  Affiche une erreur explicite avec « Réessayer » si le résumé échoue à charger. */
 export function InventorySummaryCards({
@@ -43,7 +44,7 @@ export function InventorySummaryCards({
           <StatCard icon={Package} label="Équipements prêtés" value={summary.total} />
           <StatCard
             icon={AlertTriangle}
-            label="En retard de restitution"
+            label={LATENESS_LABELS.return}
             value={summary.overdue}
             tone={summary.overdue > 0 ? 'danger' : 'default'}
             onClick={onOverdueClick}
@@ -51,7 +52,7 @@ export function InventorySummaryCards({
           />
           <StatCard
             icon={Clock}
-            label="En attente de signature"
+            label={BON_STATUS_LABELS.sent_mise_dispo}
             value={summary.bySituation.find((s) => s.situation === 'en_attente_signature')?.count ?? 0}
             hint="Matériel remis, bon non encore signé"
             onClick={onSignatureWaitingClick}

@@ -1,4 +1,7 @@
 import { CATEGORIES } from '../types';
+import { saveBlob } from '@/lib/download';
+
+const UTF8_BOM = '\uFEFF';
 
 export interface ImportCsvItem {
   category: string;
@@ -200,11 +203,5 @@ export function readFileAsText(file: File): Promise<string> {
 /** Déclenche le téléchargement d'un fichier CSV côté navigateur. Le BOM UTF-8
  *  garantit qu'Excel FR détecte l'encodage et affiche correctement les accents. */
 export function downloadCsv(filename: string, content: string): void {
-  const blob = new Blob(['﻿', content], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
+  saveBlob(new Blob([UTF8_BOM, content], { type: 'text/csv;charset=utf-8;' }), filename);
 }

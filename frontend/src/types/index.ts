@@ -50,16 +50,9 @@ export type BonStatus =
   | 'cancelled'
   | 'contested';
 
-export const BON_STATUS_LABELS: Record<BonStatus, string> = {
-  draft: 'Brouillon',
-  sent_mise_dispo: 'En attente de signature',
-  active: 'Actif',
-  sent_restitution: 'En attente de restitution',
-  partially_returned: 'Restitution partielle',
-  archived: 'Archivé',
-  cancelled: 'Annulé',
-  contested: 'Contesté',
-};
+/** Libellés de statut : définis dans le lexique (`@/domain/labels`), réexportés
+ *  ici pour les écrans qui les importaient depuis `@/types`. */
+export { BON_STATUS_LABELS } from '@/domain/labels';
 
 // Statuts (direction 2b) : point + texte coloré, sans fond ni anneau. La puce
 // est rendue par StatusBadge avec bg-current ; ici on ne fournit que la couleur

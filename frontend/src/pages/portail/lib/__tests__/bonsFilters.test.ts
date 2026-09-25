@@ -53,7 +53,7 @@ describe('findPendingSignable / hasPendingSignable', () => {
 
 describe('signatureTypeLabel', () => {
   it('labels pv_cloture, restitution, and anything else', () => {
-    expect(signatureTypeLabel('pv_cloture')).toBe('procès-verbal d\'équipements non restitués');
+    expect(signatureTypeLabel('pv_cloture')).toBe('PV de non-restitution');
     expect(signatureTypeLabel('restitution')).toBe('restitution');
     expect(signatureTypeLabel('mise_disposition')).toBe('mise à disposition');
   });

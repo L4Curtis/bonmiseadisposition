@@ -1,8 +1,9 @@
 import { Fragment } from 'react';
 import { AlertTriangle, ChevronDown, ChevronRight, Users, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { formatDate } from '@/lib/utils';
+import { formatDate } from '@/lib/dates';
 import { formatDays } from '@/lib/kpi-format';
+import { LATENESS_LABELS } from '@/domain/labels';
 import { InventoryTable, TableSkeleton } from './InventoryTable';
 import { useCollaborateurDetail } from './useCollaborateurDetail';
 import type { InventoryBaseFilters } from './inventoryFilterParams';
@@ -134,7 +135,7 @@ export function CollaborateurTable({
                   onClick={() => onSortChange('count')}
                 />
                 <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  En retard
+                  {LATENESS_LABELS.return}
                 </th>
                 <SortableHeader
                   label="Prêt le plus ancien"

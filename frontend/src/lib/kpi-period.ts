@@ -54,9 +54,6 @@ export function detectPreset(range: DateRange, today: string): Preset | null {
   return null;
 }
 
-/** Date du jour (YYYY-MM-DD) dans le fuseau Europe/Paris — pour que le calcul
- *  de « aujourd'hui » côté client soit toujours aligné sur le serveur (SQL en
- *  `now() AT TIME ZONE 'Europe/Paris'`), quel que soit le fuseau du navigateur. */
-export function todayInParis(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Paris' }).format(new Date());
-}
+/** @deprecated Importer depuis `@/lib/dates` : réexportée le temps que le
+ *  formulaire de bon (`pages/bons/create`) change son import. */
+export { todayInParis } from './dates';

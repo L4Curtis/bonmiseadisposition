@@ -4,6 +4,8 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { api } from '@/lib/api';
 import { errorMessage } from '@/lib/errors';
+import { formatDateTime } from '@/lib/dates';
+import { roleLabel } from '@/domain/labels';
 
 interface SsoDiagnosticEntry {
   at: string;
@@ -12,17 +14,6 @@ interface SsoDiagnosticEntry {
   groupsCount: number;
   resolvedRole: string | null;
   message: string;
-}
-
-const ROLE_LABELS: Record<string, string> = {
-  admin: 'Administrateur',
-  technician: 'Technicien',
-  direction: 'Direction',
-  collaborator: 'Collaborateur',
-};
-
-function formatDateHeure(valeur: string): string {
-  return new Date(valeur).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
 }
 
 /**
@@ -102,12 +93,12 @@ export function SsoDiagnosticCard() {
                     {e.user}
                     {e.resolvedRole && (
                       <span className="ml-2 text-xs text-muted-foreground">
-                        → {ROLE_LABELS[e.resolvedRole] ?? e.resolvedRole}
+                        → {roleLabel(e.resolvedRole)}
                       </span>
                     )}
                   </p>
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    {formatDateHeure(e.at)} · {e.groupsCount} groupe(s) reçu(s)
+                    {formatDateTime(e.at)} · {e.groupsCount} groupe(s) reçu(s)
                   </p>
                   {e.message && <p className="mt-1 text-xs text-foreground/70">{e.message}</p>}
                 </div>

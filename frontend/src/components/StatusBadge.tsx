@@ -22,7 +22,7 @@ export function StatusBadge({ status, signatures }: StatusBadgeProps) {
       {showPendingSig && (
         <span className="inline-flex items-center gap-1.5 text-xs font-medium text-warning">
           <Clock className="h-3 w-3" strokeWidth={1.75} />
-          En attente de signature
+          Signature attendue
         </span>
       )}
     </span>

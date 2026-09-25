@@ -1,7 +1,5 @@
-import { useState } from 'react';
-import { api } from '@/lib/api';
-import { showActionError } from '@/lib/errors';
-import { downloadBlob } from '../filiales/lib/csv';
+import { todayInParis } from '@/lib/dates';
+import { useDownload } from '@/hooks/useDownload';
 
 export interface UseManualUsersExportResult {
   exporting: boolean;
@@ -10,36 +8,33 @@ export interface UseManualUsersExportResult {
   downloadTemplate: () => Promise<void>;
 }
 
-/** Export CSV et modèle d'import des collaborateurs créés à la main : les
- *  deux fichiers sont générés côté serveur (échappement anti-formule compris)
- *  — le navigateur se contente de déclencher le téléchargement. */
+/** Export CSV et fichier exemple d'import des collaborateurs créés à la main :
+ *  les deux fichiers sont générés et nommés par le serveur (échappement
+ *  anti-formule compris) ; le navigateur ne fait que les enregistrer. */
 export function useManualUsersExport(): UseManualUsersExportResult {
-  const [exporting, setExporting] = useState(false);
-  const [downloadingTemplate, setDownloadingTemplate] = useState(false);
+  const exportFile = useDownload();
+  const templateFile = useDownload();
 
   const exportCsv = async (): Promise<void> => {
-    setExporting(true);
-    try {
-      const blob = await api.getBlob('/users/manual/export');
-      downloadBlob(`collaborateurs-manuels-${new Date().toISOString().slice(0, 10)}.csv`, blob);
-    } catch (e: unknown) {
-      showActionError(e, "Erreur lors de l'export des collaborateurs");
-    } finally {
-      setExporting(false);
-    }
+    await exportFile.download({
+      path: '/users/manual/export',
+      fallbackFilename: `collaborateurs-manuels-${todayInParis()}.csv`,
+      errorMessage: "Erreur lors de l'export des collaborateurs",
+    });
   };
 
   const downloadTemplate = async (): Promise<void> => {
-    setDownloadingTemplate(true);
-    try {
-      const blob = await api.getBlob('/users/manual/import/template');
-      downloadBlob('modele-import-collaborateurs.csv', blob);
-    } catch (e: unknown) {
-      showActionError(e, 'Erreur lors du téléchargement du modèle');
-    } finally {
-      setDownloadingTemplate(false);
-    }
+    await templateFile.download({
+      path: '/users/manual/import/template',
+      fallbackFilename: 'modele-import-collaborateurs.csv',
+      errorMessage: 'Erreur lors du téléchargement du fichier exemple',
+    });
   };
 
-  return { exporting, exportCsv, downloadingTemplate, downloadTemplate };
+  return {
+    exporting: exportFile.downloading,
+    exportCsv,
+    downloadingTemplate: templateFile.downloading,
+    downloadTemplate,
+  };
 }

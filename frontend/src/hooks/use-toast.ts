@@ -4,6 +4,9 @@ import type { ToastActionElement, ToastProps } from '@/components/ui/toast';
 
 const TOAST_LIMIT = 3;
 const TOAST_REMOVE_DELAY = 1_000_000;
+/** Durée d'affichage par défaut ; `duration: Infinity` garde la notification
+ *  jusqu'à ce que l'utilisateur la ferme. */
+export const DEFAULT_TOAST_DURATION_MS = 3_000;
 
 type ToasterToast = ToastProps & {
   id: string;
@@ -12,13 +15,6 @@ type ToasterToast = ToastProps & {
   action?: ToastActionElement;
 };
 
-const actionTypes = {
-  ADD_TOAST: 'ADD_TOAST',
-  UPDATE_TOAST: 'UPDATE_TOAST',
-  DISMISS_TOAST: 'DISMISS_TOAST',
-  REMOVE_TOAST: 'REMOVE_TOAST',
-} as const;
-
 let count = 0;
 
 function genId(): string {
@@ -26,13 +22,11 @@ function genId(): string {
   return count.toString();
 }
 
-type ActionType = typeof actionTypes;
-
 type Action =
-  | { type: ActionType['ADD_TOAST']; toast: ToasterToast }
-  | { type: ActionType['UPDATE_TOAST']; toast: Partial<ToasterToast> }
-  | { type: ActionType['DISMISS_TOAST']; toastId?: ToasterToast['id'] }
-  | { type: ActionType['REMOVE_TOAST']; toastId?: ToasterToast['id'] };
+  | { type: 'ADD_TOAST'; toast: ToasterToast }
+  | { type: 'UPDATE_TOAST'; toast: Partial<ToasterToast> }
+  | { type: 'DISMISS_TOAST'; toastId?: ToasterToast['id'] }
+  | { type: 'REMOVE_TOAST'; toastId?: ToasterToast['id'] };
 
 interface State {
   toasts: readonly ToasterToast[];
@@ -128,11 +122,13 @@ function toast({ ...props }: Toast) {
     },
   });
 
-  // Auto-dismiss after 3 seconds — sauf les toasts d'erreur (variant
-  // 'destructive'), qui doivent rester visibles jusqu'à ce que
-  // l'utilisateur les ferme lui-même (message souvent important à lire).
-  if (props.variant !== 'destructive') {
-    setTimeout(dismiss, 3_000);
+  // Fermeture automatique après 3 s (ou la durée demandée) — sauf les toasts
+  // d'erreur (variant 'destructive') et ceux de durée infinie (avertissement
+  // à lire, comme un export coupé), qui restent visibles jusqu'à ce que
+  // l'utilisateur les ferme lui-même.
+  const duration = props.duration ?? DEFAULT_TOAST_DURATION_MS;
+  if (props.variant !== 'destructive' && Number.isFinite(duration)) {
+    setTimeout(dismiss, duration);
   }
 
   return { id, dismiss, update };

@@ -103,7 +103,7 @@ describe('IncidentsTab', () => {
 
     renderWithProviders(<IncidentsTab />, { route: '/dashboard?tab=incidents&from=2026-08-18&to=2026-09-17&filialeId=fil-1' });
 
-    await screen.findByText('Non rendus déclarés');
+    await screen.findByText('Non restitués déclarés');
     expect(api.get).toHaveBeenCalledTimes(1);
     const calledPath = vi.mocked(api.get).mock.calls[0][0] as string;
     expect(calledPath).toContain('/kpi/incidents?');
@@ -117,10 +117,10 @@ describe('IncidentsTab', () => {
 
     renderWithProviders(<IncidentsTab />);
 
-    expect(await screen.findByText('Non rendus déclarés')).toBeInTheDocument();
+    expect(await screen.findByText('Non restitués déclarés')).toBeInTheDocument();
     expect(screen.getByText('4')).toBeInTheDocument();
     expect(screen.getByText('Retrouvés')).toBeInTheDocument();
-    expect(screen.getByText('PV de clôture émis')).toBeInTheDocument();
+    expect(screen.getByText('PV de non-restitution émis')).toBeInTheDocument();
     expect(screen.getByText('Clôtures unilatérales')).toBeInTheDocument();
     expect(screen.getByText('Annulations')).toBeInTheDocument();
     expect(screen.getByText('Contestations ouvertes')).toBeInTheDocument();
@@ -188,6 +188,6 @@ describe('IncidentsTab', () => {
 
     vi.mocked(api.get).mockResolvedValue(fixture);
     await user.click(retryButton);
-    expect(await screen.findByText('Non rendus déclarés')).toBeInTheDocument();
+    expect(await screen.findByText('Non restitués déclarés')).toBeInTheDocument();
   });
 });

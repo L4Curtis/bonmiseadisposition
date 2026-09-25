@@ -88,6 +88,25 @@ jobs:
         working-directory: ./backend
         run: npx tsc --noEmit
 
+      - name: Contrats partagés à jour (backend → frontend)
+        working-directory: ./backend
+        # frontend/src/contracts/ est une copie générée de backend/src/contracts/
+        # (types des réponses de l'API, vérifiés par les tests de contrat HTTP).
+        # On la régénère : toute différence avec la copie versionnée (fichier
+        # modifié, ajouté ou supprimé) veut dire qu'un contrat a changé sans
+        # que le front l'ait reçu.
+        run: |
+          npm run sync-contracts
+          git diff --exit-code -- ../frontend/src/contracts || {
+            echo "::error::frontend/src/contracts n'est pas à jour. Lancez « npm run sync-contracts » dans backend/ et versionnez le résultat." >&2
+            exit 1
+          }
+          if [ -n "$(git status --porcelain -- ../frontend/src/contracts)" ]; then
+            git status --short -- ../frontend/src/contracts
+            echo "::error::frontend/src/contracts contient des fichiers non versionnés. Lancez « npm run sync-contracts » dans backend/ et versionnez le résultat." >&2
+            exit 1
+          fi
+
       - name: Tests backend avec couverture
         working-directory: ./backend
         run: npm run test:cov
@@ -102,6 +121,18 @@ jobs:
         # Vitest filtre les fichiers dont le chemin contient « real-db » et échoue
         # si aucun ne correspond (filtre cassé = CI rouge, pas verte à vide).
         run: RUN_DB_TESTS=1 npx vitest run real-db
+
+      - name: Contrat HTTP
+        working-directory: ./backend
+        # L'application Nest réelle (gardes, pipes, filtre d'erreurs) interrogée
+        # par supertest, route par route : code HTTP, forme exacte de la réponse
+        # (types de src/contracts/) et rôles autorisés ou refusés. Voir
+        # backend/test/contract/ et docs/testing-guide.md. Base dédiée
+        # (bons_contract, créée par prisma migrate deploy dans le même service
+        # Postgres) : la suite la vide et la remplit à chaque fichier.
+        env:
+          CONTRACT_DATABASE_URL: postgresql://app:ci@localhost:5432/bons_contract
+        run: npm run test:contract
 
       - name: Audit de sécurité (non bloquant)
         working-directory: ./backend
@@ -140,6 +171,13 @@ jobs:
       - name: Type-check des tests frontend
         working-directory: ./frontend
         run: npx tsc --noEmit -p tsconfig.test.json
+
+      # ESLint : règles des hooks React (dépendances d'effet oubliées),
+      # accessibilité (jsx-a11y) et TypeScript. Une erreur bloque ; les
+      # avertissements signalent une dette connue (voir eslint.config.js).
+      - name: Lint frontend (ESLint)
+        working-directory: ./frontend
+        run: npm run lint
 
       - name: Tests frontend (Vitest)
         working-directory: ./frontend

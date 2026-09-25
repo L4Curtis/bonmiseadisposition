@@ -22,11 +22,8 @@ export function hasPendingSignable(bon: BonCollab): boolean {
   return !!findPendingSignable(bon);
 }
 
-export function signatureTypeLabel(type: string): string {
-  if (type === 'pv_cloture') return 'procès-verbal d\'équipements non restitués';
-  if (type === 'restitution') return 'restitution';
-  return 'mise à disposition';
-}
+/** Étape de signature dans une phrase : lexique commun, partagé avec la page de signature. */
+export { signatureStepInSentence as signatureTypeLabel } from '@/domain/labels';
 
 export interface BonGroups {
   pending: BonCollab[];

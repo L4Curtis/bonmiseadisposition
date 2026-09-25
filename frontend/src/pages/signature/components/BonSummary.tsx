@@ -1,4 +1,4 @@
-import { formatDate } from '../lib/formatDate';
+import { formatDateLong } from '@/lib/dates';
 import type { BonInfo } from '../types';
 
 interface RowProps {
@@ -55,8 +55,8 @@ export function BonHeaderCard({ bon, isPvCloture, sigType }: BonHeaderCardProps)
         {bon.collaborateurEmail && <Row label="Email" value={bon.collaborateurEmail} />}
         {bon.collaborateur.department && <Row label="Service" value={bon.collaborateur.department} />}
         <Row label="Filiale" value={bon.filiale.displayName} />
-        <Row label="Date mise à dispo" value={formatDate(bon.dateMiseDisposition)} />
-        {bon.dateRestitution && <Row label="Date restitution" value={formatDate(bon.dateRestitution)} />}
+        <Row label="Date mise à dispo" value={formatDateLong(bon.dateMiseDisposition)} />
+        {bon.dateRestitution && <Row label="Date restitution" value={formatDateLong(bon.dateRestitution)} />}
       </div>
     </div>
   );
@@ -199,7 +199,7 @@ interface DeclaredNotReturnedTableProps {
   equipments: BonInfo['equipments'];
 }
 
-/** Déclarés non rendus (restitution uniquement) — ces équipements ne
+/** Déclarés non restitués (restitution uniquement) — ces équipements ne
  *  figurent dans aucune des deux autres tables : sans cette section le
  *  collaborateur signerait sans voir l'état complet du bon. */
 export function DeclaredNotReturnedTable({ equipments }: DeclaredNotReturnedTableProps) {
@@ -211,14 +211,14 @@ export function DeclaredNotReturnedTable({ equipments }: DeclaredNotReturnedTabl
     <div className="rounded-xl bg-card border border-border shadow-sm">
       <div className="px-5 py-3 border-b">
         <h2 className="font-semibold text-sm text-foreground">
-          Déclarés non rendus ({declared.length})
+          Déclarés non restitués ({declared.length})
         </h2>
         <p className="text-xs text-muted-foreground mt-0.5">
           Ces équipements ont été déclarés non restitués par le service informatique et font l'objet d'un traitement séparé.
         </p>
       </div>
       <div className="overflow-x-auto">
-      <table className="w-full text-sm" aria-label="Équipements déclarés non rendus">
+      <table className="w-full text-sm" aria-label="Équipements déclarés non restitués">
         <thead className="bg-muted/50">
           <tr>
             <th className="px-3 py-2 sm:px-4 text-left text-xs font-medium text-muted-foreground">#</th>

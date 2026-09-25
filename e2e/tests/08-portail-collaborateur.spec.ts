@@ -39,7 +39,7 @@ test('portail collaborateur : ses bons, le PDF, et jamais ceux des autres', asyn
     await enCours.getByText(sien.reference, { exact: true }).click();
     await portail.waitForURL(`**/mes-bons/${sien.bonId}`);
     await expect(portail.getByRole('heading', { level: 1, name: sien.reference })).toBeVisible();
-    await expect(portail.getByText('Actif', { exact: true }).first()).toBeVisible();
+    await expect(portail.getByText('En cours', { exact: true }).first()).toBeVisible();
 
     const downloadPromise = portail.waitForEvent('download');
     await portail.getByRole('button', { name: 'PDF', exact: true }).click();

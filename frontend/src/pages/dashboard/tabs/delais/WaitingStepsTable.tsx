@@ -16,7 +16,7 @@ export function WaitingStepsTable({ steps }: WaitingStepsTableProps) {
           <th scope="col" className="py-2 pr-2">Étape</th>
           <th scope="col" className="py-2 pr-2">Nombre</th>
           <th scope="col" className="py-2 pr-2">Ancienneté moyenne</th>
-          <th scope="col" className="py-2">En retard</th>
+          <th scope="col" className="py-2">Signature en retard</th>
         </tr>
       </thead>
       <tbody className="divide-y divide-border">

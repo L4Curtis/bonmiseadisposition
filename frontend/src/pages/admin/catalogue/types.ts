@@ -1,16 +1,5 @@
-export const CATEGORIES: Record<string, string> = {
-  pc_portable: 'PC Portable',
-  pc_fixe: 'PC Fixe',
-  ecran: 'Écran',
-  souris: 'Souris',
-  clavier: 'Clavier',
-  casque: 'Casque',
-  telephone: 'Téléphone',
-  housse: 'Housse',
-  dock: 'Dock',
-  cable: 'Câble',
-  autre: 'Autre',
-};
+/** Catégories d'articles : lexique commun (`@/domain/labels`). */
+export { CATEGORY_LABELS as CATEGORIES } from '@/domain/labels';
 
 export interface CatalogItem {
   id: string;

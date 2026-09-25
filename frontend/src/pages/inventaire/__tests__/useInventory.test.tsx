@@ -16,6 +16,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
       patch: vi.fn(),
       delete: vi.fn(),
       getBlob: vi.fn(),
+      getFile: vi.fn(),
       postForm: vi.fn(),
       patchForm: vi.fn(),
     },
@@ -224,7 +225,7 @@ describe('useInventory', () => {
 
   it('filtre « sans numéro de série » : relu depuis l’URL, transmis à la liste et à l’export, effacé par la réinitialisation', async () => {
     mockApiGet();
-    vi.mocked(api.getBlob).mockResolvedValue(new Blob(['a,b'], { type: 'text/csv' }));
+    vi.mocked(api.getFile).mockResolvedValue({ blob: new Blob(['a,b'], { type: 'text/csv' }), filename: 'export.csv', truncated: false });
     const { result } = renderHook(() => useInventory(), { wrapper: wrapperAt('/inventaire?sansNumeroSerie=1') });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -233,7 +234,7 @@ describe('useInventory', () => {
     expect(lastListCall()).toContain('sansNumeroSerie=1');
 
     await act(async () => { await result.current.handleExport(); });
-    const [exportUrl] = vi.mocked(api.getBlob).mock.calls.at(-1) as [string];
+    const [exportUrl] = vi.mocked(api.getFile).mock.calls.at(-1) as [string];
     expect(exportUrl).toContain('sansNumeroSerie=1');
 
     act(() => result.current.resetFilters());
@@ -259,7 +260,7 @@ describe('useInventory', () => {
 
   it('handleExport télécharge le CSV avec les filtres actifs', async () => {
     mockApiGet();
-    vi.mocked(api.getBlob).mockResolvedValue(new Blob(['a,b'], { type: 'text/csv' }));
+    vi.mocked(api.getFile).mockResolvedValue({ blob: new Blob(['a,b'], { type: 'text/csv' }), filename: 'export.csv', truncated: false });
     const { result } = renderHook(() => useInventory(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -268,13 +269,13 @@ describe('useInventory', () => {
 
     await act(async () => { await result.current.handleExport(); });
 
-    expect(api.getBlob).toHaveBeenCalledWith(expect.stringContaining('filialeId=f1'));
+    expect(api.getFile).toHaveBeenCalledWith(expect.stringContaining('filialeId=f1'));
     expect(result.current.exportLoading).toBe(false);
   });
 
   it('handleExport reflète aussi le tri et le filtre "retards uniquement" actifs', async () => {
     mockApiGet();
-    vi.mocked(api.getBlob).mockResolvedValue(new Blob(['a,b'], { type: 'text/csv' }));
+    vi.mocked(api.getFile).mockResolvedValue({ blob: new Blob(['a,b'], { type: 'text/csv' }), filename: 'export.csv', truncated: false });
     const { result } = renderHook(() => useInventory(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -283,7 +284,7 @@ describe('useInventory', () => {
 
     await act(async () => { await result.current.handleExport(); });
 
-    const [exportUrl] = vi.mocked(api.getBlob).mock.calls.at(-1) as [string];
+    const [exportUrl] = vi.mocked(api.getFile).mock.calls.at(-1) as [string];
     expect(exportUrl).toContain('overdue=1');
     expect(exportUrl).toContain('sort=dateRestitution');
     expect(exportUrl).toContain('direction=asc');

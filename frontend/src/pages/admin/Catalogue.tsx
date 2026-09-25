@@ -12,6 +12,7 @@ import { CatalogueImportDialog } from './catalogue/CatalogueImportDialog';
 import { PackList } from './catalogue/PackList';
 import { CatalogueDialogs } from './catalogue/CatalogueDialogs';
 import { buildCatalogCsv, buildCatalogTemplateCsv, downloadCsv } from './catalogue/lib/csv';
+import { todayInParis } from '@/lib/dates';
 import { filterPacksByStatus } from './catalogue/lib/statusFilter';
 import type { ItemStatusFilter } from './catalogue/lib/statusFilter';
 
@@ -48,7 +49,7 @@ export function CataloguePage() {
 
   const handleExport = (): void => {
     const csv = buildCatalogCsv(filteredItems);
-    downloadCsv(`catalogue-${new Date().toISOString().slice(0, 10)}.csv`, csv);
+    downloadCsv(`catalogue-${todayInParis()}.csv`, csv);
   };
 
   const handleDownloadTemplate = (): void => {

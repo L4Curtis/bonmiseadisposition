@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { PRESETS, detectPreset, presetRange, todayInParis } from '../kpi-period';
+import { todayInParis as todayInParisFromDates } from '../dates';
 
 const TODAY = '2026-09-16';
 
@@ -53,8 +54,8 @@ describe('detectPreset', () => {
   }
 });
 
-describe('todayInParis', () => {
-  it('returns a YYYY-MM-DD string', () => {
-    expect(todayInParis()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+describe('todayInParis (réexportée pour le formulaire de bon)', () => {
+  it('est celle de lib/dates, testée dans dates.test.ts', () => {
+    expect(todayInParis).toBe(todayInParisFromDates);
   });
 });

@@ -62,7 +62,7 @@ export function DelaisTab() {
       delta: { current: data.volumes.sent.current, previous: data.volumes.sent.previous },
     },
     {
-      key: 'archived', label: 'Archivés', value: data.volumes.archived.current, icon: Archive,
+      key: 'archived', label: 'Clôturés', value: data.volumes.archived.current, icon: Archive,
       delta: { current: data.volumes.archived.current, previous: data.volumes.archived.previous },
     },
     {
@@ -95,7 +95,7 @@ export function DelaisTab() {
         : undefined,
     },
     {
-      key: 'overdue', label: `En retard de signature (> ${thresholdDays} j)`, value: overdueTotal,
+      key: 'overdue', label: `Signature en retard (> ${thresholdDays} j)`, value: overdueTotal,
       icon: AlertTriangle, tone: overdueTone,
       onClick: isIt ? () => navigate('/bons?overdue=1') : undefined,
     },
@@ -160,7 +160,7 @@ export function DelaisTab() {
         loading={loading}
         delayIndex={1}
         empty={volumesVides}
-        emptyMessage="Aucun bon créé, envoyé ou archivé sur la période."
+        emptyMessage="Aucun bon créé, envoyé ou clôturé sur la période."
       >
         {data && (
           <TimeSeriesChart
@@ -168,7 +168,7 @@ export function DelaisTab() {
             series={[
               { key: 'created', label: 'Créés' },
               { key: 'sent', label: 'Envoyés' },
-              { key: 'archived', label: 'Archivés' },
+              { key: 'archived', label: 'Clôturés' },
             ]}
             granularity={data.period.granularity}
           />

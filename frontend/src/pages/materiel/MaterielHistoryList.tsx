@@ -1,6 +1,6 @@
 import { Link } from 'react-router';
 import { StatusBadge } from '@/components/StatusBadge';
-import { formatDate } from '@/lib/utils';
+import { formatDate } from '@/lib/dates';
 import type { MaterielHistoryEntry } from './types';
 
 export interface MaterielHistoryListProps {
@@ -39,7 +39,7 @@ export function MaterielHistoryList({ entries, canLinkToBon }: MaterielHistoryLi
               <span className="text-xs text-success">{`Rendu le ${formatDate(entry.returnedAt)}`}</span>
             )}
             {entry.notReturned && (
-              <span className="text-xs text-destructive">Non rendu</span>
+              <span className="text-xs text-destructive">Non restitué</span>
             )}
             <StatusBadge status={entry.bon.status} />
           </div>

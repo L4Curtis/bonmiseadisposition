@@ -71,10 +71,10 @@ test('contestation : le collaborateur conteste, l’IT tranche, le collaborateur
     await resolveDialog.getByRole('button', { name: 'Rejeter la contestation' }).click();
     await expect(resolveDialog).not.toBeVisible();
     // La liste n'affiche par défaut que les contestations ouvertes : celle-ci
-    // en sort, et se retrouve sous le filtre « Rejetée ».
+    // en sort, et se retrouve sous le filtre « Non retenue ».
     await expect(ligne).toHaveCount(0);
-    await page.getByRole('button', { name: 'Rejetée', exact: true }).click();
-    await expect(ligne).toContainText('Rejetée');
+    await page.getByRole('button', { name: 'Non retenue', exact: true }).click();
+    await expect(ligne).toContainText('Non retenue');
     await expect(ligne).toContainText('Traité par');
 
     // ── Collaborateur : le bon a quitté la contestation, il est de nouveau actif ─

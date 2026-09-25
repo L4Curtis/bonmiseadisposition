@@ -1,4 +1,4 @@
-import { formatDate } from '@/lib/utils';
+import { formatDate } from '@/lib/dates';
 import type { BonStatus } from '@/types';
 
 /** Une entrée de l'historique : un bon où ce matériel est apparu (référencé
@@ -44,7 +44,7 @@ export interface CurrentHolderStatus {
  *  amont par un état vide dédié, pas par cette fonction). */
 export function currentHolderStatus(latest: MaterielHistoryEntry): CurrentHolderStatus {
   if (latest.notReturned) {
-    return { kind: 'non_rendu', label: 'Déclaré non rendu' };
+    return { kind: 'non_rendu', label: 'Déclaré non restitué' };
   }
   if (latest.returnedAt) {
     return { kind: 'rendu', label: `Rendu le ${formatDate(latest.returnedAt)}` };

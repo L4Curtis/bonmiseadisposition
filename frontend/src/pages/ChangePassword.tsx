@@ -102,9 +102,11 @@ export function ChangePasswordPage() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-1">Mot de passe actuel</label>
+              <label htmlFor="current-password" className="block text-xs font-medium text-muted-foreground mb-1">Mot de passe actuel</label>
               <input
+                id="current-password"
                 type="password"
+                autoComplete="current-password"
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
                 required
@@ -113,10 +115,12 @@ export function ChangePasswordPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-1">Nouveau mot de passe</label>
+              <label htmlFor="new-password" className="block text-xs font-medium text-muted-foreground mb-1">Nouveau mot de passe</label>
               <div className="relative">
                 <input
+                  id="new-password"
                   type={showNew ? 'text' : 'password'}
+                  autoComplete="new-password"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   required
@@ -149,9 +153,11 @@ export function ChangePasswordPage() {
             )}
 
             <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-1">Confirmer le nouveau mot de passe</label>
+              <label htmlFor="confirm-password" className="block text-xs font-medium text-muted-foreground mb-1">Confirmer le nouveau mot de passe</label>
               <input
+                id="confirm-password"
                 type="password"
+                autoComplete="new-password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 required

@@ -38,6 +38,7 @@ export function useCatalogue() {
     }
   };
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- chargement initial unique ; fetchData est recréée à chaque rendu et n'utilise que des setters stables.
   useEffect(() => { fetchData(); }, []);
 
   const confirmDeactivate = async (): Promise<void> => {

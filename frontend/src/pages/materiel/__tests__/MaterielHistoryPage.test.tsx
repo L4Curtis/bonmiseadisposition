@@ -121,7 +121,7 @@ describe('MaterielHistoryPage', () => {
 
     renderPage();
 
-    expect(await screen.findByText('Déclaré non rendu')).toBeInTheDocument();
+    expect(await screen.findByText('Déclaré non restitué')).toBeInTheDocument();
   });
 
   it('ne rend pas la référence de bon cliquable pour la direction (canLinkToBon=false)', async () => {

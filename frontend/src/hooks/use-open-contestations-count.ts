@@ -45,9 +45,7 @@ export function useOpenContestationsCount(): number | null {
         if (requestIdRef.current !== requestId) return;
         setCount(null);
       });
-    // fallbackMessage n'existe pas ici ; seules l'identité du rôle et la route
-    // doivent redéclencher un appel (throttlé via lastFetchAtRef).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Seuls le rôle et la page relancent un appel (limité par lastFetchAtRef).
   }, [user?.role, location.pathname]);
 
   return count;

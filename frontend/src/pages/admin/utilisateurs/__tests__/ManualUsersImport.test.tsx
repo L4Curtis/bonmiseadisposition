@@ -15,6 +15,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
       patch: vi.fn(),
       delete: vi.fn(),
       getBlob: vi.fn(),
+      getFile: vi.fn(),
       postForm: vi.fn(),
       patchForm: vi.fn(),
     },
@@ -98,17 +99,17 @@ describe('Import / export CSV des collaborateurs créés à la main', () => {
   });
 
   it("télécharge l'export et le modèle générés par le serveur", async () => {
-    vi.mocked(api.getBlob).mockResolvedValue(new Blob(['x']));
+    vi.mocked(api.getFile).mockResolvedValue({ blob: new Blob(['a,b'], { type: 'text/csv' }), filename: 'export.csv', truncated: false });
     Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:x'), revokeObjectURL: vi.fn() });
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
 
     const { user } = await openMenu();
     await user.click(await screen.findByRole('menuitem', { name: /Exporter CSV/ }));
-    await waitFor(() => expect(api.getBlob).toHaveBeenCalledWith('/users/manual/export'));
+    await waitFor(() => expect(api.getFile).toHaveBeenCalledWith('/users/manual/export'));
 
     await user.click(await screen.findByRole('button', { name: /Autres actions/ }));
     await user.click(await screen.findByRole('menuitem', { name: /Télécharger un modèle/ }));
-    await waitFor(() => expect(api.getBlob).toHaveBeenCalledWith('/users/manual/import/template'));
+    await waitFor(() => expect(api.getFile).toHaveBeenCalledWith('/users/manual/import/template'));
     expect(click).toHaveBeenCalledTimes(2);
     click.mockRestore();
   });

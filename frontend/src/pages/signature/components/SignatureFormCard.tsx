@@ -1,5 +1,5 @@
 import { FileText, Loader2, Pen, XCircle } from 'lucide-react';
-import { formatDateTime } from '@/lib/utils';
+import { formatDateTime } from '@/lib/dates';
 import type { User } from '@/types';
 import { ConsentChecklist } from './ConsentChecklist';
 import { SignatureCanvasPanel } from './SignatureCanvasPanel';

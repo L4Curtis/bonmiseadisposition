@@ -4,6 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useUiView, UI_VIEW_LABELS } from '@/contexts/UiViewContext';
 import { useOpenContestationsCount } from '@/hooks/use-open-contestations-count';
 import { cn } from '@/lib/utils';
+import { SCREEN_LABELS } from '@/domain/labels';
 import {
   LayoutDashboard,
   FileText,
@@ -38,28 +39,36 @@ type NavGroup = {
   items: NavItem[];
 };
 
+const operationsGroup: NavGroup = {
+  title: 'Opérations',
+  items: [
+    { to: '/dashboard', icon: LayoutDashboard, label: 'Vue d\'ensemble' },
+    { to: '/bons', icon: FileText, label: SCREEN_LABELS.bons },
+    { to: '/admin/contestations', icon: MessageSquareWarning, label: SCREEN_LABELS.contestations },
+  ],
+};
+
+const catalogueItem: NavItem = { to: '/admin/catalogue', icon: Package, label: SCREEN_LABELS.catalogue };
+const inventaireItem: NavItem = { to: '/inventaire', icon: Boxes, label: SCREEN_LABELS.inventaire };
+
+// Le technicien voit et modifie le Catalogue, mais ne gère ni les comptes
+// (Utilisateurs) ni les Filiales : réservés à l'administrateur (décision du 24/09).
 const technicienNavGroups: NavGroup[] = [
-  {
-    title: 'Opérations',
-    items: [
-      { to: '/dashboard', icon: LayoutDashboard, label: 'Vue d\'ensemble' },
-      { to: '/bons', icon: FileText, label: 'Bons' },
-      { to: '/admin/contestations', icon: MessageSquareWarning, label: 'Contestations' },
-    ],
-  },
-  {
-    title: 'Référentiel',
-    items: [
-      { to: '/admin/utilisateurs', icon: Users, label: 'Collaborateurs' },
-      { to: '/admin/filiales', icon: Building2, label: 'Filiales' },
-      { to: '/admin/catalogue', icon: Package, label: 'Équipements' },
-      { to: '/inventaire', icon: Boxes, label: 'Inventaire' },
-    ],
-  },
+  operationsGroup,
+  { title: 'Référentiel', items: [catalogueItem, inventaireItem] },
 ];
 
 const adminNavGroups: NavGroup[] = [
-  ...technicienNavGroups,
+  operationsGroup,
+  {
+    title: 'Référentiel',
+    items: [
+      { to: '/admin/utilisateurs', icon: Users, label: SCREEN_LABELS.utilisateurs },
+      { to: '/admin/filiales', icon: Building2, label: SCREEN_LABELS.filiales },
+      catalogueItem,
+      inventaireItem,
+    ],
+  },
   {
     title: 'Administration',
     items: [

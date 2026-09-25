@@ -8,6 +8,9 @@ import { Toaster } from '@/components/ui/toaster';
 import { LoginPage } from '@/pages/Login';
 import { ChangePasswordPage } from '@/pages/ChangePassword';
 import { UnauthorizedPage } from '@/pages/Unauthorized';
+import { NotFoundPage } from '@/pages/NotFound';
+import { loginPathFor } from '@/lib/safe-return-to';
+import type { UserRole } from '@/types';
 
 // Lazy-loaded pages (code splitting)
 const DashboardPage = lazy(() => import('@/pages/dashboard/DashboardPage').then(m => ({ default: m.DashboardPage })));
@@ -41,17 +44,25 @@ const ConfigTimestampPage = lazy(() => import('@/pages/admin/configuration/Confi
 const ConfigRetentionPage = lazy(() => import('@/pages/admin/configuration/ConfigRetentionPage').then(m => ({ default: m.ConfigRetentionPage })));
 const ConfigMonitoringPage = lazy(() => import('@/pages/admin/configuration/ConfigMonitoringPage').then(m => ({ default: m.ConfigMonitoringPage })));
 
+/** Rôles autorisés par écran. Le serveur applique les mêmes règles : ici, on
+ *  évite seulement d'afficher un écran dont toutes les requêtes seraient refusées. */
+const ADMIN_ONLY: readonly UserRole[] = ['admin'];
+const IT_STAFF: readonly UserRole[] = ['admin', 'technician'];
+const IT_AND_DIRECTION: readonly UserRole[] = ['admin', 'technician', 'direction'];
+
 function ProtectedRoute({
   children,
   requiredRoles,
 }: {
   children: React.ReactNode;
-  requiredRoles?: string[];
+  requiredRoles?: readonly UserRole[];
 }) {
   const { user, loading } = useAuth();
   const location = useLocation();
   if (loading) return <LoadingSpinner />;
-  if (!user) return <Navigate to="/login" replace />;
+  // Sans session : la connexion ramènera ensuite à l'adresse demandée
+  // (lien reçu par email, favori, lien copié par un collègue).
+  if (!user) return <Navigate to={loginPathFor(location.pathname + location.search)} replace />;
   if (user.mustChangePassword && location.pathname !== '/change-password') {
     return <Navigate to="/change-password?forced=true" replace />;
   }
@@ -97,7 +108,7 @@ function AppRoutes() {
         } />
 
         <Route path="dashboard" element={
-          <ProtectedRoute requiredRoles={['admin', 'technician', 'direction']}>
+          <ProtectedRoute requiredRoles={IT_AND_DIRECTION}>
             <DashboardPage />
           </ProtectedRoute>
         } />
@@ -111,7 +122,7 @@ function AppRoutes() {
 
         {/* Inventaire */}
         <Route path="inventaire" element={
-          <ProtectedRoute requiredRoles={['admin', 'technician', 'direction']}>
+          <ProtectedRoute requiredRoles={IT_AND_DIRECTION}>
             <InventairePage />
           </ProtectedRoute>
         } />
@@ -120,38 +131,38 @@ function AppRoutes() {
             encodé — accès IT ; direction en lecture (mêmes rôles que l'inventaire,
             sans lien vers les bons dans la page elle-même). */}
         <Route path="materiel/:reference" element={
-          <ProtectedRoute requiredRoles={['admin', 'technician', 'direction']}>
+          <ProtectedRoute requiredRoles={IT_AND_DIRECTION}>
             <MaterielHistoryPage />
           </ProtectedRoute>
         } />
 
         {/* Bons */}
         <Route path="bons" element={
-          <ProtectedRoute requiredRoles={['admin', 'technician']}>
+          <ProtectedRoute requiredRoles={IT_STAFF}>
             <BonsListPage />
           </ProtectedRoute>
         } />
         {/* key force le remontage entre /new et /:id/edit (composant partagé :
             sans key, React conserverait l'état du formulaire d'une route à l'autre) */}
         <Route path="bons/new" element={
-          <ProtectedRoute requiredRoles={['admin', 'technician']}>
+          <ProtectedRoute requiredRoles={IT_STAFF}>
             <BonCreatePage key="new" />
           </ProtectedRoute>
         } />
         <Route path="bons/:id/edit" element={
-          <ProtectedRoute requiredRoles={['admin', 'technician']}>
+          <ProtectedRoute requiredRoles={IT_STAFF}>
             <BonCreatePage key="edit" />
           </ProtectedRoute>
         } />
         <Route path="bons/:id" element={
-          <ProtectedRoute requiredRoles={['admin', 'technician']}>
+          <ProtectedRoute requiredRoles={IT_STAFF}>
             <BonDetailPage />
           </ProtectedRoute>
         } />
 
         {/* Section admin — garde parent : admin OU technicien */}
         <Route path="admin" element={
-          <ProtectedRoute requiredRoles={['admin', 'technician']}>
+          <ProtectedRoute requiredRoles={IT_STAFF}>
             <AdminLayout />
           </ProtectedRoute>
         }>
@@ -162,13 +173,21 @@ function AppRoutes() {
           <Route path="contestations" element={<ContestationsPage />} />
           {/* Reporting fusionné dans /dashboard (onglet Parc) — ex-page supprimée */}
           <Route path="reports" element={<Navigate to="/dashboard?tab=parc" replace />} />
-          <Route path="filiales" element={<FilialesPage />} />
+          {/* Catalogue : admin + technicien. Utilisateurs et Filiales : admin
+              seul (décision du 24/09 : le technicien ne gère plus les comptes
+              ni les filiales ; il garde la recherche de collaborateurs dans le
+              formulaire de bon). */}
           <Route path="catalogue" element={<CataloguePage />} />
-          <Route path="utilisateurs" element={<UtilisateursPage />} />
+          <Route path="filiales" element={
+            <ProtectedRoute requiredRoles={ADMIN_ONLY}><FilialesPage /></ProtectedRoute>
+          } />
+          <Route path="utilisateurs" element={
+            <ProtectedRoute requiredRoles={ADMIN_ONLY}><UtilisateursPage /></ProtectedRoute>
+          } />
 
           {/* Configuration — sous-pages (admin only) */}
           <Route path="configuration" element={
-            <ProtectedRoute requiredRoles={['admin']}><Outlet /></ProtectedRoute>
+            <ProtectedRoute requiredRoles={ADMIN_ONLY}><Outlet /></ProtectedRoute>
           }>
             <Route index element={<Navigate to="general" replace />} />
             <Route path="general" element={<ConfigGeneralPage />} />
@@ -185,7 +204,7 @@ function AppRoutes() {
 
           {/* Templates — sous-pages (admin only) */}
           <Route path="templates" element={
-            <ProtectedRoute requiredRoles={['admin']}><Outlet /></ProtectedRoute>
+            <ProtectedRoute requiredRoles={ADMIN_ONLY}><Outlet /></ProtectedRoute>
           }>
             <Route index element={<Navigate to="email" replace />} />
             <Route path="email" element={<TemplatesPage />} />
@@ -194,10 +213,10 @@ function AppRoutes() {
 
           {/* Pages simples (admin only) */}
           <Route path="ldap-sync" element={
-            <ProtectedRoute requiredRoles={['admin']}><LdapSyncPage /></ProtectedRoute>
+            <ProtectedRoute requiredRoles={ADMIN_ONLY}><LdapSyncPage /></ProtectedRoute>
           } />
           <Route path="audit" element={
-            <ProtectedRoute requiredRoles={['admin']}><AuditLogsPage /></ProtectedRoute>
+            <ProtectedRoute requiredRoles={ADMIN_ONLY}><AuditLogsPage /></ProtectedRoute>
           } />
 
           {/* Redirects de compatibilité anciennes routes */}
@@ -205,9 +224,11 @@ function AppRoutes() {
           <Route path="email-templates" element={<Navigate to="/admin/templates/email" replace />} />
           <Route path="pdf-templates" element={<Navigate to="/admin/templates/pdf" replace />} />
         </Route>
-      </Route>
 
-      <Route path="*" element={<Navigate to="/" replace />} />
+        {/* Adresse inconnue : le dire plutôt que renvoyer en silence à
+            l'accueil (lien ancien ou mal copié). */}
+        <Route path="*" element={<NotFoundPage />} />
+      </Route>
     </Routes>
     </Suspense>
   );

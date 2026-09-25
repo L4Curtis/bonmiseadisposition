@@ -14,7 +14,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { toast } from '@/hooks/use-toast';
-import { formatDateTime } from '@/lib/utils';
+import { formatDateTime } from '@/lib/dates';
 import { RefreshCw, CheckCircle, XCircle, AlertTriangle, Clock, Trash2 } from 'lucide-react';
 
 interface SyncStatus {
@@ -77,7 +77,7 @@ export function LdapSyncPage() {
       })
       .catch(() => { /* non bloquant — on affiche une valeur par défaut */ });
     return () => stopPolling();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- chargement initial unique ; l'arrêt de l'interrogation au démontage ne dépend que d'une référence.
   }, []);
 
   const pollUntilSynced = (previousLastSync: string | null) => {

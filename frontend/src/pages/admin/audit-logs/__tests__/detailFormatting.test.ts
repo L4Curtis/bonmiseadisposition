@@ -19,7 +19,7 @@ describe('formatDetailEntry', () => {
   });
 
   it('traduit un type de snapshot connu', () => {
-    expect(formatDetailEntry('type', 'signature_it_mise_disposition')).toBe('Cachet IT (mise à dispo)');
+    expect(formatDetailEntry('type', 'signature_it_mise_disposition')).toBe('Signature IT — mise à disposition');
   });
 
   it('laisse un type inconnu tel quel', () => {

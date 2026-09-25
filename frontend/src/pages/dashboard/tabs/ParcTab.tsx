@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useNavigate } from 'react-router';
 import { Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -7,14 +7,11 @@ import { BreakdownBars } from '@/components/dashboard/BreakdownBars';
 import { TimeSeriesChart } from '@/components/dashboard/charts/TimeSeriesChart';
 import { DonutChart } from '@/components/dashboard/charts/DonutChart';
 import { HorizontalBars } from '@/components/dashboard/charts/HorizontalBars';
-import { staggerClass } from '@/components/dashboard/stagger';
 import { useApiResource } from '@/hooks/use-api-resource';
 import { useAuth } from '@/contexts/AuthContext';
 import { isItRole } from '@/lib/roles';
-import { api } from '@/lib/api';
-import { showActionError } from '@/lib/errors';
-import { toast } from '@/hooks/use-toast';
-import { todayInParis } from '@/lib/kpi-period';
+import { todayInParis } from '@/lib/dates';
+import { CSV_EXPORT_SUCCESS, useDownload } from '@/hooks/useDownload';
 import { usePeriodParams } from '../use-period-params';
 import type { ParcKpiResponse } from '../types/parc';
 import { ParcStatCards } from './parc/ParcStatCards';
@@ -40,25 +37,15 @@ export function ParcTab() {
     'Impossible de charger les indicateurs du parc',
   );
 
-  const [exportLoading, setExportLoading] = useState(false);
+  const { download, downloading: exportLoading } = useDownload();
 
-  const handleExport = async () => {
-    setExportLoading(true);
-    try {
-      const path = `/reporting/inventory/export${filialeId ? `?filialeId=${filialeId}` : ''}`;
-      const blob = await api.getBlob(path);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `inventaire-${todayInParis()}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
-      toast({ title: 'Export réussi', description: 'Le fichier CSV a été téléchargé.', variant: 'success' });
-    } catch (e: unknown) {
-      showActionError(e, "Erreur lors de l'export CSV.");
-    } finally {
-      setExportLoading(false);
-    }
+  const handleExport = async (): Promise<void> => {
+    await download({
+      path: `/reporting/inventory/export${filialeId ? `?filialeId=${encodeURIComponent(filialeId)}` : ''}`,
+      fallbackFilename: `inventaire-${todayInParis()}.csv`,
+      errorMessage: "Erreur lors de l'export CSV.",
+      success: CSV_EXPORT_SUCCESS,
+    });
   };
 
   const categoryData = useMemo(

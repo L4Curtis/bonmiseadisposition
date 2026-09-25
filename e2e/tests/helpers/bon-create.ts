@@ -94,6 +94,6 @@ export async function createActiveBon(page: Page, params: DraftBonParams): Promi
   const signerPath = await initiatePresentiel(page, 'mise_disposition');
   await completeSignature(page, signerPath);
   await page.goto(bon.url);
-  await expect(page.getByText('Actif', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('En cours', { exact: true }).first()).toBeVisible();
   return bon;
 }

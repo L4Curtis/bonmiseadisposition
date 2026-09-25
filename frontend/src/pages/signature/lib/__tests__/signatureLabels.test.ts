@@ -3,7 +3,7 @@ import { signatureDocLabel, signatureStageForType, signatureTypeLabel } from '..
 
 describe('signatureTypeLabel', () => {
   it('labels a pv_cloture signature', () => {
-    expect(signatureTypeLabel('pv_cloture')).toBe('procès-verbal d\'équipements non restitués');
+    expect(signatureTypeLabel('pv_cloture')).toBe('PV de non-restitution');
   });
 
   it('labels a restitution signature', () => {
@@ -17,8 +17,8 @@ describe('signatureTypeLabel', () => {
 });
 
 describe('signatureDocLabel', () => {
-  it('uses "Le procès-verbal" for pv_cloture', () => {
-    expect(signatureDocLabel('pv_cloture')).toBe('Le procès-verbal');
+  it('uses "Le PV de non-restitution" for pv_cloture', () => {
+    expect(signatureDocLabel('pv_cloture')).toBe('Le PV de non-restitution');
   });
 
   it('uses "Le bon de <type>" for other types', () => {

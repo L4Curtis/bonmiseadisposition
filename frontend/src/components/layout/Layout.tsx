@@ -2,6 +2,8 @@ import { Suspense } from 'react';
 import { Outlet, useLocation } from 'react-router';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
+import { usePageTitle } from '@/hooks/usePageTitle';
+import { routeTitle } from '@/lib/route-titles';
 
 /** Attente pendant le chargement d'une page, à l'intérieur de la mise en page
  *  (le menu et l'en-tête restent visibles). */
@@ -20,6 +22,8 @@ function PageLoading() {
 
 export function Layout() {
   const { pathname } = useLocation();
+  // Titre de l'onglet déduit de l'adresse ; un écran peut le préciser.
+  usePageTitle(routeTitle(pathname), 'route');
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">

@@ -27,7 +27,7 @@ test('collaborateur sans adresse : initiation de restitution par email refusée,
   const signerPath = await initiatePresentiel(page, 'mise_disposition');
   await completeSignature(page, signerPath);
   await page.goto(url);
-  await expect(page.getByText('Actif', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('En cours', { exact: true }).first()).toBeVisible();
 
   // Initier une restitution par email (bouton « Initier restitution »,
   // sélection par case à cocher) : la garde s'applique dès l'appel API, avant
@@ -52,5 +52,5 @@ test('collaborateur sans adresse : initiation de restitution par email refusée,
 
   // Rien n'a été marqué restitué : le bon reste actif.
   await page.goto(url);
-  await expect(page.getByText('Actif', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('En cours', { exact: true }).first()).toBeVisible();
 });

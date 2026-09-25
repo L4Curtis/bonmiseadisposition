@@ -22,7 +22,7 @@ test('présentiel jusqu’à la signature : bon actif et PDF disponible', async 
   await completeSignature(page, signerPath);
 
   await page.goto(url);
-  await expect(page.getByText('Actif', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('En cours', { exact: true }).first()).toBeVisible();
   // Deux documents attendus : le cachet IT (posé avant l'envoi) et la
   // signature du collaborateur (recueillie en présentiel, voir signing.ts).
   await expect(page.getByText(/Documents PDF \(2\)/)).toBeVisible();

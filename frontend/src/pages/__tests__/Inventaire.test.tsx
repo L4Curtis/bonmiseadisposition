@@ -48,7 +48,7 @@ const summary = {
   byCategory: [{ category: 'pc_portable', label: 'PC portable', count: 6 }],
   byFiliale: [{ filialeId: 'f1', name: 'Paris', count: 10 }],
   bySituation: [
-    { situation: 'en_attente_signature', label: 'En attente de signature', count: 3 },
+    { situation: 'en_attente_signature', label: 'Remise à signer', count: 3 },
     { situation: 'en_circulation', label: 'En circulation', count: 7 },
     { situation: 'en_litige', label: 'En litige', count: 0 },
   ],
@@ -140,11 +140,11 @@ describe('InventairePage', () => {
     expect(ref.closest('a')).toBeNull();
   });
 
-  it('cliquer sur la tuile « En retard de restitution » filtre la liste et affiche le chip actif', async () => {
+  it('cliquer sur la tuile « Retour en retard » filtre la liste et affiche le chip actif', async () => {
     const { user } = renderWithProviders(<InventairePage />);
     await screen.findByText('Jean Dupont');
 
-    await user.click(screen.getByRole('button', { name: /En retard de restitution/ }));
+    await user.click(screen.getByRole('button', { name: /Retour en retard/ }));
 
     await waitFor(() => {
       const lastCall = vi.mocked(api.get).mock.calls
@@ -156,11 +156,11 @@ describe('InventairePage', () => {
     expect(await screen.findByText('Retards uniquement')).toBeInTheDocument();
   });
 
-  it('cliquer sur la tuile « En attente de signature » filtre la liste sur cette situation', async () => {
+  it('cliquer sur la tuile « Remise à signer » filtre la liste sur cette situation', async () => {
     const { user } = renderWithProviders(<InventairePage />);
     await screen.findByText('Jean Dupont');
 
-    await user.click(screen.getByRole('button', { name: /En attente de signature/ }));
+    await user.click(screen.getByRole('button', { name: /Remise à signer/ }));
 
     await waitFor(() => {
       const select = screen.getByLabelText('Filtrer par situation') as HTMLSelectElement;
@@ -200,7 +200,7 @@ describe('InventairePage', () => {
       expect(lastCall).toBeDefined();
     });
     expect(screen.getByText('Équipements')).toBeInTheDocument();
-    expect(screen.getByText('En retard')).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Retour en retard' })).toBeInTheDocument();
   });
 
   it('applique un filtre actif (retard) à la vue collaborateur', async () => {
@@ -210,7 +210,7 @@ describe('InventairePage', () => {
     await user.click(screen.getByRole('tab', { name: 'Par collaborateur' }));
     await waitFor(() => screen.getByText('Équipements'));
 
-    await user.click(screen.getByRole('button', { name: /En retard de restitution/ }));
+    await user.click(screen.getByRole('button', { name: /Retour en retard/ }));
 
     await waitFor(() => {
       const lastCall = vi.mocked(api.get).mock.calls

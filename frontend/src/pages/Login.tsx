@@ -7,7 +7,11 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { loginSchema, validate } from '@/lib/validation';
-import { isSafeReturnTo } from '@/lib/safe-return-to';
+import { safeReturnTo } from '@/lib/safe-return-to';
+import { api, ApiError } from '@/lib/api';
+import { errorMessage } from '@/lib/errors';
+import { SCREEN_LABELS } from '@/domain/labels';
+import { usePageTitle } from '@/hooks/usePageTitle';
 
 const ERROR_MESSAGES: Record<string, string> = {
   entra_config_missing: "La configuration Microsoft Entra ID n'est pas encore configurée.",
@@ -17,6 +21,7 @@ const ERROR_MESSAGES: Record<string, string> = {
 };
 
 export function LoginPage() {
+  usePageTitle(SCREEN_LABELS.connexion);
   const [searchParams] = useSearchParams();
   const [setupRequired, setSetupRequired] = useState<boolean | null>(null);
   const [localAuthEnabled, setLocalAuthEnabled] = useState(true);
@@ -27,26 +32,33 @@ export function LoginPage() {
   const [localLoading, setLocalLoading] = useState(false);
   const error = searchParams.get('error');
 
-  const rawReturnTo = searchParams.get('returnTo');
-  const safeReturnTo = rawReturnTo && isSafeReturnTo(rawReturnTo) ? rawReturnTo : null;
-  const destination = safeReturnTo ?? '/';
-  const ssoLoginHref = safeReturnTo
-    ? `/api/auth/login?returnTo=${encodeURIComponent(safeReturnTo)}`
+  // Adresse demandée avant la connexion (lien profond, session expirée). Pour
+  // Microsoft, le serveur la garde pendant l'aller-retour (cookie
+  // auth_return_to) et la revalide avant d'y renvoyer.
+  const returnTo = safeReturnTo(searchParams.get('returnTo'));
+  const destination = returnTo ?? '/';
+  const ssoLoginHref = returnTo
+    ? `/api/auth/login?returnTo=${encodeURIComponent(returnTo)}`
     : '/api/auth/login';
 
   useEffect(() => {
+    const controller = new AbortController();
+    const options = { signal: controller.signal, onUnauthorized: 'no-refresh' } as const;
     Promise.all([
-      fetch('/api/auth/setup-required', { credentials: 'include' }).then((r) => r.json()),
-      fetch('/api/auth/local-auth-status', { credentials: 'include' }).then((r) => r.json()),
+      api.get<{ setupRequired: boolean }>('/auth/setup-required', options),
+      api.get<{ enabled: boolean }>('/auth/local-auth-status', options),
     ]).then(([setupData, localData]) => {
       setSetupRequired(setupData.setupRequired);
       setLocalAuthEnabled(localData.enabled);
-    }).catch(() => {
-      // Backend partiellement indisponible : afficher quand même la page de
-      // connexion (bouton SSO) plutôt qu'un spinner infini
+    }).catch((e: unknown) => {
+      if (e instanceof DOMException && e.name === 'AbortError') return;
+      // Serveur partiellement indisponible : afficher quand même la page de
+      // connexion (bouton Microsoft) plutôt qu'une attente sans fin ; la
+      // connexion elle-même affichera l'erreur si le serveur ne répond pas.
       setSetupRequired(false);
       setLocalAuthEnabled(true);
     });
+    return () => controller.abort();
   }, []);
 
   const handleLocalLogin = async (e: React.FormEvent) => {
@@ -59,29 +71,24 @@ export function LoginPage() {
     setLocalLoading(true);
     setLocalError('');
     try {
-      const res = await fetch('/api/auth/local-login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-        body: JSON.stringify({ email: localEmail, password: localPassword }),
-        credentials: 'include',
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.mustChangePassword) {
-          // ChangePassword lit ce même paramètre et y redirige une fois le
-          // mot de passe changé (cf. pages/ChangePassword.tsx).
-          window.location.href = safeReturnTo
-            ? `/change-password?forced=true&returnTo=${encodeURIComponent(safeReturnTo)}`
-            : '/change-password?forced=true';
-        } else {
-          window.location.href = destination;
-        }
+      // « no-refresh » : ici, un 401 veut dire « identifiants refusés », pas
+      // « session expirée ».
+      const data = await api.post<{ mustChangePassword?: boolean }>(
+        '/auth/local-login',
+        { email: localEmail, password: localPassword },
+        { onUnauthorized: 'no-refresh' },
+      );
+      if (data?.mustChangePassword) {
+        // ChangePassword lit ce même paramètre et y redirige une fois le
+        // mot de passe changé (cf. pages/ChangePassword.tsx).
+        window.location.href = returnTo
+          ? `/change-password?forced=true&returnTo=${encodeURIComponent(returnTo)}`
+          : '/change-password?forced=true';
       } else {
-        const data = await res.json().catch(() => ({}));
-        setLocalError(data.message || 'Identifiants incorrects');
+        window.location.href = destination;
       }
-    } catch {
-      setLocalError('Erreur de connexion au serveur');
+    } catch (e: unknown) {
+      setLocalError(e instanceof ApiError ? errorMessage(e, 'Identifiants incorrects') : 'Erreur de connexion au serveur');
     } finally {
       setLocalLoading(false);
     }
@@ -197,7 +204,7 @@ export function LoginPage() {
                       disabled={localLoading}
                       className="w-full"
                     >
-                      {localLoading ? 'Connexion...' : 'Se connecter'}
+                      {localLoading ? 'Connexion…' : 'Se connecter'}
                     </Button>
                     <p className="text-center text-xs text-white/40">
                       Compte local IT uniquement

@@ -74,7 +74,7 @@ function splitCsvLine(line: string, separator: string): string[] {
 
 function normalizeHeaderCell(cell: string): string {
   return cell
-    .replace(/^﻿/, '')
+    .replace(/^\uFEFF/, '')
     .trim()
     .toLowerCase()
     .normalize('NFD')

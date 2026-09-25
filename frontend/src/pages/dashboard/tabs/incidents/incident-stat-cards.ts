@@ -23,7 +23,7 @@ export function buildIncidentStatCards(
     {
       key: 'not-returned-declared',
       props: {
-        label: 'Non rendus déclarés',
+        label: 'Non restitués déclarés',
         value: data?.notReturned.declared.current ?? null,
         icon: AlertTriangle,
         loading,
@@ -47,7 +47,7 @@ export function buildIncidentStatCards(
     {
       key: 'pv-cloture',
       props: {
-        label: 'PV de clôture émis',
+        label: 'PV de non-restitution émis',
         value: data?.pvCloture.emitted.current ?? null,
         icon: FileWarning,
         loading,

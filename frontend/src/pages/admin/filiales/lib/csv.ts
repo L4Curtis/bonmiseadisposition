@@ -174,18 +174,3 @@ export function readFileAsText(file: File): Promise<string> {
     reader.readAsText(file);
   });
 }
-
-/** Déclenche le téléchargement d'un fichier reçu du serveur (export ou modèle
- *  d'import) : contrairement au catalogue, l'export des filiales est généré
- *  côté serveur (il inclut potentiellement les images encodées en base64), le
- *  navigateur se contente donc de relayer le `Blob` reçu — aucun contenu CSV
- *  n'est produit ici, donc aucun échappement anti-injection de formule n'est
- *  nécessaire dans ce module. */
-export function downloadBlob(filename: string, blob: Blob): void {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
-}

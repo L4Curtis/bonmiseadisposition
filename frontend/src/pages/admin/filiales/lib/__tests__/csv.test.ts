@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
-import { parseFilialesCsv, downloadBlob } from '../csv';
+import { describe, it, expect } from 'vitest';
+import { parseFilialesCsv } from '../csv';
 
 describe('parseFilialesCsv', () => {
   it('parse un CSV valide separe par des points-virgules', () => {
@@ -103,28 +103,5 @@ describe('parseFilialesCsv', () => {
     const { rows, invalidRows } = parseFilialesCsv('');
     expect(rows).toEqual([]);
     expect(invalidRows).toEqual([{ line: 1, message: 'Fichier vide' }]);
-  });
-});
-
-describe('downloadBlob', () => {
-  it('cree un lien objet URL et declenche le telechargement du blob recu du serveur', () => {
-    // jsdom ne fournit pas URL.createObjectURL/revokeObjectURL — on les stub
-    // directement plutôt que via vi.spyOn (qui exige que la propriété existe déjà).
-    const originalCreate = URL.createObjectURL;
-    const originalRevoke = URL.revokeObjectURL;
-    URL.createObjectURL = vi.fn(() => 'blob:mock-url');
-    URL.revokeObjectURL = vi.fn();
-    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-
-    const blob = new Blob(['contenu'], { type: 'text/csv' });
-    downloadBlob('filiales.csv', blob);
-
-    expect(URL.createObjectURL).toHaveBeenCalledWith(blob);
-    expect(clickSpy).toHaveBeenCalled();
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock-url');
-
-    URL.createObjectURL = originalCreate;
-    URL.revokeObjectURL = originalRevoke;
-    clickSpy.mockRestore();
   });
 });

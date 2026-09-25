@@ -46,6 +46,38 @@ describe('useToast', () => {
     expect(result.current.toasts.find((t) => t.id === id)?.open).toBe(false);
   });
 
+  it('garde affichée une notification de durée infinie (avertissement à lire)', () => {
+    const { result } = renderHook(() => useToast());
+    let id = '';
+    act(() => {
+      id = toast({ title: 'Export incomplet', duration: Infinity }).id;
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(60_000);
+    });
+
+    expect(result.current.toasts.find((t) => t.id === id)?.open).toBe(true);
+  });
+
+  it('respecte une durée d’affichage demandée', () => {
+    const { result } = renderHook(() => useToast());
+    let id = '';
+    act(() => {
+      id = toast({ title: 'Information', duration: 8_000 }).id;
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(7_999);
+    });
+    expect(result.current.toasts.find((t) => t.id === id)?.open).toBe(true);
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(result.current.toasts.find((t) => t.id === id)?.open).toBe(false);
+  });
+
   it('keeps at most 3 toasts at a time (TOAST_LIMIT)', () => {
     const { result } = renderHook(() => useToast());
     act(() => {

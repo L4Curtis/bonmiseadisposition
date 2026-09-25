@@ -82,12 +82,12 @@ function buildFixture(overrides: Partial<DelaisKpiResponse> = {}): DelaisKpiResp
     },
     statusBreakdown: [
       { status: 'draft', label: 'Brouillon', count: 0 },
-      { status: 'sent_mise_dispo', label: 'En attente de signature', count: 5 },
+      { status: 'sent_mise_dispo', label: 'Remise à signer', count: 5 },
       { status: 'active', label: 'Actif', count: 120 },
       { status: 'sent_restitution', label: 'En attente de restitution', count: 3 },
-      { status: 'partially_returned', label: 'Restitution partielle', count: 0 },
+      { status: 'partially_returned', label: 'Restitution en cours', count: 0 },
       { status: 'contested', label: 'Contesté', count: 0 },
-      { status: 'archived', label: 'Archivé', count: 44 },
+      { status: 'archived', label: 'Clôturé', count: 44 },
       { status: 'cancelled', label: 'Annulé', count: 3 },
     ],
     creationToSend: { count: 52, medianHours: 5.2, p90Hours: 48.1, previous: { medianHours: 6.0, p90Hours: 50.2 } },
@@ -117,7 +117,7 @@ function buildFixture(overrides: Partial<DelaisKpiResponse> = {}): DelaisKpiResp
       steps: [
         { step: 'mise_disposition', label: 'Signature mise à disposition', count: 12, avgAgeDays: 4.1, overdue: 3 },
         { step: 'restitution', label: 'Signature restitution', count: 5, avgAgeDays: 2, overdue: 1 },
-        { step: 'pv_cloture', label: 'PV de clôture', count: 2, avgAgeDays: 9.5, overdue: 2 },
+        { step: 'pv_cloture', label: 'PV de non-restitution', count: 2, avgAgeDays: 9.5, overdue: 2 },
       ],
     },
     ...overrides,
@@ -151,7 +151,7 @@ describe('DelaisTab', () => {
     // apparaître ailleurs, ex. la légende du graphique des volumes).
     expect(screen.getByLabelText('Bons créés : 58')).toBeInTheDocument();
     expect(screen.getByLabelText('Envoyés : 52')).toBeInTheDocument();
-    expect(screen.getByLabelText('Archivés : 44')).toBeInTheDocument();
+    expect(screen.getByLabelText('Clôturés : 44')).toBeInTheDocument();
     expect(screen.getByLabelText('Annulés : 3')).toBeInTheDocument();
     expect(screen.getAllByText(/vs période précédente/).length).toBeGreaterThan(0);
   });
@@ -160,7 +160,7 @@ describe('DelaisTab', () => {
     vi.mocked(api.get).mockResolvedValue(buildFixture());
     const { user } = renderWithProviders(<DelaisTab />, { route: ROUTE });
 
-    const overdueCard = await screen.findByRole('button', { name: /En retard de signature \(> 7 j\)/ });
+    const overdueCard = await screen.findByRole('button', { name: /Signature en retard \(> 7 j\)/ });
     await user.click(overdueCard);
 
     expect(navigateMock).toHaveBeenCalledWith('/bons?overdue=1');
@@ -171,8 +171,8 @@ describe('DelaisTab', () => {
     vi.mocked(api.get).mockResolvedValue(buildFixture());
     renderWithProviders(<DelaisTab />, { route: ROUTE });
 
-    await screen.findByText('En retard de signature (> 7 j)');
-    expect(screen.queryByRole('button', { name: /En retard de signature/ })).not.toBeInTheDocument();
+    await screen.findByText('Signature en retard (> 7 j)');
+    expect(screen.queryByRole('button', { name: /Signature en retard/ })).not.toBeInTheDocument();
   });
 
   it('renders the chart card titles, the signature-mode tiles and the waiting-steps table', async () => {
@@ -193,9 +193,9 @@ describe('DelaisTab', () => {
     // Table des étapes en attente.
     expect(screen.getByText('Signature mise à disposition')).toBeInTheDocument();
     expect(screen.getByText('Signature restitution')).toBeInTheDocument();
-    // « PV de clôture » apparaît deux fois : table des étapes en attente et
+    // « PV de non-restitution » apparaît deux fois : table des étapes en attente et
     // table de détail du délai envoi → signature par type.
-    expect(screen.getAllByText('PV de clôture').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText('PV de non-restitution').length).toBeGreaterThanOrEqual(2);
   });
 
   it('shows the empty state for the waiting-steps table when there is nothing waiting', async () => {
@@ -206,7 +206,7 @@ describe('DelaisTab', () => {
         steps: [
           { step: 'mise_disposition', label: 'Signature mise à disposition', count: 0, avgAgeDays: null, overdue: 0 },
           { step: 'restitution', label: 'Signature restitution', count: 0, avgAgeDays: null, overdue: 0 },
-          { step: 'pv_cloture', label: 'PV de clôture', count: 0, avgAgeDays: null, overdue: 0 },
+          { step: 'pv_cloture', label: 'PV de non-restitution', count: 0, avgAgeDays: null, overdue: 0 },
         ],
       },
     }));

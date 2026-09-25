@@ -2,7 +2,7 @@ import { useNavigate } from 'react-router';
 import { Shield, ExternalLink } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { formatDateTime } from '@/lib/utils';
+import { formatDateTime } from '@/lib/dates';
 import { ActionBadge } from './ActionBadge';
 import { DetailCell } from './DetailCell';
 import type { AuditLog } from './types';

@@ -1,5 +1,5 @@
 import { Link } from 'react-router';
-import { formatDate } from '@/lib/utils';
+import { formatDate } from '@/lib/dates';
 import type { ParcReturnOverdueTop } from '../../types/parc';
 
 interface ReturnOverdueTableProps {

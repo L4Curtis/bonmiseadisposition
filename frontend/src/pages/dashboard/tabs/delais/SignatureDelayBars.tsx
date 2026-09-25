@@ -5,7 +5,7 @@ import type { SendToSignature, SendToSignatureMetric } from '../../types/delais'
 const STEPS: Array<{ key: keyof SendToSignature; label: string }> = [
   { key: 'mise_disposition', label: 'Mise à disposition' },
   { key: 'restitution', label: 'Restitution' },
-  { key: 'pv_cloture', label: 'PV de clôture' },
+  { key: 'pv_cloture', label: 'PV de non-restitution' },
 ];
 
 export interface SignatureDelayBarsProps {

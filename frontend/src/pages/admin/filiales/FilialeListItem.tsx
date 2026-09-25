@@ -52,7 +52,7 @@ export function FilialeListItem({
             </div>
             <div className="flex items-center gap-2">
               <FileUploadButton label="Logo" onUpload={(file) => onUpload('logo', file)} />
-              <FileUploadButton label="Cachet IT" onUpload={(file) => onUpload('stamp', file)} />
+              <FileUploadButton label="Cachet de la filiale" onUpload={(file) => onUpload('stamp', file)} />
               <Button
                 variant="outline"
                 size="sm"

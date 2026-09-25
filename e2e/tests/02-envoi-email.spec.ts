@@ -6,7 +6,7 @@ import { waitForEmailTo, extractSignerPath } from './helpers/mailpit';
 
 /**
  * Test 2 — Création d'un bon pour un collaborateur avec adresse, cachet IT
- * dessiné, envoi par email : le bon passe « en attente de signature » et
+ * dessiné, envoi par email : le bon passe « Remise à signer » et
  * l'email de demande de signature arrive dans mailpit, adressé au
  * collaborateur, avec un lien /signer/.
  *
@@ -27,7 +27,7 @@ test('création, cachet IT et envoi par email', async ({ page }) => {
 
   await sendBySignatureLink(page);
 
-  await expect(page.getByText('En attente de signature').first()).toBeVisible();
+  await expect(page.getByText('Remise à signer', { exact: true }).first()).toBeVisible();
 
   const email = await waitForEmailTo(collaborateurEmail);
   expect(email.to.toLowerCase()).toBe(collaborateurEmail.toLowerCase());
@@ -37,5 +37,5 @@ test('création, cachet IT et envoi par email', async ({ page }) => {
   // Le bon reste bien joignable à l'URL de création initiale (aucune
   // redirection inattendue après l'envoi).
   await page.goto(url);
-  await expect(page.getByText('En attente de signature').first()).toBeVisible();
+  await expect(page.getByText('Remise à signer', { exact: true }).first()).toBeVisible();
 });

@@ -77,7 +77,7 @@ export function useCollaborateurInventory({ enabled, filters, page, setPage, com
     return () => {
       ignore = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- chaque filtre est listé un par un : l'objet `filters` est recréé à chaque rendu.
   }, [
     enabled,
     filters.filialeFilter,

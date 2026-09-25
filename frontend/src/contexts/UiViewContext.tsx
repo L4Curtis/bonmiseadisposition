@@ -80,7 +80,9 @@ function readStoredView(): UiView | null {
 function savePrefs(userId: string, view: UiView): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ userId, view }));
-  } catch {}
+  } catch {
+    // Stockage bloqué (navigation privée) : la vue vaut pour la visite en cours.
+  }
 }
 
 export function UiViewProvider({ children }: { children: React.ReactNode }) {
@@ -112,7 +114,9 @@ export function UiViewProvider({ children }: { children: React.ReactNode }) {
           return;
         }
       }
-    } catch {}
+    } catch {
+      // Préférence illisible ou stockage bloqué : on retombe sur la vérification ci-dessous.
+    }
     // Même utilisateur — vérifier que la vue est toujours dans ses droits
     if (!activeView || !availableViews.includes(activeView)) {
       setActiveViewState(defaultView);
@@ -121,7 +125,8 @@ export function UiViewProvider({ children }: { children: React.ReactNode }) {
       // Ancrer userId dans les prefs (cas premier login sans userId stocké)
       savePrefs(user.id, activeView);
     }
-  }, [user?.id, user?.role]); // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- revalider seulement quand le compte ou son rôle change, pas à chaque changement de vue.
+  }, [user?.id, user?.role]);
 
   const setActiveView = (view: UiView) => {
     if (availableViews.includes(view)) {

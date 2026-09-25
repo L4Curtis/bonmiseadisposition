@@ -20,20 +20,20 @@ import { LoginPage } from '../Login';
 // "/\t/evil.com" en "//evil.com" (référence réseau-relative → host = evil.com).
 const OPEN_REDIRECT_PAYLOADS = ['/\\evil.com', '/%09/evil.com', '/%0a/evil.com'];
 
-function mockAuthFetch() {
-  global.fetch = vi.fn((input: RequestInfo | URL) => {
+function jsonRes(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+}
+
+function mockAuthFetch(loginResponse: () => Response = () => jsonRes(200, { ok: true, mustChangePassword: false })) {
+  const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const url = typeof input === 'string' ? input : input.toString();
-    if (url.includes('/auth/setup-required')) {
-      return Promise.resolve({ ok: true, json: async () => ({ setupRequired: false }) } as Response);
-    }
-    if (url.includes('/auth/local-auth-status')) {
-      return Promise.resolve({ ok: true, json: async () => ({ enabled: true }) } as Response);
-    }
-    if (url.includes('/auth/local-login')) {
-      return Promise.resolve({ ok: true, json: async () => ({ ok: true, mustChangePassword: false }) } as Response);
-    }
+    if (url.includes('/auth/setup-required')) return Promise.resolve(jsonRes(200, { setupRequired: false }));
+    if (url.includes('/auth/local-auth-status')) return Promise.resolve(jsonRes(200, { enabled: true }));
+    if (url.includes('/auth/local-login')) return Promise.resolve(loginResponse());
     return Promise.reject(new Error(`fetch non mocké dans ce test : ${url}`));
-  }) as unknown as typeof fetch;
+  });
+  global.fetch = fetchMock as unknown as typeof fetch;
+  return fetchMock;
 }
 
 async function submitLocalLogin(user: ReturnType<typeof userEvent.setup>) {
@@ -100,6 +100,50 @@ describe('LoginPage — protection open-redirect sur returnTo', () => {
 
     await waitFor(() => expect(window.location.href).toBe('/signer/abc123'));
   });
+
+  it('revient à une page avec ses filtres (lien profond ouvert sans session)', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={['/login?returnTo=%2Finventaire%3Fvue%3Dcollaborateurs%26compte%3Dinactif']}>
+        <LoginPage />
+      </MemoryRouter>,
+    );
+
+    await submitLocalLogin(user);
+
+    await waitFor(() => expect(window.location.href).toBe('/inventaire?vue=collaborateurs&compte=inactif'));
+  });
+
+  it('mot de passe à changer : returnTo est transmis à la page de changement', async () => {
+    mockAuthFetch(() => jsonRes(200, { ok: true, mustChangePassword: true }));
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={['/login?returnTo=%2Fbons%3Fstatus%3Dactive']}>
+        <LoginPage />
+      </MemoryRouter>,
+    );
+
+    await submitLocalLogin(user);
+
+    await waitFor(() => expect(window.location.href)
+      .toBe('/change-password?forced=true&returnTo=%2Fbons%3Fstatus%3Dactive'));
+  });
+
+  it('identifiants refusés : message du serveur, sans tentative de rafraîchir une session', async () => {
+    const fetchMock = mockAuthFetch(() => jsonRes(401, { message: 'Identifiants incorrects' }));
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={['/login']}>
+        <LoginPage />
+      </MemoryRouter>,
+    );
+
+    await submitLocalLogin(user);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Identifiants incorrects');
+    expect(window.location.href).toBe('');
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/auth/refresh'))).toBe(false);
+  });
 });
 
 describe('LoginPage — lien de connexion Microsoft', () => {
@@ -120,6 +164,17 @@ describe('LoginPage — lien de connexion Microsoft', () => {
 
     const link = await screen.findByRole('link', { name: /continuer avec microsoft/i });
     expect(link).toHaveAttribute('href', '/api/auth/login?returnTo=%2Fsigner%2Fabc123');
+  });
+
+  it('donne son titre à l’onglet : « Connexion · Bons IT »', async () => {
+    render(
+      <MemoryRouter initialEntries={['/login']}>
+        <LoginPage />
+      </MemoryRouter>,
+    );
+
+    await screen.findByRole('link', { name: /continuer avec microsoft/i });
+    expect(document.title).toBe('Connexion · Bons IT');
   });
 
   it('omits returnTo from the Microsoft SSO link when none is provided', async () => {

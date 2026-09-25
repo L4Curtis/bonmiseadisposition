@@ -23,7 +23,6 @@ function PendingBonCard({ bon, onDetails }: PendingBonCardProps) {
     ? 'pv_cloture'
     : bon.status === 'sent_restitution' ? 'restitution' : 'mise_disposition';
   const sigTypeKey = pendingSig?.type ?? fallbackType;
-  const isPvCloture = sigTypeKey === 'pv_cloture';
   const sigType = signatureTypeLabel(sigTypeKey);
   const isInPersonPending = !!pendingSig && (pendingSig.isInPerson || pendingSig.inPersonPending);
   return (

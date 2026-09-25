@@ -1,4 +1,4 @@
-import { todayInParis } from '@/lib/kpi-period';
+import { todayInParis } from '@/lib/dates';
 
 /** Ancienneté d'un prêt et retard de restitution — calculés en jours
  *  calendaires Europe/Paris (cf. todayInParis), jamais en heures, pour rester
