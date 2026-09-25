@@ -193,8 +193,7 @@ jobs:
         run: npm audit --omit=dev --audit-level=high
 
   # Tests de bout en bout (Playwright) contre l'application construite depuis
-  # les sources (mêmes Dockerfiles que build-and-push, voir e2e/README ci-
-  # dessous) : la régression « cachet IT refusé sur un brouillon » n'avait été
+  # les sources (mêmes Dockerfiles que build-and-push) : la régression « cachet IT refusé sur un brouillon » n'avait été
   # vue que par un scénario navigateur écrit hors du dépôt — voir
   # docs/testing-guide.md (section E2E).
   e2e:
@@ -239,6 +238,11 @@ jobs:
 
       - name: Amorcer les données E2E
         run: bash e2e/seed/seed.sh bmad-e2e
+
+      # L'adresse IP enregistrée sur une signature ne doit pas être falsifiable :
+      # le nginx de l'image ne croit CF-Connecting-IP que si l'option est activée.
+      - name: Adresse IP du client (nginx)
+        run: IMAGE=bmad-e2e-frontend bash frontend/docker/test-client-ip.sh
 
       - name: Lancer les tests Playwright (Chromium)
         working-directory: ./e2e

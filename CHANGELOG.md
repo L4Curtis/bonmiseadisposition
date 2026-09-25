@@ -4,6 +4,56 @@ Historique des évolutions notables de l'application. Les entrées les plus réc
 
 ---
 
+## 2026-09-25 — Refonte, vague 1 : sécurité et fondations
+
+### Sécurité
+- **L'adresse IP enregistrée sur une signature ne peut plus être falsifiée.** Le nginx de l'application ne
+  croit l'en-tête Cloudflare que si l'installation l'active (`TRUST_CF_CONNECTING_IP=1`). Derrière Nginx
+  Proxy Manager, le bloc documenté ajoute `set_real_ip_from 127.0.0.1;`, sans lequel un poste du réseau local
+  pouvait encore imposer son adresse. Contrôle automatique en CI.
+- **Toute adresse du serveur doit dire qui peut l'utiliser**, sinon elle est refusée (« Droits insuffisants
+  pour cette action »), même si un développeur oublie de la protéger. Les 135 routes sont contrôlées par un
+  test.
+- Le cachet d'une filiale n'est plus téléchargeable ni envoyé aux collaborateurs ; les exports et le logo
+  des filiales ne peuvent plus lire ni effacer un fichier hors du dossier de données.
+- Après une connexion Microsoft, retour sur la page demandée, et seulement sur une page de l'application.
+- La stack application du dépôt correspond à la production : aucun port publié, réseau du reverse proxy.
+
+### Rôles
+- Le **technicien** garde le catalogue et la recherche du collaborateur d'un bon. La gestion des
+  **utilisateurs** et des **filiales**, y compris la création d'un compte manuel, est réservée à
+  l'**administrateur**.
+- Les alertes (contestation, départ avec matériel) partent à tous les administrateurs et techniciens actifs.
+
+### Corrigé
+- **Modifier un brouillon de bon fonctionne à nouveau** : l'enregistrement répondait toujours « ce bon n'est
+  plus un brouillon ».
+- Les exports CSV datent les bons, signatures et retours à l'heure de Paris (un document signé entre minuit
+  et 2 h sortait daté de la veille) ; « clôturés ce mois-ci » commence le 1er à minuit, heure de Paris.
+- Se déconnecter d'un appareil ne déconnecte plus un autre appareil connecté dans la même seconde.
+
+### Modifié
+- **Nouveau vocabulaire** dans les écrans, exports, PDF et indicateurs : Remise à signer, En cours,
+  Restitution à signer, Restitution en cours, Clôturé, Signature en retard, Retour en retard, non restitué,
+  PV de non-restitution, Cachet de la filiale. (La fiche et la liste des bons suivent en vague 2.)
+- Un lien ouvert sans être connecté ramène à la bonne page après la connexion ; une adresse inconnue affiche
+  « Page introuvable » ; chaque onglet du navigateur porte le nom de sa page.
+- Un export coupé par le plafond de lignes est signalé.
+
+### Qualité et exploitation
+- **Contrat entre écrans et serveur** : pour chaque route utilisée par un écran, des tests interrogent la vraie
+  application et vérifient la réponse, sa forme exacte et les droits de chaque rôle (315 tests). Un
+  changement de réponse non répercuté côté écran bloque la mise en ligne.
+- **Banc de recette jetable** (`bash e2e/recette/recette-up.sh`, 5 minutes) : un compte par rôle, 64 bons dont
+  un par situation métier ; guide et gabarit pour tester dans Chrome sur ordinateur et téléphone.
+- `deploy/README.md` est le seul document d'exploitation (deux machines, une seule procédure de sauvegarde et
+  de restauration, dépannage) ; l'installation tout-en-un reste en annexe, version figée.
+- Documentation du dépôt rangée par lecteur : README court, `docs/architecture.md` remplace AGENDA et
+  PROJECT_STRUCTURE, `docs/frontend-guide.md`, documents de chantier dans `docs/archive/`.
+- ESLint en CI ; outils communs (dates de Paris, CSV, adresse client, chemins de stockage).
+
+---
+
 ## 2026-09-24 — Tests backend sous Vitest : les tests exécutent le vrai NestJS
 
 ### Modifié
@@ -742,7 +792,7 @@ du tableau de bord KPI.
 Remplacement du tableau de bord IT et de la page Reporting par une page unique à onglets
 résumant l'activité de l'application (parc prêté, délais de traitement, incidents), et ouverture
 de son accès en lecture seule à un nouveau rôle Direction. Détail technique dans
-[PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) et [docs/security.md](docs/security.md).
+[docs/architecture.md](docs/architecture.md) et [docs/security.md](docs/security.md).
 
 ### Tableau de bord
 
@@ -831,7 +881,7 @@ de son accès en lecture seule à un nouveau rôle Direction. Détail technique 
 Revue complète avant mise en production : sécurité, fiabilité du workflow des bons, emails,
 PDF et données. Deux nouvelles fonctionnalités (inventaire, rappel avant restitution). Détail
 technique complet dans [docs/security.md](docs/security.md) et
-[AGENDA.md](AGENDA.md) (section 11, pièges connus).
+[docs/architecture.md](docs/architecture.md) (pièges connus).
 
 ### Sécurité
 
@@ -918,7 +968,7 @@ technique complet dans [docs/security.md](docs/security.md) et
   filtres, pour préserver les performances à mesure que le volume de données augmente.
 - Nouvelles contraintes d'unicité sur les emails (insensible à la casse), les articles de
   catalogue et les noms de filiale ; les doublons existants sont détectés avant application de
-  ces contraintes, avec instructions de correction si nécessaire (voir README.md).
+  ces contraintes, avec instructions de correction si nécessaire (voir la migration `20260916100400_unique_constraints`, qui liste les requêtes de doublons).
 
 ### Frontend
 
