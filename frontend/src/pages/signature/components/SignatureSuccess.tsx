@@ -9,18 +9,26 @@ interface FreshlySignedScreenProps {
   type: LinkSignatureType;
   /** Lien au guichet (présentiel). */
   inPerson: boolean;
-  /** Recueillie par un autre compte que le titulaire (technicien au guichet). */
+  /** Signée au guichet par une personne mandatée (autre compte que le
+   *  titulaire, hors équipe informatique). */
   signedByProxy: boolean;
-  /** Personne connectée : le témoin d'une signature au guichet. */
+  /** Signée au guichet par le titulaire sur l'appareil d'un compte IT. */
+  witnessedByIt: boolean;
+  /** Personne connectée : le témoin (IT) ou le mandataire. */
   witnessName: string;
   downloadError: string | null;
   onDownloadSigned: (bonId: string, stage?: string) => void;
 }
 
 /** Phrase de fin : qui a signé, où, en présence de qui (R-059). */
-export function signedMessage(props: Pick<FreshlySignedScreenProps, 'bon' | 'type' | 'inPerson' | 'signedByProxy' | 'witnessName'>): string {
+export function signedMessage(
+  props: Pick<FreshlySignedScreenProps, 'bon' | 'type' | 'inPerson' | 'signedByProxy' | 'witnessedByIt' | 'witnessName'>,
+): string {
   const document = `${signatureDocLabel(props.type)} (réf. ${props.bon.reference})`;
   if (props.signedByProxy) {
+    return `${document} a été signé au guichet par ${props.witnessName}, au nom de ${props.bon.collaborateur.displayName}.`;
+  }
+  if (props.witnessedByIt) {
     return `${document} a été signé par ${props.bon.collaborateur.displayName}, au guichet, en présence de ${props.witnessName}.`;
   }
   if (props.inPerson) return `${document} a bien été signé au guichet.`;
@@ -31,7 +39,7 @@ export function signedMessage(props: Pick<FreshlySignedScreenProps, 'bon' | 'typ
 /** Signature qui vient d'être soumise : téléchargement immédiat du document
  *  signé, puis retour au portail (ou à la fiche du bon pour le technicien). */
 export function FreshlySignedScreen(props: FreshlySignedScreenProps) {
-  const { bon, type, signedByProxy, downloadError, onDownloadSigned } = props;
+  const { bon, type, witnessedByIt, downloadError, onDownloadSigned } = props;
   const stage = signatureStageForType(type);
   return (
     <StatusScreen
@@ -49,7 +57,8 @@ export function FreshlySignedScreen(props: FreshlySignedScreenProps) {
             Télécharger le document signé
           </button>
           {downloadError && <p className="text-xs text-destructive">{downloadError}</p>}
-          {signedByProxy ? (
+          {/* Le technicien qui a tendu son appareil retourne à la fiche du bon. */}
+          {witnessedByIt ? (
             <a
               href={`/bons/${bon.id}`}
               className="w-full min-h-11 inline-flex items-center justify-center rounded-lg border border-border px-4 py-2.5 text-sm font-medium"

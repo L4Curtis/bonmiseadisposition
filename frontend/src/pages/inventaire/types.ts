@@ -21,6 +21,12 @@ export interface InventoryFiliale {
  *  encore la signature fait partie du parc, distingué des autres. */
 export type EquipmentSituation = 'en_attente_signature' | 'en_circulation' | 'en_litige';
 
+/** Situation d'une ligne : celles du parc, ou « Non restitué » (déclaré non
+ *  restitué et pas retrouvé, bon clôturé compris). Choisie dans le filtre,
+ *  elle remplace le parc par ces équipements (carte « Encore non restitués »). */
+export type InventorySituation = EquipmentSituation | 'non_restitue';
+export const NOT_RETURNED_SITUATION = 'non_restitue';
+
 export interface InventorySituationSummary {
   situation: EquipmentSituation;
   label: string;
@@ -61,8 +67,10 @@ export interface InventoryItem {
   bonId: string;
   bonReference: string;
   bonStatus: BonStatus;
-  situation: EquipmentSituation;
+  situation: InventorySituation;
   situationLabel: string;
+  /** Motif de la déclaration d'un équipement non restitué, sinon null. */
+  notReturnedReason?: string | null;
   dateMiseDisposition: string;
   dateRestitution: string | null;
   collaborateur: InventoryCollaborateur;
@@ -94,6 +102,8 @@ export interface InventorySummary {
   byFiliale: InventoryFilialeSummary[];
   bySituation: InventorySituationSummary[];
   overdue: number;
+  /** Équipements encore non restitués (option « Non restitué » du filtre). */
+  notReturned?: number;
 }
 
 /** Bascule d'affichage de la page Inventaire — état synchronisé dans l'URL

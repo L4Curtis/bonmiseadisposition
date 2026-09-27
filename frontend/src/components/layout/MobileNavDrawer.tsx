@@ -55,9 +55,13 @@ export function MobileNavDrawer({ open, onOpenChange, groups, returnFocusRef }: 
             event.preventDefault();
             returnFocusRef?.current?.focus();
           }}
-          className="mobile-drawer fixed inset-y-0 left-0 z-50 flex w-[min(20rem,85vw)] flex-col bg-[hsl(var(--sidebar-bg))] shadow-xl outline-none duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left shell:hidden"
+          // Téléphone couché (écran bas) : tiroir plus large, rubriques sur deux
+          // colonnes et tout le tiroir qui défile (le bloc de la personne n'est
+          // plus fixé en bas) : chaque entrée reste visible sans deviner qu'il
+          // faut faire défiler.
+          className="mobile-drawer fixed inset-y-0 left-0 z-50 flex w-[min(20rem,85vw)] flex-col [@media(max-height:500px)]:w-[min(36rem,90vw)] [@media(max-height:500px)]:overflow-y-auto bg-[hsl(var(--sidebar-bg))] shadow-xl outline-none duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left shell:hidden"
         >
-          <div className="flex h-14 shrink-0 items-center gap-3 border-b border-[hsl(var(--border))] pl-4 pr-2">
+          <div className="flex h-14 shrink-0 items-center gap-3 [@media(max-height:500px)]:h-12 border-b border-[hsl(var(--border))] pl-4 pr-2">
             <BrandMark />
             <DialogPrimitive.Title className="sr-only">Menu</DialogPrimitive.Title>
             <DialogPrimitive.Close
@@ -67,10 +71,13 @@ export function MobileNavDrawer({ open, onOpenChange, groups, returnFocusRef }: 
               <X className="h-5 w-5" aria-hidden="true" />
             </DialogPrimitive.Close>
           </div>
-          <nav aria-label="Navigation principale" className="flex-1 overflow-y-auto p-3">
+          <nav
+            aria-label="Navigation principale"
+            className="flex-1 overflow-y-auto p-3 [@media(max-height:500px)]:flex-none [@media(max-height:500px)]:overflow-visible [@media(max-height:500px)]:columns-2 [@media(max-height:500px)]:gap-4"
+          >
             <NavSections groups={groups} variant="drawer" onItemClick={onItemClick} />
           </nav>
-          <div className="border-t border-[hsl(var(--border))] p-3">
+          <div className="shrink-0 border-t border-[hsl(var(--border))] p-3 [@media(max-height:500px)]:py-1">
             <UserBadge collapsed={false} />
           </div>
         </DialogPrimitive.Content>

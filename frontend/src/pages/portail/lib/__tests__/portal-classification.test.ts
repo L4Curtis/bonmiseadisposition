@@ -235,4 +235,85 @@ describe('classifyPortal — ce que la personne doit faire (R-057)', () => {
     });
     expect(classifyPortal([original]).held.map((h) => h.id)).toEqual(['orig-pc']);
   });
+
+  it('restitution contestée puis « Fondée » : document en cours de correction, pas un lien expiré (CM n° 1)', () => {
+    const invalidated = sig({
+      type: 'restitution',
+      signed: false,
+      tokenExpiresAt: new Date(0).toISOString(),
+      invalidatedAt: '2026-09-27T10:00:00Z',
+      invalidatedReason: 'contested',
+      createdAt: '2026-09-20T00:00:00Z',
+    });
+    const s25 = bon({
+      reference: 'S25',
+      status: 'sent_restitution',
+      equipments: [
+        equipment({ id: 'pc', returnState: 'returned_to_sign' }),
+        equipment({ id: 'casque', returnState: 'returned_to_sign', order: 1 }),
+      ],
+      signatures: [sig({}), invalidated],
+      pendingSignature: { type: 'restitution', expired: true, inPerson: false, itSigned: false, sentAt: null, expiresAt: null },
+    });
+    const groups = classifyPortal([s25]);
+    expect(groups.toSign).toEqual([]);
+    expect(groups.inCorrection[0]).toMatchObject({ type: 'restitution', expired: true, invalidatedReason: 'contested', underCorrection: true });
+    // Le marquage « rendu » est contesté : tant qu'il n'est pas corrigé et signé,
+    // le matériel reste listé chez la personne.
+    expect(groups.held.map((h) => [h.id, h.underCorrection])).toEqual([
+      ['pc', true],
+      ['casque', true],
+    ]);
+  });
+
+  it('PV contesté puis « Fondée » : le matériel déclaré non restitué reste listé, en cours de correction', () => {
+    const y = bon({
+      reference: 'Y',
+      status: 'partially_returned',
+      equipments: [equipment({ id: 'rendu', returnState: 'returned' }), equipment({ id: 'perdu', returnState: 'not_returned', order: 1 })],
+      signatures: [
+        sig({}),
+        sig({ type: 'pv_cloture', signed: false, tokenExpiresAt: new Date(0).toISOString(), invalidatedReason: 'contested' }),
+      ],
+      pendingSignature: { type: 'pv_cloture', expired: true, inPerson: false, itSigned: true, sentAt: null, expiresAt: null },
+    });
+    const groups = classifyPortal([y]);
+    expect(groups.toSign).toEqual([]);
+    expect(groups.inCorrection[0]).toMatchObject({ type: 'pv_cloture', underCorrection: true });
+    expect(groups.held.map((h) => [h.id, h.underCorrection])).toEqual([['perdu', true]]);
+  });
+
+  it('bon modifié : le vrai motif (« modified »), pas un lien expiré (R-038)', () => {
+    const s23 = bon({
+      reference: 'S23',
+      status: 'sent_mise_dispo',
+      signatures: [sig({ signed: false, tokenExpiresAt: new Date(0).toISOString(), invalidatedReason: 'modified' })],
+      pendingSignature: { type: 'mise_disposition', expired: true, inPerson: false, itSigned: false, sentAt: null, expiresAt: null },
+    });
+    expect(classifyPortal([s23]).toSign[0]).toMatchObject({ invalidatedReason: 'modified', underCorrection: false, requestToken: null });
+  });
+
+  it('lien expiré déjà redemandé : la date de la demande, transmise par le serveur', () => {
+    // `newLinkRequestedAt` : champ attendu du contrat `PendingSignature` (lot R1).
+    const pending = {
+      type: 'mise_disposition' as const,
+      expired: true,
+      inPerson: false,
+      itSigned: true,
+      sentAt: null,
+      expiresAt: null,
+      newLinkRequestedAt: '2026-09-27T09:30:00Z',
+    };
+    const s03 = bon({
+      reference: 'S03',
+      status: 'sent_mise_dispo',
+      signatures: [sig({ signed: false, token: 'tok-expire', tokenExpiresAt: PAST })],
+      pendingSignature: pending,
+    });
+    expect(classifyPortal([s03]).toSign[0]).toMatchObject({
+      invalidatedReason: null,
+      newLinkRequestedAt: '2026-09-27T09:30:00Z',
+      requestToken: 'tok-expire',
+    });
+  });
 });

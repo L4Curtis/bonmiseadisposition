@@ -6,7 +6,7 @@ import { ContestationDialog } from '@/components/ContestationDialog';
 import { usePortal } from './portail/hooks/usePortal';
 import type { DocumentToSign } from './portail/lib/portal-classification';
 import { BonsSkeleton } from './portail/components/BonsSkeleton';
-import { ToSignSection } from './portail/components/ToSignSection';
+import { InCorrectionSection, ToSignSection } from './portail/components/ToSignSection';
 import { HeldEquipmentSection } from './portail/components/HeldEquipmentSection';
 import { BonsSection } from './portail/components/BonsSection';
 
@@ -61,6 +61,8 @@ export function PortailCollaborateur() {
   }
 
   const heldCount = groups.held.length;
+  // Le bandeau compte exactement les cartes de « À signer » ; un document en
+  // cours de correction a son propre bloc et n'y figure pas.
   return (
     <div className="space-y-6">
       {groups.toSign.length > 0 && <ToSignBanner documents={groups.toSign} />}
@@ -75,6 +77,10 @@ export function PortailCollaborateur() {
       </div>
 
       {groups.toSign.length > 0 && <ToSignSection documents={groups.toSign} onContest={portal.setContestTarget} />}
+
+      {groups.inCorrection.length > 0 && (
+        <InCorrectionSection documents={groups.inCorrection} onContest={portal.setContestTarget} />
+      )}
 
       {portal.bonCount > 0 && <HeldEquipmentSection items={groups.held} />}
 

@@ -15,6 +15,8 @@ import type { IncidentsKpiResponse, ReasonCount } from '../types/incidents';
 import { incidentFlowCards, incidentStateCards } from './incidents/incident-stat-cards';
 import { ContestationsSummary } from './incidents/ContestationsSummary';
 import { RemindersSection } from './incidents/RemindersSection';
+import { useKpiListHref } from '../lists/use-kpi-list-href';
+import { NO_LIST } from '../lists/kpi-lists';
 
 function reasonRows(reasons: ReasonCount[]) {
   return reasons.map((r) => ({ key: r.reason, label: r.reason, count: r.count }));
@@ -27,6 +29,7 @@ export function IncidentsTab() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
   const isIt = isItRole(user?.role);
+  const listHref = useKpiListHref();
 
   const query = useMemo(() => {
     const params = new URLSearchParams({ from, to });
@@ -56,7 +59,7 @@ export function IncidentsTab() {
   }
 
   const scope = periodLabel(data.period);
-  const flowCards = incidentFlowCards(data);
+  const flowCards = incidentFlowCards(data, isIt ? listHref : null);
   const noReminder = data.reminders.byRank.every((r) => r.sent.current === 0);
   const noDecision = data.contestations.decided.current === 0;
   const quiet = noReminder && flowCards.every((c) => (c.value ?? 0) === 0) && data.failedEmails.count.current === 0;
@@ -66,7 +69,7 @@ export function IncidentsTab() {
       <section className="space-y-3">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">État du jour</h3>
         <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-          {incidentStateCards(data, isIt).map(({ key, ...card }) => <KpiCard key={key} {...card} />)}
+          {incidentStateCards(data, isIt, filialeId).map(({ key, ...card }) => <KpiCard key={key} {...card} />)}
         </div>
       </section>
 
@@ -87,6 +90,7 @@ export function IncidentsTab() {
               tone={data.failedEmails.count.current > 0 ? 'danger' : 'default'} scope={scope}
               delta={{ ...data.failedEmails.count, invert: true }}
               definition="Emails que le serveur n'a pas pu envoyer ou que la messagerie du destinataire a rejetés. Un bon sans adresse email (signature sur place) n'est pas un échec : il n'est pas compté."
+              {...(isIt ? { href: listHref('emails_en_echec') } : { noList: NO_LIST.direction })}
             />
             {isAdmin && (
               <Link to="/admin/configuration/monitoring" className="px-1 py-2 text-[11px] font-medium text-primary hover:underline">

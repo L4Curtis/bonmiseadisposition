@@ -18,17 +18,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ChangePasswordDialog } from './ChangePasswordDialog';
-
-function getInitials(name?: string): string {
-  if (!name) return '?';
-  return name
-    .split(' ')
-    .map((w) => w[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join('')
-    .toUpperCase();
-}
+import { userInitials } from '../user-initials';
 
 /** Bascule clair / sombre, dans le menu du compte sur téléphone (l'en-tête
  *  n'y garde que ☰, le titre, la loupe et le compte). */
@@ -61,7 +51,7 @@ export function UserMenu() {
           >
             <Avatar className="h-6 w-6">
               <AvatarFallback className="bg-primary/10 text-primary text-[10px] font-semibold">
-                {getInitials(user?.displayName)}
+                {userInitials(user?.displayName)}
               </AvatarFallback>
             </Avatar>
             <span className="hidden sm:inline font-medium text-xs">{user?.displayName}</span>
@@ -69,9 +59,6 @@ export function UserMenu() {
               <span className="hidden sm:inline rounded-full bg-[hsl(var(--primary)/0.10)] dark:bg-[hsl(var(--primary)/0.15)] px-1.5 py-0.5 text-[10px] text-[hsl(var(--primary))] font-medium">
                 {UI_VIEW_LABELS[activeView]}
               </span>
-            )}
-            {isLocal && (
-              <span className="hidden sm:inline rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">local</span>
             )}
           </button>
         </DropdownMenuTrigger>

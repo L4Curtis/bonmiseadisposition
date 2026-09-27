@@ -167,6 +167,30 @@ describe('SignaturePage', () => {
     expect(await screen.findByRole('status')).toHaveTextContent(/équipe informatique/);
   });
 
+  it('lien expiré déjà redemandé : la date de la demande, pas un second bouton (CM n° 6)', async () => {
+    mockAuthMe(currentUser);
+    vi.mocked(api.get).mockResolvedValue({
+      status: 'expired',
+      reference: 'BDM-1',
+      newLinkRequestedAt: '2026-09-27T09:30:00Z',
+    });
+
+    renderSignaturePage();
+
+    expect(await screen.findByText(/Nouveau lien demandé le 27 septembre 2026/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Demander un nouveau lien' })).not.toBeInTheDocument();
+  });
+
+  it('ancien lien d’un document contesté puis « Fondée » : en cours de correction (CM n° 1)', async () => {
+    mockAuthMe(currentUser);
+    vi.mocked(api.get).mockResolvedValue({ status: 'replaced', reference: 'BDM-1', invalidatedReason: 'contested' });
+
+    renderSignaturePage();
+
+    expect(await screen.findByText('Document en cours de correction')).toBeInTheDocument();
+    expect(screen.queryByText('Contestation en cours')).not.toBeInTheDocument();
+  });
+
   it('bon contesté : la contestation est en cours, rien à signer', async () => {
     mockAuthMe(currentUser);
     vi.mocked(api.get).mockResolvedValue({ status: 'contested', reference: 'BDM-1' });
@@ -224,7 +248,8 @@ describe('SignaturePage', () => {
       bon: { ...pendingResponse.bon, collaborateur: { displayName: 'Léa Martin', email: 'lea@livio.fr' } },
       signature: { ...pendingResponse.signature, type: 'pv_cloture', isInPerson: true },
     });
-    vi.mocked(api.post).mockResolvedValue({ ok: true, bonId: 'bon-1', signedByProxy: true });
+    // Le titulaire signe lui-même sur l'appareil du technicien : pas une procuration.
+    vi.mocked(api.post).mockResolvedValue({ ok: true, bonId: 'bon-1', signedByProxy: false, witnessedByIt: true });
 
     const { user } = renderSignaturePage();
 
@@ -236,6 +261,25 @@ describe('SignaturePage', () => {
       await screen.findByText(/a été signé par Léa Martin, au guichet, en présence de Julie Moreau/),
     ).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Retour à la fiche du bon' })).toHaveAttribute('href', '/bons/bon-1');
+  });
+
+  it('signature par une personne mandatée : signée en son nom, pas « en présence de »', async () => {
+    mockAuthMe({ ...currentUser, id: 'mandataire-1', displayName: 'Paul Durand', role: 'collaborator' });
+    vi.mocked(api.get).mockResolvedValue({
+      ...pendingResponse,
+      bon: { ...pendingResponse.bon, collaborateur: { displayName: 'Léa Martin', email: 'lea@livio.fr' } },
+      signature: { ...pendingResponse.signature, isInPerson: true },
+    });
+    vi.mocked(api.post).mockResolvedValue({ ok: true, bonId: 'bon-1', signedByProxy: true, witnessedByIt: false });
+
+    const { user } = renderSignaturePage();
+
+    await user.click(await screen.findByRole('checkbox'));
+    drawOnCanvas();
+    await user.click(screen.getByRole('button', { name: /signer le bon de mise à disposition/i }));
+
+    expect(await screen.findByText(/a été signé au guichet par Paul Durand, au nom de Léa Martin/)).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Retour à la fiche du bon' })).not.toBeInTheDocument();
   });
 
   it('shows "Bon annulé" for a cancelled bon', async () => {
@@ -386,6 +430,39 @@ describe('SignaturePage', () => {
       expect(document.body.style.overflow).toBe('');
       await user.click(screen.getByRole('checkbox'));
       expect(screen.getByRole('button', { name: /signer le bon de mise à disposition/i })).toBeEnabled();
+    });
+
+    it('téléphone en portrait : le cadre plein écran prend toute la place, dans le sens de l’écran (CM n° 4)', async () => {
+      const original = window.matchMedia;
+      window.matchMedia = vi.fn((query: string) => ({
+        matches: query.includes('portrait'),
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })) as unknown as typeof window.matchMedia;
+      try {
+        mockAuthMe(currentUser);
+        vi.mocked(api.get).mockResolvedValue(pendingResponse);
+        const { user } = renderSignaturePage();
+
+        await user.click(await screen.findByRole('button', { name: 'Agrandir la zone de signature' }));
+        const frame = document.querySelector('canvas')!.parentElement!;
+        // Jamais tourné : une signature probante ne dépend pas d'une consigne lue.
+        expect(frame.className).not.toMatch(/rotate/);
+        expect(frame.className.split(' ')).toEqual(expect.arrayContaining(['h-full', 'w-full']));
+        expect(frame.className).not.toMatch(/aspect-/);
+        // Tourner le téléphone reste une simple suggestion.
+        expect(screen.getByText(/vous pouvez tourner le téléphone/)).toBeInTheDocument();
+
+        await user.click(screen.getByRole('button', { name: 'Terminer' }));
+        expect(document.querySelector('canvas')!.parentElement!.className).toMatch(/aspect-\[2\/1\]/);
+      } finally {
+        window.matchMedia = original;
+      }
     });
 
     it('en plein écran : « Effacer » reste à portée, Échap referme', async () => {

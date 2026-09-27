@@ -130,6 +130,9 @@ attendant son retrait (vague 5).
   y compris l'export CSV). Aucun accès aux bons individuels, aux utilisateurs, aux
   contestations ni à l'administration — ces routes restent réservées à l'IT (depuis le 2026-09-24 :
   utilisateurs, filiales et administration à l'administrateur seul).
+- **Inventaire, situation « Non restitué »** : la direction voit l'équipement, son collaborateur et la
+  référence du bon, jamais le motif de non-restitution saisi par l'IT (`notReturnedReason` renvoyé à `null`
+  par `InventoryController.getInventory`), ni aucun lien vers un bon.
 - **`isItStaff` toujours faux** : contrairement à `admin` et `technician`, le rôle `direction`
   ne donne jamais `isItStaff = true`, y compris lorsqu'il est attribué manuellement.
 - **Contrôles d'accès** : les vérifications historiquement écrites « tout ce qui n'est pas
@@ -417,7 +420,7 @@ Aucune route ne sert `data/uploads` ; `stampPath` est retiré des réponses non 
 - [ ] Anonymisation réelle sans dry-run < 24h → rejetée
 - [ ] Sync LDAP simulée avec > 20 % de comptes actifs absents → interrompue, `ldap_sync_aborted` journalisé
 - [ ] Un compte `direction` → `403` sur `GET /api/bons/stats`, `GET /api/bons/:id` d'un bon dont il n'est pas le destinataire, `GET /api/contestations`, `GET /api/users` et toute route `/api/admin/*`
-- [ ] Un compte `direction` → `200` sur `GET /api/kpi/parc` (et `/kpi/delais`, `/kpi/incidents`, `/api/reporting/inventory*`)
+- [ ] Un compte `direction` → `200` sur `GET /api/kpi/parc` (et `/kpi/delais`, `/kpi/incidents`, `/api/reporting/inventory*`), et `403` sur `GET /api/kpi/liste` (les listes de bons)
 - [ ] `PATCH /api/admin/users/:id/role` refusé sur son propre compte (`400`) et sur le dernier administrateur actif (`400`)
 - [ ] `PUT /api/admin/config/rappels` avec `signature_overdue_days=0` → rejeté (minimum 1)
 

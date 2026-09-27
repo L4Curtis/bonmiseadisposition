@@ -122,4 +122,49 @@ describe('IncidentsTab', () => {
     expect(screen.queryByRole('link', { name: 'Voir la supervision' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Contestations à traiter/ })).not.toBeInTheDocument();
   });
+
+  describe('tuile = liste', () => {
+    it('IT : chaque carte de bons ouvre sa liste exacte dans le tableau de bord, période et filiale gardées', async () => {
+      mockGet('/kpi/incidents', incidentsFixture());
+      renderWithProviders(<IncidentsTab />, { route: `${ROUTE}&tab=incidents&filialeId=f1` });
+      const expected: [RegExp, string][] = [
+        [/^PV de non-restitution émis/, 'pv_emis'],
+        [/^Remises constatées sans signature/, 'remises_sans_signature'],
+        [/^Clôturés sans signature/, 'clotures_sans_signature'],
+        [/^Bons annulés/, 'bons_annules'],
+        [/^Contestations reçues/, 'contestations_recues'],
+        [/^Emails en échec/, 'emails_en_echec'],
+      ];
+      await screen.findByText('État du jour');
+      for (const [name, key] of expected) {
+        const href = screen.getByRole('link', { name }).getAttribute('href') ?? '';
+        const params = new URL(href, 'http://localhost').searchParams;
+        expect(new URL(href, 'http://localhost').pathname).toBe('/dashboard');
+        expect(params.get('liste')).toBe(key);
+        expect(params.get('filialeId')).toBe('f1');
+        expect(params.get('from')).toBe('2026-08-27');
+        expect(params.get('tab')).toBe('incidents');
+      }
+      expect(screen.getByRole('link', { name: /^Encore non restitués : 2 équipements/ }))
+        .toHaveAttribute('href', '/inventaire?situation=non_restitue&filialeId=f1');
+    });
+
+    it('avec une filiale, « Contestations à traiter » ne mène pas à la page non filtrée', async () => {
+      mockGet('/kpi/incidents', incidentsFixture());
+      renderWithProviders(<IncidentsTab />, { route: `${ROUTE}&filialeId=f1` });
+      await screen.findByText('État du jour');
+      expect(screen.queryByRole('link', { name: /Contestations à traiter/ })).not.toBeInTheDocument();
+    });
+
+    it('direction : l’inventaire des non-restitués, jamais une liste de bons ; le « ? » dit pourquoi', async () => {
+      mockRole = 'direction';
+      mockGet('/kpi/incidents', incidentsFixture());
+      const { user } = renderWithProviders(<IncidentsTab />, { route: ROUTE });
+      await screen.findByText('État du jour');
+      const links = screen.getAllByRole('link').map((a) => a.getAttribute('href'));
+      expect(links).toEqual(['/inventaire?situation=non_restitue']);
+      await user.click(screen.getByRole('button', { name: 'Pourquoi pas de liste : Bons annulés' }));
+      expect(screen.getByText(/n'accède pas aux bons/)).toBeInTheDocument();
+    });
+  });
 });

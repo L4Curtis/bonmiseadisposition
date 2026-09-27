@@ -90,8 +90,11 @@ ce dernier est réglé comme indiqué : le bloc Advanced exact et les trois cond
   `APP_COMMIT` posés par la construction de l'image.
 - **`ENCRYPTION_KEY` ne change jamais.** Elle chiffre les secrets de configuration, les images de signature et
   les pièces jointes. Un canari au démarrage bloque le backend si la clé ne correspond plus aux données.
-- **Les documents sont figés.** Chaque PDF produit est stocké en base (`PdfSnapshot`, version courante par
-  type) et copié dans une archive probante qui n'est jamais réécrite (`ProofArchive`). Les signatures sont
+- **Les documents sont figés.** Chaque PDF produit est stocké en base (`PdfSnapshot`, **un document par
+  signature et par contenu, jamais écrasé** : deux restitutions, ou un PV réémis avec la même signature IT,
+  donnent deux documents ; seul un doublon exact est écarté) et copié dans une archive probante
+  qui n'est jamais réécrite (`ProofArchive`). L'empreinte tracée dans l'audit est toujours celle d'un document
+  téléchargeable. Les signatures sont
   scellées par HMAC ; un horodatage RFC 3161 peut s'y ajouter.
 - **Le serveur est la seule autorité** sur les droits et sur l'état d'un bon. Le frontend masque ce qui n'est
   pas permis, il ne protège rien.
@@ -169,7 +172,7 @@ Vingt modules sont enregistrés dans `AppModule` :
 | `DomainEventsModule` | `common/events/` | Bus d'événements du domaine en mémoire (@nestjs/event-emitter), global |
 | `PrismaModule` | `prisma/` | Client Prisma partagé |
 | `ConfigModule` | `config/` | Paramètres applicatifs en base, chiffrement des secrets (`EncryptionService`), cache de 5 minutes, secrets masqués en lecture |
-| `TemplatesModule` | `templates/` | Les 12 modèles d'email : texte par défaut, personnalisation en base, rendu des variables `{{…}}`, aperçu avec un vrai bon |
+| `TemplatesModule` | `templates/` | Les 19 modèles d'email : texte par défaut, personnalisation en base, rendu des variables `{{…}}`, aperçu avec un vrai bon |
 | `AuthModule` | `auth/` | SSO Entra ID, compte local et politique de mot de passe, jetons JWT, révocation, gardes `JwtAuthGuard` et `RolesGuard`, rôle recalculé depuis les groupes Entra |
 | `AdminModule` | `admin/` | Paramètres par rubrique et leur état, tests de connexion (LDAP, SMTP, Entra, SMB), synchronisation de l'annuaire, rôle d'un utilisateur, déverrouillage, supervision (exports SMB, emails en échec, tâches planifiées), diagnostic SSO, modèles d'email et PDF |
 | `LdapModule` | `ldap/` | Synchronisation Active Directory, garde-fou contre une désactivation massive, alerte quand un compte désactivé détient encore des équipements |
@@ -274,7 +277,7 @@ Règles :
 |---|---|
 | Référentiels | `User`, `Filiale`, `EquipmentCatalog`, `EquipmentPack`, `EquipmentPackItem`, `AppConfig` |
 | Bons | `Bon`, `BonEquipment`, `Signature`, `Contestation`, `Attachment` |
-| Preuve | `PdfSnapshot` (version courante d'un document), `ProofArchive` (copie jamais réécrite) |
+| Preuve | `PdfSnapshot` (un document par signature et par contenu, rattaché par `signatureId`, unique sur (bon, type, signature, empreinte) ; le plus récent d'un type est la version en vigueur), `ProofArchive` (copie jamais réécrite) |
 | Suivi | `NotificationLog`, `SmbExport`, `AuditLog`, `ScheduledJobRun`, `RevokedToken` |
 
 Énumérations : `UserRole`, `BonStatus`, `Civilite`, `EquipmentCategory`, `SignatureType`, `PdfSnapshotType`,
@@ -327,15 +330,17 @@ Aucune tâche planifiée ne change le statut d'un bon.
 
 ### Modèles d'email et de PDF
 
-Douze modèles d'email, définis dans `backend/src/templates/template-catalog.ts` : `mise_disposition_request`,
+Dix-neuf modèles d'email, définis dans `backend/src/templates/template-catalog.ts` : `mise_disposition_request`,
 `restitution_request`, `pv_cloture_request`, `confirmation_mise_disposition`, `confirmation_restitution`,
 `confirmation_pv_cloture`, `reminder`, `restitution_due_reminder`, `contestation_alert`,
-`contestation_resolved`, `contestation_rejected`, `departure_alert`. Le texte par défaut est dans
-`templates/defaults/` ; une personnalisation est enregistrée dans `AppConfig` (rubrique `email_templates`) et
-peut être réinitialisée. Les emails d'information non personnalisables sont construits dans
-`notification/messages/` : annulation (avec son motif), remise constatée sans signature, bon clôturé sans
-signature, bon remplacé, équipement retrouvé, alerte « nouveau lien demandé » ; la relance des contestations
-en retard est dans `templates/contestation-overdue-alert.ts`.
+`contestation_resolved`, `contestation_rejected`, `departure_alert`, puis les emails d'information et
+alertes : `bon_cancelled` (annulation, avec son motif), `handover_without_signature` (remise constatée sans
+signature), `closed_without_signature`, `bon_replaced`, `equipment_found`, `link_request_alert` (nouveau lien
+demandé) et `contestation_overdue_alert` (relance des contestations à trancher). Chaque email envoyé a donc
+son modèle personnalisable. Le texte par défaut est dans `templates/defaults/` ; une personnalisation est
+enregistrée dans `AppConfig` (rubrique `email_templates`) et peut être réinitialisée. Les variables (texte
+saisi échappé, listes et boutons construits en HTML) viennent de `notification/messages/` et de
+`templates/contestation-overdue-alert.ts`.
 
 **Qui reçoit quoi.** Un email au collaborateur part à l'adresse **actuelle** de son compte, si le compte est
 actif (`canSendLink`) ; sinon une ligne `skipped` (compte désactivé, pas d'adresse) ou `failed` (adresse
@@ -357,7 +362,13 @@ confirmation ; `bon.cancelled` → annulation avec motif (sauf un brouillon) ; `
 et sa date ; une signature IT invalidée (bon modifié) ne compte plus ; les images sont celles de ces
 signatures, et le certificat ne liste qu'elles. Les noms viennent des comptes (par l'adresse de signature),
 le cachet de la filiale est lu par `filialeId`. Au guichet, le signataire reste le collaborateur, « en présence
-de » le technicien qui tenait la tablette ; une signature IT n'est jamais « au guichet ». Un document
+de » le technicien qui tenait la tablette ; seul un compte ni titulaire ni IT est un mandataire (« pour le
+compte de ») ; une signature IT n'est jamais « au guichet ». Un document de restitution ne liste sous
+« Équipements restitués » que ce qui a été rendu dans CETTE restitution, rappelle ce qui l'avait été avant, et
+range le reste sous « Restent chez le collaborateur » (`pdf/render/restitution-scope.ts`) ; il est daté de sa
+signature. Chaque document enregistré porte un nom lisible et daté
+(`BON-…_Lea-Martin_Bon-de-restitution-signe_2026-09-27_15h03m27.pdf`, `pdf/snapshot-filename.ts`) ; les
+pièces jointes des emails aussi (`BON-…_PV-de-non-restitution_2026-09-27.pdf`). Un document
 « signature du collaborateur » est refusé si le collaborateur n'a pas signé ce document ; un geste sans
 signature est rangé sous `remise_sans_signature` / `cloture_sans_signature`, avec le motif, le technicien et
 la date (écouteur `signature/without-signature-documents.listener.ts`).
@@ -422,9 +433,10 @@ accessibilité, mobile) sont dans [frontend-guide.md](frontend-guide.md).
 anciennes adresses `/admin/reports`, `/admin/ldap`, `/admin/email-templates` et `/admin/pdf-templates`
 redirigent vers les nouvelles.
 
-Aujourd'hui, le menu latéral de l'administrateur compte trois groupes (Opérations, Référentiel,
+Aujourd'hui, le menu latéral de l'administrateur compte trois groupes (Suivi, Référentiels,
 Administration) ; celui du technicien n'a que les deux premiers, sans Utilisateurs ni Filiales. La direction
-voit Tableau de bord et Inventaire, le collaborateur Mes bons. Un sélecteur de vue permet à un membre de l'IT
+voit Tableau de bord et Inventaire, le collaborateur une seule entrée « Mes équipements » (adresse `/mes-bons`
+jusqu'à la vague 4). Un sélecteur de vue permet à un membre de l'IT
 de voir l'interface d'un autre rôle. **Cible décidée** (vague 4) : menu
 Suivi (Accueil `/accueil`, Bons, Inventaire, Contestations), Référentiels (Utilisateurs `/utilisateurs`,
 Filiales `/filiales`, Catalogue `/catalogue`) et Administration (Paramètres, Modèles, Supervision, Journal
@@ -556,6 +568,18 @@ La fiche d'un bon expose le résultat : `availableActions` (actions proposées, 
 et le motif de celles qui sont bloquées), `pendingSignature` (document en attente : type, lien expiré ou non,
 au guichet, signature IT posée, dates d'envoi et d'échéance), `subStatus`, `lateness` (« Signature en
 retard », « Retour en retard ») et, pour chaque équipement, `returnState`. L'écran n'en recalcule rien.
+Pour l'IT seulement, la fiche porte aussi deux rappels lus à part (`bons/bon-it-notices.ts`) :
+`contestation` (étape `open` : bon « Contesté », contestation nouvelle ou prise en charge, motif et « Traiter
+la contestation », qui ouvre directement sa décision : `/admin/contestations?contestation=<id>` ; étape `correction` :
+Fondée sur une restitution ou un PV et rien corrigé depuis la décision — ni geste de correction au journal,
+ni nouvelle signature IT, ni nouveau lien) et `linkRequest` (le collaborateur a demandé un nouveau lien
+depuis le dernier envoi). Pendant l'étape `correction`, l'action principale devient le geste de correction
+(« Corriger le marquage » pour une restitution, « Équipement retrouvé » pour un PV) au lieu du renvoi.
+Chaque signature de la fiche IT porte `signerName`, le nom du compte de `signerEmail` : « par Thomas
+Girard », comme le PDF (`bons/bon-signer-names.ts`).
+L'écran range les actions (`pages/bons/detail/action-placement.ts`) : tant qu'un document attend la
+signature, nouvelles restitutions et déclaration de non-restitution passent dans « Autres actions », et,
+lien encore valide, seul « Faire signer sur place » reste visible.
 
 | Action (`BonActionName`) | Depuis | Condition |
 |---|---|---|
@@ -564,7 +588,7 @@ retard », « Retour en retard ») et, pour chaque équipement, `returnState`. L
 | `send_in_person` | Brouillon | |
 | `resend`, `show_in_person_link` | Remise à signer, Restitution à signer, Restitution en cours | un document attend la signature (`resend` : email possible) |
 | `start_restitution`, `restitution_in_person` | En cours, Restitution en cours | un équipement encore chez le collaborateur (`start_restitution` : email possible) |
-| `undo_return` | Restitution à signer, Restitution en cours | un équipement rendu, restitution pas signée |
+| `undo_return` | Restitution à signer, Restitution en cours | un équipement rendu, restitution pas signée ; aussi depuis la fenêtre de restitution (`undoEquipmentIds` de `initiate-restitution`, même transaction que le nouveau marquage) |
 | `declare_not_returned` | En cours, Restitution en cours | un équipement encore chez le collaborateur |
 | `mark_found` | Restitution en cours, Clôturé | un équipement déclaré non restitué |
 | `handover_without_signature` | Remise à signer | motif |
@@ -610,7 +634,15 @@ Autres règles :
   signature IT d'un bon envoyé ; modifier seulement la note interne ne change rien pour le collaborateur.
 - Annuler un marquage ou rouvrir une restitution contestée ne retire sa valeur qu'à la signature IT de la
   restitution **en cours** : celles des restitutions déjà signées restent probantes.
-- Les numéros de série d'un bon remplaçant ne sont pas signalés « déjà prêtés » à cause de son original.
+- Motif d'invalidation d'une restitution corrigée : annuler un marquage, ou marquer d'autres équipements
+  pendant qu'une restitution attend sa signature, invalide le lien en attente et la signature IT en cours avec
+  le motif `return_corrected` (« Restitution corrigée »), ou `in_person` quand le nouveau marquage se fait au
+  guichet. L'ancien lien tombe dès le marquage, avant la nouvelle signature IT : il montrerait une autre
+  sélection que celle qui sera signée.
+- Les numéros de série d'un bon remplaçant ne sont pas signalés « déjà prêtés » à cause de son original :
+  `findSerialConflicts` (`equipment/equipment-serial.ts`) exclut, avec le bon en cours (`excludeBonId`), le
+  bon qu'il remplace ; le formulaire (`pages/bons/create/lib/serialConflicts.ts`) et le contrôle d'avant la
+  remise (`bon-send-checks.ts`) gardent le même filtre.
 - Contestation Fondée **sur une remise** : `createReplacementBon` crée un brouillon pré-rempli lié
   (`replacesBonId`), que l'IT corrige puis envoie ; l'original reste « En cours ». Quand la remise du
   remplaçant est signée, ou constatée sans signature, l'original passe « Clôturé » (sa relation `replacedBy`
@@ -636,14 +668,17 @@ Autres règles :
 
 Un lien invalidé garde son motif (`Signature.invalidatedReason`) : la page de signature dit « remplacé »,
 « se signe au guichet », « bon clôturé », « annulé »… plutôt qu'un « nouveau lien envoyé » faux. Un lien
-expiré propose « Demander un nouveau lien » : l'IT est prévenue (une alerte par bon et par 24 h).
+expiré propose « Demander un nouveau lien » : l'IT est prévenue une seule fois par lien en attente ; tant
+qu'elle ne l'a pas renvoyé, les demandes suivantes répondent « déjà demandé le … » sans nouvelle alerte.
 
 Autres emails : annulation d'un bon déjà envoyé, réponse à une contestation, rappel avant la date de
 restitution prévue. L'IT reçoit une alerte à chaque contestation et quand un compte désactivé détient encore
 des équipements.
 
 Un lien de signature envoyé par email exige une connexion Microsoft du collaborateur concerné. Un lien
-présentiel est valable 2 heures et s'ouvre sur l'appareil du technicien, qui est tracé comme mandataire.
+présentiel est valable 2 heures et s'ouvre sur l'appareil du technicien : le collaborateur signe « en
+présence de » ce compte IT, ce n'est pas une procuration (`signedByProxy` reste faux ; seul un compte ni
+titulaire ni IT est tracé comme mandataire).
 
 ### Contestation et portail du collaborateur (lot 2C)
 
@@ -686,7 +721,7 @@ renvoie le seuil (`overdueSince`) et l'écran s'en sert tel quel, pour que la me
 et l'email concordent.
 
 **Page de signature** (`frontend/src/pages/signature/`). Chaque lien qui ne se signe plus dit son vrai motif
-(`invalidatedReason` : remplacé, clôturé, au guichet, modifié, annulé…) avec une issue vers « Mes
+(`invalidatedReason` : remplacé, clôturé, au guichet, modifié, restitution corrigée, annulé…) avec une issue vers « Mes
 équipements » ; un lien expiré propose « Demander un nouveau lien » (route du lot 2B, qui prévient l'IT) ;
 restitution et PV proposent « Je ne suis pas d'accord » ; une signature au guichet se termine par « signé
 par X, au guichet, en présence de Y ».
@@ -755,8 +790,8 @@ les exceptions.
 | GET | `/bons/:id/send-check` | IT | | Contrôles avant la remise : lignes sans numéro, numéros déjà prêtés |
 | GET | `/bons/:id/notifications` | IT | | Historique des emails du bon |
 | GET | `/bons/:id/integrity` | tous | | Vérification des sceaux |
-| GET | `/bons/:id/pdf` | tous | | Document PDF d'une étape |
-| GET | `/bons/:id/pdf-snapshots` | tous | | Documents disponibles |
+| GET | `/bons/:id/pdf` | tous | | Document PDF : `snapshot=<id>` (un document précis de la liste), `stage` (version en vigueur d'un type), sinon le dernier document signé du `type` |
+| GET | `/bons/:id/pdf-snapshots` | tous | | Les documents, du plus ancien au plus récent (rang par type, version en vigueur, version remplacée et motif). Un compte non IT ne reçoit que ceux qu'il peut garder : jamais une version signée par l'IT seule, ni ici ni par `GET /bons/:id/pdf?snapshot=` |
 | GET | `/bons/:id/pdf-snapshots/missing` | IT | | Documents attendus mais absents |
 | POST | `/bons` | IT | | Création ; civilité obligatoire, retenue sur le compte ; `internalNote` facultative |
 | PUT | `/bons/:id` | IT | | Modification d'un brouillon, ou d'un bon envoyé non signé (lien invalidé, nouvelle signature IT exigée) |
@@ -784,7 +819,7 @@ les exceptions.
 | GET | `/signature/:token` | tous | | Informations du document à signer |
 | GET | `/signature/:token/preview` | tous | 10/min | Aperçu du PDF |
 | POST | `/signature/:token/sign` | tous | 10/min | Signature ; le signataire doit être le collaborateur du bon, sauf en présentiel ; le refus ne cite aucune adresse |
-| POST | `/signature/:token/request-new-link` | tous | 3/min | Lien expiré : prévient l'IT (réponse immédiate, email en arrière-plan) ; une alerte par bon et par 24 h |
+| POST | `/signature/:token/request-new-link` | tous | 3/min | Lien expiré : prévient l'IT (réponse immédiate, email en arrière-plan) ; une seule alerte par lien, jusqu'au renvoi |
 
 ### Contestations (`/api/contestations`)
 
@@ -805,12 +840,13 @@ dépend plus du module Contestation.
 
 | Verbe | Route | Rôles | Remarque |
 |---|---|---|---|
-| GET | `/reporting/inventory` | IT, `direction` | Parc prêté, filtré, trié, paginé |
+| GET | `/reporting/inventory` | IT, `direction` | Parc prêté, filtré, trié, paginé ; `situation=non_restitue` : les équipements encore non restitués |
 | GET | `/reporting/inventory/summary` | IT, `direction` | Répartition par catégorie et par filiale |
 | GET | `/reporting/inventory/by-collaborateur` | IT, `direction` | Une ligne par personne, plafonnée (champ `truncated` et en-tête `X-Truncated`) |
 | GET | `/reporting/inventory/export` | IT, `direction` | CSV |
 | GET | `/kpi/aujourdhui` | IT | Accueil « Aujourd'hui » : tuiles et sections « À traiter », états du jour, sans cache |
 | GET | `/kpi/parc`, `/kpi/delais`, `/kpi/incidents` | IT, `direction` | Onglets du tableau de bord ; `from`, `to` (AAAA-MM-JJ, Paris), `filialeId` ; cache de 60 s ; champ `asOf` = date des états du jour |
+| GET | `/kpi/liste` | IT | Liste exacte d'un chiffre sur la période (`indicateur`, `from`, `to`, `filialeId`, `page`, `limit`) : `total` = la carte ; sans cache |
 
 ### Catalogue et équipements (`/api/equipment`)
 
@@ -1012,7 +1048,7 @@ la période** compte ce qui s'est passé entre deux dates (« du 27/08 au 25/09 
 précédente de même durée. La filiale choisie s'applique à tous. Les prédicats vivent dans
 `backend/src/common/bon-predicates.ts` : la carte et la liste qu'elle ouvre utilisent le même, et un test
 sur base réelle vérifie qu'ils comptent les mêmes lignes (`common/__tests__/bon-predicates.real-db.spec.ts`,
-`kpi/__tests__/kpi.real-db.spec.ts`). Ce tableau sert aussi de base à l'aide intégrée de la direction ; les
+`kpi/__tests__/kpi.real-db.spec.ts`, `kpi/__tests__/kpi-lists.real-db.spec.ts`). Ce tableau sert aussi de base à l'aide intégrée de la direction ; les
 cartes en reprennent les définitions derrière leur bouton « ? ».
 
 ### Accueil « Aujourd'hui » (IT, `GET /kpi/aujourdhui`, tout est un état du jour)
@@ -1033,52 +1069,76 @@ cartes en reprennent les définitions derrière leur bouton « ? ».
 
 ### Onglet Parc (`GET /kpi/parc`)
 
-| Indicateur | Ce qu'il compte | Unité | Portée |
-|---|---|---|---|
-| Équipements chez les collaborateurs | Équipements remis et pas rendus ni déclarés non restitués, sur un bon « Remise à signer », « En cours », « Restitution à signer », « Restitution en cours » ou « Contesté » ; précise le nombre de bons | équipements | état du jour |
-| Retour en retard | Voir l'accueil ; retard moyen et médian **par bon** | équipements | état du jour |
-| Encore non restitués | Équipements déclarés non restitués et pas retrouvés, bons clôturés compris, hors bons annulés | équipements | état du jour |
-| Avec numéro de série | Part des équipements chez les collaborateurs dont le n° de série est renseigné | % | état du jour |
-| Hors catalogue | Part des équipements chez les collaborateurs saisis en texte libre | % | état du jour |
-| Équipements déclarés non restitués | Équipements (et non déclarations) déclarés non restitués | équipements | période |
-| Équipements retrouvés | Équipements déclarés non restitués puis retrouvés | équipements | période |
-| Courbe jour après jour | Équipements chez les collaborateurs en fin de journée ; le point qui contient aujourd'hui égale la carte. Si la période finit avant aujourd'hui, la carte (au jour) et le dernier point (fin de période) diffèrent, et l'écran le dit | équipements | période |
-| Par catégorie, par filiale, modèles | Répartition des équipements chez les collaborateurs | équipements | état du jour |
+Chaque état du jour ouvre l'inventaire filtré sur exactement ce qu'il compte, pour l'IT comme pour la
+direction (jamais un bon pour la direction). Les deux flux, tirés du journal, n'ont pas de liste exacte
+(un équipement peut avoir été déclaré puis retrouvé) : pas de lien, et le « ? » le dit. La filiale
+choisie est reportée sur chaque lien (`&filialeId=`).
+
+| Indicateur | Ce qu'il compte | Unité | Portée | Liste ouverte |
+|---|---|---|---|---|
+| Équipements chez les collaborateurs | Équipements remis et pas rendus ni déclarés non restitués, sur un bon « Remise à signer », « En cours », « Restitution à signer », « Restitution en cours » ou « Contesté » ; précise le nombre de bons | équipements | état du jour | `/inventaire` |
+| Retour en retard | Voir l'accueil ; retard moyen et médian **par bon** | équipements | état du jour | `/inventaire?overdue=1` |
+| Encore non restitués | Équipements déclarés non restitués et pas retrouvés, bons clôturés compris, hors bons annulés | équipements | état du jour | `/inventaire?situation=non_restitue` |
+| Avec numéro de série | Part des équipements chez les collaborateurs dont le n° de série est renseigné (ni absent, ni vide, ni fait seulement d'espaces) | % | état du jour | `/inventaire?sansNumeroSerie=1` : les autres (« Voir les N sans numéro ») |
+| Hors catalogue | Part des équipements chez les collaborateurs saisis en texte libre | % | état du jour | `/inventaire?horsCatalogue=1` (« Voir les N hors catalogue ») |
+| Équipements déclarés non restitués | Équipements (et non déclarations) déclarés non restitués | équipements | période | aucune (flux du journal) |
+| Équipements retrouvés | Équipements déclarés non restitués puis retrouvés | équipements | période | aucune (flux du journal) |
+| Courbe jour après jour | Équipements chez les collaborateurs en fin de journée ; le point qui contient aujourd'hui égale la carte. Si la période finit avant aujourd'hui, la carte (au jour) et le dernier point (fin de période) diffèrent, et l'écran le dit | équipements | période | — |
+| Par catégorie, par filiale, modèles | Répartition des équipements chez les collaborateurs | équipements | état du jour | par filiale : `/inventaire?filialeId=` |
+| Retour en retard : les 10 bons | Une ligne par bon, avec ses équipements en retard | équipements | état du jour | IT : le bon ; direction : `/inventaire?overdue=1&search=<référence du bon>` |
+
+### Listes des chiffres sur la période (`GET /kpi/liste`, IT seulement)
+
+Une carte de bons ou d'événements « sur la période » ouvre, pour l'IT, la liste de ce qu'elle compte dans
+le tableau de bord même (paramètre d'adresse `liste=<indicateur>`, qui garde l'onglet, la période et la
+filiale ; le bouton retour la referme). La carte et la liste lisent la **même requête source**
+(`kpi/lists/kpi-list-sources.ts`) : la carte en compte les lignes, la liste les affiche, avec le bon, le
+collaborateur, la filiale, la date et la précision utile (motif, issue, destinataire). Chaque ligne ouvre
+son bon. La direction n'a pas ces listes (403) et le « ? » de la carte le dit. Indicateurs : `bons_crees`,
+`bons_envoyes`, `bons_clotures`, `bons_annules`, `pv_emis`, `remises_sans_signature`,
+`clotures_sans_signature`, `contestations_recues`, `emails_en_echec`. Un délai, une médiane ou une part
+n'ouvre pas de liste. Les listes ne sont pas mises en cache ; les cartes le sont 60 s.
 
 ### Onglet Délais (`GET /kpi/delais`)
 
-| Indicateur | Ce qu'il compte | Unité | Portée |
-|---|---|---|---|
-| Bons créés, envoyés, clôturés, annulés | Bons créés (date de création), envoyés pour la première fois, clôturés (`archivedAt`), annulés | bons | période |
-| Délai entre création et envoi | Médiane du temps entre la création et le premier envoi, avec le nombre de bons | heures | période |
-| Remises signées sous 48 h / 7 jours | Part des remises signées dans ce délai après la demande, avec l'effectif (« 6 remises sur 7 ») | % | période |
-| Durée moyenne de prêt | Temps entre la signature de la remise (à défaut la date de mise à disposition) et la clôture, pour les bons clôturés | jours | période |
-| Signature en retard | Voir l'accueil | bons | état du jour |
-| Délai entre la demande et la signature | Par document : délai médian (barres et colonne, même valeur), « 9 sur 10 signés en moins de » (90ᵉ centile), part signée sous 48 h et 7 jours avec l'effectif | minutes, heures, jours | période |
-| Comment les documents ont été signés | À distance (lien), sur place (présentiel), par une personne mandatée (procuration, comptée aussi dans l'une des deux autres) | signatures | période |
-| Bons par statut | Tous les bons, par statut | bons | état du jour |
-| Signatures attendues par document | Remise, restitution ou PV de non-restitution à signer : nombre, attente moyenne depuis la demande, nombre en retard ; totaux = tuiles de l'accueil | bons | état du jour |
+| Indicateur | Ce qu'il compte | Unité | Portée | Liste ouverte (IT) |
+|---|---|---|---|---|
+| Bons créés, envoyés, clôturés, annulés | Bons créés (date de création), envoyés (au moins un envoi sur la période, un bon compté une fois), clôturés (`archivedAt`), annulés | bons | période | `liste=bons_crees`, `bons_envoyes`, `bons_clotures`, `bons_annules` |
+| Délai entre création et envoi | Médiane du temps entre la création et le premier envoi, avec le nombre de bons | heures | période | aucune (médiane) |
+| Remises signées sous 48 h / 7 jours | Part des remises signées dans ce délai après la demande, avec l'effectif (« 6 remises sur 7 ») | % | période | aucune (part) |
+| Durée moyenne de prêt | Temps entre la signature de la remise (à défaut la date de mise à disposition) et la clôture, pour les bons clôturés | jours | période | aucune (moyenne) |
+| Signature en retard | Voir l'accueil | bons | état du jour | `/bons?overdue=1` (`&filialeId=`) |
+| Délai entre la demande et la signature | Par document : délai médian (barres et colonne, même valeur), « 9 sur 10 signés en moins de » (90ᵉ centile), part signée sous 48 h et 7 jours avec l'effectif | minutes, heures, jours | période | — |
+| Comment les documents ont été signés | À distance (lien), sur place (présentiel), par une personne mandatée (procuration : un compte ni titulaire ni IT a signé pour le collaborateur ; une signature au guichet devant un technicien n'en est pas une ; comptée aussi dans l'une des deux autres) | signatures | période | — |
+| Bons par statut | Tous les bons, par statut | bons | état du jour | — |
+| Signatures attendues par document | Remise, restitution ou PV de non-restitution à signer : nombre, attente moyenne depuis la demande, nombre en retard ; totaux = tuiles de l'accueil | bons | état du jour | — |
 
 ### Onglet Incidents (`GET /kpi/incidents`)
 
-| Indicateur | Ce qu'il compte | Unité | Portée |
-|---|---|---|---|
-| Encore non restitués | Voir l'onglet Parc | équipements | état du jour |
-| Contestations à traiter | Voir l'accueil | contestations | état du jour |
-| Équipements déclarés non restitués, retrouvés | Voir l'onglet Parc | équipements | période |
-| PV de non-restitution émis | PV émis | PV | période |
-| Remises constatées sans signature | Bons passés « En cours » sans la signature du collaborateur, avec motif | bons | période |
-| Clôturés sans signature | Bons clôturés sans la signature du collaborateur, avec motif (geste distinct du précédent) | bons | période |
-| Bons annulés | Bons annulés | bons | période |
-| Contestations reçues | Contestations créées | contestations | période |
-| Contestations tranchées | Délai médian de décision, nombre de Fondées (le bon est corrigé) et de Non retenues (rien ne change) | jours, contestations | période |
-| Rappels automatiques | Rappels envoyés par rang (trois au plus **par document**, comptés depuis sa demande), suivis ou non de la signature du même document ; documents ayant reçu leur 3ᵉ rappel | rappels, documents | période |
-| Emails en échec | Emails non envoyés ou rejetés. Un bon sans adresse (signature sur place) n'est pas un échec : statut `skipped`, et les anciennes lignes sans destinataire, exclus | emails | période |
+| Indicateur | Ce qu'il compte | Unité | Portée | Liste ouverte |
+|---|---|---|---|---|
+| Encore non restitués | Voir l'onglet Parc | équipements | état du jour | `/inventaire?situation=non_restitue` (IT et direction) |
+| Contestations à traiter | Voir l'accueil | contestations | état du jour | IT, toutes filiales : `/admin/contestations?aTraiter=1` ; aucune avec une filiale choisie (la page ne se filtre pas par filiale) |
+| Équipements déclarés non restitués, retrouvés | Voir l'onglet Parc | équipements | période | aucune (flux du journal) |
+| PV de non-restitution émis | PV émis | PV | période | IT : `liste=pv_emis` |
+| Remises constatées sans signature | Bons passés « En cours » sans la signature du collaborateur, avec motif | bons | période | IT : `liste=remises_sans_signature` |
+| Clôturés sans signature | Bons clôturés sans la signature du collaborateur, avec motif (geste distinct du précédent) | bons | période | IT : `liste=clotures_sans_signature` |
+| Bons annulés | Bons annulés | bons | période | IT : `liste=bons_annules` |
+| Contestations reçues | Contestations créées | contestations | période | IT : `liste=contestations_recues` |
+| Contestations tranchées | Délai médian de décision, nombre de Fondées (le bon est corrigé) et de Non retenues (rien ne change) | jours, contestations | période | — |
+| Rappels automatiques | Rappels envoyés par rang (trois au plus **par document**, comptés depuis sa demande), suivis ou non de la signature du même document ; documents ayant reçu leur 3ᵉ rappel | rappels, documents | période | — |
+| Emails en échec | Emails non envoyés ou rejetés. Un bon sans adresse (signature sur place) n'est pas un échec : statut `skipped`, et les anciennes lignes sans destinataire, exclus | emails | période | IT : `liste=emails_en_echec` |
 
 ### Inventaire (`/reporting/inventory`)
 
 Même définition que « Équipements chez les collaborateurs ». Situations (colonne et filtre) : « Remise à
-signer », « En cours », « Contesté ». Une date de remise à venir s'affiche « prévu le … » et n'a pas
+signer », « En cours », « Contesté », et « Non restitué » (`situation=non_restitue`), qui remplace le parc
+par les équipements encore non restitués (bons clôturés compris, avec le motif de la déclaration pour l'IT ;
+la direction, qui n'ouvre pas les bons, ne reçoit pas ce motif), jamais « en retard ». Filtres de qualité :
+`sansNumeroSerie` (numéro absent, vide ou fait seulement d'espaces), `horsCatalogue`. La recherche porte
+aussi sur la référence du bon. Les prédicats partagés avec les cartes vivent dans `common/bon-predicates.ts`.
+Sur téléphone (moins
+de 768 px), une carte par équipement remplace le tableau. Une date de remise à venir s'affiche « prévu le … » et n'a pas
 d'ancienneté dans le CSV. La fiche d'un équipement (`/materiel/:reference`) prend sa situation au serveur
 (`holding`, `equipment/equipment-holding.ts`) : un brouillon n'en fait jamais « Chez X », seulement
 « Prévu pour X ».

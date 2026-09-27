@@ -32,4 +32,12 @@ describe('écran d’un lien invalidé : le vrai motif (R-038)', () => {
     expect(closedBonScreen('contested').title).toBe('Contestation en cours');
     expect(closedBonScreen('cancelled').title).toBe('Bon annulé');
   });
+
+  it('ancien lien d’un document contesté puis « Fondée » : en cours de correction, plus « Contestation en cours » (CM n° 1)', () => {
+    const screen = invalidatedLinkScreen('contested');
+    expect(screen.title).toBe('Document en cours de correction');
+    expect(screen.message).toMatch(/fondée/);
+    expect(screen.message).toMatch(/renverra/);
+    expect(screen.message).not.toMatch(/en cours de traitement/);
+  });
 });

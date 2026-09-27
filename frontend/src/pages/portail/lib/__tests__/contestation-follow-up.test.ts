@@ -50,9 +50,22 @@ describe('suivi de sa contestation par le collaborateur (R-055)', () => {
   it('ce que la décision change', () => {
     expect(outcomeExplanation(contestation())).toBeNull();
     expect(outcomeExplanation(contestation({ outcome: 'not_retained' }))).toBe('Le bon reste tel quel.');
+    // L'en-tête de la fiche annonce déjà le bon corrigé : pas deux fois la même phrase.
     expect(
       outcomeExplanation(contestation({ outcome: 'founded', replacementBon: { id: 'b2', reference: 'BON-2026-0070' } })),
-    ).toContain('BON-2026-0070');
+    ).toBeNull();
+    expect(outcomeExplanation(contestation({ outcome: 'founded' }))).toBe(
+      'Un bon corrigé va remplacer celui-ci : vous le recevrez à signer.',
+    );
+  });
+
+  it('Fondée sur une restitution ou un PV : le bon est corrigé, jamais remplacé', () => {
+    expect(outcomeExplanation(contestation({ outcome: 'founded', contestedDocument: 'restitution' }))).toBe(
+      'Votre bon va être corrigé, puis la restitution vous sera renvoyée à signer.',
+    );
+    expect(outcomeExplanation(contestation({ outcome: 'founded', contestedDocument: 'pv_cloture' }))).toBe(
+      'Votre bon va être corrigé, puis le PV de non-restitution vous sera renvoyé à signer.',
+    );
   });
 
   it('document contesté dans une phrase', () => {

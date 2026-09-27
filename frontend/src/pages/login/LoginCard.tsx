@@ -38,32 +38,41 @@ function MicrosoftLogo() {
   );
 }
 
-interface CollaboratorLoginCardProps {
+interface LoginCardProps {
   /** Adresse (déjà validée) où revenir après la connexion. */
   returnTo: string | null;
   title?: string;
   message?: string;
+  /** Échec d'une connexion Microsoft, dit en clair au-dessus des deux moyens. */
+  error?: string | null;
 }
 
 /**
- * Connexion du collaborateur venu d'un lien reçu par email, en un seul écran :
- * Microsoft, et juste dessous le formulaire du compte local, déjà ouvert.
- * Même carte claire sur la page de signature et sur la page de connexion.
+ * Écran de connexion unique, pour l'équipe informatique comme pour le
+ * collaborateur venu d'un lien reçu par email : Microsoft, et juste dessous le
+ * formulaire du compte local, déjà ouvert (aucun geste pour le déplier). Même
+ * carte claire sur la page de signature et sur la page de connexion.
  *
  * Téléphone en paysage (écran bas) : l'icône et le texte d'accueil laissent la
  * place, les deux moyens de connexion passent côte à côte ; le champ « Adresse
  * email » reste visible sans défiler.
  */
-export function CollaboratorLoginCard({
+export function LoginCard({
   returnTo,
   title = 'Connexion requise',
   message = 'Connectez-vous pour consulter et signer vos documents.',
-}: CollaboratorLoginCardProps) {
+  error = null,
+}: LoginCardProps) {
   const localEnabled = useLocalAuthEnabled();
   const ssoHref = returnTo ? `/api/auth/login?returnTo=${encodeURIComponent(returnTo)}` : '/api/auth/login';
   return (
     <div className="flex min-h-dvh items-center justify-center bg-background px-4 py-6 [@media(max-height:500px)]:py-3">
-      <main className="w-full max-w-md rounded-xl bg-card border border-border shadow-sm p-6 sm:p-8 [@media(max-height:500px)_and_(min-width:640px)]:max-w-3xl">
+      <main className="w-full max-w-md rounded-xl bg-card border border-border shadow-sm p-5 sm:p-8 [@media(max-height:500px)_and_(min-width:640px)]:max-w-3xl">
+        {error && (
+          <p role="alert" className="mb-4 rounded-lg bg-destructive/10 border border-destructive/25 p-3 text-sm text-destructive">
+            {error}
+          </p>
+        )}
         <div className="grid gap-5 [@media(max-height:500px)]:gap-3 [@media(max-height:500px)_and_(min-width:640px)]:grid-cols-2 [@media(max-height:500px)_and_(min-width:640px)]:gap-6">
           <div className="space-y-4 text-center [@media(max-height:500px)]:space-y-3">
             <div className="bg-primary/10 rounded-full w-14 h-14 flex items-center justify-center mx-auto [@media(max-height:500px)]:hidden">
@@ -75,7 +84,7 @@ export function CollaboratorLoginCard({
             </div>
             <a
               href={ssoHref}
-              className="flex min-h-11 w-full items-center justify-center gap-3 rounded-xl border border-border bg-card px-4 text-[15px] font-semibold text-foreground shadow-sm hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="flex min-h-11 w-full items-center justify-center gap-2.5 whitespace-nowrap rounded-xl border border-border bg-card px-3 text-[15px] font-semibold text-foreground shadow-sm hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <MicrosoftLogo />
               Continuer avec Microsoft
@@ -87,7 +96,7 @@ export function CollaboratorLoginCard({
               <p className="flex items-center gap-3 text-xs text-muted-foreground before:h-px before:flex-1 before:bg-border after:h-px after:flex-1 after:bg-border">
                 ou avec votre adresse et votre mot de passe
               </p>
-              <LocalLoginForm returnTo={returnTo} tone="light" />
+              <LocalLoginForm returnTo={returnTo} />
             </div>
           )}
         </div>

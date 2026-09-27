@@ -242,4 +242,59 @@ describe('InventairePage', () => {
 
     expect(await screen.findByText(/Export au détail par équipement, filtres actifs\./)).toBeInTheDocument();
   });
+
+  describe('listes ouvertes par les cartes du tableau de bord', () => {
+    const lastListPath = () =>
+      vi.mocked(api.get).mock.calls.map(([p]) => p as string).filter((p) => p.startsWith('/reporting/inventory?')).at(-1);
+
+    it('« Encore non restitués » : situation non_restitue transmise, sous-titre et option dédiés', async () => {
+      vi.mocked(api.get).mockImplementation((path: string) => {
+        if (path.startsWith('/reporting/inventory/summary')) return Promise.resolve({ ...summary, notReturned: 4 });
+        if (path.startsWith('/reporting/inventory')) {
+          return Promise.resolve({
+            ...listResponse,
+            items: [{
+              ...listResponse.items[0], bonStatus: 'archived', situation: 'non_restitue',
+              situationLabel: 'Non restitué', notReturnedReason: 'Perdu en déplacement',
+            }],
+          });
+        }
+        return Promise.resolve([]);
+      });
+      renderWithProviders(<InventairePage />, { route: '/inventaire?situation=non_restitue&filialeId=f1' });
+
+      expect(await screen.findByText('Perdu en déplacement')).toBeInTheDocument();
+      expect(lastListPath()).toContain('situation=non_restitue');
+      expect(lastListPath()).toContain('filialeId=f1');
+      expect(screen.getByText(/déclarés non restitués et pas retrouvés/)).toBeInTheDocument();
+      expect(await screen.findByRole('option', { name: 'Non restitué (4)' })).toBeInTheDocument();
+      // Un équipement non restitué ne se restitue pas depuis l'inventaire.
+      expect(screen.queryByRole('link', { name: /Initier la restitution/ })).toBeNull();
+    });
+
+    it('« Hors catalogue » : filtre transmis et bouton enfoncé', async () => {
+      renderWithProviders(<InventairePage />, { route: '/inventaire?horsCatalogue=1' });
+      await screen.findByText('Jean Dupont');
+      expect(lastListPath()).toContain('horsCatalogue=1');
+      expect(screen.getByRole('button', { name: /Hors catalogue/ })).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('sur téléphone, une carte par équipement avec sa situation et son bon (rien hors écran)', async () => {
+      const matchMedia = vi.fn().mockImplementation((query: string) => ({
+        matches: query === '(max-width: 767px)', media: query,
+        addEventListener: vi.fn(), removeEventListener: vi.fn(),
+      }));
+      vi.stubGlobal('matchMedia', matchMedia);
+      try {
+        renderWithProviders(<InventairePage />);
+        const card = (await screen.findByText('Latitude 5540')).closest('li');
+        expect(card).not.toBeNull();
+        expect(screen.queryByRole('table')).toBeNull();
+        expect(card).toHaveTextContent('En circulation');
+        expect(card).toHaveTextContent('BMD-2026-0001');
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+  });
 });

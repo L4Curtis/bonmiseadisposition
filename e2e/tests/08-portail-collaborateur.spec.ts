@@ -49,15 +49,17 @@ test('portail collaborateur : ses bons, le PDF, et jamais ceux des autres', asyn
     // interface n'a pas de lecteur PDF : il remet le document de l'onglet sous
     // forme de téléchargement, ce qui permet d'en lire le contenu réel (le
     // corps de la réponse, lu par l'application en Blob, n'est pas relisible
-    // côté Playwright).
-    const [onglet, pdf] = await Promise.all([
-      portail.waitForEvent('popup'),
+    // côté Playwright). L'écoute du téléchargement démarre dès l'ouverture de
+    // l'onglet (avant la fin du chargement du PDF) : attachée après coup, elle
+    // manquerait un document remis très vite.
+    const [{ onglet, telechargement }, pdf] = await Promise.all([
+      portail.waitForEvent('popup').then((p) => ({ onglet: p, telechargement: p.waitForEvent('download') })),
       portail.waitForResponse((r) => r.url().includes(`/api/bons/${sien.bonId}/pdf`)),
       portail.getByRole('button', { name: 'Ouvrir Bon de mise à disposition signé' }).click(),
     ]);
     expect(pdf.ok()).toBe(true);
     expect(pdf.headers()['content-type']).toBe('application/pdf');
-    const document = await onglet.waitForEvent('download');
+    const document = await telechargement;
     const contenu = await readFile(await document.path());
     expect(contenu.subarray(0, 5).toString('latin1')).toBe('%PDF-');
     await onglet.close();

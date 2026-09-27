@@ -9,8 +9,8 @@ import { buildBaseFilterEntries, PAGE_LIMIT, type InventoryBaseFilters } from '.
 import { INVENTORY_SORT_FIELDS } from './types';
 import type {
   CompteFilter,
-  EquipmentSituation,
   InventoryItem,
+  InventorySituation,
   InventoryListResponse,
   InventorySort,
   InventorySortField,
@@ -18,11 +18,11 @@ import type {
   InventoryView,
 } from './types';
 
-const SITUATIONS: EquipmentSituation[] = ['en_attente_signature', 'en_circulation', 'en_litige'];
+const SITUATIONS: InventorySituation[] = ['en_attente_signature', 'en_circulation', 'en_litige', 'non_restitue'];
 const COMPTE_FILTERS: CompteFilter[] = ['actif', 'inactif'];
 
-function readSituation(value: string | null): '' | EquipmentSituation {
-  return SITUATIONS.includes(value as EquipmentSituation) ? (value as EquipmentSituation) : '';
+function readSituation(value: string | null): '' | InventorySituation {
+  return SITUATIONS.includes(value as InventorySituation) ? (value as InventorySituation) : '';
 }
 
 /** Lot D1 (départ d'un collaborateur) : filtre propre à la vue « Par
@@ -70,7 +70,7 @@ const SEARCH_DEBOUNCE_MS = 300;
  * État + chargement de la page Inventaire : résumé (tuiles), bascule de vue
  * (par équipement / par collaborateur, cf. InventoryViewToggle), liste paginée
  * par équipement avec filtres et tri synchronisés dans l'URL (filialeId,
- * category, search, sansNumeroSerie, sort/direction, page, vue), et export CSV
+ * category, search, sansNumeroSerie, horsCatalogue, sort/direction, page, vue), et export CSV
  * (mêmes filtres, même tri). La vue « par collaborateur » a son propre
  * chargement (useCollaborateurInventory) mais partage ces mêmes filtres.
  * Isolé de la présentation pour rester testable indépendamment.
@@ -105,13 +105,14 @@ export function useInventory() {
 
   const [filialeFilter, setFilialeFilterState] = useState(searchParams.get('filialeId') ?? '');
   const [categoryFilter, setCategoryFilterState] = useState(searchParams.get('category') ?? '');
-  const [situationFilter, setSituationFilterState] = useState<'' | EquipmentSituation>(() =>
+  const [situationFilter, setSituationFilterState] = useState<'' | InventorySituation>(() =>
     readSituation(searchParams.get('situation')),
   );
   const [searchInput, setSearchInput] = useState(searchParams.get('search') ?? '');
   const [search, setSearch] = useState(searchParams.get('search') ?? '');
   const [overdueFilter, setOverdueFilterState] = useState(searchParams.get('overdue') === '1');
   const [missingSerialFilter, setMissingSerialFilterState] = useState(searchParams.get('sansNumeroSerie') === '1');
+  const [offCatalogFilter, setOffCatalogFilterState] = useState(searchParams.get('horsCatalogue') === '1');
   const [compteFilter, setCompteFilterState] = useState<CompteFilter>(() => readCompte(searchParams.get('compte')));
   const [sort, setSortState] = useState<InventorySort | null>(() =>
     readSort(searchParams.get('sort'), searchParams.get('direction')),
@@ -124,6 +125,7 @@ export function useInventory() {
   const setSituationFilter = (value: string) => { setSituationFilterState(readSituation(value)); setPage(1); };
   const setOverdueFilter = (value: boolean) => { setOverdueFilterState(value); setPage(1); };
   const setMissingSerialFilter = (value: boolean) => { setMissingSerialFilterState(value); setPage(1); };
+  const setOffCatalogFilter = (value: boolean) => { setOffCatalogFilterState(value); setPage(1); };
   const setCompteFilter = (value: CompteFilter) => { setCompteFilterState(value); setPage(1); };
 
   /** Clic sur l'en-tête d'une colonne : une nouvelle colonne part en
@@ -148,6 +150,7 @@ export function useInventory() {
     setSearch('');
     setOverdueFilterState(false);
     setMissingSerialFilterState(false);
+    setOffCatalogFilterState(false);
     setCompteFilterState('');
     setPage(1);
   };
@@ -176,7 +179,7 @@ export function useInventory() {
   //    vue « par collaborateur » a son propre chargement (useCollaborateurInventory).
   useEffect(() => {
     const filterEntries = buildFilterEntries({
-      filialeFilter, categoryFilter, situationFilter, search, overdueFilter, missingSerialFilter, sort,
+      filialeFilter, categoryFilter, situationFilter, search, overdueFilter, missingSerialFilter, offCatalogFilter, sort,
     });
 
     const urlParams = Object.fromEntries(filterEntries);
@@ -220,12 +223,12 @@ export function useInventory() {
       ignore = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- setSearchParams change à chaque navigation : l'ajouter relancerait la requête en boucle.
-  }, [filialeFilter, categoryFilter, situationFilter, search, overdueFilter, missingSerialFilter, compteFilter, sort, page, reloadKey, view]);
+  }, [filialeFilter, categoryFilter, situationFilter, search, overdueFilter, missingSerialFilter, offCatalogFilter, compteFilter, sort, page, reloadKey, view]);
 
   const handleExport = async (): Promise<void> => {
     const params = new URLSearchParams(
       buildFilterEntries({
-        filialeFilter, categoryFilter, situationFilter, search, overdueFilter, missingSerialFilter, sort,
+        filialeFilter, categoryFilter, situationFilter, search, overdueFilter, missingSerialFilter, offCatalogFilter, sort,
       }),
     );
     await download({
@@ -237,10 +240,11 @@ export function useInventory() {
   };
 
   const hasActiveFilters = !!(
-    filialeFilter || categoryFilter || situationFilter || search || overdueFilter || missingSerialFilter || compteFilter
+    filialeFilter || categoryFilter || situationFilter || search || overdueFilter || missingSerialFilter
+    || offCatalogFilter || compteFilter
   );
   const baseFilters: InventoryBaseFilters = {
-    filialeFilter, categoryFilter, situationFilter, search, overdueFilter, missingSerialFilter,
+    filialeFilter, categoryFilter, situationFilter, search, overdueFilter, missingSerialFilter, offCatalogFilter,
   };
 
   return {
@@ -267,6 +271,8 @@ export function useInventory() {
     setOverdueFilter,
     missingSerialFilter,
     setMissingSerialFilter,
+    offCatalogFilter,
+    setOffCatalogFilter,
     compteFilter,
     setCompteFilter,
     sort,

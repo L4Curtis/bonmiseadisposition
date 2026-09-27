@@ -96,6 +96,27 @@ describe('ContestationDialog au doigt (2E)', () => {
     expect(dialog.style.overflowY).toBe('auto');
   });
 
+  it('téléphone couché, clavier ouvert : « Envoyer la contestation » reste collé en bas de la zone visible (CM n° 11)', async () => {
+    mockMedia((query) => query.includes('pointer: coarse') && query.includes('max-height'));
+    renderDialog();
+    const dialog = await screen.findByRole('dialog');
+    act(() => viewport.resize(190, 0));
+    const footer = screen.getByRole('button', { name: 'Envoyer la contestation' }).parentElement!;
+    expect(footer.className).toMatch(/sticky/);
+    expect(footer.className).toMatch(/bottom-0/);
+    // Place comptée : l'explication passe aux lecteurs d'écran seulement, le
+    // champ se réduit à 2 lignes.
+    expect(screen.getByText(/Expliquez ce qui ne va pas/).className).toMatch(/sr-only/);
+    expect(screen.getByLabelText('Motif de contestation')).toHaveAttribute('rows', '2');
+    expect(dialog).toHaveAttribute('data-compact', 'true');
+  });
+
+  it('titre : la place de la croix de fermeture est réservée (CM n° 10)', async () => {
+    mockPhone(true);
+    renderDialog();
+    expect((await screen.findByRole('heading', { name: /Contester le PV/ })).className).toMatch(/pr-10/);
+  });
+
   it('téléphone : calée en haut dès le premier affichage, avant toute mesure de la zone visible', async () => {
     mockPhone(true);
     renderDialog();

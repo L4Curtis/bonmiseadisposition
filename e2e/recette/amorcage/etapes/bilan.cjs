@@ -49,7 +49,7 @@ function afficherBilan(journal) {
   const [[emails]] = requeteSql('SELECT count(*) FROM notification_logs;');
   journal('');
   journal('════════════════════════ Banc de recette prêt ════════════════════════');
-  journal(`Application : ${BASE_URL}   (connexion : « Connexion avec un compte local »)`);
+  journal(`Application : ${BASE_URL}   (connexion : adresse et mot de passe sur la page de connexion)`);
   journal(`Mailpit     : ${MAILPIT_URL}   (API : ${MAILPIT_URL}/api/v1/messages)`);
   journal(`Bons        : ${total}   Emails journalisés : ${emails}`);
   journal('');

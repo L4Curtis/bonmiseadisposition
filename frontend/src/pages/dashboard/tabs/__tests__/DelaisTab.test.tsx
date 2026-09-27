@@ -114,6 +114,33 @@ describe('DelaisTab', () => {
     expect(screen.queryByRole('link', { name: /Signature en retard/ })).not.toBeInTheDocument();
   });
 
+  it('avec une filiale, « Signature en retard » ouvre les bons de cette filiale', async () => {
+    mockGet('/kpi/delais', delaisFixture());
+    renderWithProviders(<DelaisTab />, { route: `${ROUTE}&filialeId=f1` });
+    expect(await screen.findByRole('link', { name: /^Signature en retard/ }))
+      .toHaveAttribute('href', '/bons?overdue=1&filialeId=f1');
+  });
+
+  it('IT : les volumes ouvrent leur liste exacte ; direction : aucune liste de bons, le « ? » dit pourquoi', async () => {
+    mockGet('/kpi/delais', delaisFixture());
+    const { unmount } = renderWithProviders(<DelaisTab />, { route: ROUTE });
+    for (const [name, key] of [[/^Bons créés/, 'bons_crees'], [/^Bons envoyés/, 'bons_envoyes'],
+      [/^Bons clôturés/, 'bons_clotures'], [/^Bons annulés/, 'bons_annules']] as const) {
+      const href = (await screen.findByRole('link', { name })).getAttribute('href') ?? '';
+      expect(new URL(href, 'http://localhost').searchParams.get('liste')).toBe(key);
+    }
+    // Une médiane ou une part n'est pas une liste : pas de lien.
+    expect(screen.queryByRole('link', { name: /^Délai entre création et envoi/ })).not.toBeInTheDocument();
+    unmount();
+
+    mockRole = 'direction';
+    const { user } = renderWithProviders(<DelaisTab />, { route: ROUTE });
+    await screen.findByLabelText(/^Bons créés/);
+    expect(screen.queryAllByRole('link')).toHaveLength(0);
+    await user.click(screen.getByRole('button', { name: 'Pourquoi pas de liste : Bons créés' }));
+    expect(screen.getByText(/n'accède pas aux bons/)).toBeInTheDocument();
+  });
+
   it('le tableau des signatures attendues donne le seuil', async () => {
     mockGet('/kpi/delais', delaisFixture());
     renderWithProviders(<DelaisTab />, { route: ROUTE });

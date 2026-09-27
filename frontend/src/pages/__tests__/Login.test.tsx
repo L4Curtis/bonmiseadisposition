@@ -237,19 +237,48 @@ describe('LoginPage — venu du lien reçu par email (2E, R-096)', () => {
     expect(password).toHaveAttribute('enterkeyhint', 'go');
   });
 
-  it('connexion IT (sans lien) : « Équipe informatique », plus de mention « compte local IT »', async () => {
-    const user = userEvent.setup();
+  it('connexion sans lien : le même écran clair, en un geste (CM n° 7)', async () => {
     render(
       <MemoryRouter initialEntries={['/login']}>
         <LoginPage />
       </MemoryRouter>,
     );
 
-    const toggle = await screen.findByRole('button', { name: 'Connexion avec un compte local' });
-    expect(toggle.className).toMatch(/min-h-11/);
-    expect(screen.getByText('Groupe Livio — Équipe informatique')).toBeInTheDocument();
-    await user.click(toggle);
-    expect(screen.getByLabelText('Adresse email')).toHaveAttribute('type', 'email');
+    // Formulaire local déjà ouvert, sous « Continuer avec Microsoft » : aucun
+    // bouton à déplier, aucune mention technique.
+    expect(await screen.findByLabelText('Adresse email')).toHaveAttribute('type', 'email');
+    expect(screen.getByRole('link', { name: /continuer avec microsoft/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Connexion avec un compte local' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Entra ID/)).not.toBeInTheDocument();
     expect(screen.queryByText(/IT uniquement/)).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Bons de mise à disposition' })).toBeInTheDocument();
+    expect(screen.getByText('Groupe Livio — Équipe informatique')).toBeInTheDocument();
+  });
+
+  it('échec de la connexion Microsoft : le message dans le même écran clair', async () => {
+    render(
+      <MemoryRouter initialEntries={['/login?error=access_denied&returnTo=%2Fsigner%2Fabc']}>
+        <LoginPage />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Accès refusé par Microsoft.');
+    expect(screen.getByLabelText('Adresse email')).toBeVisible();
+  });
+
+  it('connexion locale désactivée : Microsoft seul', async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/auth/local-auth-status')) return Promise.resolve(jsonRes(200, { enabled: false }));
+      return Promise.resolve(jsonRes(200, { setupRequired: false }));
+    }) as unknown as typeof fetch;
+    render(
+      <MemoryRouter initialEntries={['/login']}>
+        <LoginPage />
+      </MemoryRouter>,
+    );
+
+    await screen.findByRole('link', { name: /continuer avec microsoft/i });
+    await waitFor(() => expect(screen.queryByLabelText('Adresse email')).not.toBeInTheDocument());
   });
 });

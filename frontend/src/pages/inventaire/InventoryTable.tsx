@@ -3,23 +3,19 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/StatusBadge';
 import { cn } from '@/lib/utils';
+import { useIsMobile } from '@/hooks/useMediaQuery';
 import { formatDate } from '@/lib/dates';
 import { ageLabel } from '@/pages/dashboard/lib/kpi-scope';
 import { AlertTriangle, Boxes, X } from 'lucide-react';
-import { isOverdue } from './isOverdue';
-import { daysOverdue } from './dateMetrics';
+import { equipmentOverdueDays } from './dateMetrics';
+import { filledSerial } from './serial';
 import { InventorySortHeader } from './InventorySortHeader';
 import { InventoryRowActions } from './InventoryRowActions';
-import type { EquipmentSituation, InventoryItem, InventorySort, InventorySortField } from './types';
+import { SITUATION_CLASSES } from './situationStyles';
+import { InventoryCardList } from './InventoryCardList';
+import type { InventoryItem, InventorySort, InventorySortField } from './types';
 
 const HEADER_CLASS = 'px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider';
-
-/** Couleurs de situation, en classes sémantiques compatibles thème sombre. */
-const SITUATION_CLASSES: Record<EquipmentSituation, string> = {
-  en_attente_signature: 'bg-warning/10 text-warning border border-warning/30',
-  en_circulation: 'bg-muted text-foreground/80 border border-border',
-  en_litige: 'bg-destructive/10 text-destructive border border-destructive/30',
-};
 
 /** Exportée pour être réutilisée par CollaborateurTable.tsx (même squelette
  *  générique, indépendant du nombre de colonnes). */
@@ -70,6 +66,7 @@ export function InventoryTable({
   onSortChange,
 }: InventoryTableProps) {
   const sortProps = { sort, onSortChange };
+  const isMobile = useIsMobile();
   return (
     <div className="bg-card rounded-xl border border-border card-elevated overflow-hidden">
       {loading ? (
@@ -91,7 +88,7 @@ export function InventoryTable({
             <Boxes className="h-8 w-8 text-muted-foreground" />
           </div>
           <p className="text-sm font-medium text-foreground/80 mb-1">
-            Aucun équipement prêté ne correspond aux filtres
+            Aucun équipement ne correspond aux filtres
           </p>
           {hasActiveFilters && (
             <button
@@ -102,6 +99,10 @@ export function InventoryTable({
             </button>
           )}
         </div>
+      ) : isMobile ? (
+        // Téléphone : une carte par équipement, toutes les informations
+        // visibles sans faire glisser un tableau.
+        <InventoryCardList items={items} canLinkToBon={canLinkToBon} />
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm" aria-label="Inventaire du parc prêté">
@@ -123,8 +124,9 @@ export function InventoryTable({
             </thead>
             <tbody className="divide-y divide-border">
               {items.map((it) => {
-                const overdue = isOverdue(it.dateRestitution);
-                const retardJours = daysOverdue(it.dateRestitution);
+                const retardJours = equipmentOverdueDays(it);
+                const serial = filledSerial(it.serialNumber);
+                const overdue = retardJours !== null;
                 return (
                   <tr
                     key={it.equipmentId}
@@ -140,14 +142,14 @@ export function InventoryTable({
                       </div>
                     </td>
                     <td className="px-4 py-3.5 text-muted-foreground hidden sm:table-cell">
-                      {it.serialNumber ? (
+                      {serial ? (
                         <Link
-                          to={`/materiel/${encodeURIComponent(it.serialNumber)}`}
+                          to={`/materiel/${encodeURIComponent(serial)}`}
                           className="font-mono hover:text-foreground hover:underline decoration-dotted underline-offset-2 transition-colors"
-                          title={`Historique du matériel ${it.serialNumber}`}
-                          aria-label={`Historique du matériel ${it.serialNumber}`}
+                          title={`Historique du matériel ${serial}`}
+                          aria-label={`Historique du matériel ${serial}`}
                         >
-                          {it.serialNumber}
+                          {serial}
                         </Link>
                       ) : '—'}
                     </td>
@@ -185,6 +187,9 @@ export function InventoryTable({
                       >
                         {it.situationLabel}
                       </span>
+                      {it.notReturnedReason && (
+                        <div className="mt-1 text-[11px] text-muted-foreground">{it.notReturnedReason}</div>
+                      )}
                       {retardJours !== null && (
                         <div className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-destructive">
                           <AlertTriangle className="h-3 w-3" aria-hidden="true" />

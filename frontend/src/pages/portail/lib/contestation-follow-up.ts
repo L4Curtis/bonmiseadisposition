@@ -35,12 +35,19 @@ export function contestationFollowUp(c: MyContestation): ContestationFollowUp {
   return { tone: 'waiting', label: `Envoyée le ${formatDateLong(c.createdAt)} — pas encore prise en charge` };
 }
 
-/** Ce que la décision change pour le collaborateur, en une phrase. */
+/** Ce que la décision change pour le collaborateur, en une phrase.
+ *  « Fondée » : une restitution ou un PV est corrigé sur le bon lui-même ;
+ *  une remise, par un bon corrigé, que l'en-tête de la fiche annonce déjà
+ *  quand il existe (pas deux fois la même phrase). */
 export function outcomeExplanation(c: MyContestation): string | null {
   if (c.outcome === 'founded') {
-    return c.replacementBon
-      ? `Un bon corrigé (${c.replacementBon.reference}) remplace celui-ci : vous le recevrez à signer.`
-      : 'Un bon corrigé va remplacer celui-ci : vous le recevrez à signer.';
+    if (c.contestedDocument === 'restitution') {
+      return 'Votre bon va être corrigé, puis la restitution vous sera renvoyée à signer.';
+    }
+    if (c.contestedDocument === 'pv_cloture') {
+      return `Votre bon va être corrigé, puis le ${signatureStepInSentence('pv_cloture')} vous sera renvoyé à signer.`;
+    }
+    return c.replacementBon ? null : 'Un bon corrigé va remplacer celui-ci : vous le recevrez à signer.';
   }
   if (c.outcome === 'not_retained') return 'Le bon reste tel quel.';
   return null;

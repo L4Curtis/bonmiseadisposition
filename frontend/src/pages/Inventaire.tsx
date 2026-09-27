@@ -10,6 +10,7 @@ import { InventoryFilters } from './inventaire/InventoryFilters';
 import { InventoryTable } from './inventaire/InventoryTable';
 import { CollaborateurTable } from './inventaire/CollaborateurTable';
 import { InventoryViewToggle } from './inventaire/InventoryViewToggle';
+import { NOT_RETURNED_SITUATION } from './inventaire/types';
 
 export function InventairePage() {
   const { user } = useAuth();
@@ -40,6 +41,8 @@ export function InventairePage() {
     setOverdueFilter,
     missingSerialFilter,
     setMissingSerialFilter,
+    offCatalogFilter,
+    setOffCatalogFilter,
     compteFilter,
     setCompteFilter,
     sort,
@@ -73,7 +76,9 @@ export function InventairePage() {
             <Boxes className="h-5 w-5" /> Inventaire du parc prêté
           </h1>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Équipements actuellement entre les mains des collaborateurs.
+            {situationFilter === NOT_RETURNED_SITUATION
+              ? 'Équipements déclarés non restitués et pas retrouvés, y compris sur des bons clôturés.'
+              : 'Équipements actuellement entre les mains des collaborateurs.'}
           </p>
         </div>
         <div className="flex flex-col items-end gap-1">
@@ -125,12 +130,15 @@ export function InventairePage() {
         situationFilter={situationFilter}
         onSituationFilterChange={setSituationFilter}
         situations={summary?.bySituation ?? []}
+        notReturnedCount={summary?.notReturned ?? null}
         filiales={filiales}
         categories={summary?.byCategory ?? []}
         overdueFilter={overdueFilter}
         onClearOverdue={() => setOverdueFilter(false)}
         missingSerialFilter={missingSerialFilter}
         onMissingSerialFilterChange={setMissingSerialFilter}
+        offCatalogFilter={offCatalogFilter}
+        onOffCatalogFilterChange={setOffCatalogFilter}
         compteFilter={compteFilter}
         onCompteFilterChange={setCompteFilter}
         showCompteFilter={view === 'collaborateurs'}

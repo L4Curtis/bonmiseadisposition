@@ -15,19 +15,27 @@ interface SignatureCanvasPanelProps {
   disabled?: boolean;
 }
 
-/** Résolution interne du canevas : l'export PNG garde toujours ces proportions. */
+/** Résolution de référence du canevas : l'image exportée a toujours cette taille. */
 export const SIGNATURE_CANVAS_WIDTH = 600;
 export const SIGNATURE_CANVAS_HEIGHT = 300;
 
 const LABEL_ID = 'signature-canvas-label';
 
-/** Cadre du tracé. Dans la page : largeur plafonnée à 120 % de la hauteur de
- *  l'écran, pour qu'un téléphone en paysage garde la zone entière à l'écran.
- *  En plein écran : la plus grande zone 2:1 qui tient dans l'espace laissé
- *  entre l'en-tête et « Terminer » (unités de conteneur : 100 % de la largeur
- *  ou deux fois la hauteur disponible, la plus petite des deux). */
-const FRAME_INLINE = 'max-w-[120vh] [@supports(height:1svh)]:max-w-[120svh]';
-const FRAME_EXPANDED = 'w-[min(100cqw,200cqh)]';
+/** Cadre du tracé. Dans la page : proportions 2:1 de l'image exportée, largeur
+ *  plafonnée à 120 % de la hauteur de l'écran, pour qu'un téléphone en paysage
+ *  garde la zone entière à l'écran.
+ *  En plein écran : tout l'espace laissé par les commandes, dans le sens de
+ *  l'écran, quelle que soit l'orientation. Le canevas prend alors les
+ *  proportions du cadre (voir `useSignatureCanvas({ followFrame })`) : le tracé
+ *  n'est ni étiré ni tourné, et il est reporté tel quel dans l'image exportée. */
+const FRAME_INLINE = 'w-full aspect-[2/1] max-w-[120vh] [@supports(height:1svh)]:max-w-[120svh]';
+const FRAME_EXPANDED = 'h-full w-full';
+
+/** Plein écran : grille à zones nommées. Debout : en-tête, cadre, suggestion
+ *  de tourner, « Terminer » ; couché : le cadre à gauche, les commandes dans
+ *  une colonne à droite, pour donner toute la hauteur au tracé. */
+const EXPANDED_LAYOUT =
+  "!m-0 fixed inset-0 z-50 outline-none grid gap-2 bg-background px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] overscroll-contain grid-cols-1 grid-rows-[auto_minmax(0,1fr)_auto_auto] [grid-template-areas:'head'_'pad'_'hint'_'done'] landscape:grid-cols-[minmax(0,1fr)_8.5rem] landscape:grid-rows-[auto_minmax(0,1fr)_auto] landscape:[grid-template-areas:'pad_head'_'pad_hint'_'pad_done'] landscape:pl-[max(0.75rem,env(safe-area-inset-left))] landscape:pr-[max(0.75rem,env(safe-area-inset-right))]";
 
 /** Le focus entre dans le panneau à l'ouverture (clavier, lecteur d'écran) et
  *  revient sur « Agrandir » à la fermeture, au lieu de retomber en haut de
@@ -48,9 +56,10 @@ function useFocusOnToggle(
 /** Zone de dessin de la signature : canevas, « Effacer », et « Agrandir »
  *  pour signer en plein écran sur téléphone.
  *
- *  Le cadre garde en permanence les proportions de la résolution interne
- *  (2:1) : le tracé n'est jamais étiré ni déformé dans l'image envoyée au
- *  PDF, et une rotation ne fait qu'agrandir ou réduire ce qui est dessiné.
+ *  Le canevas suit les proportions de son cadre (le hook de tracé doit être
+ *  créé avec `followFrame`) : le tracé n'est jamais étiré, déformé ni tourné,
+ *  dans la page comme dans l'image envoyée au PDF ; une rotation ou le retour
+ *  au formulaire ne fait que le reporter, réduit s'il le faut.
  *
  *  Le plein écran ne change que la mise en page : l'arbre des éléments reste
  *  le même, le canevas n'est donc jamais recréé et le tracé est conservé à
@@ -84,11 +93,15 @@ export function SignatureCanvasPanel({
       className={cn(
         // `!m-0` : le parent espace ses enfants par une marge haute
         // (`space-y-*`), qui décalerait le panneau plein écran vers le bas.
-        expanded &&
-          '!m-0 fixed inset-0 z-50 outline-none flex flex-col gap-2 bg-background px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] overscroll-contain',
+        expanded && EXPANDED_LAYOUT,
       )}
     >
-      <div className="flex items-center justify-between gap-2 mb-1">
+      <div
+        className={cn(
+          'flex items-center justify-between gap-2 mb-1',
+          expanded && '[grid-area:head] landscape:mb-0 landscape:flex-col landscape:items-stretch',
+        )}
+      >
         <span id={LABEL_ID} className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
           {expanded ? 'Signez dans le cadre' : 'Tracez votre signature ci-dessous'}
         </span>
@@ -103,11 +116,15 @@ export function SignatureCanvasPanel({
           <Trash2 className="h-4 w-4" aria-hidden="true" /> Effacer
         </button>
       </div>
-      <div className={cn(expanded && 'flex min-h-0 flex-1 items-center justify-center [container-type:size]')}>
+      <div
+        className={cn(
+          expanded && '[grid-area:pad] flex min-h-0 items-center justify-center overflow-hidden',
+        )}
+      >
         <div
           ref={frameRef}
           className={cn(
-            'relative mx-auto w-full aspect-[2/1] border-2 border-dashed border-border rounded-lg bg-muted/30 hover:border-primary/50 transition-colors touch-none select-none overscroll-contain',
+            'relative mx-auto border-2 border-dashed border-border rounded-lg bg-muted/30 hover:border-primary/50 transition-colors touch-none select-none overscroll-contain',
             expanded ? FRAME_EXPANDED : FRAME_INLINE,
           )}
         >
@@ -132,14 +149,15 @@ export function SignatureCanvasPanel({
       </div>
       {expanded ? (
         <>
-          <p className="hidden items-center justify-center gap-2 text-center text-sm text-muted-foreground portrait:flex">
-            <RotateCcw className="h-4 w-4 shrink-0" aria-hidden="true" /> Tournez le téléphone à l'horizontale pour plus de place.
+          {/* Simple suggestion : la zone est déjà dans le bon sens en portrait. */}
+          <p className="[grid-area:hint] hidden items-center justify-center gap-2 text-center text-sm text-muted-foreground portrait:flex">
+            <RotateCcw className="h-4 w-4 shrink-0" aria-hidden="true" /> Pour plus de place, vous pouvez tourner le téléphone.
           </p>
           {/* En bas, sous le pouce. */}
           <button
             type="button"
             onClick={close}
-            className="btn-gradient w-full min-h-12 inline-flex items-center justify-center gap-2 rounded-xl px-6 text-sm font-semibold text-primary-foreground"
+            className="[grid-area:done] landscape:self-end btn-gradient w-full min-h-12 inline-flex items-center justify-center gap-2 rounded-xl px-6 text-sm font-semibold text-primary-foreground"
           >
             <Check className="h-4 w-4" aria-hidden="true" /> Terminer
           </button>

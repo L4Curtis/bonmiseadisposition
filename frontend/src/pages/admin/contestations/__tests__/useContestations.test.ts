@@ -94,6 +94,21 @@ describe('useContestations', () => {
     expect(result.current.location.search).toBe('');
   });
 
+  it('lien « Traiter la contestation » de la fiche (?contestation=<id>) : la décision s’ouvre, le paramètre disparaît', async () => {
+    vi.mocked(api.get).mockResolvedValue(response());
+    const { result } = renderAt('/admin/contestations?contestation=c1');
+    await waitFor(() => expect(result.current.list.deciding?.id).toBe('c1'));
+    expect(result.current.location.search).toBe('');
+    expect(result.current.list.filter).toBe('pending');
+  });
+
+  it('?contestation=<id> absente de la liste : rien ne s’ouvre, le paramètre disparaît quand même', async () => {
+    vi.mocked(api.get).mockResolvedValue(response());
+    const { result } = renderAt('/admin/contestations?contestation=inconnue');
+    await waitFor(() => expect(result.current.location.search).toBe(''));
+    expect(result.current.list.deciding).toBeNull();
+  });
+
   it('une panne n’est pas une liste vide', async () => {
     vi.mocked(api.get).mockRejectedValue(new Error('boom'));
     const { result } = renderAt();

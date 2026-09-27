@@ -18,6 +18,9 @@ import { SignatureDelayBars } from './delais/SignatureDelayBars';
 import { SignatureModeTiles } from './delais/SignatureModeTiles';
 import { WaitingStepsTable } from './delais/WaitingStepsTable';
 import { TODAY_LINKS } from './today/today-links';
+import { NO_LIST, type KpiListKey } from '../lists/kpi-lists';
+import { useKpiListHref } from '../lists/use-kpi-list-href';
+import type { ListHref } from './incidents/incident-stat-cards';
 
 type CardDef = KpiCardProps & { key: string };
 
@@ -27,18 +30,34 @@ function shareDetail(ratio: number | null, count: number): string {
   return `${Math.round(ratio * count)} remises sur ${count} signées`;
 }
 
-function volumeCards(data: DelaisKpiResponse): CardDef[] {
+/** Liste exacte d'une carte de bons (IT), ou la raison de son absence (direction). */
+function listOf(listHref: ListHref, key: KpiListKey): Pick<KpiCardProps, 'href' | 'noList'> {
+  return listHref ? { href: listHref(key) } : { noList: NO_LIST.direction };
+}
+
+function volumeCards(data: DelaisKpiResponse, listHref: ListHref): CardDef[] {
   const scope = periodLabel(data.period);
   const { volumes } = data;
   return [
-    { key: 'created', label: 'Bons créés', value: volumes.created.current, unit: UNITS.bons, icon: FileText, scope, delta: volumes.created },
-    { key: 'sent', label: 'Bons envoyés', value: volumes.sent.current, unit: UNITS.bons, icon: Send, scope, delta: volumes.sent },
-    { key: 'archived', label: 'Bons clôturés', value: volumes.archived.current, unit: UNITS.bons, icon: Archive, scope, delta: volumes.archived },
-    { key: 'cancelled', label: 'Bons annulés', value: volumes.cancelled.current, unit: UNITS.bons, icon: XCircle, scope, delta: { ...volumes.cancelled, invert: true } },
+    { key: 'created', label: 'Bons créés', value: volumes.created.current, unit: UNITS.bons, icon: FileText, scope, delta: volumes.created, ...listOf(listHref, 'bons_crees') },
+    {
+      key: 'sent', label: 'Bons envoyés', value: volumes.sent.current, unit: UNITS.bons, icon: Send, scope, delta: volumes.sent,
+      definition: 'Bons envoyés au collaborateur pendant la période ; un bon envoyé deux fois compte une fois.',
+      ...listOf(listHref, 'bons_envoyes'),
+    },
+    { key: 'archived', label: 'Bons clôturés', value: volumes.archived.current, unit: UNITS.bons, icon: Archive, scope, delta: volumes.archived, ...listOf(listHref, 'bons_clotures') },
+    { key: 'cancelled', label: 'Bons annulés', value: volumes.cancelled.current, unit: UNITS.bons, icon: XCircle, scope, delta: { ...volumes.cancelled, invert: true }, ...listOf(listHref, 'bons_annules') },
   ];
 }
 
-function delayCards(data: DelaisKpiResponse, isIt: boolean): CardDef[] {
+/** « Signature en retard » de la filiale choisie : même filtre sur la liste des bons. */
+function overdueSignaturesHref(filialeId: string | null): string {
+  return filialeId
+    ? `${TODAY_LINKS.overdueSignatures}&filialeId=${encodeURIComponent(filialeId)}`
+    : TODAY_LINKS.overdueSignatures;
+}
+
+function delayCards(data: DelaisKpiResponse, isIt: boolean, filialeId: string | null): CardDef[] {
   const scope = periodLabel(data.period);
   const remise = data.sendToSignature.mise_disposition;
   const overdue = data.waiting.overdueTotal;
@@ -50,15 +69,17 @@ function delayCards(data: DelaisKpiResponse, isIt: boolean): CardDef[] {
         ? { current: data.creationToSend.medianHours, previous: data.creationToSend.previous.medianHours, invert: true }
         : undefined,
       definition: "Temps entre la création d'un bon et son premier envoi au collaborateur. La médiane : la moitié des bons sont envoyés plus vite.",
+      noList: NO_LIST.statistic,
     },
     {
       key: 'signed48h', label: 'Remises signées sous 48 h', value: remise.within48h, format: 'percent',
       icon: CheckCircle2, scope, detail: shareDetail(remise.within48h, remise.count),
       definition: 'Part des remises signées dans les 48 heures qui suivent la demande de signature, parmi les remises signées sur la période.',
+      noList: NO_LIST.statistic,
     },
     {
       key: 'signed7d', label: 'Remises signées sous 7 jours', value: remise.within7d, format: 'percent',
-      icon: CalendarCheck, scope, detail: shareDetail(remise.within7d, remise.count),
+      icon: CalendarCheck, scope, detail: shareDetail(remise.within7d, remise.count), noList: NO_LIST.statistic,
     },
     {
       key: 'loanDuration', label: 'Durée moyenne de prêt', value: data.loanDuration.avgDays.current, format: 'days',
@@ -67,12 +88,13 @@ function delayCards(data: DelaisKpiResponse, isIt: boolean): CardDef[] {
         ? { current: data.loanDuration.avgDays.current, previous: data.loanDuration.avgDays.previous }
         : undefined,
       definition: 'Pour les bons clôturés sur la période : temps entre la signature de la remise et la clôture.',
+      noList: NO_LIST.statistic,
     },
     {
       key: 'overdue', label: LATENESS_LABELS.signature, value: overdue, unit: UNITS.bons, icon: AlertTriangle,
       tone: overdue > 0 ? 'danger' : 'default', scope: asOfLabel(data.asOf),
       detail: `signature attendue depuis plus de ${data.waiting.thresholdDays} jours`,
-      href: isIt ? TODAY_LINKS.overdueSignatures : undefined,
+      ...(isIt ? { href: overdueSignaturesHref(filialeId) } : { noList: NO_LIST.direction }),
     },
   ];
 }
@@ -83,6 +105,7 @@ export function DelaisTab() {
   const { user } = useAuth();
   const { from, to, filialeId, preset, setPreset } = usePeriodParams();
   const isIt = isItRole(user?.role);
+  const listHref = useKpiListHref();
 
   const query = new URLSearchParams({ from, to });
   if (filialeId) query.set('filialeId', filialeId);
@@ -124,13 +147,13 @@ export function DelaisTab() {
       <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         {loading || !data
           ? Array.from({ length: 4 }).map((_, i) => <KpiCardSkeleton key={i} />)
-          : volumeCards(data).map(({ key, ...card }) => <KpiCard key={key} {...card} />)}
+          : volumeCards(data, isIt ? listHref : null).map(({ key, ...card }) => <KpiCard key={key} {...card} />)}
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
         {loading || !data
           ? Array.from({ length: 5 }).map((_, i) => <KpiCardSkeleton key={i} />)
-          : delayCards(data, isIt).map(({ key, ...card }) => <KpiCard key={key} {...card} />)}
+          : delayCards(data, isIt, filialeId).map(({ key, ...card }) => <KpiCard key={key} {...card} />)}
       </div>
 
       <ChartCard

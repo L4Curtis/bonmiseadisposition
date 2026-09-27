@@ -1,4 +1,4 @@
-import { Search, ScanBarcode, UserX, X } from 'lucide-react';
+import { Search, ScanBarcode, Tag, UserX, X } from 'lucide-react';
 import type { Filiale } from '@/types';
 import type { CompteFilter, InventoryCategorySummary, InventorySituationSummary } from './types';
 
@@ -12,6 +12,8 @@ interface InventoryFiltersProps {
   situationFilter: string;
   onSituationFilterChange: (value: string) => void;
   situations: InventorySituationSummary[];
+  /** Équipements encore non restitués : option « Non restitué » (hors parc). */
+  notReturnedCount: number | null;
   filiales: Filiale[];
   categories: InventoryCategorySummary[];
   /** Filtre « en retard de restitution » activé depuis la tuile — affiché ici
@@ -23,6 +25,9 @@ interface InventoryFiltersProps {
    *  et transmis à l'export. */
   missingSerialFilter: boolean;
   onMissingSerialFilterChange: (value: boolean) => void;
+  /** Qualité des données : matériel saisi en texte libre, hors Catalogue. */
+  offCatalogFilter: boolean;
+  onOffCatalogFilterChange: (value: boolean) => void;
   /** Lot D1 (départ d'un collaborateur) : bascule « comptes désactivés
    *  uniquement », propre à la vue « Par collaborateur » (cf. Inventaire.tsx). */
   compteFilter: CompteFilter;
@@ -32,8 +37,13 @@ interface InventoryFiltersProps {
   onReset: () => void;
 }
 
+const TOGGLE_CLASS = 'inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-colors sm:min-h-0';
+const TOGGLE_ON = 'border-warning/40 bg-warning/10 text-warning';
+const TOGGLE_OFF = 'border-border bg-card text-muted-foreground hover:text-foreground';
+
 /** Barre de filtres de l'inventaire : recherche texte, filiale, catégorie,
- *  situation, retards, sans numéro de série, comptes désactivés. */
+ *  situation (« Non restitué » compris), retards, sans numéro de série, hors
+ *  catalogue, comptes désactivés. */
 export function InventoryFilters({
   searchInput,
   onSearchInputChange,
@@ -44,12 +54,15 @@ export function InventoryFilters({
   situationFilter,
   onSituationFilterChange,
   situations,
+  notReturnedCount,
   filiales,
   categories,
   overdueFilter,
   onClearOverdue,
   missingSerialFilter,
   onMissingSerialFilterChange,
+  offCatalogFilter,
+  onOffCatalogFilterChange,
   compteFilter,
   onCompteFilterChange,
   showCompteFilter,
@@ -114,6 +127,9 @@ export function InventoryFilters({
             {s.label} ({s.count})
           </option>
         ))}
+        <option value="non_restitue">
+          {notReturnedCount === null ? 'Non restitué' : `Non restitué (${notReturnedCount})`}
+        </option>
       </select>
 
       {overdueFilter && (
@@ -139,6 +155,17 @@ export function InventoryFilters({
       >
         <ScanBarcode className="h-3.5 w-3.5" aria-hidden="true" />
         Sans numéro de série
+      </button>
+
+      <button
+        type="button"
+        onClick={() => onOffCatalogFilterChange(!offCatalogFilter)}
+        aria-pressed={offCatalogFilter}
+        title="Matériel saisi en texte libre, sans article du Catalogue"
+        className={`${TOGGLE_CLASS} ${offCatalogFilter ? TOGGLE_ON : TOGGLE_OFF}`}
+      >
+        <Tag className="h-3.5 w-3.5" aria-hidden="true" />
+        Hors catalogue
       </button>
 
       {showCompteFilter && (

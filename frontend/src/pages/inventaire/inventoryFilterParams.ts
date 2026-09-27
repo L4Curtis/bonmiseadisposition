@@ -11,11 +11,13 @@ export interface InventoryBaseFilters {
   overdueFilter: boolean;
   /** Qualité des données : matériel sans numéro de série (`sansNumeroSerie=1`). */
   missingSerialFilter: boolean;
+  /** Qualité des données : matériel hors Catalogue (`horsCatalogue=1`). */
+  offCatalogFilter: boolean;
 }
 
 /** Couple [clé, valeur] des filtres de base actifs, dans l'ordre stable utilisé
  *  par toutes les requêtes de l'inventaire (filiale, catégorie, situation,
- *  recherche, retard, sans numéro de série). N'inclut ni le tri ni la pagination : à ajouter par
+ *  recherche, retard, sans numéro de série, hors catalogue). N'inclut ni le tri ni la pagination : à ajouter par
  *  l'appelant selon la vue (liste par équipement, regroupement par
  *  collaborateur, ou détail d'un collaborateur). */
 export function buildBaseFilterEntries(f: InventoryBaseFilters): [string, string][] {
@@ -26,6 +28,7 @@ export function buildBaseFilterEntries(f: InventoryBaseFilters): [string, string
   if (f.search) entries.push(['search', f.search]);
   if (f.overdueFilter) entries.push(['overdue', '1']);
   if (f.missingSerialFilter) entries.push(['sansNumeroSerie', '1']);
+  if (f.offCatalogFilter) entries.push(['horsCatalogue', '1']);
   return entries;
 }
 

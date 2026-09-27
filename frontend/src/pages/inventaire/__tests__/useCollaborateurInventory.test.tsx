@@ -13,6 +13,7 @@ import { api } from '@/lib/api';
 
 const EMPTY_FILTERS: InventoryBaseFilters = {
   filialeFilter: '', categoryFilter: '', situationFilter: '', search: '', overdueFilter: false, missingSerialFilter: false,
+  offCatalogFilter: false,
 };
 
 const response = {
@@ -61,6 +62,7 @@ describe('useCollaborateurInventory', () => {
     const filters: InventoryBaseFilters = {
       filialeFilter: 'f1', categoryFilter: 'ecran', situationFilter: 'en_circulation', search: 'dell', overdueFilter: true,
       missingSerialFilter: true,
+        offCatalogFilter: false,
     };
     renderHook(() => useHarness(true, filters));
 

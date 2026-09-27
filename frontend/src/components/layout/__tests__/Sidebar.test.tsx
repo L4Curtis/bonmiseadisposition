@@ -115,4 +115,24 @@ describe('Sidebar', () => {
     await screen.findByRole('link', { name: /Tableau de bord/i });
     expect(api.get).not.toHaveBeenCalled();
   });
+
+  it('vue collaborateur : une seule entrée « Mes équipements », sans rubrique (CM n° 13)', async () => {
+    mockRole = 'collaborator';
+    mockView = 'collaborateur';
+    renderWithProviders(<Sidebar />);
+
+    expect(await screen.findByRole('link', { name: /Mes équipements/ })).toHaveAttribute('href', '/mes-bons');
+    expect(screen.queryByText(/Mes bons/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Opérations/i)).not.toBeInTheDocument();
+  });
+
+  it('vue technicien : rubriques « Suivi » et « Référentiels » (vocabulaire retenu)', async () => {
+    mockRole = 'technician';
+    mockView = 'technicien';
+    renderWithProviders(<Sidebar />);
+
+    expect(await screen.findByText('Suivi')).toBeInTheDocument();
+    expect(screen.getByText('Référentiels')).toBeInTheDocument();
+    expect(screen.queryByText(/Opérations/i)).not.toBeInTheDocument();
+  });
 });

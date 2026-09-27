@@ -99,6 +99,29 @@ describe('ParcTab', () => {
     expect(loaned).not.toHaveTextContent('vs période précédente');
   });
 
+  it('chaque état du jour ouvre l’inventaire filtré sur ce qu’il compte, pour la direction aussi', async () => {
+    mockRole = 'direction';
+    const fixture = parcFixture();
+    mockGet('/kpi/parc', { ...fixture, loaned: { ...fixture.loaned, offCatalogShare: 0.1 } });
+    renderWithProviders(<ParcTab />, { route: `${ROUTE}&filialeId=f1` });
+
+    expect(await screen.findByRole('link', { name: /^Encore non restitués : 2 équipements/ }))
+      .toHaveAttribute('href', '/inventaire?situation=non_restitue&filialeId=f1');
+    expect(screen.getByRole('link', { name: /^Hors catalogue : .*Voir les 6 équipements hors catalogue$/ }))
+      .toHaveAttribute('href', '/inventaire?horsCatalogue=1&filialeId=f1');
+    expect(screen.getByRole('link', { name: /^Avec numéro de série : .*Voir les 6 équipements sans numéro$/ }))
+      .toHaveAttribute('href', '/inventaire?sansNumeroSerie=1&filialeId=f1');
+  });
+
+  it('les flux d’équipements (journal) n’ont pas de lien et disent pourquoi sous « ? »', async () => {
+    mockGet('/kpi/parc', parcFixture());
+    const { user } = renderWithProviders(<ParcTab />, { route: ROUTE });
+    const declared = await screen.findByLabelText(/^Équipements déclarés non restitués : 3 équipements/);
+    expect(declared.closest('a')).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Définition : Équipements retrouvés' }));
+    expect(screen.getByText(/compte des déclarations passées/)).toBeInTheDocument();
+  });
+
   it('dit que le dernier point de la courbe est l’état d’aujourd’hui quand la période finit aujourd’hui', async () => {
     // « Aujourd'hui » = dernier jour de la période de la fixture (25/09) : seule
     // la date est simulée, les minuteries de findBy restent réelles.
@@ -121,8 +144,10 @@ describe('ParcTab', () => {
 
     mockRole = 'direction';
     renderWithProviders(<ParcTab />, { route: ROUTE });
-    const row = await screen.findByRole('link', { name: 'Voir les équipements en retard de Hugo Petit' });
-    expect(row.getAttribute('href')).toBe('/inventaire?overdue=1&search=Hugo+Petit');
+    // La ligne compte les équipements en retard DE CE BON : l'inventaire est
+    // filtré sur sa référence, pas sur le collaborateur (qui peut en avoir d'autres).
+    const row = await screen.findByRole('link', { name: 'Voir les équipements en retard du bon BON-2026-0045' });
+    expect(row.getAttribute('href')).toBe('/inventaire?overdue=1&search=BON-2026-0045');
     expect(screen.queryByRole('link', { name: /Ouvrir le bon/ })).not.toBeInTheDocument();
   });
 

@@ -1,160 +1,43 @@
-import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
-import { Card, CardContent } from '@/components/ui/card';
-import { Spinner } from '@/components/ui/spinner';
-import { ChevronDown, ChevronUp } from 'lucide-react';
 import { safeReturnTo } from '@/lib/safe-return-to';
-import { api } from '@/lib/api';
 import { SCREEN_LABELS } from '@/domain/labels';
 import { usePageTitle } from '@/hooks/usePageTitle';
-import { CollaboratorLoginCard, isCollaboratorReturnTo } from './login/CollaboratorLoginCard';
-import { LocalLoginForm } from './login/LocalLoginForm';
+import { LoginCard, isCollaboratorReturnTo } from './login/LoginCard';
 
-const ERROR_MESSAGES: Record<string, string> = {
-  entra_config_missing: "La configuration Microsoft Entra ID n'est pas encore configurée.",
-  auth_failed: "L'authentification a échoué. Veuillez réessayer.",
+/** Échecs de la connexion Microsoft renvoyés par le serveur (`?error=`). */
+const ERROR_MESSAGES: Readonly<Record<string, string>> = {
+  entra_config_missing: "La connexion Microsoft n'est pas encore configurée. Utilisez votre adresse et votre mot de passe.",
+  auth_failed: 'La connexion a échoué. Veuillez réessayer.',
   invalid_state: 'Erreur de sécurité lors de la connexion. Veuillez réessayer.',
   access_denied: 'Accès refusé par Microsoft.',
 };
 
+/**
+ * Page de connexion : un seul écran clair pour tout le monde (équipe
+ * informatique, direction, collaborateur), Microsoft puis le compte local
+ * déjà ouvert. Seuls le titre et la phrase d'accueil changent quand on vient
+ * d'un lien reçu par email (signature, « Mes équipements »).
+ */
 export function LoginPage() {
   usePageTitle(SCREEN_LABELS.connexion);
   const [searchParams] = useSearchParams();
-  const [setupRequired, setSetupRequired] = useState<boolean | null>(null);
-  const [localAuthEnabled, setLocalAuthEnabled] = useState(true);
-  const [showLocal, setShowLocal] = useState(false);
-  const error = searchParams.get('error');
+  const errorCode = searchParams.get('error');
+  const error = errorCode ? (ERROR_MESSAGES[errorCode] ?? 'Une erreur est survenue.') : null;
 
   // Adresse demandée avant la connexion (lien profond, session expirée). Pour
   // Microsoft, le serveur la garde pendant l'aller-retour (cookie
   // auth_return_to) et la revalide avant d'y renvoyer.
   const returnTo = safeReturnTo(searchParams.get('returnTo'));
-  const ssoLoginHref = returnTo
-    ? `/api/auth/login?returnTo=${encodeURIComponent(returnTo)}`
-    : '/api/auth/login';
 
-  useEffect(() => {
-    const controller = new AbortController();
-    const options = { signal: controller.signal, onUnauthorized: 'no-refresh' } as const;
-    Promise.all([
-      api.get<{ setupRequired: boolean }>('/auth/setup-required', options),
-      api.get<{ enabled: boolean }>('/auth/local-auth-status', options),
-    ]).then(([setupData, localData]) => {
-      setSetupRequired(setupData.setupRequired);
-      setLocalAuthEnabled(localData.enabled);
-    }).catch((e: unknown) => {
-      if (e instanceof DOMException && e.name === 'AbortError') return;
-      // Serveur partiellement indisponible : afficher quand même la page de
-      // connexion (bouton Microsoft) plutôt qu'une attente sans fin ; la
-      // connexion elle-même affichera l'erreur si le serveur ne répond pas.
-      setSetupRequired(false);
-      setLocalAuthEnabled(true);
-    });
-    return () => controller.abort();
-  }, []);
-
-  // Venu d'un lien reçu par email (signature, « Mes équipements ») : la carte
-  // claire du collaborateur, formulaire déjà ouvert (R-096), sans
-  // attendre les réglages de la page IT. Un message
-  // d'erreur Microsoft garde la page complète, qui sait l'afficher.
-  if (isCollaboratorReturnTo(returnTo) && !error) {
-    return <CollaboratorLoginCard returnTo={returnTo} />;
+  if (isCollaboratorReturnTo(returnTo)) {
+    return <LoginCard returnTo={returnTo} error={error} />;
   }
-
-  if (setupRequired === null) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-[hsl(30_24%_6%)]" aria-live="polite">
-        <Spinner className="h-8 w-8 text-primary motion-reduce:animate-none" />
-        <span className="sr-only">Chargement en cours</span>
-      </div>
-    );
-  }
-
   return (
-    <div className="bg-aurora relative flex min-h-screen items-center justify-center overflow-hidden">
-      {/* Grille de points masquée + blobs animés */}
-      <div aria-hidden="true" className="bg-dots pointer-events-none absolute inset-0" />
-      <div aria-hidden="true" className="pointer-events-none absolute -top-32 -left-24 h-80 w-80 rounded-full" style={{ background: 'hsl(var(--primary))', filter: 'blur(80px)', opacity: 0.22, animation: 'blob-drift 12s ease-in-out infinite' }} />
-      <div aria-hidden="true" className="pointer-events-none absolute -bottom-24 -right-16 h-96 w-96 rounded-full" style={{ background: 'hsl(14 80% 52%)', filter: 'blur(90px)', opacity: 0.16, animation: 'blob-drift 16s 4s ease-in-out infinite' }} />
-      <div aria-hidden="true" className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 h-64 w-64 rounded-full" style={{ background: 'hsl(4 69% 51%)', filter: 'blur(100px)', opacity: 0.10, animation: 'blob-drift 20s 8s ease-in-out infinite' }} />
-
-      <div className="relative w-full max-w-md px-4">
-        <Card className="animate-fade-in rounded-2xl border border-white/10 bg-white/[0.045] backdrop-blur-2xl shadow-card-colored">
-          <CardContent className="p-8">
-            {/* Brand */}
-            <div className="mb-8 text-center">
-              <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl btn-gradient text-primary-foreground font-bold text-xl shadow-card-colored ring-1 ring-white/25">
-                GL
-              </div>
-              <h1 className="text-[22px] font-bold tracking-tight text-white">
-                Bons de mise à disposition
-              </h1>
-              <p className="mt-1.5 text-sm text-white/50">Groupe Livio — Équipe informatique</p>
-            </div>
-
-            {/* Error banner */}
-            {error && (
-              <div role="alert" className="mb-6 rounded-xl bg-destructive/10 border border-destructive/25 p-4">
-                <p className="text-sm text-destructive">
-                  {ERROR_MESSAGES[error] || 'Une erreur est survenue.'}
-                </p>
-              </div>
-            )}
-
-            {/* SSO Button — verre sombre aligné sur le panneau de marque, logo Microsoft couleur */}
-            <a
-              href={ssoLoginHref}
-              className="group flex h-11 w-full items-center justify-center gap-3 rounded-xl border border-white/20 bg-white/[0.07] text-[15px] font-semibold text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.08)] backdrop-blur-sm transition-all duration-150 hover:bg-white/[0.12] hover:border-white/30 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
-            >
-              <svg viewBox="0 0 21 21" className="h-[18px] w-[18px]">
-                <rect x="1" y="1" width="9" height="9" fill="#f25022" />
-                <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
-                <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
-                <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
-              </svg>
-              Continuer avec Microsoft
-              <span aria-hidden="true" className="text-white/50 transition-transform duration-150 group-hover:translate-x-0.5">→</span>
-            </a>
-
-            {/* Local auth */}
-            {localAuthEnabled && (
-              <div className="mt-5">
-                <button
-                  type="button"
-                  aria-expanded={showLocal}
-                  className="flex min-h-11 w-full items-center justify-center gap-1.5 rounded-lg text-sm text-white/60 hover:text-white/85 transition-colors"
-                  onClick={() => setShowLocal((v) => !v)}
-                >
-                  {showLocal ? (
-                    <>
-                      <ChevronUp className="h-3.5 w-3.5" />
-                      Masquer la connexion locale
-                    </>
-                  ) : (
-                    <>
-                      <ChevronDown className="h-3.5 w-3.5" />
-                      Connexion avec un compte local
-                    </>
-                  )}
-                </button>
-
-                {showLocal && (
-                  <div className="mt-4">
-                    <LocalLoginForm returnTo={returnTo} tone="dark" />
-                  </div>
-                )}
-              </div>
-            )}
-
-            <p className="mt-6 flex items-center justify-center gap-1.5 text-center text-xs text-white/35">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3">
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-              </svg>
-              Authentification sécurisée via Microsoft Entra ID
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
+    <LoginCard
+      returnTo={returnTo}
+      error={error}
+      title="Bons de mise à disposition"
+      message="Connectez-vous pour continuer."
+    />
   );
 }

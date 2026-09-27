@@ -46,7 +46,6 @@ async function loginSucceeded(page: Page, timeoutMs = 10_000): Promise<boolean> 
  */
 setup('connexion locale de l’admin (mot de passe imposé au premier login)', async ({ page }) => {
   await page.goto('/login');
-  await page.getByRole('button', { name: /connexion avec un compte local/i }).click();
 
   await submitLocalLogin(page, ADMIN_NEW_PASSWORD);
 

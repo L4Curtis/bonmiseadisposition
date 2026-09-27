@@ -52,9 +52,10 @@ test('équipement non rendu, restitution présentielle du second, PV émis, clô
   await expect(page.getByText('Non restitué', { exact: true }).first()).toBeVisible();
   await expect(page.getByText('Rendu', { exact: true }).first()).toBeVisible();
   await expect(page.getByText('PV de non-restitution à signer').first()).toBeVisible();
-  // PV émis : document disponible (l'email de co-signature, lui, ne peut pas
-  // partir faute d'adresse — attendu, tracé, sans bloquer l'émission).
-  await expect(page.getByText('PV de non-restitution', { exact: true }).first()).toBeVisible();
+  // PV émis : la version signée par l'IT figure dans les documents (l'email
+  // de co-signature, lui, ne peut pas partir faute d'adresse — attendu, tracé,
+  // sans bloquer l'émission).
+  await expect(page.getByText('PV de non-restitution — signé par l’IT', { exact: true }).first()).toBeVisible();
 
   // ── Clôture sans signature (IT), motif obligatoire, jusqu'à l'archivage ───
   // Autorisée dès que plus aucun équipement n'est « ni rendu ni déclaré » —

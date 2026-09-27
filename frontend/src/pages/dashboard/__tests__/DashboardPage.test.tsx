@@ -83,4 +83,52 @@ describe('DashboardPage', () => {
     expect(screen.queryByRole('tab', { name: "Aujourd'hui" })).not.toBeInTheDocument();
     expect(await screen.findByRole('tab', { name: 'Parc' })).toHaveAttribute('data-state', 'active');
   });
+
+  describe('liste d’un chiffre (?liste=…)', () => {
+    const listResponse = {
+      indicateur: 'bons_annules',
+      period: { from: '2026-08-27', to: '2026-09-25' },
+      items: [{
+        id: 'b1', bonId: 'b1', reference: 'BON-2026-0012', status: 'cancelled', collaborateur: 'Léa Martin',
+        filiale: 'Bâtir Nord', at: '2026-09-20T08:30:00.000Z', detail: 'Doublon',
+      }],
+      total: 1, page: 1, limit: 50,
+    };
+
+    beforeEach(() => {
+      vi.mocked(api.get).mockImplementation((path: string) => {
+        if (path.startsWith('/kpi/liste')) return Promise.resolve(listResponse);
+        if (path.startsWith('/filiales/active')) return Promise.resolve([]);
+        return new Promise(() => {});
+      });
+    });
+
+    it('IT : ouvre la liste pour la même période et la même filiale ; chaque ligne mène à son bon', async () => {
+      renderWithProviders(<DashboardPage />, {
+        route: '/dashboard?tab=incidents&from=2026-08-27&to=2026-09-25&filialeId=f1&liste=bons_annules',
+      });
+      const dialog = await screen.findByRole('dialog', { name: 'Bons annulés' });
+      expect(dialog).toHaveTextContent('1 bon, du 27/08 au 25/09');
+      expect(dialog).toHaveTextContent('Léa Martin');
+      expect(dialog).toHaveTextContent('Doublon');
+      expect(screen.getByRole('link', { name: 'Ouvrir le bon BON-2026-0012' })).toHaveAttribute('href', '/bons/b1');
+      expect(api.get).toHaveBeenCalledWith(
+        '/kpi/liste?indicateur=bons_annules&from=2026-08-27&to=2026-09-25&page=1&limit=50&filialeId=f1',
+      );
+    });
+
+    it('direction : jamais de liste de bons, même par l’adresse', async () => {
+      mockRole = 'direction';
+      renderWithProviders(<DashboardPage />, { route: '/dashboard?tab=incidents&liste=bons_annules' });
+      expect(await screen.findByRole('tab', { name: 'Incidents' })).toBeInTheDocument();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(vi.mocked(api.get).mock.calls.some(([p]) => String(p).startsWith('/kpi/liste'))).toBe(false);
+    });
+
+    it('un indicateur inconnu n’ouvre rien', async () => {
+      renderWithProviders(<DashboardPage />, { route: '/dashboard?tab=delais&liste=bons_perdus' });
+      expect(await screen.findByRole('tab', { name: 'Délais' })).toBeInTheDocument();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+  });
 });

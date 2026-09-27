@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo } from 'react';
 import { FADE_IN } from '@/components/dashboard/stagger';
-import { useNavigate } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { CalendarDays, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -11,6 +11,8 @@ import { usePeriodParams } from './use-period-params';
 import { PeriodSelector } from './PeriodSelector';
 import { FilialeFilter } from './FilialeFilter';
 import { TodayTab } from './tabs/TodayTab';
+import { KpiListDialog } from './lists/KpiListDialog';
+import { isKpiListKey, LIST_PARAM } from './lists/kpi-lists';
 
 // Parc, Délais et Incidents embarquent Recharts (~141 kB gzip à eux trois) :
 // chargés paresseusement, pour que l'onglet « Aujourd'hui » (sans graphique,
@@ -45,6 +47,8 @@ export function DashboardPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { tab, from, to, filialeId, preset, setTab, setRange, setPreset, setFilialeId } = usePeriodParams();
+  const [searchParams] = useSearchParams();
+  const openList = searchParams.get(LIST_PARAM);
 
   const isIt = isItRole(user?.role);
   const visibleTabs = useMemo(() => TABS.filter((t) => !t.itOnly || isIt), [isIt]);
@@ -59,6 +63,8 @@ export function DashboardPage() {
   }, [tab, activeTabId, setTab]);
 
   const showPeriodControls = activeTabId !== 'today';
+  // Liste d'un chiffre « sur la période » : IT seulement (chaque ligne mène à un bon).
+  const listKey = isIt && showPeriodControls && isKpiListKey(openList) ? openList : null;
 
   return (
     <div className="space-y-6">
@@ -122,6 +128,8 @@ export function DashboardPage() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {listKey && <KpiListDialog key={`${listKey}:${from}:${to}:${filialeId ?? ''}`} indicateur={listKey} from={from} to={to} filialeId={filialeId} />}
     </div>
   );
 }

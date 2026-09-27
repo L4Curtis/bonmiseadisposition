@@ -1,4 +1,5 @@
 import { todayInParis } from '@/lib/dates';
+import { NOT_RETURNED_SITUATION, type InventorySituation } from './types';
 
 /** Ancienneté d'un prêt et retard de restitution — calculés en jours
  *  calendaires Europe/Paris (cf. todayInParis), jamais en heures, pour rester
@@ -25,4 +26,11 @@ export function daysOverdue(dateRestitution: string | null): number | null {
   if (!dateRestitution) return null;
   const days = daysSince(dateRestitution);
   return days > 0 ? days : null;
+}
+
+/** Retard d'un équipement de l'inventaire. Un équipement non restitué n'est
+ *  plus attendu (déclaré perdu, cassé ou gardé) : jamais « en retard », même
+ *  si la date de retour prévue de son bon est passée. */
+export function equipmentOverdueDays(item: { situation: InventorySituation; dateRestitution: string | null }): number | null {
+  return item.situation === NOT_RETURNED_SITUATION ? null : daysOverdue(item.dateRestitution);
 }

@@ -1,5 +1,5 @@
 import { XCircle } from 'lucide-react';
-import { CollaboratorLoginCard } from '@/pages/login/CollaboratorLoginCard';
+import { LoginCard } from '@/pages/login/LoginCard';
 import type { User } from '@/types';
 
 interface LoginRequiredScreenProps {
@@ -11,7 +11,7 @@ interface LoginRequiredScreenProps {
  *  revient droit au document (R-096). */
 export function LoginRequiredScreen({ signerReturnTo }: LoginRequiredScreenProps) {
   return (
-    <CollaboratorLoginCard
+    <LoginCard
       returnTo={signerReturnTo}
       message="Connectez-vous pour consulter et signer ce document."
     />

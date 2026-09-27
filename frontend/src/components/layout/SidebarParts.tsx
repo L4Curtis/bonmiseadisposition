@@ -1,6 +1,7 @@
 import { useAuth } from '@/contexts/AuthContext';
 import { useUiView, UI_VIEW_LABELS } from '@/contexts/UiViewContext';
 import { cn } from '@/lib/utils';
+import { userInitials } from './user-initials';
 
 /** Logo et nom de l'application, en tête du menu latéral et du tiroir. */
 export function BrandMark({ collapsed = false }: { readonly collapsed?: boolean }) {
@@ -25,7 +26,7 @@ export function UserBadge({ collapsed }: { readonly collapsed: boolean }) {
   return (
     <div className="flex items-center gap-2.5 rounded-lg px-2 py-2">
       <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full btn-gradient text-[10px] font-bold text-white ring-1 ring-white/20">
-        {user?.displayName?.slice(0, 2).toUpperCase() || '??'}
+        {userInitials(user?.displayName)}
       </div>
       <div className={cn('min-w-0 whitespace-nowrap transition-opacity duration-200', collapsed ? 'opacity-0' : 'opacity-100')}>
         <p className="truncate text-xs font-medium leading-none text-foreground">{user?.displayName}</p>

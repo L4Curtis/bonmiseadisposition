@@ -27,7 +27,6 @@ export async function openPortailSession(browser: Browser): Promise<PortailSessi
   const page = await context.newPage();
 
   await page.goto('/login');
-  await page.getByRole('button', { name: /connexion avec un compte local/i }).click();
   await page.getByLabel('Email').fill(PORTAIL_EMAIL);
   await page.getByLabel('Mot de passe').fill(PORTAIL_PASSWORD);
   await page.getByRole('button', { name: 'Se connecter', exact: true }).click();

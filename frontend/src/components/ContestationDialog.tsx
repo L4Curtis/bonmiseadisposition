@@ -7,6 +7,7 @@ import type { LinkSignatureType } from '@/contracts/bons';
 import type { CreateContestationResponse } from '@/contracts/contestations';
 import { api } from '@/lib/api';
 import { errorMessage } from '@/lib/errors';
+import { cn } from '@/lib/utils';
 import { contestationSchema, validate, CONTESTATION_MAX_LENGTH } from '@/lib/validation';
 
 interface ContestationDialogProps {
@@ -40,6 +41,10 @@ const NARROW_QUERY = '(max-width: 639px)';
  *  prend plus de la moitié (même critère que la coque, shell-media.ts). */
 const LOW_TOUCH_QUERY = '(pointer: coarse) and (max-height: 500px)';
 
+/** En dessous de cette hauteur visible (téléphone couché, clavier ouvert),
+ *  la fenêtre passe en mise en page compacte. */
+const COMPACT_MAX_HEIGHT = 420;
+
 function mediaMatches(query: string): boolean {
   return !!window.matchMedia?.(query).matches;
 }
@@ -53,7 +58,14 @@ function mediaMatches(query: string): boolean {
  * même chose, la fenêtre restant centrée en largeur.
  * Sur ordinateur, rien ne change : la fenêtre reste centrée.
  */
-function useKeyboardSafeStyle(open: boolean, field: RefObject<HTMLElement | null>): CSSProperties | undefined {
+interface KeyboardSafeLayout {
+  style: CSSProperties | undefined;
+  /** Zone visible basse : explication masquée, champ réduit, boutons collés
+   *  en bas de la zone visible. */
+  compact: boolean;
+}
+
+function useKeyboardSafeLayout(open: boolean, field: RefObject<HTMLElement | null>): KeyboardSafeLayout {
   const [area, setArea] = useState<{ top: number; height: number; narrow: boolean } | null>(null);
   useEffect(() => {
     const viewport = window.visualViewport;
@@ -73,9 +85,10 @@ function useKeyboardSafeStyle(open: boolean, field: RefObject<HTMLElement | null
       setArea(null);
     };
   }, [open, field]);
-  if (!area) return undefined;
+  if (!area) return { style: undefined, compact: false };
   const placement = { top: area.top, maxHeight: area.height };
-  return area.narrow ? placement : { ...placement, transform: 'translate(-50%, 0)', overflowY: 'auto' };
+  const style: CSSProperties = area.narrow ? placement : { ...placement, transform: 'translate(-50%, 0)', overflowY: 'auto' };
+  return { style, compact: area.height < COMPACT_MAX_HEIGHT };
 }
 
 /** Fenêtre de contestation du collaborateur : un motif, envoyé à l'équipe
@@ -86,7 +99,7 @@ export function ContestationDialog({ bonId, bonRef, document, open, onOpenChange
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const fieldRef = useRef<HTMLTextAreaElement>(null);
-  const keyboardSafeStyle = useKeyboardSafeStyle(open, fieldRef);
+  const layout = useKeyboardSafeLayout(open, fieldRef);
 
   const handleClose = (v: boolean) => {
     if (!v) {
@@ -128,26 +141,34 @@ export function ContestationDialog({ bonId, bonRef, document, open, onOpenChange
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent
-        style={keyboardSafeStyle}
-        className="sm:max-w-md max-sm:left-0 max-sm:top-0 max-sm:max-h-dvh max-sm:translate-x-0 max-sm:translate-y-0 max-sm:overflow-y-auto max-sm:rounded-b-2xl"
+        style={layout.style}
+        data-compact={layout.compact ? 'true' : undefined}
+        className={cn(
+          'sm:max-w-md max-sm:left-0 max-sm:top-0 max-sm:max-h-dvh max-sm:translate-x-0 max-sm:translate-y-0 max-sm:overflow-y-auto max-sm:rounded-b-2xl',
+          // Zone visible très basse : marges et espacements resserrés.
+          layout.compact && 'gap-2 p-3',
+        )}
       >
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-left">
+          {/* pr-10 : la croix de fermeture (44 px, coin haut droit) ne touche jamais le titre. */}
+          <DialogTitle className={cn('flex items-center gap-2 pr-10 text-left', layout.compact && 'text-base')}>
             <AlertOctagon className="h-5 w-5 shrink-0 text-destructive" />
             {contestationDialogTitle(document, bonRef)}
           </DialogTitle>
-          <DialogDescription className="text-left">
+          <DialogDescription className={layout.compact ? 'sr-only' : 'text-left'}>
             Expliquez ce qui ne va pas. L'équipe informatique est prévenue et vous répond ; vous suivez la réponse dans
             « Mes équipements ».
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2">
-          <Label htmlFor="contestation-msg">Motif de contestation</Label>
+          <Label htmlFor="contestation-msg" className={cn(layout.compact && 'sr-only')}>
+            Motif de contestation
+          </Label>
           <textarea
             ref={fieldRef}
             id="contestation-msg"
             className="w-full rounded-lg border bg-background text-foreground px-3 py-2 text-base sm:text-sm outline-none focus:ring-2 focus:ring-ring resize-none"
-            rows={5}
+            rows={layout.compact ? 2 : 5}
             placeholder={PLACEHOLDERS[document ?? 'mise_disposition']}
             value={message}
             onChange={(e) => handleChange(e.target.value)}
@@ -158,7 +179,7 @@ export function ContestationDialog({ bonId, bonRef, document, open, onOpenChange
             autoCapitalize="sentences"
             enterKeyHint="enter"
           />
-          <p className="text-xs text-muted-foreground text-right">
+          <p className={cn('text-xs text-muted-foreground text-right', layout.compact && 'sr-only')}>
             {message.length}/{CONTESTATION_MAX_LENGTH}
           </p>
           {error && (
@@ -167,7 +188,14 @@ export function ContestationDialog({ bonId, bonRef, document, open, onOpenChange
             </p>
           )}
         </div>
-        <DialogFooter className="flex-col-reverse gap-2 sm:flex-row">
+        {/* Zone visible basse (clavier ouvert, téléphone couché) : les boutons
+            restent collés en bas de la fenêtre, qui défile dessous. */}
+        <DialogFooter
+          className={cn(
+            'flex-col-reverse gap-2 sm:flex-row',
+            layout.compact && 'sticky bottom-0 -mx-3 -mb-3 flex-row justify-end bg-card px-3 py-2 border-t border-border/70',
+          )}
+        >
           <Button variant="outline" className="min-h-11" onClick={() => handleClose(false)} disabled={loading}>
             Annuler
           </Button>

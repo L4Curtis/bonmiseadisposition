@@ -25,7 +25,7 @@ export function SignatureModeTiles({ signatureMode, scope }: SignatureModeTilesP
       <KpiCard
         label="Par une personne mandatée" value={signatureMode.proxy.current} unit={UNITS.signatures}
         icon={UserCog} scope={scope} delta={signatureMode.proxy}
-        definition="Signatures apposées par une autre personne que le collaborateur, qui l'y a autorisée (procuration). Elles sont comptées aussi dans « à distance » ou « sur place »."
+        definition="Signatures apposées par une autre personne que le titulaire, qui n'est pas de l'équipe informatique et qu'il y a autorisée (procuration). Un technicien présent au guichet est un témoin, pas un mandataire. Elles sont comptées aussi dans « à distance » ou « sur place »."
       />
     </div>
   );

@@ -26,6 +26,9 @@ function HeldEquipmentCard({ item, showSignAction }: { item: HeldEquipment; show
         {item.awaitingSignature && (
           <span className="rounded-full bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning">À signer</span>
         )}
+        {item.underCorrection && (
+          <span className="rounded-full bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning">En cours de correction</span>
+        )}
       </div>
       <p className="text-sm text-muted-foreground">
         {category && <span>{category} · </span>}
@@ -52,6 +55,11 @@ function HeldEquipmentCard({ item, showSignAction }: { item: HeldEquipment; show
       {item.awaitingSignature && (
         <p className="text-sm text-muted-foreground">Confirmez sa réception en signant la remise.</p>
       )}
+      {item.underCorrection && (
+        <p className="text-sm text-muted-foreground">
+          Suite à votre contestation, l'équipe informatique corrige ce bon avant de vous le renvoyer à signer.
+        </p>
+      )}
       {showSignAction && item.signToken && (
         <a
           href={`/signer/${item.signToken}`}
@@ -67,7 +75,8 @@ function HeldEquipmentCard({ item, showSignAction }: { item: HeldEquipment; show
 
 /** « Chez vous » : chaque équipement remis à la personne, avec son n° de
  *  série, sans ouvrir un bon (R-090) — y compris celui d'une remise encore à
- *  signer, marqué « À signer ». */
+ *  signer, marqué « À signer », et celui dont le marquage contesté est en
+ *  cours de correction (« En cours de correction »). */
 export function HeldEquipmentSection({ items }: { items: readonly HeldEquipment[] }) {
   const firsts = firstOfEachBon(items);
   return (

@@ -31,8 +31,13 @@ export interface KpiCardProps {
   /** Comparaison à la période précédente : flux seulement. */
   delta?: KpiCardDelta;
   tone?: KpiCardTone;
-  /** Liste qui justifie le chiffre ; la carte entière devient un lien. */
+  /** Liste exacte de ce que compte le chiffre ; la carte entière devient un
+   *  lien. Jamais une liste approchée : sans liste exacte, voir `noList`. */
   href?: string;
+  /** Libellé du lien (« Voir les 3 sans numéro ») ; « Voir la liste » par défaut. */
+  hrefLabel?: string;
+  /** Pourquoi ce chiffre n'ouvre pas de liste ; dit sous le bouton « ? ». */
+  noList?: string;
   /** Définition complète, dépliée par le bouton « ? ». */
   definition?: string;
   loading?: boolean;
@@ -87,14 +92,15 @@ function DeltaLine({ delta }: { delta: KpiCardDelta }) {
   );
 }
 
-function CardBody({ label, value, icon: Icon, format = 'number', unit, scope, detail, delta, tone = 'default', href }: KpiCardProps) {
+function CardBody({ label, value, icon: Icon, format = 'number', unit, scope, detail, delta, tone = 'default', href, hrefLabel }: KpiCardProps) {
   const formatted = FORMATTERS[format](value);
   return (
     <>
       <div className="flex items-start justify-between gap-2">
-        {/* Titre sur plusieurs lignes plutôt que coupé ; interligne normal pour
+        {/* Titre sur plusieurs lignes plutôt que coupé ; césure du français
+            plutôt qu'une coupure au milieu d'un mot ; interligne normal pour
             ne pas rogner les accents des capitales (« É »). */}
-        <p className="min-w-0 break-words pr-6 text-[13px] font-medium leading-snug text-muted-foreground">{label}</p>
+        <p lang="fr" className="min-w-0 break-words hyphens-auto pr-6 text-[13px] font-medium leading-snug text-muted-foreground">{label}</p>
         <span className={cn('hidden h-8 w-8 shrink-0 items-center justify-center rounded-lg border sm:flex', TONE_ICON[tone])}>
           <Icon className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
         </span>
@@ -114,7 +120,7 @@ function CardBody({ label, value, icon: Icon, format = 'number', unit, scope, de
       </div>
       {href && (
         <p className="mt-2 flex items-center gap-1 text-[11px] font-medium text-primary">
-          Voir la liste
+          {hrefLabel ?? 'Voir la liste'}
           <ArrowRight className="h-3 w-3" aria-hidden="true" />
         </p>
       )}
@@ -124,11 +130,12 @@ function CardBody({ label, value, icon: Icon, format = 'number', unit, scope, de
 
 /**
  * Carte d'indicateur du tableau de bord : le chiffre avec son unité, sa portée
- * (état du jour ou période), et, quand une liste le justifie, un lien vers
- * cette liste (la carte entière est cliquable, au clavier comme au doigt).
+ * (état du jour ou période), et, quand une liste exacte le justifie, un lien
+ * vers cette liste (la carte entière est cliquable, au clavier comme au doigt).
+ * Sans liste exacte, le bouton « ? » dit pourquoi (`noList`).
  */
 export function KpiCard(props: KpiCardProps) {
-  const { label, value, format = 'number', unit, href, definition, loading, className } = props;
+  const { label, value, format = 'number', unit, href, hrefLabel, definition, noList, loading, className } = props;
   const [showDefinition, setShowDefinition] = useState(false);
   const definitionId = useId();
   if (loading) return <KpiCardSkeleton className={className} />;
@@ -140,7 +147,7 @@ export function KpiCard(props: KpiCardProps) {
   return (
     <div className={cn(frame, href && 'transition-colors hover:border-primary/40', className)}>
       {href ? (
-        <Link to={href} aria-label={`${ariaLabel}. Voir la liste`} className="block min-h-[44px] rounded-lg p-3 sm:p-5">
+        <Link to={href} aria-label={`${ariaLabel}. ${hrefLabel ?? 'Voir la liste'}`} className="block min-h-[44px] rounded-lg p-3 sm:p-5">
           <CardBody {...props} />
         </Link>
       ) : (
@@ -148,22 +155,23 @@ export function KpiCard(props: KpiCardProps) {
           <CardBody {...props} />
         </div>
       )}
-      {definition && (
+      {(definition || noList) && (
         <>
           <button
             type="button"
             onClick={() => setShowDefinition((v) => !v)}
             aria-expanded={showDefinition}
             aria-controls={definitionId}
-            aria-label={`Définition : ${label}`}
+            aria-label={definition ? `Définition : ${label}` : `Pourquoi pas de liste : ${label}`}
             className="absolute right-0 top-0 flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground/60 hover:text-foreground sm:right-11"
           >
             <HelpCircle className="h-4 w-4" aria-hidden="true" />
           </button>
           {showDefinition && (
-            <p id={definitionId} className="border-t border-border/60 px-3 py-2 text-xs leading-snug text-muted-foreground sm:px-5">
-              {definition}
-            </p>
+            <div id={definitionId} className="space-y-1 border-t border-border/60 px-3 py-2 text-xs leading-snug text-muted-foreground sm:px-5">
+              {definition && <p>{definition}</p>}
+              {noList && <p className="italic">{noList}</p>}
+            </div>
           )}
         </>
       )}

@@ -70,10 +70,12 @@ serveur a coupé l'export à son plafond (en-tête `X-Truncated: true`).
 - `ProtectedRoute` (`App.tsx`) envoie un visiteur sans session vers `/login?returnTo=<chemin et paramètres>` : un
   lien reçu par email (`/inventaire?vue=collaborateurs&compte=inactif`), un favori ou un lien copié mènent à la
   bonne page après la connexion. L'accueil et `/login` ne sont pas mémorisés.
-- Connexion locale : `Login.tsx` renvoie à `returnTo` (ou le transmet au changement de mot de passe forcé).
-  Le formulaire est commun (`pages/login/LocalLoginForm.tsx`). Quand `returnTo` désigne un écran du
-  collaborateur (`/signer/…`, `/mes-bons`, `/mes-equipements`), la page affiche la carte claire du collaborateur
-  (`pages/login/CollaboratorLoginCard.tsx`) avec le formulaire déjà ouvert : voir § 4.2.
+- Connexion : un **seul écran clair** pour tout le monde (`pages/login/LoginCard.tsx`) : « Continuer avec
+  Microsoft », puis le formulaire du compte local déjà ouvert (`pages/login/LocalLoginForm.tsx`, masqué si la
+  connexion locale est désactivée), sans geste pour le déplier ni mention technique. `Login.tsx` renvoie à
+  `returnTo` (ou le transmet au changement de mot de passe forcé) et affiche en clair un échec Microsoft
+  (`?error=`). Seuls le titre et la phrase d'accueil changent quand `returnTo` désigne un écran du
+  collaborateur (`/signer/…`, `/mes-bons`, `/mes-equipements`) : voir § 4.2.
 - Connexion Microsoft : le lien « Continuer avec Microsoft » porte `returnTo` ; le serveur le garde pendant
   l'aller-retour chez Microsoft (cookie `auth_return_to`, 10 min) et le revalide avant d'y renvoyer
   (`backend/src/auth/auth.controller.ts`).
@@ -341,6 +343,13 @@ tablette et ordinateur gardent le menu latéral repliable. Les deux requêtes, e
 
 - **Menu** : une seule liste d'entrées par vue (`nav-config.ts`), rendue par `NavSections` en variante `rail`
   (menu latéral) ou `drawer` (tiroir). Ne pas dupliquer le menu ailleurs.
+- **Rubriques et personne connectée** : IT « Suivi » / « Référentiels » / « Administration », direction
+  « Pilotage », collaborateur une seule entrée « Mes équipements » sans rubrique (titre vide). Initiales
+  identiques partout (`user-initials.ts` : première lettre du prénom et du nom, « Hugo Petit » → « HP ») ;
+  aucun badge technique (« local ») à côté du nom.
+- **Tiroir couché** (écran de 500 px de haut au plus) : plus large, rubriques sur deux colonnes, et tout le
+  tiroir défile (le bloc de la personne n'est plus fixé en bas) : Catalogue et Inventaire restent visibles
+  sur un iPhone couché.
 - **Tiroir** : fenêtre modale Radix. Focus piégé, Échap et clic à côté le ferment, le focus revient au bouton ☰.
   Le **geste retour** le ferme sans quitter la page (`use-close-on-back.ts` : une entrée d'historique marquée
   est ajoutée à l'ouverture et retirée à la fermeture). Choisir une entrée **remplace** cette entrée par la page
@@ -369,7 +378,7 @@ d'abord pour le doigt ; ils sont vérifiés en recette réelle en iPhone 13 (por
 Android (Galaxy S9+, 320 px).
 
 - **Connexion depuis le lien** : un seul écran. La page de signature non connectée affiche elle-même
-  `CollaboratorLoginCard` : « Continuer avec Microsoft », puis le formulaire du compte local déjà ouvert
+  `LoginCard` : « Continuer avec Microsoft », puis le formulaire du compte local déjà ouvert
   (masqué si la connexion locale est désactivée). Après la connexion, on revient directement au document.
   Champ email : `type="email"`, `autocomplete="username"`, `autocapitalize="none"`, `enterkeyhint="next"` ;
   mot de passe : `autocomplete="current-password"`, `enterkeyhint="go"` ; champs de 44 px en 16 px. Sur un
@@ -382,8 +391,16 @@ Android (Galaxy S9+, 320 px).
     Safari sur la zone sont annulés (`useBlockZoomGestures`) : pincer pendant le tracé ne zoome pas ;
   - « Agrandir la zone de signature » (écrans tactiles seulement, `pointer: coarse`) ouvre le **plein écran**
     (`useSignatureFullscreen`) : même canevas, seule la mise en page change, donc le tracé est conservé à
-    l'ouverture, à la fermeture et à la rotation. En portrait, le panneau propose de tourner le téléphone ; la
-    zone prend la plus grande taille 2:1 disponible (unités `cqw` / `cqh`). Échap et le geste retour ferment
+    l'ouverture, à la fermeture et à la rotation. **Couché**, le cadre prend toute la hauteur et les commandes
+    (« Effacer », « Terminer ») passent dans une colonne à droite. **Debout**, le cadre prend toute la largeur et
+    toute la hauteur laissée par les commandes, **dans le sens de l'écran** : il n'est jamais tourné (une
+    signature probante ne doit pas dépendre d'une consigne lue). Une phrase discrète suggère seulement de tourner
+    le téléphone pour plus de place. Le canevas prend alors les proportions de son cadre
+    (`useSignatureCanvas({ followFrame: true })`, `hooks/signature-geometry.ts`) : le tracé n'est jamais étiré ;
+    à chaque changement de taille (rotation, retour au formulaire) les traits sont reportés sans déformation,
+    réduits s'il le faut, et l'image envoyée garde toujours 600 × 300, dans le bon sens. Si le cadre bouge
+    pendant le tracé (rotation) ou si le navigateur annule le geste, le trait en cours s'arrête proprement et le
+    tracé reprend au mouvement suivant du doigt, sans ligne parasite. Échap et le geste retour ferment
     le panneau sans quitter la page ; Tab reste dans le panneau et, à la fermeture, le focus revient sur
     « Agrandir ». Sur Android, le plein écran du navigateur est demandé en plus ; refusé (Safari iOS), le panneau
     couvre quand même tout l'écran. Hors plein écran, le zoom n'est bloqué que sur le cadre du tracé : ailleurs,
@@ -397,11 +414,25 @@ Android (Galaxy S9+, 320 px).
   fois par bon quand le lien est valide : le jeton d'un lien expiré, que le serveur transmet pour « Demander un
   nouveau lien », n'en fait jamais un), puis les bons. Un bon remplacé (contestation « Fondée ») dont le
   remplaçant est déjà dans le portail ne montre plus ses équipements : chacun n'apparaît qu'une fois. Cartes empilées, cibles de 44 px.
+  Chaque carte « à signer » dit le **vrai motif** d'un lien qui ne se signe plus (`documentSituation`,
+  `portail/lib/portal-labels.ts`), comme la page du lien : bon modifié (« un nouveau lien vous sera envoyé »),
+  contestation **Fondée** d'une restitution ou d'un PV (« votre bon va être corrigé, puis … vous sera renvoyé à
+  signer », sans bouton ni « Je ne suis pas d'accord »), lien simplement expiré (« Demander un nouveau lien »,
+  ou « Nouveau lien demandé le … » quand le serveur transmet `pendingSignature.newLinkRequestedAt`). Pendant la
+  correction, le matériel dont le marquage est contesté (rendu à signer, déclaré non restitué) reste dans
+  « Chez vous » avec la pastille « En cours de correction ». Le document lui-même n'est pas dans « À signer » :
+  il a son bloc, « En cours de correction par l'équipe informatique ». Le bandeau du haut compte exactement les
+  cartes de « À signer ».
 - **Fiche d'un bon** (`pages/bons/BonDetailCollaborateur.tsx`, `pages/bons/collaborateur/**`) : documents
-  ouverts dans le navigateur ; pièces jointes par `CollabAttachments` : consultables toujours, ajout (photo ou
+  ouverts dans le navigateur, **chacun par son identifiant** (`/bons/:id/pdf?snapshot=<id>`) : deux restitutions
+  signées donnent deux entrées, datées à la minute, avec leur rang (« Bon de restitution signé (1 sur 2) ») ;
+  jamais la version d'un PV signée par l'IT seule (`collaboratorDocuments`) ; pièces jointes par `CollabAttachments` : consultables toujours, ajout (photo ou
   PDF, 10 Mo au plus) seulement pendant une signature (remise à signer → étape `mise_disposition`, restitution
   à signer ou en cours → `restitution`), bouton pleine largeur, jamais de choix d'étape. Même règle que le
   serveur (`attachments.controller.ts`).
 - **Contestation** (`components/ContestationDialog.tsx`) : sur téléphone, en portrait comme couché, la fenêtre se
   cale en haut de la zone visible (`visualViewport`) et n'en dépasse pas la hauteur ; le champ en cours de saisie est ramené dans la
-  zone visible quand le clavier s'ouvre. Boutons de 44 px.
+  zone visible quand le clavier s'ouvre. Boutons de 44 px. Quand la zone visible descend sous
+  420 px (téléphone couché, clavier ouvert), la fenêtre se resserre : explication et libellé réservés aux
+  lecteurs d'écran, champ sur 2 lignes, « Annuler » et « Envoyer la contestation » collés en bas de la zone
+  visible (vérifié à 190 px de haut sur Pixel 7 couché). Le titre laisse la place de la croix de fermeture.

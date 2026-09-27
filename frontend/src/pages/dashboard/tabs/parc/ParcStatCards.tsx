@@ -4,6 +4,7 @@ import { formatDays } from '@/lib/kpi-format';
 import { KpiCard } from '../../components/KpiCard';
 import { asOfLabel, countWithUnit, periodLabel, UNITS } from '../../lib/kpi-scope';
 import type { ParcKpiResponse } from '../../types/parc';
+import { NO_LIST } from '../../lists/kpi-lists';
 
 interface ParcStatCardsProps {
   data: ParcKpiResponse | null;
@@ -22,7 +23,9 @@ export function inventoryHref(filialeId: string | null, extra: Record<string, st
 
 /** Cartes de l'onglet Parc : états du jour (« au 25/09 », non filtrés par la
  *  période, sans comparaison) puis flux sur la période (comparés à la période
- *  précédente). Les états du jour ouvrent l'inventaire filtré. */
+ *  précédente). Chaque état du jour ouvre l'inventaire filtré sur exactement
+ *  ce qu'il compte, pour l'IT comme pour la direction ; les deux flux, tirés
+ *  du journal, n'ont pas de liste exacte et le disent. */
 export function ParcStatCards({ data, loading, filialeId }: ParcStatCardsProps) {
   const asOf = data ? asOfLabel(data.asOf) : undefined;
   const period = data ? periodLabel(data.period) : undefined;
@@ -30,6 +33,9 @@ export function ParcStatCards({ data, loading, filialeId }: ParcStatCardsProps) 
   const total = data?.loaned.total ?? 0;
   const missingSerial = data && data.loaned.serialCoverage !== null
     ? Math.round((1 - data.loaned.serialCoverage) * total)
+    : 0;
+  const offCatalog = data && data.loaned.offCatalogShare !== null
+    ? Math.round(data.loaned.offCatalogShare * total)
     : 0;
 
   return (
@@ -54,19 +60,23 @@ export function ParcStatCards({ data, loading, filialeId }: ParcStatCardsProps) 
         <KpiCard
           label="Encore non restitués" value={data?.notReturned.openNow ?? null} unit={UNITS.equipments}
           icon={PackageX} loading={loading} scope={asOf}
+          href={inventoryHref(filialeId, { situation: 'non_restitue' })}
           definition="Équipements déclarés non restitués (perdus, cassés, gardés) et pas retrouvés depuis, y compris sur des bons clôturés."
         />
         <KpiCard
           label="Avec numéro de série" value={data?.loaned.serialCoverage ?? null} format="percent"
           icon={ScanLine} loading={loading} scope={asOf}
           href={missingSerial > 0 ? inventoryHref(filialeId, { sansNumeroSerie: '1' }) : undefined}
+          hrefLabel={`Voir les ${countWithUnit(missingSerial, UNITS.equipments)} sans numéro`}
           detail={missingSerial > 0 ? `${countWithUnit(missingSerial, UNITS.equipments)} sans numéro` : 'tous les équipements en ont un'}
           definition="Part des équipements chez les collaborateurs dont le numéro de série est renseigné. Sans lui, on ne peut pas retrouver l'équipement ni le rapprocher d'un autre outil."
         />
         <KpiCard
           label="Hors catalogue" value={data?.loaned.offCatalogShare ?? null} format="percent" icon={Tag}
           loading={loading} scope={asOf}
-          detail="part des équipements saisis en texte libre"
+          href={offCatalog > 0 ? inventoryHref(filialeId, { horsCatalogue: '1' }) : undefined}
+          hrefLabel={`Voir les ${countWithUnit(offCatalog, UNITS.equipments)} hors catalogue`}
+          detail={offCatalog > 0 ? `${countWithUnit(offCatalog, UNITS.equipments)} saisis en texte libre` : 'aucun équipement saisi en texte libre'}
           definition="Part des équipements chez les collaborateurs qui ne viennent pas d'un article du Catalogue (saisis en texte libre)."
         />
       </div>
@@ -78,11 +88,13 @@ export function ParcStatCards({ data, loading, filialeId }: ParcStatCardsProps) 
           unit={UNITS.equipments} icon={PackageX} loading={loading} scope={period}
           delta={data ? { ...data.notReturned.declared, invert: true } : undefined}
           definition="Équipements déclarés non restitués pendant la période. Une déclaration de trois équipements en compte trois."
+          noList={NO_LIST.equipmentFlow}
         />
         <KpiCard
           label="Équipements retrouvés" value={data?.notReturned.found.current ?? null} unit={UNITS.equipments}
           icon={PackageCheck} loading={loading} scope={period} delta={data ? data.notReturned.found : undefined}
           definition="Équipements déclarés non restitués puis retrouvés pendant la période."
+          noList={NO_LIST.equipmentFlow}
         />
       </div>
     </div>

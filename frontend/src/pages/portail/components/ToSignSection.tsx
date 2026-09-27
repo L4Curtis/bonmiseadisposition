@@ -1,41 +1,52 @@
 import { Link } from 'react-router';
-import { AlertOctagon, Clock, ExternalLink, Users } from 'lucide-react';
+import { AlertOctagon, Clock, Info, PenLine, Users, Wrench } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { formatDateLong } from '@/lib/dates';
 import { RequestNewLinkButton } from '@/pages/signature/components/RequestNewLinkButton';
 import type { DocumentToSign } from '../lib/portal-classification';
-import { documentToSignTitle } from '../lib/portal-labels';
+import { documentSituation, documentToSignTitle } from '../lib/portal-labels';
 import type { ContestTarget } from '../hooks/usePortal';
 
 const PRIMARY = 'w-full min-h-11 inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold';
 
 /** Ce que la personne peut faire pour ce document : signer, attendre le
- *  guichet, ou demander un nouveau lien. */
+ *  guichet ou la correction, lire le vrai motif d'un lien invalidé, ou
+ *  demander un nouveau lien (une seule fois). */
 function DocumentAction({ doc }: { doc: DocumentToSign }) {
-  if (doc.inPerson) {
-    return (
-      <p className="flex items-start gap-2 text-sm text-muted-foreground">
-        <Users className="h-4 w-4 mt-0.5 shrink-0" /> Ce document se signe au guichet, avec l'équipe informatique.
-      </p>
-    );
+  const situation = documentSituation(doc);
+  switch (situation.kind) {
+    case 'in_person':
+      return (
+        <p className="flex items-start gap-2 text-sm text-muted-foreground">
+          <Users className="h-4 w-4 mt-0.5 shrink-0" /> Ce document se signe au guichet, avec l'équipe informatique.
+        </p>
+      );
+    case 'sign':
+      return (
+        <a href={`/signer/${situation.token}`} className={`${PRIMARY} btn-gradient text-primary-foreground`}>
+          <PenLine className="h-4 w-4" aria-hidden="true" /> Signer maintenant
+        </a>
+      );
+    case 'correction':
+    case 'invalidated':
+    case 'requested':
+      return (
+        <p className="flex items-start gap-2 rounded-lg bg-muted/50 p-3 text-sm">
+          <Info className="h-4 w-4 mt-0.5 shrink-0 text-primary" aria-hidden="true" /> {situation.message}
+        </p>
+      );
+    case 'expired':
+      return (
+        <div className="space-y-2">
+          <p className="text-sm text-warning">Le lien de signature a expiré.</p>
+          {situation.requestToken ? (
+            <RequestNewLinkButton token={situation.requestToken} />
+          ) : (
+            <p className="text-sm text-muted-foreground">Demandez un nouveau lien à l'équipe informatique.</p>
+          )}
+        </div>
+      );
   }
-  if (doc.token) {
-    return (
-      <a href={`/signer/${doc.token}`} className={`${PRIMARY} btn-gradient text-primary-foreground`}>
-        <ExternalLink className="h-4 w-4" /> Signer maintenant
-      </a>
-    );
-  }
-  return (
-    <div className="space-y-2">
-      <p className="text-sm text-warning">Le lien de signature a expiré.</p>
-      {doc.requestToken ? (
-        <RequestNewLinkButton token={doc.requestToken} />
-      ) : (
-        <p className="text-sm text-muted-foreground">Demandez un nouveau lien à l'équipe informatique.</p>
-      )}
-    </div>
-  );
 }
 
 interface DocumentCardProps {
@@ -47,7 +58,9 @@ interface DocumentCardProps {
 
 /** Un document à signer et ce qu'on peut en faire. */
 export function DocumentCard({ doc, onContest, showBonLink = true }: DocumentCardProps) {
-  const canContest = doc.type !== 'mise_disposition' && !doc.inPerson;
+  // Rien à contester tant que le lien n'est pas renvoyé : document en cours
+  // de correction, bon modifié… (le document va changer).
+  const canContest = doc.type !== 'mise_disposition' && !doc.inPerson && !doc.invalidatedReason;
   return (
     <Card className="border-warning/40">
       <CardContent className="p-4 space-y-3">
@@ -59,7 +72,7 @@ export function DocumentCard({ doc, onContest, showBonLink = true }: DocumentCar
           {doc.since && <p className="text-xs text-muted-foreground mt-0.5">Demandé le {formatDateLong(doc.since)}</p>}
         </div>
         <DocumentAction doc={doc} />
-        <div className="flex flex-col gap-2 sm:flex-row sm:justify-between">
+        <div className="flex flex-col gap-2 empty:hidden sm:flex-row sm:justify-between">
           {showBonLink && (
             <Link
               to={`/mes-bons/${doc.bon.id}`}
@@ -86,6 +99,25 @@ export function DocumentCard({ doc, onContest, showBonLink = true }: DocumentCar
 interface ToSignSectionProps {
   documents: readonly DocumentToSign[];
   onContest: (target: ContestTarget) => void;
+}
+
+/** « En cours de correction par l'équipe informatique » : documents rouverts
+ *  après une contestation Fondée. Rien à signer ni à demander : ils ne sont
+ *  ni dans « À signer » ni dans le bandeau ; leur matériel reste dans
+ *  « Chez vous ». */
+export function InCorrectionSection({ documents, onContest }: ToSignSectionProps) {
+  return (
+    <section aria-labelledby="en-correction-titre">
+      <h2 id="en-correction-titre" className="text-sm font-semibold text-primary uppercase tracking-wider mb-3 flex items-center gap-1.5">
+        <Wrench className="h-4 w-4" aria-hidden="true" /> En cours de correction par l'équipe informatique ({documents.length})
+      </h2>
+      <div className="grid gap-3 lg:grid-cols-2">
+        {documents.map((doc) => (
+          <DocumentCard key={`${doc.bon.id}-${doc.type}`} doc={doc} onContest={onContest} />
+        ))}
+      </div>
+    </section>
+  );
 }
 
 /** « À signer » : chaque document qui attend la signature, lien valide ou non (R-057). */

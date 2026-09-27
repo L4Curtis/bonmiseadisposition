@@ -8,6 +8,10 @@ import { CONTESTATION_FILTERS, ContestationFilter, contestationFilterFromSearch 
 
 export const CONTESTATIONS_PAGE_SIZE = 25;
 
+/** `?contestation=<id>` : ouvre la décision de cette contestation (bouton
+ *  « Traiter la contestation » de la fiche d'un bon). */
+export const CONTESTATION_PARAM = 'contestation';
+
 /** Chargement, filtre (gardé dans l'adresse) et pagination de la liste IT des
  *  contestations, et la prise en charge (avec confirmation, sans faire
  *  disparaître la ligne : elle reste « À traiter »). */
@@ -52,6 +56,17 @@ export function useContestations() {
       requestIdRef.current += 1;
     };
   }, [load]);
+
+  // Arrivée depuis la fiche d'un bon : la liste « À traiter » chargée, la
+  // décision de la contestation demandée s'ouvre. Le paramètre disparaît de
+  // l'adresse, pour qu'un rechargement ne rouvre pas la fenêtre.
+  const requestedId = new URLSearchParams(search).get(CONTESTATION_PARAM);
+  useEffect(() => {
+    if (!requestedId || !data) return;
+    const requested = data.contestations.find((c) => c.id === requestedId);
+    if (requested) setDeciding(requested);
+    patch({ [CONTESTATION_PARAM]: null });
+  }, [requestedId, data, patch]);
 
   const setFilter = (value: ContestationFilter) => {
     const urlValue = CONTESTATION_FILTERS.find((f) => f.value === value)?.urlValue ?? null;

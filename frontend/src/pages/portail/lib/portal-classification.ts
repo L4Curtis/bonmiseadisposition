@@ -1,4 +1,5 @@
 import type { LinkSignatureType, PortalBon, PortalSignature } from '@/contracts/bons';
+import type { SignatureInvalidationReason } from '@/contracts/common';
 
 /**
  * Classement du portail par CE QUE LA PERSONNE DOIT FAIRE (R-057), et non par
@@ -25,6 +26,14 @@ export interface DocumentToSign {
   since: string | null;
   inPerson: boolean;
   expired: boolean;
+  /** Le dernier lien a été invalidé avant usage : pourquoi (bon modifié,
+   *  contestation Fondée…). `null` pour un lien valide ou simplement expiré. */
+  invalidatedReason: SignatureInvalidationReason | null;
+  /** Contestation Fondée de ce document : l'équipe informatique le corrige,
+   *  puis le renverra. Rien à signer ni à demander d'ici là. */
+  underCorrection: boolean;
+  /** Nouveau lien déjà demandé pour ce document : quand (`null` sinon). */
+  newLinkRequestedAt: string | null;
 }
 
 /** Un équipement encore chez le collaborateur. */
@@ -43,10 +52,19 @@ export interface HeldEquipment {
   /** Lien pour signer cette remise tout de suite, `null` si le lien a expiré
    *  ou si la remise se signe au guichet. */
   signToken: string | null;
+  /** Rendu ou déclaré non restitué, mais ce marquage est contesté (Fondée) et
+   *  en cours de correction : il reste sous la responsabilité de la personne
+   *  tant que la restitution corrigée n'est pas signée. */
+  underCorrection: boolean;
 }
 
 export interface PortalGroups {
+  /** Documents que la personne peut signer, ou dont elle peut redemander le
+   *  lien : le bandeau compte exactement ceux-là. */
   toSign: DocumentToSign[];
+  /** Documents rouverts après une contestation Fondée : l'équipe
+   *  informatique les corrige, rien ne se signe d'ici là. */
+  inCorrection: DocumentToSign[];
   current: PortalBon[];
   contested: PortalBon[];
   history: PortalBon[];
@@ -96,13 +114,29 @@ function documentToSign(bon: PortalBon, type: LinkSignatureType): DocumentToSign
   const signature = [...bon.signatures]
     .filter((s) => s.type === type && !s.signed)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  const pending = bon.pendingSignature;
   const token = signature?.token ?? null;
-  const inPerson = bon.pendingSignature?.inPerson ?? !!signature?.inPersonPending;
+  const inPerson = pending?.inPerson ?? !!signature?.inPersonPending;
   // Le serveur transmet aussi le jeton du dernier lien EXPIRÉ (pour « Demander
   // un nouveau lien ») : un jeton présent ne prouve donc pas un lien valide.
-  const expired = bon.pendingSignature?.expired ?? (!inPerson && !isSignableLink(signature));
+  const expired = pending?.expired ?? (!inPerson && !isSignableLink(signature));
+  // Un lien invalidé (bon modifié, contestation Fondée…) n'est pas « expiré » :
+  // la personne doit lire le vrai motif (R-038), et rien n'est à redemander.
+  const invalidatedReason = expired && !inPerson ? (signature?.invalidatedReason ?? null) : null;
   const since = bon.awaitingSince ?? signature?.createdAt ?? null;
-  return { bon, type, token: expired ? null : token, requestToken: inPerson ? null : token, inPerson, expired, since };
+  return {
+    bon,
+    type,
+    token: expired ? null : token,
+    requestToken: inPerson || invalidatedReason ? null : token,
+    inPerson,
+    expired,
+    since,
+    invalidatedReason,
+    underCorrection: invalidatedReason === 'contested',
+    // Champ facultatif du contrat : sans lui, la demande reste proposée.
+    newLinkRequestedAt: pending?.newLinkRequestedAt ?? null,
+  };
 }
 
 /** Équipement encore chez la personne : état calculé par le serveur, sinon
@@ -110,6 +144,19 @@ function documentToSign(bon: PortalBon, type: LinkSignatureType): DocumentToSign
 function isHeld(eq: PortalBon['equipments'][number]): boolean {
   if (eq.returnState !== undefined) return eq.returnState === 'out';
   return !eq.returnedAt && !eq.notReturned;
+}
+
+/** Marquage non encore signé par la personne (rendu à signer, déclaré non
+ *  restitué) : c'est lui qu'une contestation Fondée fait corriger. */
+function isUnsignedMarking(eq: PortalBon['equipments'][number]): boolean {
+  const state = eq.returnState ?? (eq.notReturned ? 'not_returned' : eq.returnedAt ? 'returned_to_sign' : 'out');
+  return state === 'returned_to_sign' || state === 'not_returned';
+}
+
+/** Document du bon en cours de correction après une contestation Fondée. */
+function isUnderCorrection(bon: PortalBon): boolean {
+  const type = pendingType(bon);
+  return !!type && type !== 'mise_disposition' && documentToSign(bon, type).underCorrection;
 }
 
 function equipmentLabel(eq: PortalBon['equipments'][number]): string {
@@ -122,9 +169,10 @@ function heldEquipments(bon: PortalBon): HeldEquipment[] {
   const awaitingSignature = bon.status === 'sent_mise_dispo';
   const handover = awaitingSignature ? documentToSign(bon, 'mise_disposition') : null;
   const signToken = handover && !handover.inPerson ? handover.token : null;
+  const correcting = isUnderCorrection(bon);
   return [...bon.equipments]
     .sort((a, b) => a.order - b.order)
-    .filter(isHeld)
+    .filter((eq) => isHeld(eq) || (correcting && isUnsignedMarking(eq)))
     .map((eq) => ({
       id: eq.id,
       bon,
@@ -135,6 +183,7 @@ function heldEquipments(bon: PortalBon): HeldEquipment[] {
       since: bon.dateMiseDisposition,
       awaitingSignature,
       signToken,
+      underCorrection: correcting && isUnsignedMarking(eq),
     }));
 }
 
@@ -150,17 +199,21 @@ function supersededBonIds(bons: readonly PortalBon[]): ReadonlySet<string> {
 
 export function classifyPortal(bons: readonly PortalBon[]): PortalGroups {
   const toSign: DocumentToSign[] = [];
+  const inCorrection: DocumentToSign[] = [];
   const current: PortalBon[] = [];
   const contested: PortalBon[] = [];
   const history: PortalBon[] = [];
   for (const bon of bons) {
     const type = pendingType(bon);
     if (bon.status === 'contested') contested.push(bon);
-    else if (type) toSign.push(documentToSign(bon, type));
+    else if (type) {
+      const doc = documentToSign(bon, type);
+      (doc.underCorrection ? inCorrection : toSign).push(doc);
+    }
     else if (bon.status === 'archived' || bon.status === 'cancelled') history.push(bon);
     else current.push(bon);
   }
   const superseded = supersededBonIds(bons);
   const held = bons.filter((b) => !superseded.has(b.id)).flatMap(heldEquipments);
-  return { toSign, current, contested, history, held };
+  return { toSign, inCorrection, current, contested, history, held };
 }

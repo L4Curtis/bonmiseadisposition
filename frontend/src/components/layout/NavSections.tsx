@@ -108,7 +108,7 @@ function SectionTitle({ children, hidden }: { readonly children: ReactNode; read
   );
 }
 
-/** Groupes du menu (Opérations, Référentiel…), dans le menu latéral ou le tiroir. */
+/** Groupes du menu (Suivi, Référentiels…), dans le menu latéral ou le tiroir. */
 export function NavSections({ groups, variant, collapsed = false, onItemClick }: NavSectionsProps) {
   const railCollapsed = variant === 'rail' && collapsed;
 
@@ -116,10 +116,12 @@ export function NavSections({ groups, variant, collapsed = false, onItemClick }:
     <>
       {groups.map((group, index) => (
         <div
-          key={group.title}
-          className={cn('space-y-0.5', index > 0 && 'mt-4 border-t border-[hsl(var(--border))] pt-4')}
+          key={group.title || index}
+          // break-inside-avoid : dans le tiroir d'un téléphone couché, les
+          // rubriques passent sur deux colonnes sans être coupées.
+          className={cn('space-y-0.5 break-inside-avoid', index > 0 && 'mt-4 border-t border-[hsl(var(--border))] pt-4')}
         >
-          <SectionTitle hidden={railCollapsed}>{group.title}</SectionTitle>
+          {group.title && <SectionTitle hidden={railCollapsed}>{group.title}</SectionTitle>}
           {group.items.map((item) =>
             variant === 'rail' ? (
               <RailEntry key={item.to} item={item} collapsed={railCollapsed} />

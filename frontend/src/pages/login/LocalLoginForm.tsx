@@ -5,7 +5,6 @@ import { Spinner } from '@/components/ui/spinner';
 import { api, ApiError } from '@/lib/api';
 import { errorMessage } from '@/lib/errors';
 import { loginSchema, validate } from '@/lib/validation';
-import { cn } from '@/lib/utils';
 
 /** Adresse où envoyer la personne une fois connectée. Un mot de passe à
  *  changer passe d'abord par la page de changement, qui renvoie ensuite à
@@ -17,20 +16,9 @@ export function afterLoginHref(returnTo: string | null, mustChangePassword: bool
     : '/change-password?forced=true';
 }
 
-const TONES = {
-  dark: {
-    label: 'text-white/80',
-    input:
-      'login-input border-white/15 bg-white/5 text-white shadow-none placeholder:text-white/40 focus-visible:border-primary/70 focus-visible:ring-primary/30',
-  },
-  light: { label: 'text-foreground', input: '' },
-} as const;
-
 interface LocalLoginFormProps {
   /** Adresse (déjà validée) où revenir après la connexion. */
   returnTo: string | null;
-  /** `dark` : page de connexion de l'équipe IT ; `light` : carte du collaborateur. */
-  tone: 'dark' | 'light';
 }
 
 /**
@@ -38,12 +26,11 @@ interface LocalLoginFormProps {
  * 44 px en 16 px (pas de zoom iOS), clavier « email » avec « @ », remplissage
  * automatique proposé par le navigateur, touche « Suivant » puis « OK ».
  */
-export function LocalLoginForm({ returnTo, tone }: LocalLoginFormProps) {
+export function LocalLoginForm({ returnTo }: LocalLoginFormProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const styles = TONES[tone];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -78,9 +65,9 @@ export function LocalLoginForm({ returnTo, tone }: LocalLoginFormProps) {
         </div>
       )}
       <div className="space-y-1.5">
-        <Label htmlFor={`login-email-${tone}`} className={styles.label}>Adresse email</Label>
+        <Label htmlFor="login-email">Adresse email</Label>
         <Input
-          id={`login-email-${tone}`}
+          id="login-email"
           type="email"
           inputMode="email"
           autoComplete="username"
@@ -91,20 +78,20 @@ export function LocalLoginForm({ returnTo, tone }: LocalLoginFormProps) {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
-          className={cn('h-11 text-base', styles.input)}
+          className="h-11 text-base"
         />
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor={`login-password-${tone}`} className={styles.label}>Mot de passe</Label>
+        <Label htmlFor="login-password">Mot de passe</Label>
         <Input
-          id={`login-password-${tone}`}
+          id="login-password"
           type="password"
           autoComplete="current-password"
           enterKeyHint="go"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required
-          className={cn('h-11 text-base', styles.input)}
+          className="h-11 text-base"
         />
       </div>
       <button

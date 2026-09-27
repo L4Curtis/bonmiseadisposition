@@ -3,31 +3,54 @@ import type { KpiCardProps } from '../../components/KpiCard';
 import { asOfLabel, periodLabel, UNITS } from '../../lib/kpi-scope';
 import type { IncidentsKpiResponse } from '../../types/incidents';
 import { TODAY_LINKS } from '../today/today-links';
+import { inventoryHref } from '../parc/ParcStatCards';
+import { NO_LIST, type KpiListKey } from '../../lists/kpi-lists';
+
+/** Adresse de la liste d'un chiffre (IT), ou `null` pour la direction, qui
+ *  n'ouvre pas de bon : ses cartes de bons n'ont alors pas de liste. */
+export type ListHref = ((key: KpiListKey) => string) | null;
+
+/** Lien vers la liste d'un chiffre de bons, ou la raison de son absence. */
+function bonList(listHref: ListHref, key: KpiListKey): Pick<KpiCardProps, 'href' | 'noList'> {
+  return listHref ? { href: listHref(key) } : { noList: NO_LIST.direction };
+}
 
 export type IncidentCard = KpiCardProps & { key: string };
 
 
-/** Cartes « état du jour » de l'onglet Incidents (non filtrées par la période). */
-export function incidentStateCards(data: IncidentsKpiResponse, isIt: boolean): IncidentCard[] {
+/** « Contestations à traiter » ouvre la page Contestations (IT), qui ne se
+ *  filtre pas par filiale : avec une filiale choisie, le lien serait approché. */
+function contestationsToProcessList(isIt: boolean, filialeId: string | null): Pick<KpiCardProps, 'href' | 'noList'> {
+  if (!isIt) return { noList: NO_LIST.direction };
+  if (filialeId) return { noList: NO_LIST.contestationsByFiliale };
+  return { href: TODAY_LINKS.contestations };
+}
+
+/** Cartes « état du jour » de l'onglet Incidents (non filtrées par la
+ *  période). « Encore non restitués » ouvre l'inventaire, pour tous. */
+export function incidentStateCards(data: IncidentsKpiResponse, isIt: boolean, filialeId: string | null): IncidentCard[] {
   const scope = asOfLabel(data.asOf);
   return [
     {
       key: 'still-missing', label: 'Encore non restitués', value: data.notReturned.stillMissing, unit: UNITS.equipments,
       icon: PackageX, scope, tone: data.notReturned.stillMissing > 0 ? 'warning' : 'default',
+      href: inventoryHref(filialeId, { situation: 'non_restitue' }),
       definition: 'Équipements déclarés non restitués et pas retrouvés depuis, y compris sur des bons clôturés.',
     },
     {
       key: 'contestations-to-process', label: 'Contestations à traiter', value: data.contestations.toProcess,
       unit: UNITS.contestations, icon: MessageSquareWarning, scope,
       tone: data.contestations.toProcess > 0 ? 'warning' : 'default',
-      detail: 'ouvertes ou en cours d’examen', href: isIt ? TODAY_LINKS.contestations : undefined,
+      detail: 'ouvertes ou en cours d’examen',
+      ...contestationsToProcessList(isIt, filialeId),
     },
   ];
 }
 
 /** Cartes « sur la période » de l'onglet Incidents, comparées à la période
- *  précédente. */
-export function incidentFlowCards(data: IncidentsKpiResponse): IncidentCard[] {
+ *  précédente. Les cartes de bons et d'événements ouvrent leur liste exacte
+ *  (IT) ; les équipements déclarés ou retrouvés, flux du journal, n'en ont pas. */
+export function incidentFlowCards(data: IncidentsKpiResponse, listHref: ListHref): IncidentCard[] {
   const scope = periodLabel(data.period);
   const { notReturned, withoutSignature } = data;
   return [
@@ -35,33 +58,37 @@ export function incidentFlowCards(data: IncidentsKpiResponse): IncidentCard[] {
       key: 'declared', label: 'Équipements déclarés non restitués', value: notReturned.declared.current,
       unit: UNITS.equipments, icon: PackageX, scope, delta: { ...notReturned.declared, invert: true },
       definition: 'Équipements déclarés non restitués pendant la période : une déclaration de trois équipements en compte trois.',
+      noList: NO_LIST.equipmentFlow,
     },
     {
       key: 'found', label: 'Équipements retrouvés', value: notReturned.found.current, unit: UNITS.equipments,
-      icon: Search, scope, delta: notReturned.found,
+      icon: Search, scope, delta: notReturned.found, noList: NO_LIST.equipmentFlow,
     },
     {
       key: 'pv', label: 'PV de non-restitution émis', value: data.pvCloture.emitted.current, unit: UNITS.pv,
-      icon: FileWarning, scope, delta: { ...data.pvCloture.emitted, invert: true },
+      icon: FileWarning, scope, delta: { ...data.pvCloture.emitted, invert: true }, ...bonList(listHref, 'pv_emis'),
     },
     {
       key: 'handovers', label: 'Remises constatées sans signature', value: withoutSignature.handovers.current,
       unit: UNITS.bons, icon: Handshake, scope, delta: { ...withoutSignature.handovers, invert: true },
+      ...bonList(listHref, 'remises_sans_signature'),
       definition: "Bons passés « En cours » sans la signature du collaborateur : le technicien a constaté la remise, avec un motif.",
     },
     {
       key: 'closures', label: 'Clôturés sans signature', value: withoutSignature.closures.current,
       unit: UNITS.bons, icon: Ban, scope, delta: { ...withoutSignature.closures, invert: true },
+      ...bonList(listHref, 'clotures_sans_signature'),
       definition: "Bons clôturés sans la signature du collaborateur (restitution ou PV), avec un motif. À ne pas confondre avec une remise constatée sans signature.",
     },
     {
       key: 'cancellations', label: 'Bons annulés', value: data.cancellations.count.current, unit: UNITS.bons,
-      icon: XCircle, scope, delta: { ...data.cancellations.count, invert: true },
+      icon: XCircle, scope, delta: { ...data.cancellations.count, invert: true }, ...bonList(listHref, 'bons_annules'),
     },
     {
       key: 'contestations-received', label: 'Contestations reçues', value: data.contestations.received.current,
       unit: UNITS.contestations, icon: MessageSquareWarning, scope, delta: { ...data.contestations.received, invert: true },
       detail: `${data.contestations.toProcess} encore à traiter aujourd'hui`,
+      ...bonList(listHref, 'contestations_recues'),
     },
   ];
 }

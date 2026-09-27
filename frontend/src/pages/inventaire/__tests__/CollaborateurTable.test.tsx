@@ -14,6 +14,7 @@ import { api } from '@/lib/api';
 
 const EMPTY_FILTERS: InventoryBaseFilters = {
   filialeFilter: '', categoryFilter: '', situationFilter: '', search: '', overdueFilter: false, missingSerialFilter: false,
+  offCatalogFilter: false,
 };
 
 function makeCollaborateur(overrides: Partial<CollaborateurInventoryItem> = {}): CollaborateurInventoryItem {

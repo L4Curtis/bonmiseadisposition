@@ -13,9 +13,10 @@ export interface UseSignatureTokenReturn {
   data: SignatureResponse | null;
   error: string | null;
   signed: boolean;
-  /** Signature recueillie au guichet par un autre compte que le titulaire
-   *  (réponse du serveur à la signature). */
+  /** Signature au guichet par une personne mandatée (réponse du serveur). */
   signedByProxy: boolean;
+  /** Signature au guichet du titulaire sur l'appareil d'un compte IT. */
+  witnessedByIt: boolean;
   submitting: boolean;
   submitError: string | null;
   /** Adresse de cette page, validée, où revenir après la connexion. */
@@ -42,6 +43,7 @@ export function useSignatureToken(token: string | undefined): UseSignatureTokenR
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [signed, setSigned] = useState(false);
   const [signedByProxy, setSignedByProxy] = useState(false);
+  const [witnessedByIt, setWitnessedByIt] = useState(false);
   // Verrou synchrone contre le double appui : `submitting` n'est lu qu'au
   // rendu suivant, alors que deux appuis rapprochés sur un écran tactile
   // peuvent atteindre le gestionnaire avant ce rendu.
@@ -138,6 +140,7 @@ export function useSignatureToken(token: string | undefined): UseSignatureTokenR
         mentionLuApprouve: true,
       });
       setSignedByProxy(result.signedByProxy);
+      setWitnessedByIt(result.witnessedByIt);
       setSigned(true);
     } catch (e: unknown) {
       // La coupure peut survenir APRÈS que le serveur a bien enregistré la
@@ -172,6 +175,7 @@ export function useSignatureToken(token: string | undefined): UseSignatureTokenR
     error,
     signed,
     signedByProxy,
+    witnessedByIt,
     submitting,
     submitError,
     signerReturnTo: safeSignerReturnTo,

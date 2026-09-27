@@ -28,12 +28,13 @@ export interface NavItem {
 }
 
 export interface NavGroup {
+  /** Titre de la rubrique ; vide pour un menu d'une seule rubrique. */
   readonly title: string;
   readonly items: readonly NavItem[];
 }
 
-const operationsGroup: NavGroup = {
-  title: 'Opérations',
+const followUpGroup: NavGroup = {
+  title: 'Suivi',
   items: [
     { to: '/dashboard', icon: LayoutDashboard, label: 'Vue d\'ensemble' },
     { to: '/bons', icon: FileText, label: SCREEN_LABELS.bons },
@@ -47,14 +48,14 @@ const inventaireItem: NavItem = { to: '/inventaire', icon: Boxes, label: SCREEN_
 // Le technicien voit et modifie le Catalogue, mais ne gère ni les comptes
 // (Utilisateurs) ni les Filiales : réservés à l'administrateur (décision du 24/09).
 const technicienNavGroups: readonly NavGroup[] = [
-  operationsGroup,
-  { title: 'Référentiel', items: [catalogueItem, inventaireItem] },
+  followUpGroup,
+  { title: 'Référentiels', items: [catalogueItem, inventaireItem] },
 ];
 
 const adminNavGroups: readonly NavGroup[] = [
-  operationsGroup,
+  followUpGroup,
   {
-    title: 'Référentiel',
+    title: 'Référentiels',
     items: [
       { to: '/admin/utilisateurs', icon: Users, label: SCREEN_LABELS.utilisateurs },
       { to: '/admin/filiales', icon: Building2, label: SCREEN_LABELS.filiales },
@@ -73,12 +74,11 @@ const adminNavGroups: readonly NavGroup[] = [
   },
 ];
 
+// Une seule entrée : pas de rubrique (titre vide) au-dessus d'elle.
 const collaboratorNavGroups: readonly NavGroup[] = [
   {
-    title: 'Opérations',
-    items: [
-      { to: '/mes-bons', icon: FileText, label: 'Mes bons' },
-    ],
+    title: '',
+    items: [{ to: '/mes-bons', icon: Package, label: SCREEN_LABELS.mesEquipements }],
   },
 ];
 

@@ -120,6 +120,35 @@ describe('Portail « Mes équipements » (R-057, R-090)', () => {
     expect(screen.queryByRole('region', { name: 'Historique' })).not.toBeInTheDocument();
   });
 
+  it('restitution en cours de correction (contestation Fondée) : bloc à part, hors « À signer » et du compteur, matériel toujours « Chez vous »', async () => {
+    const s25 = bon({
+      reference: 'S25',
+      status: 'sent_restitution',
+      equipments: [equipment({ id: 'casque', serialNumber: 'SN-CASQUE-25', returnState: 'returned_to_sign' })],
+      signatures: [
+        signature({ signed: true, signedAt: '2026-08-01T00:00:00Z' }),
+        signature({ type: 'restitution', tokenExpiresAt: new Date(0).toISOString(), invalidatedReason: 'contested', createdAt: '2026-09-20T00:00:00Z' }),
+      ],
+      pendingSignature: { type: 'restitution', expired: true, inPerson: false, itSigned: false, sentAt: null, expiresAt: null },
+    });
+    mockPortal([...LEA, s25]);
+    renderWithProviders(<PortailCollaborateur />);
+
+    // Le chiffre du bandeau et celui de la rubrique disent la même chose.
+    expect(await screen.findByText('Vous avez 2 documents à signer.')).toBeInTheDocument();
+    const toSign = screen.getByRole('region', { name: /À signer/ });
+    expect(within(toSign).getByRole('heading', { name: /À signer \(2\)/ })).toBeInTheDocument();
+    expect(within(toSign).queryByText(/S25/)).not.toBeInTheDocument();
+
+    const correction = screen.getByRole('region', { name: /En cours de correction par l'équipe informatique/ });
+    expect(within(correction).getByText(/S25/)).toBeInTheDocument();
+    expect(within(correction).getByText(/Votre contestation est fondée/)).toBeInTheDocument();
+    expect(within(correction).queryByRole('button', { name: /Je ne suis pas d'accord/ })).not.toBeInTheDocument();
+
+    const held = screen.getByRole('region', { name: /Chez vous/ });
+    expect(within(held).getByText('SN-CASQUE-25')).toBeInTheDocument();
+  });
+
   it('liste les équipements chez la personne, avec n° de série et catégorie lisible, jamais le code', async () => {
     mockPortal(LEA);
     renderWithProviders(<PortailCollaborateur />);

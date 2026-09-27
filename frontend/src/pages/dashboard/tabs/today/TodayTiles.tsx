@@ -42,7 +42,7 @@ function urgentTiles(data: KpiTodayResponse): TileDef[] {
     {
       key: 'departures', label: 'Départs avec matériel', value: data.departures.collaborateurs, unit: UNITS.collaborateurs,
       icon: UserX, tone: data.departures.collaborateurs > 0 ? 'warning' : 'default', scope,
-      detail: `détiennent ${countWithUnit(data.departures.equipments, UNITS.equipments)}`, href: TODAY_LINKS.departures,
+      detail: `${data.departures.collaborateurs > 1 ? 'détiennent' : 'détient'} ${countWithUnit(data.departures.equipments, UNITS.equipments)}`, href: TODAY_LINKS.departures,
       definition: "Collaborateurs dont le compte est désactivé (départ) et qui détiennent encore des équipements.",
     },
   ];

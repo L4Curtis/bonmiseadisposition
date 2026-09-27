@@ -52,7 +52,9 @@ export function SignaturePage() {
   const tokenState = useSignatureToken(token);
   const { currentUser, checkingAuth, loading, data, error } = tokenState;
   const documents = useDocumentActions(token);
-  const canvas = useSignatureCanvas();
+  // Le cadre plein écran n'a pas les proportions de l'image exportée : le
+  // canevas suit son cadre au lieu d'être étiré.
+  const canvas = useSignatureCanvas({ followFrame: true });
 
   if (checkingAuth) return <Loading />;
   // Pas connecté : l'invitation à se connecter, tout de suite.
@@ -81,7 +83,9 @@ export function SignaturePage() {
     case 'replaced':
       return <InvalidatedLinkScreen reason={data.invalidatedReason} reference={data.reference} />;
     case 'expired':
-      return <ExpiredLinkScreen token={token} reference={data.reference} />;
+      return (
+        <ExpiredLinkScreen token={token} reference={data.reference} newLinkRequestedAt={data.newLinkRequestedAt} />
+      );
     case 'already_signed':
       if (!tokenState.signed) {
         return (
@@ -108,6 +112,7 @@ export function SignaturePage() {
         type={sig.type}
         inPerson={sig.isInPerson}
         signedByProxy={tokenState.signedByProxy}
+        witnessedByIt={tokenState.witnessedByIt}
         witnessName={currentUser.displayName}
         downloadError={documents.downloadError}
         onDownloadSigned={documents.handleDownloadSigned}

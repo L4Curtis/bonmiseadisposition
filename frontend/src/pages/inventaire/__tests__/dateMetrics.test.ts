@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { daysSince, daysOverdue } from '../dateMetrics';
+import { daysSince, daysOverdue, equipmentOverdueDays } from '../dateMetrics';
 import * as dates from '@/lib/dates';
 
 describe('dateMetrics', () => {
@@ -42,6 +42,18 @@ describe('dateMetrics', () => {
     it('retourne le nombre de jours de retard quand la restitution est passée', () => {
       vi.spyOn(dates, 'todayInParis').mockReturnValue('2026-09-18');
       expect(daysOverdue('2026-09-10')).toBe(8);
+    });
+  });
+
+  describe('equipmentOverdueDays', () => {
+    it('compte le retard d’un équipement du parc', () => {
+      vi.spyOn(dates, 'todayInParis').mockReturnValue('2026-09-18');
+      expect(equipmentOverdueDays({ situation: 'en_circulation', dateRestitution: '2026-09-10' })).toBe(8);
+    });
+
+    it('n’en compte jamais pour un équipement non restitué, qui n’est plus attendu', () => {
+      vi.spyOn(dates, 'todayInParis').mockReturnValue('2026-09-18');
+      expect(equipmentOverdueDays({ situation: 'non_restitue', dateRestitution: '2026-09-10' })).toBeNull();
     });
   });
 });

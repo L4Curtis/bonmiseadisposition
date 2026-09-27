@@ -1,21 +1,37 @@
 import { AlertOctagon, Ban, CheckCircle, Clock, Info } from 'lucide-react';
 import type { SignatureInvalidationReason } from '@/contracts/common';
+import { formatDateLong } from '@/lib/dates';
 import { closedBonScreen, invalidatedLinkScreen } from '../lib/link-screens';
 import { PortalLink, StatusScreen } from './StatusScreen';
 import { RequestNewLinkButton } from './RequestNewLinkButton';
 
-/** Lien expiré : deux issues, demander un nouveau lien ou voir ses équipements (R-058). */
-export function ExpiredLinkScreen({ token, reference }: { token: string; reference: string }) {
+/** Lien expiré : deux issues, demander un nouveau lien ou voir ses
+ *  équipements (R-058). Une demande déjà faite n'est pas reproposée : la page
+ *  dit quand elle a été faite. */
+export function ExpiredLinkScreen({
+  token,
+  reference,
+  newLinkRequestedAt,
+}: {
+  token: string;
+  reference: string;
+  newLinkRequestedAt?: string | null;
+}) {
+  const requested = !!newLinkRequestedAt;
   return (
     <StatusScreen
       icon={<Clock className="h-12 w-12 text-warning" />}
       title="Lien expiré"
-      message="Ce lien de signature a expiré. Demandez-en un nouveau : l'équipe informatique est prévenue et vous en renvoie un."
+      message={
+        requested
+          ? `Nouveau lien demandé le ${formatDateLong(newLinkRequestedAt)} — l'équipe informatique va vous le renvoyer.`
+          : "Ce lien de signature a expiré. Demandez-en un nouveau : l'équipe informatique est prévenue et vous en renvoie un."
+      }
       reference={reference}
       actions={
         <div className="flex flex-col gap-2 w-full">
-          <RequestNewLinkButton token={token} />
-          <PortalLink />
+          {!requested && <RequestNewLinkButton token={token} />}
+          <PortalLink primary={requested} />
         </div>
       }
     />

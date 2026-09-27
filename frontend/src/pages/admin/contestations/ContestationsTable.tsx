@@ -24,16 +24,18 @@ interface ContestationsTableProps {
   onDecide: (contestation: ContestationListItem) => void;
 }
 
-const ACTION = 'w-full sm:w-auto min-h-11 sm:min-h-8 inline-flex items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-medium transition-colors';
+const ACTION = 'w-full whitespace-nowrap min-h-11 sm:min-h-8 inline-flex items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-medium transition-colors';
 
 function Received({ c, overdueSince }: { c: ContestationListItem; overdueSince: string | null }) {
   const days = contestationAgeDays(c.createdAt);
   const late = isOverdue(c, overdueSince);
   return (
-    <span className="whitespace-nowrap">
+    // Date et ancienneté l'une sous l'autre : la colonne reste étroite et les
+    // actions tiennent à l'écran dès 1280 px.
+    <span className="flex flex-col items-start gap-1 whitespace-nowrap">
       {formatDate(c.createdAt)}
       {isPending(c) && (
-        <span className={cn('ml-2 rounded-full px-2 py-0.5 text-xs font-semibold', late ? 'bg-destructive/10 text-destructive' : 'bg-muted text-muted-foreground')}>
+        <span className={cn('rounded-full px-2 py-0.5 text-xs font-semibold', late ? 'bg-destructive/10 text-destructive' : 'bg-muted text-muted-foreground')}>
           {days} j{late ? ' — en retard' : ''}
         </span>
       )}
@@ -90,15 +92,15 @@ function columns(props: ContestationsTableProps): ListColumn<ContestationListIte
     {
       key: 'message',
       header: 'Motif',
-      className: 'min-w-[14rem]',
+      className: 'min-w-[12rem]',
       cell: (c) => <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{c.message}</p>,
     },
-    { key: 'follow', header: 'Suivi', className: 'min-w-[11rem]', cell: (c) => <span className="text-sm">{contestationFollowUpForIt(c)}</span> },
+    { key: 'follow', header: 'Suivi', className: 'min-w-[9rem]', cell: (c) => <span className="text-sm">{contestationFollowUpForIt(c)}</span> },
     {
       key: 'actions',
       header: 'Actions',
       card: 'actions',
-      className: 'w-44',
+      className: 'w-48',
       cell: (c) => <Actions c={c} reviewingId={props.reviewingId} onReview={props.onReview} onDecide={props.onDecide} />,
     },
   ];
