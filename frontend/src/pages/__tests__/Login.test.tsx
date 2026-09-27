@@ -37,8 +37,11 @@ function mockAuthFetch(loginResponse: () => Response = () => jsonRes(200, { ok: 
 }
 
 async function submitLocalLogin(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(await screen.findByText('Connexion avec un compte local'));
-  await user.type(screen.getByLabelText('Email'), 'admin@local');
+  await screen.findByRole('link', { name: /continuer avec microsoft/i });
+  // Venu d'un lien du collaborateur, le formulaire est déjà ouvert.
+  const toggle = screen.queryByRole('button', { name: 'Connexion avec un compte local' });
+  if (toggle) await user.click(toggle);
+  await user.type(screen.getByLabelText('Adresse email'), 'admin@local');
   await user.type(screen.getByLabelText('Mot de passe'), 'password123');
   await user.click(screen.getByRole('button', { name: 'Se connecter' }));
 }
@@ -186,5 +189,67 @@ describe('LoginPage — lien de connexion Microsoft', () => {
 
     const link = await screen.findByRole('link', { name: /continuer avec microsoft/i });
     expect(link).toHaveAttribute('href', '/api/auth/login');
+  });
+});
+
+describe('LoginPage — venu du lien reçu par email (2E, R-096)', () => {
+  beforeEach(() => {
+    mockAuthFetch();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it.each(['/signer/abc123', '/mes-bons', '/mes-bons/b-1'])(
+    'returnTo=%s : formulaire ouvert d’emblée, habillage clair, mots du collaborateur',
+    async (returnTo) => {
+      render(
+        <MemoryRouter initialEntries={[`/login?returnTo=${encodeURIComponent(returnTo)}`]}>
+          <LoginPage />
+        </MemoryRouter>,
+      );
+
+      expect(await screen.findByLabelText('Adresse email')).toBeVisible();
+      expect(screen.getByLabelText('Mot de passe')).toBeVisible();
+      expect(screen.queryByRole('button', { name: 'Connexion avec un compte local' })).not.toBeInTheDocument();
+      expect(screen.queryByText(/IT uniquement/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/admin@local/)).not.toBeInTheDocument();
+      expect(screen.getByText(/Équipe informatique/)).toBeInTheDocument();
+      expect(screen.queryByText(/Service informatique/)).not.toBeInTheDocument();
+    },
+  );
+
+  it('clavier adapté et remplissage automatique : email, puis mot de passe', async () => {
+    render(
+      <MemoryRouter initialEntries={['/login?returnTo=%2Fsigner%2Fabc123']}>
+        <LoginPage />
+      </MemoryRouter>,
+    );
+
+    const email = await screen.findByLabelText('Adresse email');
+    expect(email).toHaveAttribute('type', 'email');
+    expect(email).toHaveAttribute('autocomplete', 'username');
+    expect(email).toHaveAttribute('autocapitalize', 'none');
+    expect(email).toHaveAttribute('enterkeyhint', 'next');
+    const password = screen.getByLabelText('Mot de passe');
+    expect(password).toHaveAttribute('autocomplete', 'current-password');
+    expect(password).toHaveAttribute('enterkeyhint', 'go');
+  });
+
+  it('connexion IT (sans lien) : « Équipe informatique », plus de mention « compte local IT »', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={['/login']}>
+        <LoginPage />
+      </MemoryRouter>,
+    );
+
+    const toggle = await screen.findByRole('button', { name: 'Connexion avec un compte local' });
+    expect(toggle.className).toMatch(/min-h-11/);
+    expect(screen.getByText('Groupe Livio — Équipe informatique')).toBeInTheDocument();
+    await user.click(toggle);
+    expect(screen.getByLabelText('Adresse email')).toHaveAttribute('type', 'email');
+    expect(screen.queryByText(/IT uniquement/)).not.toBeInTheDocument();
   });
 });

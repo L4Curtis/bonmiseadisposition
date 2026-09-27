@@ -36,6 +36,7 @@ test('création rapide : pré-remplissages, n° de série en circulation, Entré
   await expect(page.getByLabel(/Date de mise à disposition/)).toHaveValue(todayInParis());
   await selectExistingCollaborateur(page, 'E2E Seed AvecEmail', 'E2E Seed AvecEmail');
   await expect(page.getByLabel('Filiale *')).toContainText(FILIALE_NAME);
+  await page.getByRole('radio', { name: 'Madame' }).click();
 
   // ── N° de série déjà en circulation : signalé à la sortie du champ ────────
   await page.getByLabel('Rechercher dans le catalogue').fill(CATALOG_QUERY);

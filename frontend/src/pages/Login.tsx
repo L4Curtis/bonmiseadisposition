@@ -1,17 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
 import { ChevronDown, ChevronUp } from 'lucide-react';
-import { loginSchema, validate } from '@/lib/validation';
 import { safeReturnTo } from '@/lib/safe-return-to';
-import { api, ApiError } from '@/lib/api';
-import { errorMessage } from '@/lib/errors';
+import { api } from '@/lib/api';
 import { SCREEN_LABELS } from '@/domain/labels';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import { CollaboratorLoginCard, isCollaboratorReturnTo } from './login/CollaboratorLoginCard';
+import { LocalLoginForm } from './login/LocalLoginForm';
 
 const ERROR_MESSAGES: Record<string, string> = {
   entra_config_missing: "La configuration Microsoft Entra ID n'est pas encore configurée.",
@@ -26,17 +23,12 @@ export function LoginPage() {
   const [setupRequired, setSetupRequired] = useState<boolean | null>(null);
   const [localAuthEnabled, setLocalAuthEnabled] = useState(true);
   const [showLocal, setShowLocal] = useState(false);
-  const [localEmail, setLocalEmail] = useState('');
-  const [localPassword, setLocalPassword] = useState('');
-  const [localError, setLocalError] = useState('');
-  const [localLoading, setLocalLoading] = useState(false);
   const error = searchParams.get('error');
 
   // Adresse demandée avant la connexion (lien profond, session expirée). Pour
   // Microsoft, le serveur la garde pendant l'aller-retour (cookie
   // auth_return_to) et la revalide avant d'y renvoyer.
   const returnTo = safeReturnTo(searchParams.get('returnTo'));
-  const destination = returnTo ?? '/';
   const ssoLoginHref = returnTo
     ? `/api/auth/login?returnTo=${encodeURIComponent(returnTo)}`
     : '/api/auth/login';
@@ -61,38 +53,13 @@ export function LoginPage() {
     return () => controller.abort();
   }, []);
 
-  const handleLocalLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const result = validate(loginSchema, { email: localEmail, password: localPassword });
-    if (!result.success) {
-      setLocalError(Object.values(result.errors)[0]);
-      return;
-    }
-    setLocalLoading(true);
-    setLocalError('');
-    try {
-      // « no-refresh » : ici, un 401 veut dire « identifiants refusés », pas
-      // « session expirée ».
-      const data = await api.post<{ mustChangePassword?: boolean }>(
-        '/auth/local-login',
-        { email: localEmail, password: localPassword },
-        { onUnauthorized: 'no-refresh' },
-      );
-      if (data?.mustChangePassword) {
-        // ChangePassword lit ce même paramètre et y redirige une fois le
-        // mot de passe changé (cf. pages/ChangePassword.tsx).
-        window.location.href = returnTo
-          ? `/change-password?forced=true&returnTo=${encodeURIComponent(returnTo)}`
-          : '/change-password?forced=true';
-      } else {
-        window.location.href = destination;
-      }
-    } catch (e: unknown) {
-      setLocalError(e instanceof ApiError ? errorMessage(e, 'Identifiants incorrects') : 'Erreur de connexion au serveur');
-    } finally {
-      setLocalLoading(false);
-    }
-  };
+  // Venu d'un lien reçu par email (signature, « Mes équipements ») : la carte
+  // claire du collaborateur, formulaire déjà ouvert (R-096), sans
+  // attendre les réglages de la page IT. Un message
+  // d'erreur Microsoft garde la page complète, qui sait l'afficher.
+  if (isCollaboratorReturnTo(returnTo) && !error) {
+    return <CollaboratorLoginCard returnTo={returnTo} />;
+  }
 
   if (setupRequired === null) {
     return (
@@ -122,7 +89,7 @@ export function LoginPage() {
               <h1 className="text-[22px] font-bold tracking-tight text-white">
                 Bons de mise à disposition
               </h1>
-              <p className="mt-1.5 text-sm text-white/50">Groupe Livio — Service informatique</p>
+              <p className="mt-1.5 text-sm text-white/50">Groupe Livio — Équipe informatique</p>
             </div>
 
             {/* Error banner */}
@@ -153,7 +120,9 @@ export function LoginPage() {
             {localAuthEnabled && (
               <div className="mt-5">
                 <button
-                  className="flex w-full items-center justify-center gap-1.5 text-sm text-white/50 hover:text-white/80 transition-colors"
+                  type="button"
+                  aria-expanded={showLocal}
+                  className="flex min-h-11 w-full items-center justify-center gap-1.5 rounded-lg text-sm text-white/60 hover:text-white/85 transition-colors"
                   onClick={() => setShowLocal((v) => !v)}
                 >
                   {showLocal ? (
@@ -170,46 +139,9 @@ export function LoginPage() {
                 </button>
 
                 {showLocal && (
-                  <form onSubmit={handleLocalLogin} className="mt-4 space-y-4">
-                    {localError && (
-                      <div role="alert" className="rounded-lg bg-destructive/10 border border-destructive/25 p-3">
-                        <p className="text-sm text-destructive">{localError}</p>
-                      </div>
-                    )}
-                    <div className="space-y-2">
-                      <Label htmlFor="login-email" className="text-white/80">Email</Label>
-                      <Input
-                        id="login-email"
-                        type="text"
-                        value={localEmail}
-                        onChange={(e) => setLocalEmail(e.target.value)}
-                        placeholder="admin@local"
-                        required
-                        className="login-input border-white/15 bg-white/5 text-white shadow-none placeholder:text-white/40 focus-visible:border-primary/70 focus-visible:ring-primary/30"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="login-password" className="text-white/80">Mot de passe</Label>
-                      <Input
-                        id="login-password"
-                        type="password"
-                        value={localPassword}
-                        onChange={(e) => setLocalPassword(e.target.value)}
-                        required
-                        className="login-input border-white/15 bg-white/5 text-white shadow-none placeholder:text-white/40 focus-visible:border-primary/70 focus-visible:ring-primary/30"
-                      />
-                    </div>
-                    <Button
-                      type="submit"
-                      disabled={localLoading}
-                      className="w-full"
-                    >
-                      {localLoading ? 'Connexion…' : 'Se connecter'}
-                    </Button>
-                    <p className="text-center text-xs text-white/40">
-                      Compte local IT uniquement
-                    </p>
-                  </form>
+                  <div className="mt-4">
+                    <LocalLoginForm returnTo={returnTo} tone="dark" />
+                  </div>
                 )}
               </div>
             )}

@@ -7,7 +7,8 @@ import { uniqueSuffix } from './helpers/ids';
 
 /**
  * Test 8 — Portail collaborateur (`/mes-bons`), du point de vue de celui qui
- * signe : il voit son bon actif, l'ouvre, télécharge le PDF — et ne voit ni ne
+ * signe : il voit son bon en cours et ses équipements (n° de série), ouvre le
+ * bon, ouvre le document signé dans le navigateur — et ne voit ni ne
  * peut ouvrir le bon d'un autre, même en tapant son adresse directement.
  *
  * L'IT prépare les deux bons (session admin du test) ; le collaborateur se
@@ -30,23 +31,36 @@ test('portail collaborateur : ses bons, le PDF, et jamais ceux des autres', asyn
 
   const { context, page: portail } = await openPortailSession(browser);
   try {
-    // ── Liste : son bon dans « En cours », pas celui de l'autre ─────────────
-    const enCours = portailSection(portail, /En cours/);
+    // ── Liste : son bon dans « Bons en cours », son équipement dans « Chez
+    // vous » avec son n° de série ; rien de l'autre ────────────────────────
+    const enCours = portailSection(portail, /Bons en cours/);
     await expect(enCours.getByText(sien.reference, { exact: true })).toBeVisible();
+    await expect(portailSection(portail, /Chez vous/).getByText(`SN-PORTAIL-${suffix}`, { exact: true })).toBeVisible();
     await expect(portail.getByText(autre.reference, { exact: true })).toHaveCount(0);
 
-    // ── Fiche : ouverture depuis la liste, puis téléchargement du PDF ───────
+    // ── Fiche : ouverture depuis la liste, puis le document signé, ouvert
+    // dans le navigateur (lecteur du téléphone) plutôt que téléchargé ──────
     await enCours.getByText(sien.reference, { exact: true }).click();
     await portail.waitForURL(`**/mes-bons/${sien.bonId}`);
     await expect(portail.getByRole('heading', { level: 1, name: sien.reference })).toBeVisible();
-    await expect(portail.getByText('En cours', { exact: true }).first()).toBeVisible();
+    await expect(portail.getByText(/^En cours ·/).first()).toBeVisible();
 
-    const downloadPromise = portail.waitForEvent('download');
-    await portail.getByRole('button', { name: 'PDF', exact: true }).click();
-    const download = await downloadPromise;
-    expect(download.suggestedFilename()).toBe(`bon-${sien.reference}.pdf`);
-    const pdf = await readFile(await download.path());
-    expect(pdf.subarray(0, 5).toString('latin1')).toBe('%PDF-');
+    // L'onglet s'ouvre au clic, puis reçoit le document. Chromium sans
+    // interface n'a pas de lecteur PDF : il remet le document de l'onglet sous
+    // forme de téléchargement, ce qui permet d'en lire le contenu réel (le
+    // corps de la réponse, lu par l'application en Blob, n'est pas relisible
+    // côté Playwright).
+    const [onglet, pdf] = await Promise.all([
+      portail.waitForEvent('popup'),
+      portail.waitForResponse((r) => r.url().includes(`/api/bons/${sien.bonId}/pdf`)),
+      portail.getByRole('button', { name: 'Ouvrir Bon de mise à disposition signé' }).click(),
+    ]);
+    expect(pdf.ok()).toBe(true);
+    expect(pdf.headers()['content-type']).toBe('application/pdf');
+    const document = await onglet.waitForEvent('download');
+    const contenu = await readFile(await document.path());
+    expect(contenu.subarray(0, 5).toString('latin1')).toBe('%PDF-');
+    await onglet.close();
 
     // ── Accès direct à l'adresse du bon d'un autre : refusé ─────────────────
     await portail.goto(`/mes-bons/${autre.bonId}`);

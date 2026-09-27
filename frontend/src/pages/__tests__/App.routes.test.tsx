@@ -126,7 +126,10 @@ describe('Droits du technicien (décision du 24/09)', () => {
     mockUser = userWithRole('technician');
     renderWithProviders(<App />, { route });
 
-    expect(await screen.findByText('403')).toBeInTheDocument();
+    // La page de refus s'affiche dans la coque : le menu reste là.
+    expect(await screen.findByRole('heading', { level: 1, name: 'Accès refusé' })).toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: 'Navigation principale' })).toBeInTheDocument();
+    await waitFor(() => expect(document.title).toBe('Accès refusé · Bons IT'));
   });
 
   it('le Catalogue reste ouvert au technicien', async () => {
@@ -134,7 +137,7 @@ describe('Droits du technicien (décision du 24/09)', () => {
     renderWithProviders(<App />, { route: '/admin/catalogue' });
 
     expect(await screen.findByRole('heading', { level: 1, name: /Catalogue/ })).toBeInTheDocument();
-    expect(screen.queryByText('403')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Accès refusé' })).not.toBeInTheDocument();
   });
 
   it('l’administrateur garde Filiales', async () => {
@@ -142,7 +145,7 @@ describe('Droits du technicien (décision du 24/09)', () => {
     renderWithProviders(<App />, { route: '/admin/filiales' });
 
     expect(await screen.findByRole('heading', { level: 1, name: /Filiales/ })).toBeInTheDocument();
-    expect(screen.queryByText('403')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Accès refusé' })).not.toBeInTheDocument();
   });
 });
 

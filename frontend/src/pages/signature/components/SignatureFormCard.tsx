@@ -1,4 +1,4 @@
-import { FileText, Loader2, Pen, XCircle } from 'lucide-react';
+import { AlertOctagon, FileText, Loader2, Pen, XCircle } from 'lucide-react';
 import { formatDateTime } from '@/lib/dates';
 import type { User } from '@/types';
 import { ConsentChecklist } from './ConsentChecklist';
@@ -7,9 +7,9 @@ import { SignatureCanvasPanel } from './SignatureCanvasPanel';
 interface SignatureFormCardProps {
   currentUser: User;
   emailMismatch: boolean | null;
-  bonCollaborateurEmail: string;
+  bonCollaborateurEmail: string | null;
   isPvCloture: boolean;
-  isInPerson: boolean | null;
+  isInPerson: boolean;
   sigType: string;
   tokenExpiresAt: string;
   previewError: string | null;
@@ -27,6 +27,9 @@ interface SignatureFormCardProps {
   submitting: boolean;
   disabled: boolean;
   onSubmit: () => void;
+  /** « Je ne suis pas d'accord » : proposé pour la restitution et le PV,
+   *  quand c'est le titulaire lui-même qui signe (pas au guichet). */
+  onContest?: () => void;
 }
 
 /** Carte « Votre signature » : rappel du compte connecté, avertissements
@@ -56,6 +59,7 @@ export function SignatureFormCard({
   submitting,
   disabled,
   onSubmit,
+  onContest,
 }: SignatureFormCardProps) {
   return (
     <div className="rounded-xl bg-card border border-border shadow-sm overflow-hidden">
@@ -84,19 +88,19 @@ export function SignatureFormCard({
       {isPvCloture && (
         <div className="mx-4 sm:mx-5 mt-4 flex items-start gap-3 rounded-lg bg-destructive/10 border border-destructive/30 p-3 text-sm text-destructive">
           <div>
-            <p className="font-medium">Procès-verbal d'équipements non restitués</p>
+            <p className="font-medium">PV de non-restitution</p>
             <p className="text-xs mt-0.5">
-              Ce document atteste que les équipements listés ci-dessus n'ont pas été restitués. Votre signature confirme que vous avez pris connaissance de ce procès-verbal.
+              Ce document atteste que les équipements listés ci-dessus n'ont pas été restitués. Votre signature confirme que vous avez pris connaissance de ce PV.
             </p>
           </div>
         </div>
       )}
-      {isInPerson && !isPvCloture && (
+      {isInPerson && (
         <div className="mx-4 sm:mx-5 mt-4 flex items-start gap-3 rounded-lg bg-warning/10 border border-warning/30 p-3 text-sm text-warning">
           <div>
-            <p className="font-medium">Signature présentielle</p>
+            <p className="font-medium">Signature au guichet</p>
             <p className="text-xs mt-0.5">
-              Cette signature est réalisée en présence du technicien informatique. Signez ci-dessous pour confirmer la {sigType} du matériel.
+              Cette signature est recueillie en présence de l'équipe informatique. Signez ci-dessous pour confirmer {isPvCloture ? 'le PV de non-restitution' : `la ${sigType} du matériel`}.
             </p>
           </div>
         </div>
@@ -154,7 +158,7 @@ export function SignatureFormCard({
           {submitting ? (
             <><Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" /> Signature en cours…</>
           ) : isPvCloture ? (
-            <><Pen className="h-4 w-4" /> Signer le procès-verbal</>
+            <><Pen className="h-4 w-4" /> Signer le PV de non-restitution</>
           ) : (
             <><Pen className="h-4 w-4" /> Signer le bon de {sigType}</>
           )}
@@ -178,6 +182,22 @@ export function SignatureFormCard({
         <p className="text-center text-xs text-muted-foreground">
           Lien valide jusqu'au {formatDateTime(tokenExpiresAt)}
         </p>
+
+        {onContest && (
+          <div className="border-t pt-4 space-y-2">
+            <p className="text-center text-sm text-muted-foreground">
+              Ce document ne correspond pas à ce qui s'est passé ? Ne le signez pas : contestez-le.
+            </p>
+            <button
+              type="button"
+              onClick={onContest}
+              disabled={submitting}
+              className="w-full min-h-11 inline-flex items-center justify-center gap-2 rounded-xl border border-destructive/40 px-4 py-2.5 text-sm font-semibold text-destructive hover:bg-destructive/5 disabled:opacity-50"
+            >
+              <AlertOctagon className="h-4 w-4" /> Je ne suis pas d'accord
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

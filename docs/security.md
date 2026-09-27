@@ -68,8 +68,11 @@ où le technicien tend son appareil).
 
 Sur les routes « propriétaire » (ouvertes à tout rôle connecté : `GET /bons/mes-bons`, `GET /bons/:id`,
 `/bons/:id/pdf`, `/pdf-snapshots`, `/integrity`, `POST /bons/:id/contestation`, pièces jointes), un compte non
-IT n'atteint **que ses propres bons** (`bons/bons-access.ts`, `attachments.controller.ts`). La direction y a
-accès comme tout le monde : elle peut, elle aussi, recevoir du matériel.
+IT n'atteint **que ses propres bons** (`bons/bons-access.ts`, que `attachments.controller.ts` réutilise). Un
+**brouillon** lui répond `404` avec le message d'un bon inconnu (« Bon introuvable ») : rien ne révèle qu'un
+bon se prépare à son nom. Ses pièces jointes ne s'ajoutent que pendant la période de signature, contrôlée
+dans la transaction qui les écrit (`attachments/holder-upload.ts`), et leur étape est fixée par le serveur. La direction y a accès comme tout le monde : elle peut, elle aussi, recevoir du
+matériel.
 
 ### Cachet de la filiale
 
@@ -82,14 +85,13 @@ accès comme tout le monde : elle peut, elle aussi, recevoir du matériel.
   touchées.
 - À la source : la session (`GET /auth/me`) et les lectures d'utilisateurs ne chargent de la filiale que son
   identité ; `GET /filiales/active` ne renvoie que `{ id, name, displayName, active }`.
-- Pourquoi un intercepteur et pas seulement la source : la fiche d'un bon, « Mes bons » et la page de
-  signature chargent la filiale complète (`BON_SELECT_SHAPE.filiale` dans `common/types.ts`), et **la
-  génération des PDF lit le cachet dans ce même objet** (`pdf.service.ts`, une dizaine d'appelants dans
-  `bons/` et `signature/`). Retirer `stampPath` de ce select effacerait le cachet des PDF. La correction à la
-  source (le PDF charge lui-même le cachet de la filiale ; le select n'expose plus que l'identité, l'adresse,
-  le SIRET et le logo) relève du lot PDF ; l'intercepteur restera ensuite comme filet. Il renvoie une copie
-  et ne modifie jamais l'objet lu par la génération des PDF (vérifié sur une vraie réponse Prisma :
-  `filiale-stamp-redaction.real-db.spec.ts`).
+- À la source aussi pour les bons : `BON_SELECT_SHAPE.filiale` (`common/types.ts`, `BON_FILIALE_SELECT`) ne
+  charge plus `stampPath` ; la génération des PDF lit elle-même le cachet par `filialeId`
+  (`pdf/render-data.ts`). Même l'IT ne reçoit donc plus le chemin du cachet avec un bon.
+- L'intercepteur reste comme **filet** : d'autres lectures chargent encore la filiale complète
+  (`filiale: true` dans la contestation, les rappels, la régénération des PDF), et une nouvelle route
+  ouverte aux collaborateurs est couverte sans rien déclarer. Il renvoie une copie et ne modifie jamais
+  l'objet lu (vérifié sur une vraie réponse Prisma : `filiale-stamp-redaction.real-db.spec.ts`).
 
 ### Retour à la page demandée après une connexion Microsoft
 

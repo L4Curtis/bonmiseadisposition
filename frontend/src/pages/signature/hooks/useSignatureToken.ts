@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { errorMessage } from '@/lib/errors';
 import { isSafeReturnTo } from '@/lib/safe-return-to';
+import type { SignDocumentResponse } from '@/contracts/signature';
 import type { SignatureResponse } from '../types';
 import type { User } from '@/types';
 
@@ -12,12 +13,16 @@ export interface UseSignatureTokenReturn {
   data: SignatureResponse | null;
   error: string | null;
   signed: boolean;
+  /** Signature recueillie au guichet par un autre compte que le titulaire
+   *  (réponse du serveur à la signature). */
+  signedByProxy: boolean;
   submitting: boolean;
   submitError: string | null;
+  /** Adresse de cette page, validée, où revenir après la connexion. */
+  signerReturnTo: string | null;
   signerReturnToQuery: string;
   isItAccount: boolean;
   submit: (signatureDataUrl: string | null, luApprouve: boolean) => Promise<void>;
-  handleSSOLogin: () => void;
   handleChangeAccount: () => Promise<void>;
 }
 
@@ -36,14 +41,16 @@ export function useSignatureToken(token: string | undefined): UseSignatureTokenR
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [signed, setSigned] = useState(false);
+  const [signedByProxy, setSignedByProxy] = useState(false);
   // Verrou synchrone contre le double appui : `submitting` n'est lu qu'au
   // rendu suivant, alors que deux appuis rapprochés sur un écran tactile
   // peuvent atteindre le gestionnaire avant ce rendu.
   const submittingRef = useRef(false);
 
-  // Cible de retour post-connexion, validée par comparaison d'origine (token
-  // = segment d'URL non contrôlé par le serveur avant ce point).
-  const signerPath = `/signer/${token}`;
+  // Cible de retour post-connexion, validée par comparaison d'origine. Le
+  // jeton est un segment d'adresse non contrôlé à ce stade : encodé, il reste
+  // un seul segment (ni « / » de plus, ni paramètres, ni ancre).
+  const signerPath = `/signer/${encodeURIComponent(token ?? '')}`;
   const safeSignerReturnTo = isSafeReturnTo(signerPath) ? signerPath : null;
   const signerReturnToQuery = safeSignerReturnTo ? `?returnTo=${encodeURIComponent(safeSignerReturnTo)}` : '';
 
@@ -98,11 +105,6 @@ export function useSignatureToken(token: string | undefined): UseSignatureTokenR
     return () => { cancelled = true; };
   }, [token, checkingAuth, currentUser]);
 
-  // ── 3. Handle SSO redirect ──
-  const handleSSOLogin = () => {
-    window.location.href = `/api/auth/login${signerReturnToQuery}`;
-  };
-
   // « Changer de compte » : se déconnecter d'abord, puis forcer le
   // sélecteur de compte Microsoft (prompt=select_account) — sans le logout
   // préalable, Microsoft reconnecte silencieusement la session existante et
@@ -131,7 +133,11 @@ export function useSignatureToken(token: string | undefined): UseSignatureTokenR
     setSubmitError(null);
 
     try {
-      await api.post(`/signature/${token}/sign`, { signatureDataUrl, mentionLuApprouve: true });
+      const result = await api.post<SignDocumentResponse>(`/signature/${token}/sign`, {
+        signatureDataUrl,
+        mentionLuApprouve: true,
+      });
+      setSignedByProxy(result.signedByProxy);
       setSigned(true);
     } catch (e: unknown) {
       // La coupure peut survenir APRÈS que le serveur a bien enregistré la
@@ -165,12 +171,13 @@ export function useSignatureToken(token: string | undefined): UseSignatureTokenR
     data,
     error,
     signed,
+    signedByProxy,
     submitting,
     submitError,
+    signerReturnTo: safeSignerReturnTo,
     signerReturnToQuery,
     isItAccount,
     submit,
-    handleSSOLogin,
     handleChangeAccount,
   };
 }

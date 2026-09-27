@@ -164,15 +164,15 @@ describe('App — rôle direction', () => {
     mockUser = directionUser();
     renderWithProviders(<App />, { route: '/bons' });
 
-    expect(await screen.findByText('403')).toBeInTheDocument();
-    expect(screen.getByText(/pas accès à cette page/i)).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Accès refusé' })).toBeInTheDocument();
+    expect(screen.getByText(/réservé à d’autres profils/i)).toBeInTheDocument();
   });
 
   it('refuse l\'accès à /admin (page « Accès refusé »)', async () => {
     mockUser = directionUser();
     renderWithProviders(<App />, { route: '/admin' });
 
-    expect(await screen.findByText('403')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Accès refusé' })).toBeInTheDocument();
   });
 });
 

@@ -73,12 +73,12 @@ Différences avec Jest à connaître :
 - Un module CommonJS dont l'export est lui-même une classe ou une fonction (`module.exports = X`,
   par exemple `pdfkit`) s'importe avec `import X = require('x')`, pas `import * as X` (un espace de noms ESM
   n'est pas constructible). La compilation de production est identique.
-- `di-metadata.spec.ts` et `import-order.spec.ts` (garde-fous contre les cycles d'import, qui ont déjà
-  cassé la production) ne passent pas par Vitest pour charger le code : ils lancent un processus Node
+- `di-metadata.spec.ts` (garde-fou contre les cycles d'import, qui ont déjà
+  cassé la production) ne passe pas par Vitest pour charger le code : il lance un processus Node
   neuf qui compile les sources avec le compilateur TypeScript (programme complet de
   `tsconfig.build.json`, comme `nest build`) et les charge par `require()`
   (`backend/test/helpers/production-load-report.cjs`). Une transpilation fichier par fichier, ou SWC,
-  remplacerait l'`undefined` d'un cycle par `Object` et rendrait ces garde-fous aveugles.
+  remplacerait l'`undefined` d'un cycle par `Object` et rendrait ce garde-fou aveugle.
 
 ### 2.2 Commandes d'exécution
 
@@ -327,7 +327,7 @@ Les garde-fous transverses, à ne jamais désactiver :
 
 | Fichier | Ce qu'il protège |
 |---------|------------------|
-| `backend/src/__tests__/di-metadata.spec.ts`, `import-order.spec.ts` | Aucun cycle d'import ne casse l'injection de dépendances au démarrage de la production (§ 2.1) |
+| `backend/src/__tests__/di-metadata.spec.ts` | Aucun cycle d'import ne casse l'injection de dépendances au démarrage de la production (§ 2.1) |
 | `backend/src/__tests__/sql-real-db.spec.ts`, `backend/src/reporting/__tests__/inventory-sort.real-db.spec.ts` | Les requêtes SQL brutes, les tris et la pagination s'exécutent sur une vraie base (§ 2.6) |
 | `backend/src/auth/__tests__/route-access.spec.ts` | Chaque route déclare qui peut l'appeler (`@Roles` ou `@Public`) ; la table complète route → rôles est comparée à `__snapshots__/route-access.md`, versionnée, pour que tout changement de droits se voie en revue. Après un changement voulu : `npx vitest run src/auth/__tests__/route-access.spec.ts -u` |
 | `backend/src/auth/guards/__tests__/roles.guard.spec.ts` | Le contrôle des rôles, refus par défaut compris |

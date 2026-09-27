@@ -29,6 +29,6 @@ test('présentiel jusqu’à la signature : bon actif et PDF disponible', async 
   // .first() : ces libellés apparaissent aussi dans la carte « Signatures » —
   // on vérifie ici seulement leur présence (déjà confirmée par le compte ci-
   // dessus), pas leur unicité sur la page.
-  await expect(page.getByText('Cachet IT — Mise à disposition').first()).toBeVisible();
-  await expect(page.getByText('Signature collab — Mise à disposition').first()).toBeVisible();
+  await expect(page.getByText('Signature IT — mise à disposition').first()).toBeVisible();
+  await expect(page.getByText('Signature du collaborateur — mise à disposition').first()).toBeVisible();
 });

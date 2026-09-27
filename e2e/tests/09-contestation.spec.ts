@@ -6,15 +6,11 @@ import { openPortailSession, portailSection } from './helpers/portail';
 import { uniqueSuffix } from './helpers/ids';
 
 /**
- * Test 9 — Contestation, aller et retour : le collaborateur conteste son bon
- * depuis le portail ; l'IT la voit (badge du menu, Admin → Contestations) et
- * la rejette avec une réponse ; le collaborateur retrouve son bon actif, et
- * reçoit l'email de réponse qui reprend le message de l'IT.
- *
- * Rejet plutôt qu'acceptation : sans « Corriger et re-signer », les deux
- * issues rendent au bon son statut antérieur, mais le rejet est le cas où le
- * collaborateur n'a, dans l'application, que cet email pour comprendre ce qui
- * a été décidé.
+ * Test 9 — Contestation, aller et retour : le collaborateur conteste la
+ * remise de son bon depuis sa fiche et y revoit son motif ; l'IT la voit
+ * (badge du menu, Contestations « À traiter ») et la juge « Non retenue » avec
+ * une réponse obligatoire ; le collaborateur retrouve son bon en cours, lit
+ * la décision et la réponse sur la fiche, et reçoit l'email de réponse.
  */
 test('contestation : le collaborateur conteste, l’IT tranche, le collaborateur voit l’issue', async ({ page, browser }) => {
   const suffix = uniqueSuffix();
@@ -29,7 +25,7 @@ test('contestation : le collaborateur conteste, l’IT tranche, le collaborateur
   const { context, page: portail } = await openPortailSession(browser);
   try {
     // ── Collaborateur : contestation depuis la fiche de son bon ─────────────
-    await portailSection(portail, /En cours/).getByText(bon.reference, { exact: true }).click();
+    await portailSection(portail, /Bons en cours/).getByText(bon.reference, { exact: true }).click();
     await portail.waitForURL(`**/mes-bons/${bon.bonId}`);
     // L'URL change avant que la fiche ne remplace la liste : tant que celle-ci
     // est affichée, chaque bon actif y porte son propre bouton « Contester »
@@ -43,10 +39,13 @@ test('contestation : le collaborateur conteste, l’IT tranche, le collaborateur
     await contestDialog.getByLabel('Motif de contestation').fill(motif);
     await contestDialog.getByRole('button', { name: 'Envoyer la contestation' }).click();
     await expect(contestDialog).not.toBeVisible();
-    await expect(portail.getByText('Contesté', { exact: true }).first()).toBeVisible();
+    // Bloc « Ma contestation » : le motif et l'état réel du traitement.
+    const maContestation = portail.getByRole('region', { name: 'Ma contestation' });
+    await expect(maContestation).toContainText(motif);
+    await expect(maContestation).toContainText('pas encore prise en charge');
 
     await portail.goto('/mes-bons');
-    await expect(portailSection(portail, /En contestation/).getByText(bon.reference, { exact: true })).toBeVisible();
+    await expect(portailSection(portail, /Contestés/).getByText(bon.reference, { exact: true })).toBeVisible();
 
     // ── IT : badge du menu, puis traitement depuis Admin → Contestations ────
     // Rechargement complet : le badge n'interroge l'API qu'au montage, puis
@@ -60,27 +59,32 @@ test('contestation : le collaborateur conteste, l’IT tranche, le collaborateur
     await page.waitForURL('**/admin/contestations');
 
     const ligne = page.getByRole('row').filter({ hasText: bon.reference });
-    await expect(ligne).toContainText('Ouverte');
+    await expect(ligne).toContainText('Nouvelle');
     await expect(ligne).toContainText(motif);
-    await ligne.getByRole('button', { name: 'Traiter' }).click();
+    await ligne.getByRole('button', { name: 'Trancher' }).click();
 
-    const resolveDialog = page.getByRole('dialog', { name: 'Traiter la contestation' });
+    const resolveDialog = page.getByRole('dialog', { name: 'Trancher la contestation' });
     await expect(resolveDialog).toBeVisible();
-    await resolveDialog.getByRole('button', { name: 'Rejeter', exact: true }).click();
-    await resolveDialog.getByLabel('Réponse au collaborateur (optionnel)').fill(reponse);
-    await resolveDialog.getByRole('button', { name: 'Rejeter la contestation' }).click();
+    await resolveDialog.getByRole('radio', { name: 'Non retenue' }).check();
+    // « Non retenue » sans réponse au collaborateur : impossible (R-052).
+    const enregistrer = resolveDialog.getByRole('button', { name: 'Enregistrer la décision' });
+    await expect(enregistrer).toBeDisabled();
+    await resolveDialog.getByLabel('Réponse au collaborateur (obligatoire)').fill(reponse);
+    await enregistrer.click();
     await expect(resolveDialog).not.toBeVisible();
-    // La liste n'affiche par défaut que les contestations ouvertes : celle-ci
-    // en sort, et se retrouve sous le filtre « Non retenue ».
+    // La liste s'ouvre sur « À traiter » : celle-ci en sort, et se retrouve
+    // sous « Non retenues », « tranchée par » la personne connectée.
     await expect(ligne).toHaveCount(0);
-    await page.getByRole('button', { name: 'Non retenue', exact: true }).click();
-    await expect(ligne).toContainText('Non retenue');
-    await expect(ligne).toContainText('Traité par');
+    await page.getByRole('button', { name: 'Non retenues', exact: true }).click();
+    await expect(ligne).toContainText('Non retenue — tranchée par');
 
-    // ── Collaborateur : le bon a quitté la contestation, il est de nouveau actif ─
+    // ── Collaborateur : le bon est de nouveau en cours, la décision est lisible ─
     await portail.goto('/mes-bons');
-    await expect(portailSection(portail, /En cours/).getByText(bon.reference, { exact: true })).toBeVisible();
-    await expect(portailSection(portail, /En contestation/).getByText(bon.reference, { exact: true })).toHaveCount(0);
+    await expect(portailSection(portail, /Bons en cours/).getByText(bon.reference, { exact: true })).toBeVisible();
+    await expect(portailSection(portail, /Contestés/).getByText(bon.reference, { exact: true })).toHaveCount(0);
+    await portail.goto(`/mes-bons/${bon.bonId}`);
+    await expect(portail.getByRole('region', { name: 'Ma contestation' })).toContainText('Non retenue le');
+    await expect(portail.getByRole('region', { name: 'Ma contestation' })).toContainText(reponse);
 
     // ── Email de réponse, avec le message de l'IT ───────────────────────────
     const email = await waitForEmailTo(PORTAIL_EMAIL, {

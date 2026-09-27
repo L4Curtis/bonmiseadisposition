@@ -21,6 +21,8 @@ export interface DraftBonParams {
   inventoryNumbers?: string[];
   /** YYYY-MM-DD — par défaut aujourd'hui. */
   dateMiseDisposition?: string;
+  /** Civilité à cocher (obligatoire dans le formulaire) — Madame par défaut. */
+  civilite?: 'mme' | 'mr';
 }
 
 export interface DraftBon {
@@ -50,6 +52,9 @@ export async function createDraftBon(page: Page, params: DraftBonParams): Promis
   } else {
     await createManualCollaborateur(page, params.collaborateur);
   }
+
+  // Civilité : aucune n'est proposée par défaut, le choix est obligatoire.
+  await page.getByRole('radio', { name: params.civilite === 'mr' ? 'Monsieur' : 'Madame' }).click();
 
   await page.getByLabel(/Date de mise à disposition/).fill(params.dateMiseDisposition ?? todayISO());
 

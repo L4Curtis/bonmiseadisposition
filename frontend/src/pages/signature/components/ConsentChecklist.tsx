@@ -6,7 +6,7 @@ interface ConsentChecklistProps {
 }
 
 /** Case « Lu et approuvé » — le libellé varie selon le type de document
- *  (procès-verbal d'équipements non restitués vs. mise à disposition/
+ *  (PV de non-restitution vs. mise à disposition/
  *  restitution). */
 export function ConsentChecklist({ isPvCloture, sigType, luApprouve, onChange }: ConsentChecklistProps) {
   return (
@@ -21,7 +21,7 @@ export function ConsentChecklist({ isPvCloture, sigType, luApprouve, onChange }:
       />
       <span className="text-sm leading-relaxed text-foreground/80 group-hover:text-foreground transition-colors">
         {isPvCloture ? (
-          <><strong>Lu et approuvé</strong> — Je reconnais avoir pris connaissance du présent procès-verbal d'équipements non restitués. Je comprends que cette signature électronique a valeur contractuelle.</>
+          <><strong>Lu et approuvé</strong> — Je reconnais avoir pris connaissance du présent PV de non-restitution. Je comprends que cette signature électronique a valeur contractuelle.</>
         ) : (
           <><strong>Lu et approuvé</strong> — Je reconnais avoir pris connaissance de la liste des équipements ci-dessus et en confirme la {sigType}. Je comprends que cette signature électronique a valeur contractuelle.</>
         )}

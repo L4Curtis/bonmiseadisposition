@@ -71,6 +71,9 @@ serveur a coupé l'export à son plafond (en-tête `X-Truncated: true`).
   lien reçu par email (`/inventaire?vue=collaborateurs&compte=inactif`), un favori ou un lien copié mènent à la
   bonne page après la connexion. L'accueil et `/login` ne sont pas mémorisés.
 - Connexion locale : `Login.tsx` renvoie à `returnTo` (ou le transmet au changement de mot de passe forcé).
+  Le formulaire est commun (`pages/login/LocalLoginForm.tsx`). Quand `returnTo` désigne un écran du
+  collaborateur (`/signer/…`, `/mes-bons`, `/mes-equipements`), la page affiche la carte claire du collaborateur
+  (`pages/login/CollaboratorLoginCard.tsx`) avec le formulaire déjà ouvert : voir § 4.2.
 - Connexion Microsoft : le lien « Continuer avec Microsoft » porte `returnTo` ; le serveur le garde pendant
   l'aller-retour chez Microsoft (cookie `auth_return_to`, 10 min) et le revalide avant d'y renvoyer
   (`backend/src/auth/auth.controller.ts`).
@@ -157,7 +160,10 @@ await download({
   l'utilisateur la ferme ; `truncated` permet aussi à l'écran de garder un bandeau.
 - Erreur : `showActionError` avec le message du serveur ; `download` renvoie alors `null`.
 - Fichier construit dans le navigateur (export JSON des modèles, CSV du catalogue) : `saveBlob(blob, nom)`.
-- Aperçu dans un nouvel onglet (PDF) : `api.getFile(path).then(({ blob }) => …)`.
+- Aperçu dans un nouvel onglet (PDF) : `api.getFile(path).then(({ blob }) => …)`. Côté collaborateur, un PDF
+  s'**ouvre** dans le navigateur (lecteur intégré du téléphone) et ne se télécharge pas :
+  `loadBlobIntoTab` (`pages/signature/lib/documentBlob.ts`), onglet ouvert **avant** tout `await` (sinon Safari
+  iOS le bloque).
 
 ### 1.5 Dates (`lib/dates.ts`)
 
@@ -206,6 +212,9 @@ les aligne sur sa réponse.
   que l'écran est affiché. Hors mise en page (connexion, page 404), l'écran appelle `usePageTitle` lui-même.
 - **Page introuvable** : une adresse inconnue affiche « Page introuvable » et un lien « Retour à l'accueil »
   (`pages/NotFound.tsx`), au lieu de renvoyer en silence à l'accueil.
+- **Accès refusé** : un écran réservé à d'autres rôles mène à `/unauthorized`, affichée **dans la coque** (menu
+  et en-tête compris) : titre « Accès refusé », explication en français, bouton « Retour à l'accueil » de 44 px
+  (`pages/Unauthorized.tsx`). Jamais de code d'erreur brut.
 - **Rôles** : `ProtectedRoute` prend des rôles typés (`UserRole[]`, constantes `ADMIN_ONLY`, `IT_STAFF`,
   `IT_AND_DIRECTION` dans `App.tsx`). Le technicien voit et modifie le **Catalogue** ; **Utilisateurs** et
   **Filiales** sont réservés à l'administrateur (menu et routes). Ce filtrage n'est qu'un confort d'affichage :
@@ -239,7 +248,7 @@ Les briques existent ; les écrans les adoptent dans leurs lots (vagues 3 et 4).
 | `BON_STATUS_LABELS` depuis `@/types` | `@/domain/labels` |
 
 Copies encore en place :
-- **recherche différée** (`setTimeout` recopié, à remplacer par `useDebounce`) : `components/layout/header/GlobalSearch.tsx`,
+- **recherche différée** (`setTimeout` recopié, à remplacer par `useDebounce`) :
   `pages/admin/catalogue/useCatalogueFilters.ts`, `pages/admin/email-templates/BonPicker.tsx`,
   `pages/admin/Utilisateurs.tsx`, `pages/inventaire/useInventory.ts`, `pages/bons/create/DuplicateBonButton.tsx`,
   `pages/bons/create/UserAutocomplete.tsx` ;
@@ -313,3 +322,86 @@ Copies encore en place :
 - En-tête triable : `aria-sort` sur le `<th>` et un bouton dedans (`SortableHeader`).
 - Messages d'erreur : `role="alert"` ; chargement : `role="status"` avec un texte pour les lecteurs d'écran.
 - Mouvement : animations désactivées avec `motion-reduce:` quand l'utilisateur le demande.
+
+### 4.1 Coque de l'application sur téléphone
+
+La coque (menu, en-tête, cadre de page) vit dans `components/layout/`. Téléphone = **moins de 768 px de large, ou
+écran tactile de 500 px de haut au plus** (téléphone couché : un Pixel 7 en paysage fait 863 px de large) ; sinon,
+tablette et ordinateur gardent le menu latéral repliable. Les deux requêtes, exactement complémentaires, sont dans
+`shell-media.ts` : `PHONE_SHELL_QUERY` pour le JavaScript et le bloc « téléphone » d'`index.css`,
+`DESKTOP_SHELL_QUERY` pour la variante Tailwind **`shell:`** (`tailwind.config.ts`). Dans la coque, utiliser
+`shell:` et non `md:` ; dans le contenu des écrans, `md:` reste la règle.
+
+| Élément | Téléphone (portrait ou paysage) | Tablette et ordinateur |
+|---|---|---|
+| Menu | Tiroir superposé (`MobileNavDrawer`), fermé par défaut, ouvert par le bouton ☰ de l'en-tête ; entrées avec libellés, 44 px de haut | Menu latéral (`Sidebar`), repliable en colonne d'icônes |
+| En-tête | ☰, titre de la page (`lib/route-titles.ts`), loupe (vues IT), menu du compte (qui porte aussi la bascule clair / sombre) | Recherche Ctrl+K (vues IT), bascule du thème, menu du compte |
+| Recherche | Loupe → recherche plein écran (`header/MobileSearch.tsx`), champ en 16 px, clavier « Rechercher » | Champ de l'en-tête (`header/GlobalSearch.tsx`) |
+| Cadre | Marges de 16 px, aucun défilement de côté : ce qui dépasse est coupé | Inchangé |
+
+- **Menu** : une seule liste d'entrées par vue (`nav-config.ts`), rendue par `NavSections` en variante `rail`
+  (menu latéral) ou `drawer` (tiroir). Ne pas dupliquer le menu ailleurs.
+- **Tiroir** : fenêtre modale Radix. Focus piégé, Échap et clic à côté le ferment, le focus revient au bouton ☰.
+  Le **geste retour** le ferme sans quitter la page (`use-close-on-back.ts` : une entrée d'historique marquée
+  est ajoutée à l'ouverture et retirée à la fermeture). Choisir une entrée **remplace** cette entrée par la page
+  choisie (`usePanelNavigate`) : le retour ramène à la page d'avant ; choisir la page courante ne fait que
+  fermer le panneau (pas de doublon dans l'historique). Même
+  mécanisme pour la recherche plein écran ; tout futur panneau plein écran le réutilise.
+- **Préférence « menu réduit »** (`sidebar-preference.ts`, clé `sidebar-collapsed`) : tablette et ordinateur
+  seulement, jamais le tiroir. Sans choix mémorisé, le menu est réduit sous 1024 px (tablette en portrait).
+- **Tableaux** : un tableau plus large que l'écran défile dans son propre cadre. Un cadre `overflow-x-auto`
+  de `main` qui contient directement un `<table>` reçoit une ombre au bord qui indique qu'on peut glisser
+  (règle `.app-main .overflow-x-auto:has(> table)` d'`index.css`, aussi disponible sous le nom `.scroll-frame`) ;
+  les barres d'onglets et groupes de boutons défilants gardent leur fond ; sur téléphone, un `<table>` posé sans cadre
+  devient lui-même son cadre. Les listes passeront en cartes (`components/list/`) au fil des écrans.
+- **Règles de base** (`index.css`, fin du fichier) : `100dvh` pour la hauteur (barres du navigateur mobile),
+  `env(safe-area-inset-*)` pour l'encoche, champs `input` / `select` / `textarea` en **16 px au moins** dans la
+  coque « téléphone », couchée comprise (sinon iOS zoome sur le champ touché), classe `touch-target` (44 × 44 px) pour les boutons à icône de
+  la coque.
+- **Contenu d'un écran** : la coque ne rattrape pas tout. Un en-tête d'écran qui ne passe pas à la ligne
+  (titre + boutons sur une ligne) est coupé sur téléphone : prévoir `flex-wrap` ou une pile verticale sous
+  `sm`.
+
+### 4.2 Parcours mobile du collaborateur
+
+Le collaborateur reçoit un lien par email et le suit presque toujours sur son téléphone. Ces écrans sont conçus
+d'abord pour le doigt ; ils sont vérifiés en recette réelle en iPhone 13 (portrait et paysage), Pixel 7 et petit
+Android (Galaxy S9+, 320 px).
+
+- **Connexion depuis le lien** : un seul écran. La page de signature non connectée affiche elle-même
+  `CollaboratorLoginCard` : « Continuer avec Microsoft », puis le formulaire du compte local déjà ouvert
+  (masqué si la connexion locale est désactivée). Après la connexion, on revient directement au document.
+  Champ email : `type="email"`, `autocomplete="username"`, `autocapitalize="none"`, `enterkeyhint="next"` ;
+  mot de passe : `autocomplete="current-password"`, `enterkeyhint="go"` ; champs de 44 px en 16 px. Sur un
+  écran bas (téléphone en paysage), l'icône disparaît et les deux moyens passent côte à côte : le champ email
+  reste visible sans défiler.
+- **Page de signature** (`pages/signature/**`) :
+  - équipements en **cartes** (désignation, n° de série et d'inventaire en entier), jamais un tableau qui
+    défile de côté ;
+  - tracé : cadre 2:1 fixe, `touch-action: none` ; un geste à deux doigts ou les évènements `gesture*` de
+    Safari sur la zone sont annulés (`useBlockZoomGestures`) : pincer pendant le tracé ne zoome pas ;
+  - « Agrandir la zone de signature » (écrans tactiles seulement, `pointer: coarse`) ouvre le **plein écran**
+    (`useSignatureFullscreen`) : même canevas, seule la mise en page change, donc le tracé est conservé à
+    l'ouverture, à la fermeture et à la rotation. En portrait, le panneau propose de tourner le téléphone ; la
+    zone prend la plus grande taille 2:1 disponible (unités `cqw` / `cqh`). Échap et le geste retour ferment
+    le panneau sans quitter la page ; Tab reste dans le panneau et, à la fermeture, le focus revient sur
+    « Agrandir ». Sur Android, le plein écran du navigateur est demandé en plus ; refusé (Safari iOS), le panneau
+    couvre quand même tout l'écran. Hors plein écran, le zoom n'est bloqué que sur le cadre du tracé : ailleurs,
+    on peut zoomer la page ;
+  - `hooks/use-signature-canvas.ts` est partagé avec la signature IT : n'y faire que des ajouts, options par
+    défaut inchangées ;
+  - temps mesuré sur la version de production (iPhone 13 émulé, cache vide, 3 essais) : document affiché en
+    1,0 à 1,6 s en « Fast 4G », 2,6 s en « Slow 4G » ; écran de connexion depuis le lien dans les mêmes temps.
+- **Portail** (`pages/PortailCollaborateur.tsx`, `pages/portail/**`) : « À signer », puis « Chez vous », qui
+  liste aussi le matériel d'une **remise à signer** (pastille « À signer », bouton « Signer la remise » une
+  fois par bon quand le lien est valide : le jeton d'un lien expiré, que le serveur transmet pour « Demander un
+  nouveau lien », n'en fait jamais un), puis les bons. Un bon remplacé (contestation « Fondée ») dont le
+  remplaçant est déjà dans le portail ne montre plus ses équipements : chacun n'apparaît qu'une fois. Cartes empilées, cibles de 44 px.
+- **Fiche d'un bon** (`pages/bons/BonDetailCollaborateur.tsx`, `pages/bons/collaborateur/**`) : documents
+  ouverts dans le navigateur ; pièces jointes par `CollabAttachments` : consultables toujours, ajout (photo ou
+  PDF, 10 Mo au plus) seulement pendant une signature (remise à signer → étape `mise_disposition`, restitution
+  à signer ou en cours → `restitution`), bouton pleine largeur, jamais de choix d'étape. Même règle que le
+  serveur (`attachments.controller.ts`).
+- **Contestation** (`components/ContestationDialog.tsx`) : sur téléphone, en portrait comme couché, la fenêtre se
+  cale en haut de la zone visible (`visualViewport`) et n'en dépasse pas la hauteur ; le champ en cours de saisie est ramené dans la
+  zone visible quand le clavier s'ouvre. Boutons de 44 px.

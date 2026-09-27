@@ -23,5 +23,5 @@ export async function completeSignature(
   await page.getByRole('checkbox').check();
   await submit.click();
 
-  await expect(page.getByRole('heading', { name: 'Document signé ✓' })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole('heading', { name: 'Document signé', exact: true })).toBeVisible({ timeout: 10_000 });
 }

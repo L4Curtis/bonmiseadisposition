@@ -1,4 +1,5 @@
 import { formatDateLong } from '@/lib/dates';
+import { CIVILITE_LONG_LABELS } from '@/domain/labels';
 import type { BonInfo } from '../types';
 
 interface RowProps {
@@ -27,7 +28,7 @@ interface BonHeaderCardProps {
 /** Carte d'en-tête (filiale, destinataire, dates) affichée au-dessus des
  *  listes d'équipements. */
 export function BonHeaderCard({ bon, isPvCloture, sigType }: BonHeaderCardProps) {
-  const civiliteLabel = bon.civilite === 'mme' ? 'Madame' : 'Monsieur';
+  const civiliteLabel = CIVILITE_LONG_LABELS[bon.civilite];
   return (
     <div className="rounded-2xl bg-card border border-border shadow-card overflow-hidden">
       <div
@@ -44,7 +45,7 @@ export function BonHeaderCard({ bon, isPvCloture, sigType }: BonHeaderCardProps)
             {bon.filiale.displayName}
           </p>
           <h1 className="text-primary-foreground font-bold text-lg tracking-tight">
-            {isPvCloture ? 'Procès-verbal à signer' : `Bon de ${sigType} à signer`}
+            {isPvCloture ? 'PV de non-restitution à signer' : `Bon de ${sigType} à signer`}
           </h1>
           <p className="text-primary-foreground/80 text-sm font-mono mt-1">{bon.reference}</p>
         </div>
@@ -55,12 +56,70 @@ export function BonHeaderCard({ bon, isPvCloture, sigType }: BonHeaderCardProps)
         {bon.collaborateurEmail && <Row label="Email" value={bon.collaborateurEmail} />}
         {bon.collaborateur.department && <Row label="Service" value={bon.collaborateur.department} />}
         <Row label="Filiale" value={bon.filiale.displayName} />
-        <Row label="Date mise à dispo" value={formatDateLong(bon.dateMiseDisposition)} />
-        {bon.dateRestitution && <Row label="Date restitution" value={formatDateLong(bon.dateRestitution)} />}
+        <Row label="Remis le" value={formatDateLong(bon.dateMiseDisposition)} />
+        {bon.dateRestitution && <Row label="Retour prévu le" value={formatDateLong(bon.dateRestitution)} />}
       </div>
     </div>
   );
 }
+
+type Equipment = BonInfo['equipments'][number];
+
+function equipmentLabel(eq: Equipment): string {
+  return eq.catalogItem ? `${eq.catalogItem.brand} ${eq.catalogItem.model}` : eq.customLabel || '—';
+}
+
+interface EquipmentCardsProps {
+  title: string;
+  hint?: string;
+  equipments: readonly Equipment[];
+  /** Motif du non-restitué affiché sous chaque équipement. */
+  showReason?: boolean;
+  tone?: 'default' | 'danger';
+  /** Mention sous la désignation (« Reste chez vous »…). */
+  badge?: string;
+}
+
+/** Liste d'équipements en cartes empilées : lisible sans zoom sur téléphone,
+ *  n° de série en entier (jamais coupé ni caché dans un tableau qui défile de
+ *  côté), même rendu sur ordinateur. */
+function EquipmentCards({ title, hint, equipments, showReason = false, tone = 'default', badge }: EquipmentCardsProps) {
+  return (
+    <section className="rounded-xl bg-card border border-border shadow-sm">
+      <div className="px-4 sm:px-5 py-3 border-b">
+        <h2 className="font-semibold text-sm text-foreground">{title}</h2>
+        {hint && <p className="text-xs text-muted-foreground mt-0.5">{hint}</p>}
+      </div>
+      <ol aria-label={title} className="divide-y">
+        {equipments.map((eq, i) => (
+          <li key={eq.id} className={`flex gap-3 px-4 sm:px-5 py-3 text-sm ${tone === 'danger' ? 'bg-destructive/10' : ''}`}>
+            <span aria-hidden="true" className="w-5 shrink-0 text-muted-foreground/70">{i + 1}</span>
+            <div className="min-w-0 space-y-0.5">
+              <p className="font-medium text-foreground [overflow-wrap:anywhere]">{equipmentLabel(eq)}</p>
+              <p className="text-muted-foreground">
+                N° de série{' '}
+                <span className="font-mono text-foreground [overflow-wrap:anywhere]">{eq.serialNumber || 'non renseigné'}</span>
+              </p>
+              {eq.inventoryNumber && (
+                <p className="text-muted-foreground">
+                  N° d'inventaire <span className="font-mono text-foreground [overflow-wrap:anywhere]">{eq.inventoryNumber}</span>
+                </p>
+              )}
+              {showReason && (
+                <p className="text-destructive italic [overflow-wrap:anywhere]">Motif : {eq.notReturnedReason || 'non précisé'}</p>
+              )}
+              {badge && (
+                <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">{badge}</span>
+              )}
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+const byOrder = (a: Equipment, b: Equipment) => a.order - b.order;
 
 interface EquipmentTableProps {
   equipments: BonInfo['equipments'];
@@ -68,187 +127,66 @@ interface EquipmentTableProps {
   isRestitution: boolean;
 }
 
+/** Équipements concernés par le document signé. */
 export function EquipmentTable({ equipments, isPvCloture, isRestitution }: EquipmentTableProps) {
-  // Copy before sorting — sort() mutates in place and the array lives in the
-  // parent component's state
-  const filtered = [...equipments]
-    .sort((a, b) => a.order - b.order)
-    .filter(eq => {
-      if (isPvCloture) return eq.notReturned;
-      if (isRestitution) return !!eq.returnedAt;
-      return true;
-    });
-
-  return (
-    <div className="rounded-xl bg-card border border-border shadow-sm">
-      <div className="px-5 py-3 border-b">
-        <h2 className="font-semibold text-sm text-foreground">
-          {isPvCloture
-            ? `Équipements non restitués (${filtered.length})`
-            : isRestitution
-              ? `Équipements restitués (${filtered.length})`
-              : `Équipements (${filtered.length})`}
-        </h2>
-        {isPvCloture && (
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Les équipements ci-dessous ont été déclarés non restitués par le service informatique.
-          </p>
-        )}
-        {isRestitution && (
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Les équipements ci-dessous sont en cours de restitution.
-          </p>
-        )}
-      </div>
-      <div className="overflow-x-auto">
-      <table className="w-full text-sm" aria-label="Liste des équipements">
-        <thead className="bg-muted/50">
-          <tr>
-            <th className="px-3 py-2 sm:px-4 text-left text-xs font-medium text-muted-foreground">#</th>
-            <th className="px-3 py-2 sm:px-4 text-left text-xs font-medium text-muted-foreground">Désignation</th>
-            <th className="px-3 py-2 sm:px-4 text-left text-xs font-medium text-muted-foreground">N° Série</th>
-            {isPvCloture && <th className="px-3 py-2 sm:px-4 text-left text-xs font-medium text-muted-foreground">Motif</th>}
-          </tr>
-        </thead>
-        <tbody>
-          {filtered.map((eq, i) => {
-            const label = eq.catalogItem
-              ? `${eq.catalogItem.brand} ${eq.catalogItem.model}`
-              : eq.customLabel || '—';
-            return (
-              <tr key={eq.id} className={`border-t ${isPvCloture ? 'bg-destructive/10' : ''}`}>
-                <td className="px-3 py-2 sm:px-4 text-muted-foreground/70">{i + 1}</td>
-                <td className="px-3 py-2 sm:px-4 font-medium">{label}</td>
-                <td className="px-3 py-2 sm:px-4 font-mono text-xs text-muted-foreground">
-                  {eq.serialNumber || <span className="text-muted-foreground/30">—</span>}
-                </td>
-                {isPvCloture && (
-                  <td className="px-3 py-2 sm:px-4 text-xs text-destructive italic">
-                    {eq.notReturnedReason || '—'}
-                  </td>
-                )}
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-      </div>
-    </div>
-  );
-}
-
-interface RemainingEquipmentTableProps {
-  equipments: BonInfo['equipments'];
+  // Copie avant tri : sort() modifie le tableau, qui vit dans l'état du parent.
+  const filtered = [...equipments].sort(byOrder).filter((eq) => {
+    if (isPvCloture) return eq.notReturned;
+    if (isRestitution) return !!eq.returnedAt;
+    return true;
+  });
+  if (isPvCloture) {
+    return (
+      <EquipmentCards
+        title={`Équipements non restitués (${filtered.length})`}
+        hint="Les équipements ci-dessous ont été déclarés non restitués par l'équipe informatique."
+        equipments={filtered}
+        showReason
+        tone="danger"
+      />
+    );
+  }
+  if (isRestitution) {
+    return (
+      <EquipmentCards
+        title={`Équipements restitués (${filtered.length})`}
+        hint="Les équipements ci-dessous sont rendus : votre signature le confirme."
+        equipments={filtered}
+      />
+    );
+  }
+  return <EquipmentCards title={`Équipements (${filtered.length})`} equipments={filtered} />;
 }
 
 /** Éléments restants sur le bon (restitution uniquement) — ne font pas
- *  partie de cette restitution et restent attribués. */
-export function RemainingEquipmentTable({ equipments }: RemainingEquipmentTableProps) {
-  const remaining = equipments
-    .filter(eq => !eq.returnedAt && !eq.notReturned)
-    .sort((a, b) => a.order - b.order);
+ *  partie de cette restitution et restent chez le collaborateur. */
+export function RemainingEquipmentTable({ equipments }: { equipments: BonInfo['equipments'] }) {
+  const remaining = equipments.filter((eq) => !eq.returnedAt && !eq.notReturned).sort(byOrder);
   if (remaining.length === 0) return null;
   return (
-    <div className="rounded-xl bg-card border border-border shadow-sm">
-      <div className="px-5 py-3 border-b">
-        <h2 className="font-semibold text-sm text-foreground">
-          Éléments restants sur ce bon ({remaining.length})
-        </h2>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          Ces équipements ne font pas partie de cette restitution et restent attribués.
-        </p>
-      </div>
-      <div className="overflow-x-auto">
-      <table className="w-full text-sm" aria-label="Équipements restants">
-        <thead className="bg-muted/50">
-          <tr>
-            <th className="px-3 py-2 sm:px-4 text-left text-xs font-medium text-muted-foreground">#</th>
-            <th className="px-3 py-2 sm:px-4 text-left text-xs font-medium text-muted-foreground">Désignation</th>
-            <th className="px-3 py-2 sm:px-4 text-left text-xs font-medium text-muted-foreground">N° Série</th>
-            <th className="px-3 py-2 sm:px-4 text-left text-xs font-medium text-muted-foreground">Statut</th>
-          </tr>
-        </thead>
-        <tbody>
-          {remaining.map((eq, i) => {
-            const label = eq.catalogItem
-              ? `${eq.catalogItem.brand} ${eq.catalogItem.model}`
-              : eq.customLabel || '—';
-            return (
-              <tr key={eq.id} className="border-t">
-                <td className="px-3 py-2 sm:px-4 text-muted-foreground/70">{i + 1}</td>
-                <td className="px-3 py-2 sm:px-4 font-medium">{label}</td>
-                <td className="px-3 py-2 sm:px-4 font-mono text-xs text-muted-foreground">
-                  {eq.serialNumber || <span className="text-muted-foreground/30">—</span>}
-                </td>
-                <td className="px-3 py-2 sm:px-4">
-                  <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-                    En service
-                  </span>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-      </div>
-    </div>
+    <EquipmentCards
+      title={`Encore chez vous (${remaining.length})`}
+      hint="Ces équipements ne font pas partie de cette restitution : vous les gardez."
+      equipments={remaining}
+      badge="Reste chez vous"
+    />
   );
 }
 
-interface DeclaredNotReturnedTableProps {
-  equipments: BonInfo['equipments'];
-}
-
 /** Déclarés non restitués (restitution uniquement) — ces équipements ne
- *  figurent dans aucune des deux autres tables : sans cette section le
+ *  figurent dans aucune des deux autres listes : sans cette section le
  *  collaborateur signerait sans voir l'état complet du bon. */
-export function DeclaredNotReturnedTable({ equipments }: DeclaredNotReturnedTableProps) {
-  const declared = equipments
-    .filter(eq => eq.notReturned)
-    .sort((a, b) => a.order - b.order);
+export function DeclaredNotReturnedTable({ equipments }: { equipments: BonInfo['equipments'] }) {
+  const declared = equipments.filter((eq) => eq.notReturned).sort(byOrder);
   if (declared.length === 0) return null;
   return (
-    <div className="rounded-xl bg-card border border-border shadow-sm">
-      <div className="px-5 py-3 border-b">
-        <h2 className="font-semibold text-sm text-foreground">
-          Déclarés non restitués ({declared.length})
-        </h2>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          Ces équipements ont été déclarés non restitués par le service informatique et font l'objet d'un traitement séparé.
-        </p>
-      </div>
-      <div className="overflow-x-auto">
-      <table className="w-full text-sm" aria-label="Équipements déclarés non restitués">
-        <thead className="bg-muted/50">
-          <tr>
-            <th className="px-3 py-2 sm:px-4 text-left text-xs font-medium text-muted-foreground">#</th>
-            <th className="px-3 py-2 sm:px-4 text-left text-xs font-medium text-muted-foreground">Désignation</th>
-            <th className="px-3 py-2 sm:px-4 text-left text-xs font-medium text-muted-foreground">N° Série</th>
-            <th className="px-3 py-2 sm:px-4 text-left text-xs font-medium text-muted-foreground">Motif</th>
-          </tr>
-        </thead>
-        <tbody>
-          {declared.map((eq, i) => {
-            const label = eq.catalogItem
-              ? `${eq.catalogItem.brand} ${eq.catalogItem.model}`
-              : eq.customLabel || '—';
-            return (
-              <tr key={eq.id} className="border-t bg-destructive/10">
-                <td className="px-3 py-2 sm:px-4 text-muted-foreground/70">{i + 1}</td>
-                <td className="px-3 py-2 sm:px-4 font-medium">{label}</td>
-                <td className="px-3 py-2 sm:px-4 font-mono text-xs text-muted-foreground">
-                  {eq.serialNumber || <span className="text-muted-foreground/30">—</span>}
-                </td>
-                <td className="px-3 py-2 sm:px-4 text-xs text-destructive italic">
-                  {eq.notReturnedReason || '—'}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-      </div>
-    </div>
+    <EquipmentCards
+      title={`Déclarés non restitués (${declared.length})`}
+      hint="Ces équipements ont été déclarés non restitués par l'équipe informatique et font l'objet d'un traitement séparé."
+      equipments={declared}
+      showReason
+      tone="danger"
+    />
   );
 }
 
@@ -260,7 +198,7 @@ interface BonSummaryProps {
 }
 
 /** Récapitulatif complet du bon : en-tête (filiale/destinataire/dates) et
- *  listes d'équipements (principale, puis restants/déclarés non rendus pour
+ *  listes d'équipements (principale, puis restants/déclarés non restitués pour
  *  une restitution). */
 export function BonSummary({ bon, isPvCloture, isRestitution, sigType }: BonSummaryProps) {
   return (
