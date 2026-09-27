@@ -14,9 +14,16 @@ function equipmentLabel(eq: CollaboratorBon['equipments'][number]): string {
   return eq.catalogItem ? `${eq.catalogItem.brand} ${eq.catalogItem.model}` : eq.customLabel || 'Équipement';
 }
 
+interface CollabEquipmentListProps {
+  bon: CollaboratorBon;
+  /** Le document en attente est en cours de correction (contestation Fondée) :
+   *  les marquages non signés ne sont plus affirmés. */
+  underCorrection?: boolean;
+}
+
 /** Équipements du bon, en cartes : désignation, catégorie lisible (jamais le
  *  code interne), n° de série et d'inventaire, et où en est chacun. */
-export function CollabEquipmentList({ bon }: { bon: CollaboratorBon }) {
+export function CollabEquipmentList({ bon, underCorrection = false }: CollabEquipmentListProps) {
   const showState = bon.status !== 'sent_mise_dispo';
   const equipments = [...bon.equipments].sort((a, b) => a.order - b.order);
   return (
@@ -27,7 +34,7 @@ export function CollabEquipmentList({ bon }: { bon: CollaboratorBon }) {
       <ul className="grid gap-2 lg:grid-cols-2">
         {equipments.map((eq) => {
           const category = categoryText(eq.catalogItem?.category);
-          const state = equipmentStateForCollaborator(eq);
+          const state = equipmentStateForCollaborator(eq, underCorrection);
           return (
             <li key={eq.id} className="rounded-xl border bg-card p-4 shadow-sm space-y-1">
               <div className="flex flex-wrap items-start justify-between gap-2">
@@ -45,7 +52,7 @@ export function CollabEquipmentList({ bon }: { bon: CollaboratorBon }) {
                   N° d'inventaire <span className="font-mono text-foreground">{eq.inventoryNumber}</span>
                 </p>
               )}
-              {eq.notReturned && eq.notReturnedReason && <p className="text-sm text-destructive">{eq.notReturnedReason}</p>}
+              {eq.notReturned && eq.notReturnedReason && !underCorrection && <p className="text-sm text-destructive">{eq.notReturnedReason}</p>}
             </li>
           );
         })}

@@ -61,13 +61,8 @@ export interface EquipmentItem {
   notReturnedReason?: string;
 }
 
-export interface PdfSnapshotInfo {
-  type: string;
-  filename: string;
-  createdAt: string;
-  /** Empreinte SHA-256 du document (chaîne de preuve) */
-  sha256?: string | null;
-}
+/** Document PDF enregistré : un par signature, jamais écrasé (contrat serveur). */
+export type { PdfSnapshotInfo } from '@/contracts/bons';
 
 /** Signature IT à poser avant de transmettre un lien, et la suite du parcours. */
 export interface PendingItAction {

@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { assertPngDataUrl } from '../../common/signature-data-url';
 import { findBonDetailOrThrow } from '../queries/bon-where';
+import { documentFilename } from '../../pdf/snapshot-filename';
 import { BonsWorkflowContext, generateAndSaveSnapshot } from './bon-context';
 import { assertActionAllowed } from './bon-guards';
 import { invalidatePendingLinks } from './bon-links';
@@ -66,8 +67,7 @@ async function emitFoundAvenant(
   const bon = await findBonDetailOrThrow(prisma, id);
   const fullSignatures = await prisma.signature.findMany({ where: { bonId: id } });
 
-  const collabName = smbService.sanitizeName(bon.collaborateur?.displayName || 'INCONNU');
-  const filename = `${bon.reference}_${collabName}_avenant_equipement_retrouve.pdf`;
+  const filename = documentFilename(bon, 'avenant_equipement_retrouve', new Date());
   const pdfBuffer = await generateAndSaveSnapshot(
     ctx,
     id,

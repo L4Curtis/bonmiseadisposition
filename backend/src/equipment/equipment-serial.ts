@@ -79,6 +79,11 @@ export async function getEquipmentHistory(prisma: PrismaService, reference: stri
  * connaissance de cause.
  * Au plus SERIAL_CONFLICTS_LIMIT numéros distincts sont vérifiés par appel ;
  * `truncated` signale explicitement si la liste fournie dépassait ce plafond.
+ *
+ * `excludeBonId` : le bon en cours de saisie. Le bon qu'il remplace
+ * (contestation Fondée sur une remise) est exclu avec lui : il porte forcément
+ * les mêmes numéros, et sera clôturé « remplacé » à la signature du
+ * remplaçant — ce n'est pas un conflit.
  */
 export async function findSerialConflicts(
   prisma: PrismaService,
@@ -90,6 +95,7 @@ export async function findSerialConflicts(
   const cleaned = distinct.slice(0, SERIAL_CONFLICTS_LIMIT);
   if (cleaned.length === 0) return { items: [], truncated: false };
 
+  const excluded = await excludedBonIds(prisma, excludeBonId);
   const conflicts = await prisma.bonEquipment.findMany({
     where: {
       serialNumber: { in: cleaned, mode: 'insensitive' },
@@ -97,7 +103,7 @@ export async function findSerialConflicts(
       notReturned: false,
       bon: {
         status: { in: [...IN_PROGRESS_BON_STATUSES] },
-        ...(excludeBonId ? { id: { not: excludeBonId } } : {}),
+        ...(excluded.length > 0 ? { id: { notIn: excluded } } : {}),
       },
     },
     include: {
@@ -121,4 +127,11 @@ export async function findSerialConflicts(
   }));
 
   return { items, truncated };
+}
+
+/** Bon en cours de saisie et bon qu'il remplace, s'il y en a un. */
+async function excludedBonIds(prisma: PrismaService, excludeBonId: string | undefined): Promise<string[]> {
+  if (!excludeBonId) return [];
+  const bon = await prisma.bon.findUnique({ where: { id: excludeBonId }, select: { replacesBonId: true } });
+  return bon?.replacesBonId ? [excludeBonId, bon.replacesBonId] : [excludeBonId];
 }

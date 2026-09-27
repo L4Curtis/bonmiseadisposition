@@ -2,10 +2,16 @@ import { Injectable } from '@nestjs/common';
 import { Prisma, EquipmentCategory } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  BLANK_SERIAL_VALUES_SQL,
+  NOT_RETURNED_SITUATION,
+  OFF_CATALOG_WHERE,
   SITUATION_BON_STATUSES,
+  buildMissingSerialWhere,
+  buildNotReturnedEquipmentWhere,
   buildParcEquipmentWhere,
   buildReturnOverdueEquipmentWhere,
   buildSituationBreakdown,
+  notReturnedEquipmentSql,
   parcEquipmentSql,
   returnOverdueEquipmentSql,
   situationCaseSql,
@@ -30,6 +36,13 @@ export const EXPORT_ROW_LIMIT = 10000;
  *  quelques milliers d'équipements), voir inventory-collaborateur-aggregate.ts. */
 export const AGGREGATION_ROW_LIMIT = 10000;
 
+/** Tri effectif : sur la seule situation « Non restitué », trier par
+ *  situation n'a pas de sens, et le découpage par statut de bon de
+ *  `findSortedInventoryRows` écarterait les bons clôturés. Ordre par défaut. */
+function sortOf(query: InventoryQueryDto): InventoryQueryDto['sort'] {
+  return query.situation === NOT_RETURNED_SITUATION && query.sort === 'situation' ? undefined : query.sort;
+}
+
 /**
  * Vue « Inventaire du parc en circulation » : liste, résumé agrégé et export
  * CSV des équipements actuellement entre les mains des collaborateurs.
@@ -38,7 +51,8 @@ export const AGGREGATION_ROW_LIMIT = 10000;
  * BonEquipment dont le bon a un statut ∈ PARC_BON_STATUSES, returnedAt IS NULL
  * et notReturned = false — décomposée en 3 situations mutuellement
  * exclusives (`en_attente_signature`, `en_circulation`, `en_litige`), voir
- * bon-predicates.ts. Le mapping ligne → item (`toInventoryItem`) et le CSV
+ * bon-predicates.ts. La situation `non_restitue` remplace ce parc par les
+ * équipements encore non restitués (`buildNotReturnedEquipmentWhere`). Le mapping ligne → item (`toInventoryItem`) et le CSV
  * (`buildInventoryCsv`) sont extraits dans des modules dédiés pour rester
  * testables isolément et garder ce service sous la limite de lignes du repo.
  */
@@ -53,10 +67,15 @@ export class InventoryService {
    *  (tests) pour figer le filtre `overdue`. Typé sur `InventoryWhereFilters`
    *  (et non `InventoryQueryDto`) pour rester appelable depuis les deux DTOs
    *  de query sans dupliquer cette construction. */
-  private buildWhere(filters: InventoryWhereFilters, now: Date = new Date()): Prisma.BonEquipmentWhereInput {
-    const and: Prisma.BonEquipmentWhereInput[] = [
-      ...(buildParcEquipmentWhere({ filialeId: filters.filialeId }).AND as Prisma.BonEquipmentWhereInput[]),
-    ];
+  private async buildWhere(filters: InventoryWhereFilters, now: Date = new Date()): Promise<Prisma.BonEquipmentWhereInput> {
+    // « Non restitué » n'est pas une situation du parc : elle remplace la base
+    // (équipements chez les collaborateurs) par les équipements déclarés non
+    // restitués et pas retrouvés — la liste de la carte « Encore non restitués ».
+    const notReturned = filters.situation === NOT_RETURNED_SITUATION;
+    const base = notReturned
+      ? buildNotReturnedEquipmentWhere({ filialeId: filters.filialeId })
+      : buildParcEquipmentWhere({ filialeId: filters.filialeId });
+    const and: Prisma.BonEquipmentWhereInput[] = [...(base.AND as Prisma.BonEquipmentWhereInput[])];
 
     if (filters.collaborateurId) {
       and.push({ bon: { collaborateurId: filters.collaborateurId } });
@@ -68,7 +87,7 @@ export class InventoryService {
       // qui réutilise ce même where pour l'alerte email.
       and.push({ bon: { collaborateur: { active: filters.compte === 'actif' } } });
     }
-    if (filters.situation) {
+    if (filters.situation && filters.situation !== NOT_RETURNED_SITUATION) {
       and.push({ bon: { status: { in: [...SITUATION_BON_STATUSES[filters.situation]] } } });
     }
     if (filters.category) {
@@ -87,10 +106,12 @@ export class InventoryService {
       and.push(...(buildReturnOverdueEquipmentWhere({}, now).AND as Prisma.BonEquipmentWhereInput[]));
     }
     if (filters.sansNumeroSerie) {
-      // Qualité des données : NULL et chaîne vide (saisie effacée) sont tous
-      // deux « sans numéro » — ni l'un ni l'autre ne permet de retrouver le
-      // matériel sur /materiel ni de le rapprocher d'un autre outil.
-      and.push({ OR: [{ serialNumber: null }, { serialNumber: '' }] });
+      // Qualité des données : absent, vide ou fait d'espaces — même prédicat
+      // que la carte « Avec numéro de série » (missingSerialSql).
+      and.push(buildMissingSerialWhere(await this.findBlankSerialValues()));
+    }
+    if (filters.horsCatalogue) {
+      and.push(OFF_CATALOG_WHERE);
     }
 
     const search = filters.search?.trim();
@@ -103,6 +124,9 @@ export class InventoryService {
           { catalogItem: { brand: { contains: search, mode: 'insensitive' } } },
           { catalogItem: { model: { contains: search, mode: 'insensitive' } } },
           { bon: { collaborateur: { displayName: { contains: search, mode: 'insensitive' } } } },
+          // Référence du bon : la ligne « Retour en retard » d'un bon ouvre,
+          // pour la direction (sans accès aux bons), ses seuls équipements.
+          { bon: { reference: { contains: search, mode: 'insensitive' } } },
         ],
       });
     }
@@ -110,14 +134,21 @@ export class InventoryService {
     return { AND: and };
   }
 
+  /** Numéros de série blancs (vides ou faits d'espaces) présents en base :
+   *  quelques valeurs distinctes au plus, nommées par le filtre « sans numéro ». */
+  private async findBlankSerialValues(): Promise<string[]> {
+    const rows = await this.prisma.$queryRaw<{ value: string }[]>(BLANK_SERIAL_VALUES_SQL);
+    return rows.map((row) => row.value);
+  }
+
   /** GET /reporting/inventory */
   async getInventory(query: InventoryQueryDto, now: Date = new Date()) {
     const page = query.page ?? 1;
     const limit = Math.min(query.limit ?? DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT);
-    const where = this.buildWhere(query, now);
+    const where = await this.buildWhere(query, now);
 
     const [rows, total] = await Promise.all([
-      findSortedInventoryRows(this.prisma, where, query.sort, query.direction, {
+      findSortedInventoryRows(this.prisma, where, sortOf(query), query.direction, {
         skip: (page - 1) * limit,
         take: limit,
       }),
@@ -143,7 +174,7 @@ export class InventoryService {
   async getInventoryByCollaborateur(query: InventoryByCollaborateurQueryDto, now: Date = new Date()) {
     const page = query.page ?? 1;
     const limit = Math.min(query.limit ?? DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT);
-    const where = this.buildWhere(query, now);
+    const where = await this.buildWhere(query, now);
 
     const rows = await this.prisma.bonEquipment.findMany({
       where,
@@ -176,9 +207,11 @@ export class InventoryService {
    *
    * `bySituation` : somme toujours égale à `total` (3 situations couvrant
    * exactement PARC_BON_STATUSES, zéro-complétées par `buildSituationBreakdown`).
+   * `notReturned` : équipements encore non restitués, hors parc (option
+   * « Non restitué » du filtre de situation).
    */
   async getSummary() {
-    const [totalRows, byCategoryRows, byFilialeRows, bySituationRows, overdueRows] = await Promise.all([
+    const [totalRows, byCategoryRows, byFilialeRows, bySituationRows, overdueRows, notReturnedRows] = await Promise.all([
       this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
         SELECT COUNT(*)::bigint AS count
         FROM bon_equipments be
@@ -220,6 +253,12 @@ export class InventoryService {
         JOIN bons b ON b.id = be.bon_id
         WHERE ${returnOverdueEquipmentSql()}
       `),
+      this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
+        SELECT COUNT(*)::bigint AS count
+        FROM bon_equipments be
+        JOIN bons b ON b.id = be.bon_id
+        WHERE ${notReturnedEquipmentSql()}
+      `),
     ]);
 
     return {
@@ -238,6 +277,7 @@ export class InventoryService {
         bySituationRows.map((r) => ({ situation: r.situation, count: Number(r.count) })),
       ),
       overdue: Number(overdueRows[0]?.count ?? 0),
+      notReturned: Number(notReturnedRows[0]?.count ?? 0),
     };
   }
 
@@ -249,8 +289,8 @@ export class InventoryService {
    * colonnes calculées (ancienneté, retard) — voir inventory-csv.ts.
    */
   async getExportCsv(query: InventoryQueryDto, now: Date = new Date()): Promise<{ csv: string; truncated: boolean }> {
-    const where = this.buildWhere(query, now);
-    const rows = await findSortedInventoryRows(this.prisma, where, query.sort, query.direction, {
+    const where = await this.buildWhere(query, now);
+    const rows = await findSortedInventoryRows(this.prisma, where, sortOf(query), query.direction, {
       skip: 0,
       take: EXPORT_ROW_LIMIT + 1,
     });

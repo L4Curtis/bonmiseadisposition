@@ -50,6 +50,14 @@ function clientTrace(req: Request): ClientTrace {
 }
 import { assertValidPdfQuery, resolveBonPdf } from './bons-pdf-lookup';
 import { computeMissingPdfSnapshotTypes } from './bons-missing-snapshots';
+import { listBonDocuments } from '../pdf/snapshot-list';
+import type { DocumentAudience } from '../pdf/snapshot-audience';
+
+/** Public des documents : l'IT voit tout l'historique, un autre compte
+ *  seulement les documents qu'il peut garder. */
+function documentAudience(user: AuthUser): DocumentAudience {
+  return isItRole(user.role) ? 'it' : 'collaborator';
+}
 
 /**
  * Bons : réservés à l'IT (admin, technicien), sauf les routes « propriétaire »
@@ -189,7 +197,7 @@ export class BonsController {
     @Body() dto: InitiateRestitutionDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.bonsService.initiateRestitution(id, user.id, dto.returnedEquipmentIds, dto.inPerson === true);
+    return this.bonsService.initiateRestitution(id, user.id, dto.returnedEquipmentIds, dto.inPerson === true, dto.undoEquipmentIds);
   }
 
   /** POST /bons/:id/undo-return — annule le marquage « rendu » avant signature. */
@@ -251,22 +259,15 @@ export class BonsController {
     return this.signatureService.verifyBonIntegrity(id);
   }
 
-  /** GET /bons/:id/pdf-snapshots — reste un TABLEAU (contrat existant) : le
-   *  portail collaborateur (BonDetailCollaborateur.tsx) consomme cette route
-   *  telle quelle (`api.get<PdfSnapshotInfo[]>`) sans gérer la forme
-   *  { snapshots, missing }. Le duo BonDetail IT (useBonActions.ts) gère déjà
-   *  défensivement les deux formes, mais changer la forme ici casserait le
-   *  portail collaborateur — d'où l'endpoint séparé ci-dessous. */
+  /** GET /bons/:id/pdf-snapshots — les documents du bon, du plus ancien au
+   *  plus récent (un document par signature, jamais écrasé), en tableau nu lu
+   *  tel quel par la fiche IT (tous) et le portail (ceux que le collaborateur
+   *  peut garder). Les documents manquants ont leur route séparée ci-dessous. */
   @Get(':id/pdf-snapshots')
   @Roles(...ALL_ROLES)
   async getPdfSnapshots(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     await this.verifyCollaboratorAccess(id, user);
-    const snapshots = await this.prisma.pdfSnapshot.findMany({
-      where: { bonId: id },
-      select: { type: true, filename: true, createdAt: true, sha256: true },
-      orderBy: { createdAt: 'asc' },
-    });
-    return snapshots;
+    return listBonDocuments(this.prisma, id, documentAudience(user));
   }
 
   /** GET /bons/:id/pdf-snapshots/missing — types de snapshot attendus (une
@@ -293,12 +294,13 @@ export class BonsController {
     @Res() res: Response,
     @Query('type') type: 'mise_disposition' | 'restitution' = 'mise_disposition',
     @Query('stage') stage?: string,
+    @Query('snapshot') snapshot?: string,
   ) {
     await this.verifyCollaboratorAccess(id, user);
-    assertValidPdfQuery(type, stage);
+    assertValidPdfQuery(type, stage, snapshot);
     const bon = await this.bonsService.findOne(id);
 
-    const resolved = await resolveBonPdf(this.prisma, bon, type, stage);
+    const resolved = await resolveBonPdf(this.prisma, bon, type, stage, snapshot, documentAudience(user));
     if (resolved) {
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="${resolved.filename}"`);

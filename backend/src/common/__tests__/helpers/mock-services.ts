@@ -54,6 +54,10 @@ export function createMockSignatureService() {
 export function createMockPdfService() {
   return {
     generateAndSave: vi.fn().mockResolvedValue(Buffer.from('mock-pdf')),
+    // Nom conservé = celui demandé, document nouvellement créé.
+    saveDocument: vi.fn().mockImplementation((_bon: unknown, _type: string, filename: string) =>
+      Promise.resolve({ pdf: Buffer.from('mock-pdf'), filename, created: true }),
+    ),
     generateBonPdf: vi.fn().mockResolvedValue(Buffer.from('mock-pdf')),
   };
 }

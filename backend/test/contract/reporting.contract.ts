@@ -8,7 +8,7 @@ import { ADMIN, AccessRule, describeRule, expectAccessRule, IT, IT_AND_DIRECTION
 import { nestError } from './support/common-shapes';
 import { ContractContext, startContractContext } from './support/context';
 import { arrayOf, expectShape, str } from './support/shape';
-import { kpiDelais, kpiIncidents, kpiParc, kpiToday } from './shapes/kpi';
+import { kpiDelais, kpiIncidents, kpiList, kpiParc, kpiToday } from './shapes/kpi';
 import { auditList, inventoryByCollaborateur, inventoryList, inventorySummary } from './shapes/reporting';
 
 let ctx: ContractContext;
@@ -30,6 +30,7 @@ const ACCESS: readonly AccessRule[] = [
   rule('GET /kpi/delais', IT_AND_DIRECTION),
   rule('GET /kpi/incidents', IT_AND_DIRECTION),
   rule('GET /kpi/aujourdhui', IT),
+  rule('GET /kpi/liste', IT, () => '/kpi/liste?indicateur=bons_crees'),
   rule('GET /audit', ADMIN),
   rule('GET /audit/actions', ADMIN),
   rule('GET /audit/export', ADMIN),
@@ -52,6 +53,47 @@ describe('Inventaire', () => {
     const res = await ctx.http.get('/reporting/inventory?situation=en_circulation&overdue=true', 'technician');
     expect(res.status).toBe(200);
     expectShape(res.body, inventoryList);
+  });
+
+  it('GET /reporting/inventory?horsCatalogue=1 : les équipements saisis en texte libre', async () => {
+    const res = await ctx.http.get('/reporting/inventory?horsCatalogue=1', 'direction');
+    expect(res.status).toBe(200);
+    expectShape(res.body, inventoryList);
+    expect((res.body as { items: { label: string }[] }).items.map((i) => i.label)).toContain('Sacoche');
+  });
+
+  it('GET /reporting/inventory?situation=non_restitue : autant de lignes que la carte « Encore non restitués »', async () => {
+    const [list, parc] = await Promise.all([
+      ctx.http.get('/reporting/inventory?situation=non_restitue&limit=1', 'direction'),
+      ctx.http.get('/kpi/parc', 'direction'),
+    ]);
+    expect(list.status).toBe(200);
+    expect((list.body as { total: number }).total).toBe((parc.body as { notReturned: { openNow: number } }).notReturned.openNow);
+  });
+
+  it('GET /reporting/inventory?situation=non_restitue : le motif pour l’IT, jamais pour la direction', async () => {
+    const declared = await ctx.prisma.bonEquipment.create({
+      data: { bonId: ctx.data.bons.active.id, customLabel: 'Chargeur', notReturned: true, notReturnedReason: 'Perdu' },
+    });
+    try {
+      const reasons = async (persona: 'admin' | 'direction') => {
+        const res = await ctx.http.get('/reporting/inventory?situation=non_restitue&limit=200', persona);
+        expect(res.status).toBe(200);
+        expectShape(res.body, inventoryList);
+        const items = (res.body as { items: { equipmentId: string; notReturnedReason: string | null }[] }).items;
+        return items.find((i) => i.equipmentId === declared.id)?.notReturnedReason;
+      };
+      expect(await reasons('admin')).toBe('Perdu');
+      expect(await reasons('direction')).toBeNull();
+    } finally {
+      await ctx.prisma.bonEquipment.delete({ where: { id: declared.id } });
+    }
+  });
+
+  it('GET /reporting/inventory avec une situation inconnue : 400', async () => {
+    const res = await ctx.http.get('/reporting/inventory?situation=perdu', 'admin');
+    expect(res.status).toBe(400);
+    expectShape(res.body, nestError);
   });
 
   it('GET /reporting/inventory avec une limite hors bornes : 400', async () => {
@@ -134,6 +176,23 @@ describe('Indicateurs du tableau de bord', () => {
     expect(section.total).toBe(listed.total);
     expect(section.rows.map((r) => r.bonId)).toContain(ctx.data.bons.partiallyReturned.id);
     expect(listed.bons.map((b) => b.id)).toContain(ctx.data.bons.partiallyReturned.id);
+  });
+
+  it('GET /kpi/liste : la liste exacte de la carte « Bons créés »', async () => {
+    const [list, delais] = await Promise.all([
+      ctx.http.get('/kpi/liste?indicateur=bons_crees&limit=200', 'technician'),
+      ctx.http.get('/kpi/delais', 'technician'),
+    ]);
+    expect(list.status).toBe(200);
+    expectShape(list.body, kpiList);
+    const created = (delais.body as { volumes: { created: { current: number } } }).volumes.created.current;
+    expect((list.body as { total: number }).total).toBe(created);
+  });
+
+  it('GET /kpi/liste avec un indicateur inconnu : 400', async () => {
+    const res = await ctx.http.get('/kpi/liste?indicateur=bons_perdus', 'admin');
+    expect(res.status).toBe(400);
+    expectShape(res.body, nestError);
   });
 
   it('GET /kpi/parc avec une période invalide : 400', async () => {

@@ -212,3 +212,15 @@ describe('EquipmentSection — vérification de conflit à la sortie du champ', 
     expect(props.onSerialBlur).toHaveBeenCalledWith(props.equipments[0]._id, 'SN-1');
   });
 });
+
+describe('EquipmentSection — article du catalogue (R-020)', () => {
+  it('pastille neutre, jamais aux couleurs d’une erreur, et croix « Détacher du catalogue »', async () => {
+    const user = userEvent.setup();
+    const { props } = renderSection();
+    const label = screen.getByText('Dell Latitude 5420');
+    expect(label.className).not.toMatch(/primary|destructive/);
+    expect(label.parentElement?.className).not.toMatch(/primary|destructive/);
+    await user.click(screen.getByRole('button', { name: 'Détacher du catalogue - ligne 1' }));
+    expect(props.onUpdateEquipment).toHaveBeenCalledWith(expect.any(String), 'catalogItemId', '');
+  });
+});

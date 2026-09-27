@@ -621,8 +621,28 @@ describe('EquipmentService', () => {
 
       const { where } = prisma.bonEquipment.findMany.mock.calls[0][0];
       expect(where).toMatchObject({ returnedAt: null, notReturned: false });
-      expect(where.bon.id).toEqual({ not: 'bon-current' });
+      expect(where.bon.id).toEqual({ notIn: ['bon-current'] });
       expect(where.bon.status.in).toEqual([...IN_PROGRESS_BON_STATUSES]);
+    });
+
+    it('excludes the bon replaced by the bon being edited (its serials are not conflicts)', async () => {
+      prisma.bon.findUnique.mockResolvedValue({ replacesBonId: 'bon-original' });
+      prisma.bonEquipment.findMany.mockResolvedValue([]);
+
+      await service.findSerialConflicts(['SN-1'], 'bon-replacement');
+
+      expect(prisma.bon.findUnique).toHaveBeenCalledWith({ where: { id: 'bon-replacement' }, select: { replacesBonId: true } });
+      const { where } = prisma.bonEquipment.findMany.mock.calls[0][0];
+      expect(where.bon.id).toEqual({ notIn: ['bon-replacement', 'bon-original'] });
+    });
+
+    it('does not look up any bon when nothing is excluded', async () => {
+      prisma.bonEquipment.findMany.mockResolvedValue([]);
+
+      await service.findSerialConflicts(['SN-1']);
+
+      expect(prisma.bon.findUnique).not.toHaveBeenCalled();
+      expect(prisma.bonEquipment.findMany.mock.calls[0][0].where.bon).not.toHaveProperty('id');
     });
 
     it('maps each conflict to the bon it is found on', async () => {

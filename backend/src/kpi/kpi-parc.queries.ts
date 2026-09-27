@@ -2,7 +2,15 @@ import { Prisma } from '@prisma/client';
 import { KpiPeriod } from './kpi-period';
 import { parisMidnightUtcSql, parisPeriodSql, parisTodaySql } from '../common/dates/paris';
 import { filialeFilter, stepInterval } from './kpi-sql';
-import { PARC_BON_STATUSES, parcEquipmentSql, returnOverdueEquipmentSql, situationCaseSql } from '../common/bon-predicates';
+import {
+  PARC_BON_STATUSES,
+  notReturnedEquipmentSql,
+  offCatalogSql,
+  parcEquipmentSql,
+  returnOverdueEquipmentSql,
+  situationCaseSql,
+  withSerialSql,
+} from '../common/bon-predicates';
 
 /**
  * Requêtes SQL brutes de `KpiParcService.getParc` — extraites sans
@@ -144,12 +152,13 @@ export function topModelsQuery(filialeId?: string): Prisma.Sql {
 
 /** Compteurs bruts pour `offCatalogShare` (sans fiche catalogue) et
  *  `serialCoverage` (numéro de série renseigné) — ratios calculés en JS
- *  sur `loaned.total` (dénominateur commun). */
+ *  sur `loaned.total` (dénominateur commun). Mêmes prédicats que les filtres
+ *  `horsCatalogue` et `sansNumeroSerie` de l'inventaire que ces cartes ouvrent. */
 export function shareCountsQuery(filialeId?: string): Prisma.Sql {
   return Prisma.sql`
     SELECT
-      COUNT(*) FILTER (WHERE be.catalog_item_id IS NULL)::bigint AS "offCatalog",
-      COUNT(*) FILTER (WHERE btrim(COALESCE(be.serial_number, '')) <> '')::bigint AS "withSerial"
+      COUNT(*) FILTER (WHERE ${offCatalogSql()})::bigint AS "offCatalog",
+      COUNT(*) FILTER (WHERE ${withSerialSql()})::bigint AS "withSerial"
     FROM bon_equipments be
     JOIN bons b ON b.id = be.bon_id
     WHERE ${parcEquipmentSql()}
@@ -294,14 +303,14 @@ export function closedBonsShareQuery(range: { from: string; to: string }, filial
 }
 
 /** État du jour : équipements encore non restitués (déclarés et pas
- *  retrouvés), y compris sur un bon clôturé par un PV ; hors bons annulés. */
+ *  retrouvés), y compris sur un bon clôturé par un PV ; hors bons annulés.
+ *  La liste : `/inventaire?situation=non_restitue`. */
 export function notReturnedOpenNowQuery(filialeId?: string): Prisma.Sql {
   return Prisma.sql`
     SELECT COUNT(*)::bigint AS count
     FROM bon_equipments be
     JOIN bons b ON b.id = be.bon_id
-    WHERE be.not_returned = true
-      AND b.status::text <> 'cancelled'
+    WHERE ${notReturnedEquipmentSql()}
       ${filialeFilter('b', filialeId)}
   `;
 }

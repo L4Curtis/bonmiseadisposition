@@ -11,7 +11,9 @@ import {
 } from '@/components/ui/dialog';
 import { useSignatureCanvas } from '@/hooks/use-signature-canvas';
 import { equipmentLabel, type FicheEquipment } from './types';
-import { PHONE_FULLSCREEN_DIALOG, TOUCH_BUTTON, TOUCH_FOOTER } from './dialog-layout';
+import {
+  DIALOG_BODY, DIALOG_FOOTER_BAR, DIALOG_FRAME, DIALOG_HEADER_BAND, SIGNATURE_CANVAS_HEIGHT, TOUCH_BUTTON, TOUCH_FOOTER,
+} from './dialog-layout';
 
 interface DeclareNotReturnedModalProps {
   equipments: readonly FicheEquipment[];
@@ -30,7 +32,9 @@ export function DeclareNotReturnedModal({
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | null>(null);
   const { canvasRef, isEmpty, clear, getDataUrl, onMouseDown, onMouseMove, onMouseUp, onMouseLeave } =
-    useSignatureCanvas();
+    // Le cadre change de hauteur selon l'écran (plus bas en paysage) : le
+    // tracé suit ses proportions, l'image signée n'est jamais étirée.
+    useSignatureCanvas({ followFrame: true });
 
   const unresolvedEquipments = equipments.filter((eq) => !eq.returnedAt && !eq.notReturned);
 
@@ -63,9 +67,9 @@ export function DeclareNotReturnedModal({
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !loading) onCancel(); }}>
-      <DialogContent className={`sm:max-w-lg p-0 overflow-hidden ${PHONE_FULLSCREEN_DIALOG}`}>
+      <DialogContent className={`sm:max-w-lg ${DIALOG_FRAME}`}>
         {/* Destructive header */}
-        <div className="bg-destructive px-5 py-4">
+        <div className={`bg-destructive ${DIALOG_HEADER_BAND}`}>
           <DialogHeader className="p-0 text-left">
             <DialogTitle className="text-destructive-foreground text-sm flex items-center gap-2">
               <AlertTriangle className="h-4 w-4" /> Déclarer des équipements non restitués
@@ -76,7 +80,7 @@ export function DeclareNotReturnedModal({
           </DialogHeader>
         </div>
 
-        <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto max-sm:max-h-none">
+        <div className={`space-y-4 ${DIALOG_BODY}`}>
           {unresolvedEquipments.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-4">
               Aucun équipement n’est encore chez le collaborateur.
@@ -146,9 +150,9 @@ export function DeclareNotReturnedModal({
                 <div className="relative border-2 border-dashed border-border rounded-lg bg-muted/40 hover:border-destructive/50 transition-colors touch-none">
                   <canvas
                     ref={canvasRef}
-                    width={560}
-                    height={120}
-                    className="w-full cursor-crosshair block text-foreground"
+                    width={600}
+                    height={200}
+                    className={`block w-full cursor-crosshair text-foreground ${SIGNATURE_CANVAS_HEIGHT}`}
                     style={{ touchAction: 'none' }}
                     aria-label="Zone de signature : dessinez avec la souris ou le doigt"
                     onMouseDown={onMouseDown}
@@ -174,7 +178,7 @@ export function DeclareNotReturnedModal({
           )}
         </div>
 
-        <DialogFooter className={`px-5 pb-5 pt-0 ${TOUCH_FOOTER}`}>
+        <DialogFooter className={`${DIALOG_FOOTER_BAR} ${TOUCH_FOOTER}`}>
           <Button variant="outline" size="sm" className={`flex-1 ${TOUCH_BUTTON}`} onClick={onCancel} disabled={loading}>
             Annuler
           </Button>
@@ -182,7 +186,7 @@ export function DeclareNotReturnedModal({
             size="sm"
             className={`flex-1 ${TOUCH_BUTTON} bg-destructive hover:bg-destructive/90 text-destructive-foreground`}
             onClick={handleSubmit}
-            disabled={loading || unresolvedEquipments.length === 0}
+            disabled={loading || selected.size === 0}
           >
             {loading ? (
               <><Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" /> En cours&hellip;</>

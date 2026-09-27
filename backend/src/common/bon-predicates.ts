@@ -11,7 +11,9 @@ import { parisTodayAsDbDate, parisTodaySql } from './dates/paris';
  *
  * Notions : « Signatures attendues » et « Signature en retard » (des bons),
  * « Lien expiré » (des bons), « Retour en retard » (des équipements),
- * « Contestations à traiter », parc en circulation et ses situations.
+ * « Contestations à traiter », parc en circulation et ses situations,
+ * « Encore non restitués », « Hors catalogue » et « Sans numéro de série »
+ * (des équipements, vérifiés aussi par `kpi/__tests__/kpi-lists.real-db.spec.ts`).
  * Les listes de statuts vivent dans bons/bon-status.ts.
  */
 
@@ -249,4 +251,77 @@ export function buildReturnOverdueEquipmentWhere(
  *  sans le filtre filiale. */
 export function returnOverdueEquipmentSql(): Prisma.Sql {
   return Prisma.sql`${parcEquipmentSql()} AND b.date_restitution IS NOT NULL AND b.date_restitution < ${parisTodaySql()}`;
+}
+
+/** Situation « Non restitué » de l'inventaire : équipement déclaré non
+ *  restitué et pas retrouvé. Elle n'appartient pas au parc chez les
+ *  collaborateurs : la choisir dans le filtre remplace ce parc par ces
+ *  équipements. */
+export const NOT_RETURNED_SITUATION = 'non_restitue';
+export const NOT_RETURNED_LABEL = 'Non restitué';
+
+/** Situation affichée par l'inventaire : l'une des trois du parc, ou « Non restitué ». */
+export type InventorySituation = EquipmentSituation | typeof NOT_RETURNED_SITUATION;
+
+/** Valeurs acceptées par le filtre `situation` de l'inventaire. */
+export const INVENTORY_SITUATIONS: readonly InventorySituation[] = [...SITUATION_ORDER, NOT_RETURNED_SITUATION];
+
+/**
+ * « Encore non restitués » (des équipements) : déclarés non restitués et pas
+ * retrouvés depuis (retrouver l'équipement remet `notReturned` à faux), y
+ * compris sur un bon clôturé par un PV ; jamais sur un bon annulé.
+ * Cartes des onglets Parc et Incidents, `/inventaire?situation=non_restitue`.
+ */
+export function buildNotReturnedEquipmentWhere(filters?: { filialeId?: string }): Prisma.BonEquipmentWhereInput {
+  const and: Prisma.BonEquipmentWhereInput[] = [{ notReturned: true }, { bon: { status: { not: 'cancelled' } } }];
+  if (filters?.filialeId) and.push({ bon: { filialeId: filters.filialeId } });
+  return { AND: and };
+}
+
+/** Équivalent SQL de `buildNotReturnedEquipmentWhere` (alias `be`, `b`),
+ *  sans le filtre filiale. */
+export function notReturnedEquipmentSql(): Prisma.Sql {
+  return Prisma.sql`be.not_returned = true AND b.status::text <> 'cancelled'`;
+}
+
+/** « Hors catalogue » : équipement saisi en texte libre, sans article du
+ *  Catalogue. Carte de l'onglet Parc, `/inventaire?horsCatalogue=1`. */
+export const OFF_CATALOG_WHERE: Prisma.BonEquipmentWhereInput = { catalogItemId: null };
+
+/** Équivalent SQL de `OFF_CATALOG_WHERE` (alias `be`). */
+export function offCatalogSql(): Prisma.Sql {
+  return Prisma.sql`be.catalog_item_id IS NULL`;
+}
+
+/**
+ * « Sans numéro de série » : absent, vide ou fait seulement d'espaces — on ne
+ * peut ni retrouver l'équipement par son numéro ni le rapprocher d'un autre
+ * outil. La saisie enlève déjà les espaces autour du numéro ; des numéros
+ * faits d'espaces ne peuvent venir que de données plus anciennes.
+ * Carte « Avec numéro de série » (son contraire), `/inventaire?sansNumeroSerie=1`.
+ *
+ * Prisma ne sait pas comparer une valeur débarrassée de ses espaces : la
+ * liste reçoit les valeurs blanches présentes en base (`BLANK_SERIAL_VALUES_SQL`,
+ * quelques chaînes au plus) et les nomme une à une.
+ */
+export function buildMissingSerialWhere(blankValues: readonly string[]): Prisma.BonEquipmentWhereInput {
+  return { OR: [{ serialNumber: null }, { serialNumber: { in: [...new Set(['', ...blankValues])] } }] };
+}
+
+/** Numéro blanc en SQL : vide ou fait seulement d'espaces (alias `be`). */
+const BLANK_SERIAL_SQL = Prisma.sql`be.serial_number ~ '^[[:space:]]*$'`;
+
+/** Valeurs distinctes de numéro de série blanches (non NULL) présentes en
+ *  base : ce que `buildMissingSerialWhere` doit nommer. */
+export const BLANK_SERIAL_VALUES_SQL = Prisma.sql`
+  SELECT DISTINCT be.serial_number AS value FROM bon_equipments be WHERE ${BLANK_SERIAL_SQL}`;
+
+/** Équivalent SQL de `buildMissingSerialWhere` (alias `be`). */
+export function missingSerialSql(): Prisma.Sql {
+  return Prisma.sql`(be.serial_number IS NULL OR ${BLANK_SERIAL_SQL})`;
+}
+
+/** Contraire SQL de `missingSerialSql` (alias `be`) : numéro renseigné. */
+export function withSerialSql(): Prisma.Sql {
+  return Prisma.sql`NOT ${missingSerialSql()}`;
 }

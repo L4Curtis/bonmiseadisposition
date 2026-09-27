@@ -21,8 +21,12 @@ export const bonApi = {
   inPerson: (id: string, type: LinkSignatureType, confirmations: SendConfirmations = {}) =>
     api.post<InitiateInPersonResponse>(`/bons/${id}/initiate-inperson`, { type, ...confirmations }),
   resend: (id: string, force: boolean) => api.post<ResendLinkResponse>(`/bons/${id}/resend`, force ? { force: true } : {}),
-  markReturned: (id: string, equipmentIds: readonly string[], inPerson: boolean) =>
-    api.post<BonDetail>(`/bons/${id}/initiate-restitution`, { returnedEquipmentIds: equipmentIds, inPerson }),
+  markReturned: (id: string, equipmentIds: readonly string[], inPerson: boolean, undoEquipmentIds: readonly string[] = []) =>
+    api.post<BonDetail>(`/bons/${id}/initiate-restitution`, {
+      returnedEquipmentIds: equipmentIds,
+      inPerson,
+      ...(undoEquipmentIds.length > 0 ? { undoEquipmentIds } : {}),
+    }),
   undoReturn: (id: string, equipmentIds: readonly string[]) =>
     api.post<BonDetail>(`/bons/${id}/undo-return`, { equipmentIds }),
   declareNotReturned: (id: string, equipmentIds: readonly string[], reason: string, signatureDataUrl: string) =>

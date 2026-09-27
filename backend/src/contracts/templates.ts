@@ -54,7 +54,14 @@ export type EmailTemplateId =
   | 'reminder'
   | 'confirmation_pv_cloture'
   | 'departure_alert'
-  | 'restitution_due_reminder';
+  | 'restitution_due_reminder'
+  | 'bon_cancelled'
+  | 'handover_without_signature'
+  | 'closed_without_signature'
+  | 'bon_replaced'
+  | 'equipment_found'
+  | 'link_request_alert'
+  | 'contestation_overdue_alert';
 
 export type EmailTemplateCategory = 'signature' | 'contestation' | 'rappel' | 'depart';
 

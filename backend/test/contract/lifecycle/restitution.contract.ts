@@ -91,7 +91,8 @@ describe('Annuler le marquage « rendu » avant la signature (R-011)', () => {
       pendingSignature: { type: 'restitution', expired: true, itSigned: false },
     });
     expect(res.body.equipments[1].returnState).toBe('out');
-    expect((await ctx.prisma.signature.findUniqueOrThrow({ where: { id: link.id } })).invalidatedReason).toBe('modified');
+    // Motif juste pour le collaborateur : la restitution a été corrigée, pas le bon.
+    expect((await ctx.prisma.signature.findUniqueOrThrow({ where: { id: link.id } })).invalidatedReason).toBe('return_corrected');
     const audit = await ctx.prisma.auditLog.findFirst({ where: { bonId: bon.id, action: 'return_marking_undone' } });
     expect(audit).not.toBeNull();
   });
@@ -119,7 +120,7 @@ describe('Annuler le marquage « rendu » avant la signature (R-011)', () => {
     expect(itRestitutions).toHaveLength(2);
     expect(itRestitutions[0].id).toBe(signedRestitutionIt.id);
     expect(itRestitutions[0].invalidatedAt).toBeNull();
-    expect(itRestitutions[1].invalidatedReason).toBe('modified');
+    expect(itRestitutions[1].invalidatedReason).toBe('return_corrected');
   });
 
   it('tout annuler ramène le bon « En cours » ; un équipement signé ne peut pas être remis dehors', async () => {

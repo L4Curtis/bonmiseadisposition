@@ -41,15 +41,20 @@ function sign() {
 }
 
 describe('DeclareNotReturnedModal', () => {
-  it('refuse la soumission sans équipement sélectionné', async () => {
+  it('bouton inactif tant qu’aucun équipement n’est coché (IMD n° 5)', async () => {
     const user = userEvent.setup();
-    const onConfirm = vi.fn();
-    render(<DeclareNotReturnedModal equipments={equipments} onConfirm={onConfirm} onCancel={vi.fn()} loading={false} />);
+    render(<DeclareNotReturnedModal equipments={equipments} onConfirm={vi.fn()} onCancel={vi.fn()} loading={false} />);
 
-    await user.click(screen.getByRole('button', { name: /Certifier et déclarer/i }));
+    expect(screen.getByRole('button', { name: /Certifier et déclarer \(0\)/i })).toBeDisabled();
+    await user.click(screen.getAllByRole('checkbox')[0]);
+    expect(screen.getByRole('button', { name: /Certifier et déclarer \(1\)/i })).toBeEnabled();
+  });
 
-    expect(await screen.findByText('Sélectionnez au moins un équipement.')).toBeInTheDocument();
-    expect(onConfirm).not.toHaveBeenCalled();
+  it('cadre de signature de même taille que la signature IT (200 px au doigt)', () => {
+    render(<DeclareNotReturnedModal equipments={equipments} onConfirm={vi.fn()} onCancel={vi.fn()} loading={false} />);
+    const canvas = screen.getByLabelText(/Zone de signature/);
+    expect(canvas.className).toContain('h-[200px]');
+    expect(canvas).toHaveAttribute('height', '200');
   });
 
   it('refuse la soumission sans motif renseigné', async () => {

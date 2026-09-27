@@ -74,7 +74,11 @@ export function CollaborateurSection({
         </div>
         <div className="space-y-1">
           <Label htmlFor="filiale-select">Filiale *</Label>
-          <Select value={filialeId ?? ''} onValueChange={onFilialeIdChange}>
+          {/* Une filiale ne se « désélectionne » jamais : Radix renvoie une
+              valeur vide quand la filiale du bon arrive avant la liste des
+              filiales (son <select> caché n'a pas encore l'option), ce qui
+              effaçait la filiale d'un bon modifié. On l'ignore. */}
+          <Select value={filialeId ?? ''} onValueChange={(value) => { if (value) onFilialeIdChange(value); }}>
             <SelectTrigger id="filiale-select">
               <SelectValue placeholder="Sélectionner une filiale..." />
             </SelectTrigger>

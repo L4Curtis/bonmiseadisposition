@@ -17,6 +17,9 @@ import { buildBonOrderBy, BonSortField, SortOrder } from './queries/bon-order';
 import { getExportData as buildExportData } from './export/bon-csv';
 import { mapCollaborateurBons } from './bon-mappers';
 import { BON_DETAIL_SELECT, BON_SIGNATURE_SELECT, BonViewer, presentBonDetail } from './bon-view';
+import { loadBonItNotices } from './bon-it-notices';
+import { loadSignatureSignerNames, withSignerNames } from './bon-signer-names';
+import { attachNewLinkRequests } from '../signature/link-request';
 import { presentBonListItem } from './bon-list-view';
 import { BonsWorkflowContext } from './workflow/bon-context';
 import * as bonCrud from './workflow/bon-crud';
@@ -138,7 +141,16 @@ export class BonsService {
       findBonDetailOrThrow(this.prisma, id),
       this.configService.getSignatureOverdueDays(),
     ]);
-    return presentBonDetail(bon, { viewer, signatureOverdueDays });
+    if (viewer === 'holder') {
+      const [view] = await attachNewLinkRequests(this.prisma, [presentBonDetail(bon, { viewer, signatureOverdueDays })]);
+      return view;
+    }
+    const [notices, signerNames] = await Promise.all([
+      loadBonItNotices(this.prisma, bon),
+      loadSignatureSignerNames(this.prisma, bon.signatures),
+    ]);
+    const [view] = await attachNewLinkRequests(this.prisma, [presentBonDetail(bon, { viewer, signatureOverdueDays, notices })]);
+    return withSignerNames(view, signerNames);
   }
 
   /** Bon brut (select canonique), pour le rendu PDF à la demande. */
@@ -174,7 +186,8 @@ export class BonsService {
       this.configService.getSignatureOverdueDays(),
     ]);
     const now = new Date();
-    return mapCollaborateurBons(rows.map((bon) => presentBonDetail(bon, { viewer: 'holder', signatureOverdueDays, now })));
+    const views = rows.map((bon) => presentBonDetail(bon, { viewer: 'holder', signatureOverdueDays, now }));
+    return mapCollaborateurBons(await attachNewLinkRequests(this.prisma, views));
   }
 
   /** Contrôles avant la remise (lignes sans numéro, séries en circulation). */
@@ -214,8 +227,14 @@ export class BonsService {
     return { bon: await this.detail(id), token };
   }
 
-  async initiateRestitution(id: string, actorId: string | null, returnedEquipmentIds?: string[], inPerson = false) {
-    await bonRestitution.initiateRestitution(this.ctx, id, actorId, returnedEquipmentIds, inPerson);
+  async initiateRestitution(
+    id: string,
+    actorId: string | null,
+    returnedEquipmentIds?: string[],
+    inPerson = false,
+    undoEquipmentIds: string[] = [],
+  ) {
+    await bonRestitution.initiateRestitution(this.ctx, id, actorId, returnedEquipmentIds, inPerson, undoEquipmentIds);
     return this.detail(id);
   }
 

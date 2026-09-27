@@ -76,7 +76,7 @@ export function BonModals({ bon, actions }: BonModalsProps) {
         <RestitutionModal
           equipments={bon.equipments}
           channel={dialog.channel}
-          onConfirm={(ids) => void actions.confirmRestitution(ids, dialog.channel)}
+          onConfirm={(ids, undoIds) => void actions.confirmRestitution(ids, dialog.channel, undoIds)}
           onCancel={close}
           loading={actionLoading === 'restitution'}
         />

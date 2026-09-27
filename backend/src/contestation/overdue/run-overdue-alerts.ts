@@ -7,14 +7,17 @@ import { resolveAppUrl } from '../../notification/app-url';
 import { logFailedNotification, logNotificationResult } from '../../notification/notification-log';
 import { CONTESTATION_OVERDUE_AFTER_DAYS, PENDING_CONTESTATION_STATUSES, overdueThreshold } from '../contestation-selects';
 import {
-  buildContestationOverdueAlert,
+  renderContestationOverdueAlert,
   OverdueContestationItem as OverdueContestation,
+  TemplateRenderer,
 } from '../../templates/contestation-overdue-alert';
 
 export interface OverdueAlertDeps {
   prisma: PrismaService;
   configService: AppConfigService;
   notificationService: NotificationService;
+  /** Rend le modèle personnalisable `contestation_overdue_alert` (TemplatesService). */
+  templatesService: TemplateRenderer;
   logger: Logger;
 }
 
@@ -111,7 +114,11 @@ export async function runContestationOverdueAlerts(
     return { overdue: overdue.length, alerted: 0 };
   }
 
-  const { subject, html } = buildContestationOverdueAlert(due, { appUrl, afterDays: CONTESTATION_OVERDUE_AFTER_DAYS, now });
+  const { subject, html } = await renderContestationOverdueAlert(deps.templatesService, due, {
+    appUrl,
+    afterDays: CONTESTATION_OVERDUE_AFTER_DAYS,
+    now,
+  });
   const results = await Promise.all(recipients.map((to) => deps.notificationService.sendEmail(to, subject, html)));
   const anyOk = results.some((r) => r.ok);
   const error = results.filter((r) => !r.ok).map((r) => r.error ?? "Erreur d'envoi inconnue").join('; ');

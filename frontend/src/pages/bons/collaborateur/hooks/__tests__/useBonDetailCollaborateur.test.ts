@@ -128,12 +128,12 @@ describe('useBonDetailCollaborateur', () => {
     await waitFor(() => expect(result.current.bon).not.toBeNull());
 
     await act(async () => {
-      await result.current.openPdf('signature_collab_mise_disposition');
+      await result.current.openPdf('3f1c2a4e-9b8d-4c7e-a1f2-0d9e8c7b6a51');
     });
 
     expect(open).toHaveBeenCalledWith('', '_blank');
     expect(tab.opener).toBeNull();
-    expect(api.getBlob).toHaveBeenCalledWith('/bons/b1/pdf?type=mise_disposition&stage=signature_collab_mise_disposition');
+    expect(api.getBlob).toHaveBeenCalledWith('/bons/b1/pdf?snapshot=3f1c2a4e-9b8d-4c7e-a1f2-0d9e8c7b6a51');
     expect(tab.location.href).toBe('blob:fake-url');
     expect(result.current.pdfLoading).toBeNull();
     URL.createObjectURL = originalCreate;
@@ -146,7 +146,7 @@ describe('useBonDetailCollaborateur', () => {
     const { result } = renderHook(() => useBonDetailCollaborateur('b1'));
     await waitFor(() => expect(result.current.bon).not.toBeNull());
     await act(async () => {
-      await result.current.openPdf('signature_collab_mise_disposition');
+      await result.current.openPdf('3f1c2a4e-9b8d-4c7e-a1f2-0d9e8c7b6a51');
     });
     expect(api.getBlob).not.toHaveBeenCalled();
     expect(toast).toHaveBeenCalledWith(expect.objectContaining({ variant: 'destructive', description: expect.stringMatching(/pop-up/) }));
@@ -161,7 +161,7 @@ describe('useBonDetailCollaborateur', () => {
     const { result } = renderHook(() => useBonDetailCollaborateur('b1'));
     await waitFor(() => expect(result.current.bon).not.toBeNull());
     await act(async () => {
-      await result.current.openPdf('signature_collab_mise_disposition');
+      await result.current.openPdf('3f1c2a4e-9b8d-4c7e-a1f2-0d9e8c7b6a51');
     });
     expect(tab.close).toHaveBeenCalled();
     expect(toast).toHaveBeenCalledWith(expect.objectContaining({ description: 'Document introuvable', variant: 'destructive' }));

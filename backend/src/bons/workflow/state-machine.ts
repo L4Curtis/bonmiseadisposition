@@ -167,13 +167,31 @@ function statusRefusal(action: BonActionName): string {
   return STATUS_REFUSALS[action] ?? 'Cette action n’est pas possible dans l’état actuel du bon.';
 }
 
+/**
+ * Contexte de la fiche que les équipements ne disent pas. `correction` : une
+ * contestation Fondée a rouvert ce document (restitution ou PV) et rien n'a
+ * encore été corrigé (voir bon-it-notices.ts) — il faut corriger avant de
+ * relancer la signature, sinon on renverrait le même document faux.
+ */
+export interface BonActionContext {
+  readonly correction?: LinkSignatureType | null;
+}
+
+/** Geste de correction proposé en premier pour chaque document rouvert. */
+const CORRECTION_ACTIONS: Readonly<Partial<Record<LinkSignatureType, BonActionName>>> = Object.freeze({
+  restitution: 'undo_return',
+  pv_cloture: 'mark_found',
+});
+
 /** Action recommandée : ce que l'équipe informatique a à faire maintenant,
  *  ou null quand il suffit d'attendre (lien valide chez le collaborateur,
  *  prêt en cours). */
-export function primaryAction(f: BonFacts): BonActionName | null {
+export function primaryAction(f: BonFacts, context: BonActionContext = {}): BonActionName | null {
   if (f.status === 'draft') return f.canSendLink ? 'send' : 'send_in_person';
   const document = pendingDocument(f);
   if (document) {
+    const correction = context.correction === document ? CORRECTION_ACTIONS[document] : undefined;
+    if (correction && actionBlockedReason(correction, f) === null) return correction;
     if (f.hasValidLink) return null;
     return f.canSendLink ? 'resend' : 'show_in_person_link';
   }
@@ -186,8 +204,8 @@ export function primaryAction(f: BonFacts): BonActionName | null {
  * le motif qui en bloque certaines (un envoi par email vers un compte
  * désactivé, par exemple), l'action principale en tête.
  */
-export function availableActions(f: BonFacts): BonAvailableAction[] {
-  const primary = primaryAction(f);
+export function availableActions(f: BonFacts, context: BonActionContext = {}): BonAvailableAction[] {
+  const primary = primaryAction(f, context);
   const actions = BON_ACTION_ORDER.filter((action) => isActionInScope(action, f)).map((action) => ({
     action,
     primary: action === primary,

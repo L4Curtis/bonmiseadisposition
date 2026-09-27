@@ -67,6 +67,9 @@ export interface EditableBon {
   dateRestitution?: string | null;
   notes?: string | null;
   internalNote?: string | null;
+  /** Bon que celui-ci remplace (contestation Fondée sur une remise) : ses
+   *  numéros de série ne sont pas des conflits. */
+  replaces?: { id: string; reference: string } | null;
   collaborateur: UserResult;
   equipments: Array<{
     catalogItem?: { id: string; brand: string; model: string } | null;

@@ -6,6 +6,9 @@ import { InventoryByCollaborateurQueryDto } from './dto/inventory-by-collaborate
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthUser } from '../auth/auth-user.interface';
+import { isItRole } from '../common/roles';
 
 /** Vue « Inventaire du parc prêté » — équipements actuellement entre les
  *  mains des collaborateurs (accès IT : admin + technicien ; lecture seule
@@ -57,8 +60,13 @@ export class InventoryController {
     return result;
   }
 
+  /** La direction, qui n'ouvre pas les bons, ne reçoit pas le motif de
+   *  non-restitution saisi par l'IT dans la déclaration (situation « Non
+   *  restitué ») ; l'équipement, son collaborateur et sa situation restent. */
   @Get()
-  getInventory(@Query() dto: InventoryQueryDto) {
-    return this.inventoryService.getInventory(dto);
+  async getInventory(@Query() dto: InventoryQueryDto, @CurrentUser() user: AuthUser) {
+    const result = await this.inventoryService.getInventory(dto);
+    if (isItRole(user.role)) return result;
+    return { ...result, items: result.items.map((item) => ({ ...item, notReturnedReason: null })) };
   }
 }

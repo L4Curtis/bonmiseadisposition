@@ -15,12 +15,13 @@ import type {
   InventoryFiliale,
   InventoryItem,
   InventoryListResponse,
+  InventorySituation,
   InventorySummaryResponse,
   ParcCategoryCount,
   ParcFilialeCount,
   ParcSituationCount,
 } from '../../../src/contracts/inventory';
-import { enumOf, equipmentCategory } from '../support/common-shapes';
+import { bonStatus, enumOf, equipmentCategory } from '../support/common-shapes';
 import {
   absent,
   arrayOf,
@@ -44,6 +45,14 @@ export const equipmentSituation = enumOf<EquipmentSituation>({
   en_litige: true,
 });
 
+/** Situation d'une ligne de l'inventaire : celles du parc, ou « Non restitué ». */
+export const inventorySituation = enumOf<InventorySituation>({
+  en_attente_signature: true,
+  en_circulation: true,
+  en_litige: true,
+  non_restitue: true,
+});
+
 export const parcBonStatus = literal('sent_mise_dispo', 'active', 'sent_restitution', 'partially_returned', 'contested');
 
 export const parcCategoryCount = object<ParcCategoryCount>({ category: equipmentCategory, label: str, count: int });
@@ -59,9 +68,10 @@ const inventoryItem = object<InventoryItem>({
   inventoryNumber: nullable(str),
   bonId: uuid,
   bonReference: str,
-  bonStatus: parcBonStatus,
-  situation: equipmentSituation,
+  bonStatus,
+  situation: inventorySituation,
   situationLabel: str,
+  notReturnedReason: nullable(str),
   dateMiseDisposition: isoDate,
   dateRestitution: nullable(isoDate),
   collaborateur: object<InventoryCollaborateur>({
@@ -87,6 +97,7 @@ export const inventorySummary = object<InventorySummaryResponse>({
   byFiliale: arrayOf(parcFilialeCount, { minLength: 1 }),
   bySituation: arrayOf(parcSituationCount, { minLength: 3 }),
   overdue: int,
+  notReturned: int,
 });
 
 export const inventoryByCollaborateur = object<InventoryByCollaborateurResponse>({

@@ -1,6 +1,12 @@
 import { Prisma, EquipmentCategory } from '@prisma/client';
-import { SITUATION_LABELS, situationForBonStatus } from '../common/bon-predicates';
 import { categoryLabel } from '../common/category-labels';
+import {
+  InventorySituation,
+  NOT_RETURNED_LABEL,
+  NOT_RETURNED_SITUATION,
+  SITUATION_LABELS,
+  situationForBonStatus,
+} from '../common/bon-predicates';
 
 /** Sélection Prisma commune à la liste paginée et à l'export CSV de
  *  l'inventaire — isolée ici pour que `InventoryRow` (le type de ligne brute)
@@ -10,6 +16,8 @@ export const ITEM_SELECT = {
   customLabel: true,
   serialNumber: true,
   inventoryNumber: true,
+  notReturned: true,
+  notReturnedReason: true,
   catalogItem: { select: { category: true, brand: true, model: true } },
   bon: {
     select: {
@@ -28,6 +36,19 @@ export const ITEM_SELECT = {
 
 export type InventoryRow = Prisma.BonEquipmentGetPayload<{ select: typeof ITEM_SELECT }>;
 
+/** Situation affichée : « Non restitué » pour un équipement déclaré non
+ *  restitué (bon clôturé compris), sinon celle du parc, tirée du statut du bon. */
+function situationOf(row: InventoryRow): { situation: InventorySituation; situationLabel: string } {
+  if (row.notReturned) return { situation: NOT_RETURNED_SITUATION, situationLabel: NOT_RETURNED_LABEL };
+  const situation = situationForBonStatus(row.bon.status);
+  if (!situation) {
+    // Ne doit jamais arriver : buildWhere restreint bon.status aux statuts
+    // couverts par PARC_BON_STATUSES (voir buildParcEquipmentWhere).
+    throw new Error(`Statut de bon hors du parc en circulation dans l'inventaire : ${row.bon.status}`);
+  }
+  return { situation, situationLabel: SITUATION_LABELS[situation] };
+}
+
 /** Transforme une ligne `BonEquipment` (+ relations) vers la forme consommée
  *  par le frontend (`GET /reporting/inventory`) et par l'export CSV. */
 export function toInventoryItem(row: InventoryRow) {
@@ -36,12 +57,7 @@ export function toInventoryItem(row: InventoryRow) {
     ? `${row.catalogItem.brand} ${row.catalogItem.model}`
     : row.customLabel ?? 'Équipement';
 
-  const situation = situationForBonStatus(row.bon.status);
-  if (!situation) {
-    // Ne doit jamais arriver : buildWhere restreint bon.status aux statuts
-    // couverts par PARC_BON_STATUSES (voir buildParcEquipmentWhere).
-    throw new Error(`Statut de bon hors du parc en circulation dans l'inventaire : ${row.bon.status}`);
-  }
+  const { situation, situationLabel } = situationOf(row);
 
   return {
     equipmentId: row.id,
@@ -54,7 +70,8 @@ export function toInventoryItem(row: InventoryRow) {
     bonReference: row.bon.reference,
     bonStatus: row.bon.status,
     situation,
-    situationLabel: SITUATION_LABELS[situation],
+    situationLabel,
+    notReturnedReason: row.notReturned ? row.notReturnedReason : null,
     dateMiseDisposition: row.bon.dateMiseDisposition,
     dateRestitution: row.bon.dateRestitution,
     collaborateur: row.bon.collaborateur,

@@ -4,6 +4,7 @@ import type {
   BonAvailableAction,
   BonCatalogItemSummary,
   BonCollaborateur,
+  BonContestationNotice,
   BonCreatedBy,
   BonDetail,
   BonEquipment,
@@ -16,6 +17,7 @@ import type {
   BonListItem,
   BonListPendingSignature,
   BonListResponse,
+  BonLinkRequest,
   BonNotificationLog,
   BonRef,
   BonStatsFiliale,
@@ -25,6 +27,7 @@ import type {
   InitiateInPersonResponse,
   ItCachetSignature,
   LinkRefusal,
+  LinkSignatureType,
   LinkRefusalReason,
   MissingPdfSnapshotsResponse,
   MissingSerialLine,
@@ -90,6 +93,8 @@ const pendingSignature = object<PendingSignature>({
   itSigned: bool,
   sentAt: nullable(isoDate),
   expiresAt: nullable(isoDate),
+  // Fiche et portail seulement (la liste IT ne la calcule pas).
+  newLinkRequestedAt: optional(nullable(isoDate)),
 });
 
 const bonLateness = object<BonLateness>({ signatureDays: nullable(int), returnDays: nullable(int) });
@@ -130,6 +135,21 @@ const linkRefusal = object<LinkRefusal>({
 
 const bonRef = object<BonRef>({ id: uuid, reference: str });
 
+const reopenableDocument = enumOf<LinkSignatureType>({ mise_disposition: true, restitution: true, pv_cloture: true });
+
+const contestationNotice = object<BonContestationNotice>({
+  id: uuid,
+  stage: enumOf<BonContestationNotice['stage']>({ open: true, correction: true }),
+  message: str,
+  createdAt: isoDate,
+  contestedDocument: nullable(reopenableDocument),
+  reviewedBy: nullable(object<{ id: string; displayName: string }>({ id: uuid, displayName: str })),
+  resolvedAt: nullable(isoDate),
+  resolutionMessage: nullable(str),
+});
+
+const linkRequest = object<BonLinkRequest>({ requestedAt: isoDate, documentType: reopenableDocument });
+
 /** Champs de la fiche ajoutés par la vague 2, visibles du titulaire. */
 const wave2BonFields = {
   subStatus: optional(nullable(bonSubStatus)),
@@ -150,6 +170,8 @@ const itOnlyBonFields = {
   internalNote: optional(nullable(str)),
   linkRefusal: optional(nullable(linkRefusal)),
   availableActions: optional(arrayOf(availableAction)),
+  contestation: optional(nullable(contestationNotice)),
+  linkRequest: optional(nullable(linkRequest)),
 };
 
 /** Filiale complète ; `stampPath` n'est renvoyé qu'à l'IT (voir le contrat). */
@@ -213,6 +235,7 @@ export const safeSignatureFields = {
   invalidatedAt: optional(nullable(isoDate)),
   invalidatedReason: optional(nullable(signatureInvalidationReason)),
   signedByProxy: optional(bool),
+  signerName: optional(nullable(str)),
 };
 
 export const safeSignature = object<SafeSignature>(safeSignatureFields);
@@ -346,7 +369,19 @@ export const bonIntegrity = object<BonIntegrityResponse>({
 });
 
 export const pdfSnapshots = arrayOf(
-  object<PdfSnapshotInfo>({ type: pdfSnapshotType, filename: str, createdAt: isoDate, sha256: nullable(str) }),
+  object<PdfSnapshotInfo>({
+    id: str,
+    type: pdfSnapshotType,
+    filename: str,
+    createdAt: isoDate,
+    sha256: nullable(str),
+    signatureType: nullable(signatureType),
+    sequence: int,
+    sequenceCount: int,
+    latest: bool,
+    supersededAt: nullable(isoDate),
+    supersededReason: nullable(signatureInvalidationReason),
+  }),
   { minLength: 1 },
 );
 

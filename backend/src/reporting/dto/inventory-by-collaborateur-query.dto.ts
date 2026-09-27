@@ -1,7 +1,7 @@
 import { Transform, Type } from 'class-transformer';
 import { IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
 import { EquipmentCategory } from '@prisma/client';
-import { EquipmentSituation, SITUATION_ORDER } from '../../common/bon-predicates';
+import { INVENTORY_SITUATIONS, InventorySituation } from '../../common/bon-predicates';
 import { COMPTE_FILTER_VALUES, CompteFilter, InventoryWhereFilters, toBoolean, trimSearch } from './inventory-query.dto';
 
 /** Tri du regroupement par collaborateur : `count` (défaut, nombre
@@ -28,8 +28,8 @@ export class InventoryByCollaborateurQueryDto implements InventoryWhereFilters {
   category?: EquipmentCategory;
 
   @IsOptional()
-  @IsIn(SITUATION_ORDER)
-  situation?: EquipmentSituation;
+  @IsIn(INVENTORY_SITUATIONS)
+  situation?: InventorySituation;
 
   @IsOptional()
   @Transform(toBoolean)
@@ -41,6 +41,12 @@ export class InventoryByCollaborateurQueryDto implements InventoryWhereFilters {
   @Transform(toBoolean)
   @IsBoolean()
   sansNumeroSerie?: boolean;
+
+  /** Même filtre que InventoryQueryDto.horsCatalogue. */
+  @IsOptional()
+  @Transform(toBoolean)
+  @IsBoolean()
+  horsCatalogue?: boolean;
 
   @IsOptional()
   @IsString()

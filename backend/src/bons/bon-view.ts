@@ -5,6 +5,7 @@ import { parisDaysSince } from '../common/dates/paris';
 import { canSendLink } from '../common/can-send-link';
 import { computeBonFacts, computePendingSignature, equipmentReturnState, lastSignedRestitutionAt } from './workflow/bon-facts';
 import { availableActions, BonFacts, pendingDocument, subStatus } from './workflow/state-machine';
+import type { BonItNotices } from './bon-it-notices';
 
 /**
  * Fiche d'un bon telle que l'API la renvoie : les colonnes du bon, plus ce que
@@ -55,6 +56,9 @@ export interface BonViewOptions {
   readonly viewer: BonViewer;
   readonly signatureOverdueDays: number;
   readonly now?: Date;
+  /** Rappels de la fiche IT (contestation, demande de nouveau lien), lus à
+   *  part (voir bon-it-notices.ts) ; absents : aucun rappel. */
+  readonly notices?: BonItNotices;
 }
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -105,11 +109,15 @@ export function presentBonDetail(bon: BonDetailRow, options: BonViewOptions) {
     collaborateurActive: active,
   };
   if (options.viewer === 'holder') return shared;
+  const contestation = options.notices?.contestation ?? null;
+  const correction = contestation?.stage === 'correction' ? contestation.contestedDocument : null;
   return {
     ...shared,
     internalNote,
     linkRefusal: linkRefusalOf(collaborateur),
-    availableActions: availableActions(facts),
+    availableActions: availableActions(facts, { correction }),
+    contestation,
+    linkRequest: options.notices?.linkRequest ?? null,
   };
 }
 

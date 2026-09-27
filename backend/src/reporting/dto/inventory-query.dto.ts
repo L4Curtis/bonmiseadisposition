@@ -1,7 +1,7 @@
 import { Transform, Type } from 'class-transformer';
 import { IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
 import { EquipmentCategory } from '@prisma/client';
-import { EquipmentSituation, SITUATION_ORDER } from '../../common/bon-predicates';
+import { INVENTORY_SITUATIONS, InventorySituation } from '../../common/bon-predicates';
 
 /** Champs de tri supportés par GET /reporting/inventory (et son export CSV) —
  *  liste blanche stricte : toute autre valeur est refusée (400). Une colonne
@@ -60,13 +60,15 @@ export interface InventoryWhereFilters {
   filialeId?: string;
   category?: EquipmentCategory;
   collaborateurId?: string;
-  situation?: EquipmentSituation;
+  situation?: InventorySituation;
   overdue?: boolean;
   search?: string;
   /** cf. COMPTE_FILTER_VALUES — seule InventoryByCollaborateurQueryDto le déclare. */
   compte?: CompteFilter;
   /** Qualité des données : matériel sans numéro de série (NULL ou vide). */
   sansNumeroSerie?: boolean;
+  /** Qualité des données : matériel saisi en texte libre, hors Catalogue. */
+  horsCatalogue?: boolean;
 }
 
 /** Query DTO commun à la liste paginée et à l'export CSV de l'inventaire du
@@ -84,11 +86,13 @@ export class InventoryQueryDto implements InventoryWhereFilters {
   @IsUUID()
   collaborateurId?: string;
 
-  /** Filtre optionnel sur la situation de l'équipement (cf. bon-predicates.ts) —
-   *  en_attente_signature / en_circulation / en_litige. */
+  /** Filtre optionnel sur la situation de l'équipement : l'une des trois du
+   *  parc (en_attente_signature / en_circulation / en_litige, cf.
+   *  bon-predicates.ts), ou `non_restitue`, qui remplace le parc par les
+   *  équipements encore non restitués (cf. buildNotReturnedEquipmentWhere). */
   @IsOptional()
-  @IsIn(SITUATION_ORDER)
-  situation?: EquipmentSituation;
+  @IsIn(INVENTORY_SITUATIONS)
+  situation?: InventorySituation;
 
   /** Filtre « en retard de restitution » (dateRestitution < aujourd'hui,
    *  Europe/Paris) — indépendant de `situation` : un équipement en_circulation
@@ -106,6 +110,12 @@ export class InventoryQueryDto implements InventoryWhereFilters {
   @Transform(toBoolean)
   @IsBoolean()
   sansNumeroSerie?: boolean;
+
+  /** Qualité des données : équipements hors Catalogue (carte « Hors catalogue »). */
+  @IsOptional()
+  @Transform(toBoolean)
+  @IsBoolean()
+  horsCatalogue?: boolean;
 
   @IsOptional()
   @IsString()

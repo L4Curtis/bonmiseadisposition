@@ -58,7 +58,9 @@ export function BonDetailCollaborateurPage() {
         <DocumentCard doc={toSign} showBonLink={false} onContest={(target) => openContestation(target.document)} />
       )}
 
-      {contestation && <MyContestationCard contestation={contestation} />}
+      {contestation && (
+        <MyContestationCard contestation={contestation} outcomeShownAbove={toSign?.underCorrection ?? false} />
+      )}
 
       {canContestHandover && (
         <button
@@ -70,7 +72,7 @@ export function BonDetailCollaborateurPage() {
         </button>
       )}
 
-      <CollabEquipmentList bon={bon} />
+      <CollabEquipmentList bon={bon} underCorrection={toSign?.underCorrection ?? false} />
 
       <CollabDatesAndSignatures bon={bon} />
 

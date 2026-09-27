@@ -21,8 +21,8 @@ export interface UseBonDetailCollaborateurReturn {
   pdfLoading: string | null;
   showContestation: boolean;
   setShowContestation: (show: boolean) => void;
-  /** Ouvre le document de cette étape dans le navigateur. */
-  openPdf: (stage: string) => Promise<void>;
+  /** Ouvre ce document précis (son identifiant) dans le navigateur. */
+  openPdf: (snapshotId: string) => Promise<void>;
   handleContestationSuccess: () => void;
 }
 
@@ -41,7 +41,10 @@ async function loadDetail(id: string): Promise<DetailData> {
     api.get<MyContestationsResponse>('/contestations/mine').catch(() => []),
   ]);
   const portalBon = myBons.find((b) => b.id === id);
-  const toSign = portalBon ? (classifyPortal([portalBon]).toSign[0] ?? null) : null;
+  // Document en attente du bon, à signer ou en cours de correction : la fiche
+  // montre sa carte dans les deux cas.
+  const groups = portalBon ? classifyPortal([portalBon]) : null;
+  const toSign = groups ? (groups.toSign[0] ?? groups.inCorrection[0] ?? null) : null;
   return { bon, toSign, contestation: latestContestationByBon(mine).get(id) ?? null };
 }
 
@@ -78,7 +81,7 @@ export function useBonDetailCollaborateur(id: string | undefined): UseBonDetailC
   // Le PDF s'ouvre dans le navigateur (lecteur intégré du téléphone) plutôt
   // que d'être téléchargé. L'onglet est ouvert AVANT toute attente : ouvert
   // après un `await`, Safari iOS le bloquerait (voir loadBlobIntoTab).
-  const openPdf = async (stage: string) => {
+  const openPdf = async (snapshotId: string) => {
     const bon = data?.bon;
     if (!bon) return;
     const win = window.open('', '_blank');
@@ -87,8 +90,10 @@ export function useBonDetailCollaborateur(id: string | undefined): UseBonDetailC
       return;
     }
     win.opener = null;
-    setPdfLoading(stage);
-    const params = new URLSearchParams({ type: 'mise_disposition', stage });
+    setPdfLoading(snapshotId);
+    // Le document précis, tel qu'il a été signé (plusieurs restitutions
+    // peuvent coexister : jamais « le dernier du type »).
+    const params = new URLSearchParams({ snapshot: snapshotId });
     const error = await loadBlobIntoTab(win, () => api.getBlob(`/bons/${bon.id}/pdf?${params}`));
     setPdfLoading(null);
     if (error) toast({ title: 'Document non ouvert', description: error, variant: 'destructive' });

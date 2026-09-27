@@ -11,6 +11,9 @@ import { KpiTodayService } from './kpi-today.service';
 import { KpiTodayResponse } from './today/today-types';
 import { resolvePeriod, KpiPeriod } from './kpi-period';
 import { KpiParcResponse, KpiDelaisResponse, KpiIncidentsResponse } from './kpi-types';
+import { KpiListQueryDto } from './dto/kpi-list-query.dto';
+import { KpiListService } from './lists/kpi-list.service';
+import type { KpiListResponse } from '../contracts/kpi';
 
 /** Clé de cache partagée par les trois endpoints KPI — exportée pour être
  *  vérifiée telle quelle par les tests (indépendante du rôle appelant). */
@@ -18,9 +21,10 @@ export function cacheKey(endpoint: string, period: KpiPeriod, filialeId?: string
   return `kpi:${endpoint}:${period.from}:${period.to}:${filialeId ?? ''}`;
 }
 
-/** Tableau de bord : accueil IT (`aujourdhui`), parc, délais, incidents.
- *  Parc, délais et incidents : IT (admin, technician) et Direction (lecture
- *  seule) ; l'accueil : IT seulement. */
+/** Tableau de bord : accueil IT (`aujourdhui`), parc, délais, incidents, et
+ *  liste d'un chiffre (`liste`). Parc, délais et incidents : IT (admin,
+ *  technician) et Direction (lecture seule) ; l'accueil et les listes : IT
+ *  seulement. */
 @Controller('kpi')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('admin', 'technician', 'direction')
@@ -31,6 +35,7 @@ export class KpiController {
     private readonly delaisService: KpiDelaisService,
     private readonly incidentsService: KpiIncidentsService,
     private readonly todayService: KpiTodayService,
+    private readonly listService: KpiListService,
   ) {}
 
   /** Accueil IT « Aujourd'hui » : états du jour, sans période ni cache (la
@@ -40,6 +45,16 @@ export class KpiController {
   @Roles('admin', 'technician')
   getToday(): Promise<KpiTodayResponse> {
     return this.todayService.getToday();
+  }
+
+  /** Liste de ce que compte une carte « sur la période » (bons, PV, remises
+   *  et clôtures sans signature, contestations, emails), pour la même période
+   *  et la même filiale. IT seulement : chaque ligne mène à un bon. Jamais en
+   *  cache, pour concorder avec le bon ouvert ensuite. */
+  @Get('liste')
+  @Roles('admin', 'technician')
+  getList(@Query() query: KpiListQueryDto): Promise<KpiListResponse> {
+    return this.listService.getList(query);
   }
 
   @Get('parc')

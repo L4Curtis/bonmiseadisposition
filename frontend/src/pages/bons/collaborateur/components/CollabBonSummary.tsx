@@ -1,6 +1,6 @@
 import { CheckCircle2, ExternalLink, FileText, Loader2 } from 'lucide-react';
 import type { PdfSnapshotInfo } from '@/contracts/bons';
-import { formatDateLong } from '@/lib/dates';
+import { formatDateLong, formatTime } from '@/lib/dates';
 import { collaboratorDocuments, collaboratorSignatures, CollaboratorBon } from '../lib/collaborator-view';
 
 function Row({ label, value }: { label: string; value: string }) {
@@ -35,12 +35,13 @@ export function CollabDatesAndSignatures({ bon }: { bon: CollaboratorBon }) {
 interface CollabDocumentsProps {
   snapshots: readonly PdfSnapshotInfo[];
   pdfLoading: string | null;
-  /** Ouvre le document dans le navigateur (pas de téléchargement). */
-  onOpen: (stage: string) => void;
+  /** Ouvre le document (par son identifiant) dans le navigateur. */
+  onOpen: (snapshotId: string) => void;
 }
 
-/** Documents du bon : un par étape, nommés, un seul geste chacun (R-092),
- *  ouverts dans le navigateur du téléphone. */
+/** Documents du bon : chacun avec sa date et son heure (deux restitutions le
+ *  même jour restent distinctes), un seul geste chacun (R-092), ouverts dans
+ *  le navigateur du téléphone. */
 export function CollabDocuments({ snapshots, pdfLoading, onOpen }: CollabDocumentsProps) {
   const documents = collaboratorDocuments(snapshots);
   return (
@@ -53,22 +54,24 @@ export function CollabDocuments({ snapshots, pdfLoading, onOpen }: CollabDocumen
       ) : (
         <ul className="space-y-2">
           {documents.map((doc) => (
-            <li key={doc.type}>
+            <li key={doc.id}>
               <button
                 type="button"
-                onClick={() => onOpen(doc.type)}
+                onClick={() => onOpen(doc.id)}
                 disabled={!!pdfLoading}
-                aria-label={`Ouvrir ${doc.label}`}
+                aria-label={`Ouvrir ${doc.label} du ${formatDateLong(doc.createdAt)}`}
                 className="w-full min-h-11 flex items-center justify-between gap-3 rounded-xl border bg-card px-4 py-2 text-left text-sm shadow-sm hover:bg-muted/40 disabled:opacity-60"
               >
-                <span>
-                  <span className="font-medium">{doc.label}</span>
-                  <span className="block text-xs text-muted-foreground">du {formatDateLong(doc.createdAt)}</span>
+                <span className="min-w-0">
+                  <span className="font-medium break-words">{doc.label}</span>
+                  <span className="block text-xs text-muted-foreground">
+                    du {formatDateLong(doc.createdAt)} à {formatTime(doc.createdAt)}
+                  </span>
                 </span>
-                {pdfLoading === doc.type ? (
-                  <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />
+                {pdfLoading === doc.id ? (
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin motion-reduce:animate-none" />
                 ) : (
-                  <ExternalLink className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                  <ExternalLink className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
                 )}
               </button>
             </li>

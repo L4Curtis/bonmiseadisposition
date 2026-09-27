@@ -77,6 +77,10 @@ export interface PendingSignature {
   sentAt: IsoDateTime | null;
   /** Échéance du dernier lien, `null` s'il n'y en a pas ou s'il a été invalidé. */
   expiresAt: IsoDateTime | null;
+  /** Le collaborateur a demandé un nouveau lien depuis l'envoi du dernier :
+   *  date de sa demande (l'IT a été prévenue une fois, ne la réalertez pas),
+   *  `null` sinon. Renseigné par `GET /bons/mes-bons` et `GET /bons/:id`. */
+  newLinkRequestedAt?: IsoDateTime | null;
 }
 
 /**
@@ -252,6 +256,10 @@ export interface SafeSignature {
    *  (`signerEmail` est alors celui du technicien présent). Renseigné par le
    *  lot 2A sur la fiche. */
   signedByProxy?: boolean;
+  /** Nom du compte de `signerEmail` (technicien d'une signature IT, témoin au
+   *  guichet), `null` si l'adresse ne correspond à aucun compte. Renseigné sur
+   *  la fiche IT seulement. */
+  signerName?: string | null;
 }
 
 // ─── Fiche d'un bon (BON_SELECT_SHAPE) ────────────────────────────────────────
@@ -311,11 +319,48 @@ export interface BonDetail {
   /** Actions possibles maintenant, l'action principale en tête (machine à
    *  états). Réservé à l'IT. Renseigné par le lot 2A. */
   availableActions?: BonAvailableAction[];
+  /** Contestation à rappeler sur la fiche (voir `BonContestationNotice`),
+   *  `null` sinon. Réservé à l'IT. */
+  contestation?: BonContestationNotice | null;
+  /** Le collaborateur a demandé un nouveau lien pour le document en attente,
+   *  depuis le dernier envoi ; `null` sinon. Réservé à l'IT. */
+  linkRequest?: BonLinkRequest | null;
+}
+
+/**
+ * Contestation rappelée sur la fiche IT :
+ *  - `open` : en attente de décision (bon « Contesté ») — la fiche propose
+ *    « Traiter la contestation » ;
+ *  - `correction` : Fondée sur une restitution ou un PV, le bon est rouvert et
+ *    rien n'a encore été corrigé (ni marquage, ni nouvelle signature IT, ni
+ *    nouveau lien) — la fiche met la correction en action principale.
+ */
+export interface BonContestationNotice {
+  id: string;
+  stage: 'open' | 'correction';
+  /** Motif écrit par le collaborateur. */
+  message: string;
+  createdAt: IsoDateTime;
+  /** Document contesté (`null` pour une contestation d'avant la vague 2). */
+  contestedDocument: LinkSignatureType | null;
+  /** « Pris en charge par ». */
+  reviewedBy: { id: string; displayName: string } | null;
+  /** Date de la décision (étape `correction`), `null` tant qu'elle est ouverte. */
+  resolvedAt: IsoDateTime | null;
+  /** Réponse de l'IT au collaborateur (étape `correction`). */
+  resolutionMessage: string | null;
+}
+
+/** Demande de nouveau lien faite par le collaborateur (lien expiré). */
+export interface BonLinkRequest {
+  requestedAt: IsoDateTime;
+  /** Document concerné. */
+  documentType: LinkSignatureType;
 }
 
 /** Champs de la fiche réservés à l'équipe informatique : jamais renvoyés au
  *  collaborateur, même titulaire du bon. */
-export type BonItOnlyField = 'internalNote' | 'linkRefusal' | 'availableActions';
+export type BonItOnlyField = 'internalNote' | 'linkRefusal' | 'availableActions' | 'contestation' | 'linkRequest';
 
 /** GET /api/bons/:id — fiche d'un bon (IT, ou titulaire du bon quel que soit
  *  son rôle). */
@@ -485,15 +530,41 @@ export interface BonIntegrityResponse {
   signatures: SignatureIntegrity[];
 }
 
-/** Document de preuve PDF enregistré pour le bon (sans son contenu). */
+/**
+ * Document de preuve PDF enregistré pour le bon (sans son contenu). Un
+ * document par signature, jamais écrasé : un même `type` peut revenir
+ * plusieurs fois (deux restitutions, remise signée de nouveau après une
+ * modification), chacun avec sa propre date et sa propre empreinte.
+ */
 export interface PdfSnapshotInfo {
+  /** Identifiant du document : `GET /api/bons/:id/pdf?snapshot=<id>` le télécharge. */
+  id: string;
   type: PdfSnapshotType;
+  /** Nom lisible du fichier (référence, collaborateur, document, date et heure). */
   filename: string;
+  /** Moment où le document a été produit (celui de sa signature). */
   createdAt: IsoDateTime;
+  /** Empreinte SHA-256 : la même que celle tracée dans le journal d'audit. */
   sha256: string | null;
+  /** Type de la signature dont ce document est la preuve : `it_cachet` pour
+   *  une version signée par l'IT seule (PV émis, signature IT d'une remise ou
+   *  d'une restitution), le type du collaborateur quand il a signé ce
+   *  document. `null` : geste sans signature, ou document antérieur. */
+  signatureType: SignatureType | null;
+  /** Rang du document parmi ceux du même type, du plus ancien (1) au plus récent. */
+  sequence: number;
+  /** Nombre de documents de ce type sur le bon (« Restitution 1 sur 2 »). */
+  sequenceCount: number;
+  /** `true` pour le plus récent document de son type : la version en vigueur. */
+  latest: boolean;
+  /** Le document ne vaut plus : sa signature a été invalidée (bon modifié,
+   *  marquage annulé, contestation fondée…). Quand et pourquoi ; `null` sinon. */
+  supersededAt: IsoDateTime | null;
+  supersededReason: SignatureInvalidationReason | null;
 }
 
-/** GET /api/bons/:id/pdf-snapshots — documents enregistrés, du plus ancien au plus récent. */
+/** GET /api/bons/:id/pdf-snapshots — TOUS les documents enregistrés, du plus
+ *  ancien au plus récent (ordre de production, puis identifiant). */
 export type PdfSnapshotsResponse = PdfSnapshotInfo[];
 
 /** GET /api/bons/:id/pdf-snapshots/missing — documents attendus (signature

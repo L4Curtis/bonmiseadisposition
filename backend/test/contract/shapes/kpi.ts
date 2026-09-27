@@ -8,6 +8,9 @@ import type {
   KpiDelaisVolumeSeriesPoint,
   KpiIncidentsContestations,
   KpiIncidentsResponse,
+  KpiListItem,
+  KpiListKey,
+  KpiListResponse,
   KpiLoanDuration,
   KpiParcLoaned,
   KpiParcNotReturned,
@@ -30,7 +33,7 @@ import type {
   KpiTodayRow,
   KpiTodaySection,
 } from '../../../src/contracts/kpi';
-import { bonStatus, equipmentCategory } from '../support/common-shapes';
+import { bonStatus, enumOf, equipmentCategory } from '../support/common-shapes';
 import { arrayOf, int, isoDate, literal, nullable, num, object, Shape, str, uuid } from '../support/shape';
 import { parcCategoryCount, parcFilialeCount, parcSituationCount } from './reporting';
 
@@ -215,4 +218,38 @@ export const kpiToday = object<KpiTodayResponse>({
     departures: todaySection,
     partialRestitutionsToSign: todaySection,
   }),
+});
+
+/** GET /kpi/liste : la liste exacte de ce que compte une carte. */
+const kpiListKey = enumOf<KpiListKey>({
+  bons_crees: true,
+  bons_envoyes: true,
+  bons_clotures: true,
+  bons_annules: true,
+  pv_emis: true,
+  remises_sans_signature: true,
+  clotures_sans_signature: true,
+  contestations_recues: true,
+  emails_en_echec: true,
+});
+
+export const kpiList = object<KpiListResponse>({
+  indicateur: kpiListKey,
+  period: object<KpiListResponse['period']>({ from: kpiDate, to: kpiDate }),
+  items: arrayOf(
+    object<KpiListItem>({
+      id: uuid,
+      bonId: uuid,
+      reference: str,
+      status: bonStatus,
+      collaborateur: str,
+      filiale: str,
+      at: isoDate,
+      detail: nullable(str),
+    }),
+    { minLength: 1 },
+  ),
+  total: int,
+  page: int,
+  limit: int,
 });

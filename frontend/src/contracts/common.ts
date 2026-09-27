@@ -77,6 +77,7 @@ export type SignatureInvalidationReason =
   | 'replaced'
   | 'in_person'
   | 'modified'
+  | 'return_corrected'
   | 'cancelled'
   | 'contested'
   | 'handover_without_signature'

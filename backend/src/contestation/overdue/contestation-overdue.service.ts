@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AppConfigService } from '../../config/config.service';
 import { NotificationService } from '../../notification/notification.service';
 import { JobTrackerService } from '../../monitoring/job-tracker.service';
+import { TemplatesService } from '../../templates/templates.service';
 import { JOB_KEYS } from '../../monitoring/job-registry';
 import { OverdueAlertOutcome, runContestationOverdueAlerts } from './run-overdue-alerts';
 
@@ -21,6 +22,7 @@ export class ContestationOverdueService {
     private readonly configService: AppConfigService,
     private readonly notificationService: NotificationService,
     private readonly jobTracker: JobTrackerService,
+    private readonly templatesService: TemplatesService,
   ) {}
 
   @Cron('0 9 * * 1-5', { name: 'contestation-overdue-alert', timeZone: 'Europe/Paris' })
@@ -41,6 +43,7 @@ export class ContestationOverdueService {
         prisma: this.prisma,
         configService: this.configService,
         notificationService: this.notificationService,
+        templatesService: this.templatesService,
         logger: this.logger,
       },
       now,

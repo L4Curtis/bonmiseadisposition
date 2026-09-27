@@ -42,6 +42,12 @@ export async function applyReturnChange(tx: Prisma.TransactionClient, id: string
  * Marque les équipements rendus (sélection). `inPerson` : restitution au
  * guichet ; sinon le lien partira par email, ce que `canSendLink` doit
  * permettre AVANT tout marquage (R-004, R-009).
+ *
+ * `undoEquipmentIds` : équipements déjà marqués rendus (restitution pas encore
+ * signée) que le technicien décoche dans la même fenêtre — le collaborateur
+ * ne les a finalement pas rapportés. Ils redeviennent « chez le
+ * collaborateur » dans la même transaction que le nouveau marquage, et la
+ * signature IT de la restitution en cours ne vaut plus.
  */
 export async function initiateRestitution(
   ctx: BonsWorkflowContext,
@@ -49,14 +55,22 @@ export async function initiateRestitution(
   actorId: string | null,
   returnedEquipmentIds: readonly string[] | undefined,
   inPerson = false,
+  undoEquipmentIds: readonly string[] = [],
 ): Promise<void> {
   const bon = await findBonDetailOrThrow(ctx.prisma, id);
-  assertActionAllowed(bon, 'restitution_in_person');
-  if (!inPerson) assertCanSendLink(bon.collaborateur);
   const ids = [...new Set(returnedEquipmentIds ?? [])];
+  const undoIds = [...new Set(undoEquipmentIds)];
   if (ids.length === 0) throw new BadRequestException('Sélectionnez au moins un équipement rendu.');
+  if (undoIds.length > 0) assertUndoable(bon, undoIds);
+  else assertActionAllowed(bon, 'restitution_in_person');
+  if (!inPerson) assertCanSendLink(bon.collaborateur);
+  const signedAt = lastSignedRestitutionAt(bon.signatures);
 
   await ctx.prisma.$transaction(async (tx) => {
+    if (undoIds.length > 0) {
+      await tx.bonEquipment.updateMany({ where: { id: { in: undoIds }, bonId: id }, data: { returnedAt: null } });
+      await invalidateItSignatures(tx, id, 'restitution', 'return_corrected', signedAt);
+    }
     const marked = await tx.bonEquipment.updateMany({
       where: { id: { in: ids }, bonId: id, returnedAt: null, notReturned: false },
       data: { returnedAt: new Date() },
@@ -66,20 +80,40 @@ export async function initiateRestitution(
         'Certains équipements sélectionnés ne sont pas chez le collaborateur (déjà rendus, déclarés non restitués ou d’un autre bon).',
       );
     }
-    // Le document de restitution change : l'ancien lien ne vaut plus.
-    await invalidatePendingLinks(tx, id, 'replaced');
+    // Le document de restitution change : l'ancien lien, qui montrait une autre
+    // sélection, ne vaut plus dès maintenant (il porterait sur un document
+    // faux). Aucun nouveau lien n'existe encore : il suivra la signature IT.
+    await invalidatePendingLinks(tx, id, inPerson ? 'in_person' : 'return_corrected');
     await applyReturnChange(tx, id, true);
   });
+  if (undoIds.length > 0) {
+    await ctx.prisma.auditLog.create({
+      data: { bonId: id, userId: actorId, action: 'return_marking_undone', details: { equipmentIds: undoIds, inPerson } },
+    });
+  }
   await ctx.prisma.auditLog.create({
     data: { bonId: id, userId: actorId, action: 'restitution_initiated', details: { equipmentIds: ids, inPerson } },
   });
+}
+
+const NOT_UNDOABLE =
+  'Seuls des équipements marqués rendus, dont la restitution n’est pas encore signée, peuvent être remis chez le collaborateur.';
+
+/** Refuse une annulation de marquage hors des équipements rendus à signer. */
+function assertUndoable(bon: Awaited<ReturnType<typeof findBonDetailOrThrow>>, ids: readonly string[]): void {
+  assertActionAllowed(bon, 'undo_return');
+  const signedAt = lastSignedRestitutionAt(bon.signatures);
+  const undoable = new Set(
+    bon.equipments.filter((e) => equipmentReturnState(e, signedAt, bon.status) === 'returned_to_sign').map((e) => e.id),
+  );
+  if (ids.length === 0 || ids.some((eid) => !undoable.has(eid))) throw new BadRequestException(NOT_UNDOABLE);
 }
 
 /**
  * Annule le marquage « rendu » d'équipements dont la restitution n'est pas
  * encore signée (erreur de saisie, R-011) : ils redeviennent « chez le
  * collaborateur ». Le lien de restitution et la signature IT de restitution
- * ne valent plus (motif « bon modifié ») ; s'il reste des équipements rendus
+ * ne valent plus (motif « restitution corrigée ») ; s'il reste des équipements rendus
  * à signer, une nouvelle signature IT puis un nouveau lien suivront.
  */
 export async function undoReturn(
@@ -89,21 +123,13 @@ export async function undoReturn(
   equipmentIds: readonly string[],
 ): Promise<void> {
   const bon = await findBonDetailOrThrow(ctx.prisma, id);
-  assertActionAllowed(bon, 'undo_return');
   const ids = [...new Set(equipmentIds)];
+  assertUndoable(bon, ids);
   const signedAt = lastSignedRestitutionAt(bon.signatures);
-  const undoable = new Set(
-    bon.equipments.filter((e) => equipmentReturnState(e, signedAt, bon.status) === 'returned_to_sign').map((e) => e.id),
-  );
-  if (ids.length === 0 || ids.some((eid) => !undoable.has(eid))) {
-    throw new BadRequestException(
-      'Seuls des équipements marqués rendus, dont la restitution n’est pas encore signée, peuvent être remis chez le collaborateur.',
-    );
-  }
   await ctx.prisma.$transaction(async (tx) => {
     await tx.bonEquipment.updateMany({ where: { id: { in: ids }, bonId: id }, data: { returnedAt: null } });
-    await invalidatePendingLinks(tx, id, 'modified', ['restitution']);
-    await invalidateItSignatures(tx, id, 'restitution', 'modified', signedAt);
+    await invalidatePendingLinks(tx, id, 'return_corrected', ['restitution']);
+    await invalidateItSignatures(tx, id, 'restitution', 'return_corrected', signedAt);
     await applyReturnChange(tx, id, true);
   });
   await ctx.prisma.auditLog.create({

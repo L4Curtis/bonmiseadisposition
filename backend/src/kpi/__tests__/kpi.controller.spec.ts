@@ -15,6 +15,7 @@ describe('KpiController', () => {
     let delaisService: { getDelais: Mock };
     let incidentsService: { getIncidents: Mock };
     let todayService: { getToday: Mock };
+    let listService: { getList: Mock };
     let controller: KpiController;
 
     beforeEach(() => {
@@ -23,13 +24,22 @@ describe('KpiController', () => {
       delaisService = { getDelais: vi.fn().mockResolvedValue({ tag: 'delais' }) };
       incidentsService = { getIncidents: vi.fn().mockResolvedValue({ tag: 'incidents' }) };
       todayService = { getToday: vi.fn().mockResolvedValue({ tag: 'today' }) };
+      listService = { getList: vi.fn().mockResolvedValue({ tag: 'liste' }) };
       controller = new KpiController(
         cache as never,
         parcService as never,
         delaisService as never,
         incidentsService as never,
         todayService as never,
+        listService as never,
       );
+    });
+
+    it('GET /kpi/liste : jamais en cache, la requête passe telle quelle', async () => {
+      const query = { indicateur: 'bons_annules' as const, from: '2026-08-01', to: '2026-08-10', page: 2 };
+      await expect(controller.getList(query)).resolves.toEqual({ tag: 'liste' });
+      expect(listService.getList).toHaveBeenCalledWith(query);
+      expect(cache.getOrCompute).not.toHaveBeenCalled();
     });
 
     it('GET /kpi/parc : résout la période, appelle le cache avec la clé attendue, transmet period/filialeId', async () => {

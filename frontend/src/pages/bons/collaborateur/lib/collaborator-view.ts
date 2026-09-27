@@ -7,6 +7,8 @@ export type CollaboratorBon = Omit<BonDetail, BonItOnlyField>;
 
 /** Un document final téléchargeable, nommé pour le collaborateur. */
 export interface CollaboratorDocument {
+  /** Identifiant du document : l'ouvre tel qu'il a été signé. */
+  id: string;
   type: PdfSnapshotType;
   label: string;
   createdAt: string;
@@ -16,8 +18,8 @@ function capitalize(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-/** Documents que le collaborateur peut garder, un par étape (R-092) : jamais
- *  les versions intermédiaires signées par l'IT seule. */
+/** Documents que le collaborateur peut garder (R-092) : jamais les versions
+ *  intermédiaires signées par l'IT seule. */
 const COLLABORATOR_DOCUMENT_LABELS: Partial<Record<PdfSnapshotType, string>> = {
   signature_collab_mise_disposition: `${capitalize(DOCUMENT_LABELS.mise_disposition)} signé`,
   signature_collab_restitution: `${capitalize(DOCUMENT_LABELS.restitution)} signé`,
@@ -27,10 +29,22 @@ const COLLABORATOR_DOCUMENT_LABELS: Partial<Record<PdfSnapshotType, string>> = {
   cloture_sans_signature: PDF_SNAPSHOT_LABELS.cloture_sans_signature,
 };
 
+/** Le PV émis, signé par l'IT seule, précède le PV signé : version intermédiaire. */
+function isItOnlyPv(snap: PdfSnapshotInfo): boolean {
+  return snap.type === 'cloture_equipements_manquants' && snap.signatureType === 'it_cachet';
+}
+
+/**
+ * Tous les documents finaux, dans l'ordre : chaque restitution signée a le
+ * sien (jamais écrasé), avec sa propre date et son rang quand le même
+ * document revient (« Bon de restitution signé (1 sur 2) »).
+ */
 export function collaboratorDocuments(snapshots: readonly PdfSnapshotInfo[]): CollaboratorDocument[] {
-  return snapshots.flatMap((snap) => {
-    const label = COLLABORATOR_DOCUMENT_LABELS[snap.type];
-    return label ? [{ type: snap.type, label, createdAt: snap.createdAt }] : [];
+  const kept = snapshots.filter((snap) => COLLABORATOR_DOCUMENT_LABELS[snap.type] && !isItOnlyPv(snap));
+  return kept.map((snap) => {
+    const sameType = kept.filter((other) => other.type === snap.type);
+    const rank = sameType.length > 1 ? ` (${sameType.indexOf(snap) + 1} sur ${sameType.length})` : '';
+    return { id: snap.id, type: snap.type, label: `${COLLABORATOR_DOCUMENT_LABELS[snap.type]}${rank}`, createdAt: snap.createdAt };
   });
 }
 

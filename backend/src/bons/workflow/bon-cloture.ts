@@ -3,6 +3,7 @@ import { assertPngDataUrl } from '../../common/signature-data-url';
 import { generateSignatureToken } from '../../common/tokens';
 import { canSendLink } from '../../common/can-send-link';
 import { findBonDetailOrThrow } from '../queries/bon-where';
+import { documentFilename } from '../../pdf/snapshot-filename';
 import { BON_DETAIL_SELECT } from '../bon-view';
 import { BonsWorkflowContext, generateAndSaveSnapshot, getPvTokenValidityDays } from './bon-context';
 import { ClientTrace, saveItSignatureWithTrace } from './bon-it-signature';
@@ -113,8 +114,9 @@ async function savePvDocument(ctx: BonsWorkflowContext, bonId: string): Promise<
   // a besoin ; le PDF lit lui-même les images de son document.
   const fullSignatures = await prisma.signature.findMany({ where: { bonId } });
 
-  const collabName = smbService.sanitizeName(bon.collaborateur?.displayName || 'INCONNU');
-  const filename = `${bon.reference}_${collabName}_cloture_equipements_manquants.pdf`;
+  // Un nom daté par document : le PV réécrit après la co-signature n'écrase
+  // ni la version signée par l'IT seule, ni son fichier sur le partage.
+  const filename = documentFilename(bon, 'cloture_equipements_manquants', new Date());
   const pdfBuffer = await generateAndSaveSnapshot(
     ctx,
     bonId,

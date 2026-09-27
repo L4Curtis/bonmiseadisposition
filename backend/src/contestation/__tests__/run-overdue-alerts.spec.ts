@@ -5,6 +5,8 @@
  */
 import { Logger } from '@nestjs/common';
 import { runContestationOverdueAlerts, OverdueAlertDeps } from '../overdue/run-overdue-alerts';
+import { renderTemplateHtml } from '../../templates/render';
+import { defaultContestationOverdueAlert } from '../../templates/defaults/notice-defaults';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const NOW = new Date('2026-09-28T07:00:00.000Z'); // lundi, 9 h à Paris
@@ -47,13 +49,20 @@ function fakeDeps(logs: LogRow[], clock: { now: Date }) {
   };
   const notificationService = { sendEmail: vi.fn().mockResolvedValue({ ok: true }) };
   const configService = { get: vi.fn().mockResolvedValue('https://bons.example.test') };
+  // Aucun modèle personnalisé : TemplatesService rend le modèle par défaut.
+  const templatesService = {
+    renderTemplate: vi.fn((_id: string, vars: Record<string, string>) =>
+      Promise.resolve(renderTemplateHtml(defaultContestationOverdueAlert(), vars)),
+    ),
+  };
   const deps = {
     prisma,
     notificationService,
     configService,
+    templatesService,
     logger: new Logger('test'),
   } as unknown as OverdueAlertDeps;
-  return { deps, notificationService };
+  return { deps, notificationService, templatesService };
 }
 
 describe('runContestationOverdueAlerts', () => {
@@ -82,6 +91,19 @@ describe('runContestationOverdueAlerts', () => {
     expect(html).toContain('Écran &lt;b&gt;fissuré&lt;/b&gt;');
     expect(html).not.toContain('<b>fissuré</b>');
     expect(html).toContain('(10 j)');
+  });
+
+  it('modèle personnalisé par l’administration : c’est lui qui part, avec les variables de la relance', async () => {
+    const { deps, notificationService, templatesService } = fakeDeps([], { now: NOW });
+    templatesService.renderTemplate.mockImplementation((_id: string, vars: Record<string, string>) =>
+      Promise.resolve(renderTemplateHtml('<p>Relance maison : {{OVERDUE_LEAD}} depuis {{AFTER_DAYS}} jours</p>', vars)),
+    );
+
+    await runContestationOverdueAlerts(deps, NOW);
+
+    expect(templatesService.renderTemplate).toHaveBeenCalledWith('contestation_overdue_alert', expect.any(Object));
+    const [, , html] = notificationService.sendEmail.mock.calls[0] as [string, string, string];
+    expect(html).toBe('<p>Relance maison : Une contestation attend depuis 7 jours</p>');
   });
 
   it('en retard = reçue avant le même instant 7 jours ouvrés plus tôt, week-ends exclus', async () => {

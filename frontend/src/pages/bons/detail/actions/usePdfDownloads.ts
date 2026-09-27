@@ -28,14 +28,16 @@ export function usePdfDownloads(id: string | undefined, bon: BonFiche | null) {
     return ['archived', 'sent_restitution', 'partially_returned'].includes(bon.status) ? 'restitution' : 'mise_disposition';
   };
 
-  const downloadPdfSnapshot = async (stage: string, loadingKey: string) => {
-    setPdfLoading(loadingKey);
+  /** Télécharge UN document précis de la liste (par son identifiant), sous
+   *  le nom lisible que le serveur lui a donné. */
+  const downloadPdfSnapshot = async (snapshotId: string, filename: string) => {
+    setPdfLoading(snapshotId);
     try {
-      const blob = await api.getBlob(`/bons/${id}/pdf?stage=${stage}`);
+      const blob = await api.getBlob(`/bons/${id}/pdf?snapshot=${encodeURIComponent(snapshotId)}`);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${bon?.reference || id}_${stage}.pdf`;
+      a.download = filename;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e: unknown) {

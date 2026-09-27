@@ -129,6 +129,7 @@ Généré par `backend/src/auth/__tests__/route-access.spec.ts` : ne pas modifie
 | GET | /api/kpi/aujourdhui | admin, technician | KpiController.getToday |
 | GET | /api/kpi/delais | admin, technician, direction | KpiController.getDelais |
 | GET | /api/kpi/incidents | admin, technician, direction | KpiController.getIncidents |
+| GET | /api/kpi/liste | admin, technician | KpiController.getList |
 | GET | /api/kpi/parc | admin, technician, direction | KpiController.getParc |
 | GET | /api/reporting/inventory | admin, technician, direction | InventoryController.getInventory |
 | GET | /api/reporting/inventory/by-collaborateur | admin, technician, direction | InventoryController.getByCollaborateur |

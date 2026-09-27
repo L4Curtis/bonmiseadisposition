@@ -1,8 +1,9 @@
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { parisPeriodSql } from '../../common/dates/paris';
-import { CONTESTATION_TO_PROCESS_STATUSES } from '../../common/bon-predicates';
+import { CONTESTATION_TO_PROCESS_STATUSES, notReturnedEquipmentSql } from '../../common/bon-predicates';
 import { filialeFilter, toNumber } from '../kpi-sql';
+import { CLOSURE_SQL, HANDOVER_SQL, countSourceSql } from '../lists/kpi-list-sources';
 
 /**
  * Requêtes SQL de `GET /kpi/incidents`. Toutes sont des `COUNT` / `GROUP BY`
@@ -12,17 +13,6 @@ import { filialeFilter, toNumber } from '../kpi-sql';
  */
 
 export type Range = { from: string; to: string };
-
-/** Actions du journal qui constatent une remise sans signature (bon « Remise à
- *  signer » → « En cours ») : la nouvelle action de la vague 2, ou l'ancienne
- *  action unique `bon_closed_unilateral` quand elle menait à `active`. */
-const HANDOVER_SQL = Prisma.sql`(a.action = 'bon_handover_without_signature'
-  OR (a.action = 'bon_closed_unilateral' AND a.details->>'to' = 'active'))`;
-
-/** Clôtures sans signature (→ « Clôturé ») : nouvelle action, ou l'ancienne
- *  action unique quand elle menait ailleurs qu'à `active`. */
-const CLOSURE_SQL = Prisma.sql`(a.action = 'bon_closed_without_signature'
-  OR (a.action = 'bon_closed_unilateral' AND COALESCE(a.details->>'to', '') <> 'active'))`;
 
 /** Nombre d'équipements d'une entrée du journal (`equipmentIds`), 1 à défaut. */
 const EQUIPMENT_COUNT_SQL = Prisma.sql`COALESCE(jsonb_array_length(CASE WHEN jsonb_typeof(a.details->'equipmentIds') = 'array' THEN a.details->'equipmentIds' END), 1)`;
@@ -38,16 +28,18 @@ export interface AuditCounts {
 
 /** Compteurs tirés du journal d'audit sur une période : équipements déclarés
  *  non restitués et retrouvés, PV émis, remises et clôtures sans signature,
- *  annulations (bons distincts). */
+ *  annulations (bons distincts). Sauf les équipements (flux historique, sans
+ *  liste), chacun est le nombre de lignes de la liste qu'ouvre sa carte
+ *  (lists/kpi-list-sources.ts). */
 export async function queryAuditCounts(prisma: PrismaService, range: Range, filialeId?: string): Promise<AuditCounts> {
   const rows = await prisma.$queryRaw<Record<keyof AuditCounts, bigint>[]>(Prisma.sql`
     SELECT
       COALESCE(SUM(${EQUIPMENT_COUNT_SQL}) FILTER (WHERE a.action = 'declare_not_returned'), 0)::bigint AS declared,
       COALESCE(SUM(${EQUIPMENT_COUNT_SQL}) FILTER (WHERE a.action = 'mark_found'), 0)::bigint AS found,
-      COUNT(*) FILTER (WHERE a.action = 'pv_cloture_emitted')::bigint AS "pvEmitted",
-      COUNT(*) FILTER (WHERE ${HANDOVER_SQL})::bigint AS handovers,
-      COUNT(*) FILTER (WHERE ${CLOSURE_SQL})::bigint AS closures,
-      COUNT(DISTINCT a.bon_id) FILTER (WHERE a.action = 'bon_cancelled')::bigint AS cancelled
+      ${countSourceSql('pv_emis', range, filialeId)} AS "pvEmitted",
+      ${countSourceSql('remises_sans_signature', range, filialeId)} AS handovers,
+      ${countSourceSql('clotures_sans_signature', range, filialeId)} AS closures,
+      ${countSourceSql('bons_annules', range, filialeId)} AS cancelled
     FROM audit_logs a
     JOIN bons b ON b.id = a.bon_id
     WHERE ${parisPeriodSql(Prisma.raw('a.created_at'), range)}
@@ -109,7 +101,7 @@ export async function queryContestationsFlow(
   const decidedInRange = Prisma.sql`${DECIDED_SQL} AND ${parisPeriodSql(DECIDED_AT_SQL, range)}`;
   const rows = await prisma.$queryRaw<Record<keyof ContestationsFlow, unknown>[]>(Prisma.sql`
     SELECT
-      COUNT(*) FILTER (WHERE ${parisPeriodSql(Prisma.raw('c.created_at'), range)})::bigint AS received,
+      ${countSourceSql('contestations_recues', range, filialeId)} AS received,
       COUNT(*) FILTER (WHERE ${decidedInRange})::bigint AS decided,
       COUNT(*) FILTER (WHERE ${decidedInRange} AND COALESCE(c.outcome::text, CASE c.status::text WHEN 'resolved' THEN 'founded' ELSE 'not_retained' END) = 'founded')::bigint AS founded,
       COUNT(*) FILTER (WHERE ${decidedInRange} AND COALESCE(c.outcome::text, CASE c.status::text WHEN 'resolved' THEN 'founded' ELSE 'not_retained' END) = 'not_retained')::bigint AS "notRetained",
@@ -151,7 +143,7 @@ export async function queryStillMissing(prisma: PrismaService, filialeId?: strin
     SELECT COUNT(*)::bigint AS count
     FROM bon_equipments be
     JOIN bons b ON b.id = be.bon_id
-    WHERE be.not_returned = true AND b.status::text <> 'cancelled'
+    WHERE ${notReturnedEquipmentSql()}
     ${filialeFilter('b', filialeId)}
   `);
   return toNumber(rows[0]?.count);
@@ -226,13 +218,7 @@ export async function queryDocumentsWithThreeReminders(
  *  notaient ce même cas avant la vague 2. */
 export async function queryFailedEmails(prisma: PrismaService, range: Range, filialeId?: string): Promise<number> {
   const rows = await prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
-    SELECT COUNT(*)::bigint AS count
-    FROM notification_logs nl
-    JOIN bons b ON b.id = nl.bon_id
-    WHERE nl.status::text IN ('failed', 'bounced')
-      AND btrim(nl.recipient_email) <> ''
-      AND ${parisPeriodSql(Prisma.raw('nl.sent_at'), range)}
-      ${filialeFilter('b', filialeId)}
+    SELECT ${countSourceSql('emails_en_echec', range, filialeId)} AS count
   `);
   return toNumber(rows[0]?.count);
 }

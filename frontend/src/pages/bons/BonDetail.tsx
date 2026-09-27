@@ -115,7 +115,12 @@ export function BonDetailPage() {
       <BonInfoCards bon={bon} />
       <BonEquipmentTable equipments={bon.equipments} showEquipmentStatus={RESTITUTION_STARTED.includes(bon.status)} />
       {bon.signatures?.length > 0 && (
-        <BonSignatures signatures={bon.signatures} collaborateurName={bon.collaborateur?.displayName ?? 'le collaborateur'} />
+        <BonSignatures
+          signatures={bon.signatures}
+          collaborateurName={bon.collaborateur?.displayName ?? 'le collaborateur'}
+          collaborateurEmail={bon.collaborateur?.email ?? bon.collaborateurEmail}
+          subStatus={bon.subStatus}
+        />
       )}
       <BonNotesCard notes={bon.notes} internalNote={bon.internalNote} />
       <BonAttachments bonId={bon.id} canManage defaultStage={RESTITUTION_STAGE.includes(bon.status) ? 'restitution' : 'mise_disposition'} />

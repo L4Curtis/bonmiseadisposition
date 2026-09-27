@@ -17,6 +17,11 @@ import type { BonStatus, EquipmentCategory, IsoDateTime } from './common';
  *  `en_litige` « Contesté ». */
 export type EquipmentSituation = 'en_attente_signature' | 'en_circulation' | 'en_litige';
 
+/** Situation d'une ligne de l'inventaire : l'une des trois du parc, ou
+ *  `non_restitue` « Non restitué » (déclaré non restitué et pas retrouvé,
+ *  bon clôturé compris). Valeurs aussi acceptées par le filtre `situation`. */
+export type InventorySituation = EquipmentSituation | 'non_restitue';
+
 /** Statuts de bon couverts par le parc en circulation (PARC_BON_STATUSES) :
  *  seuls ces statuts peuvent apparaître dans l'inventaire. */
 export type ParcBonStatus = Extract<
@@ -84,9 +89,14 @@ export interface InventoryItem {
   inventoryNumber: string | null;
   bonId: string;
   bonReference: string;
-  bonStatus: ParcBonStatus;
-  situation: EquipmentSituation;
+  /** Un statut du parc (`ParcBonStatus`) ; pour un équipement non restitué,
+   *  aussi « Clôturé » (`archived`). */
+  bonStatus: BonStatus;
+  situation: InventorySituation;
   situationLabel: string;
+  /** Motif de la déclaration pour un équipement non restitué, sinon null ;
+   *  toujours null pour la direction, qui n'ouvre pas les bons. */
+  notReturnedReason: string | null;
   /** Colonne `@db.Date` : minuit UTC du jour civil. */
   dateMiseDisposition: IsoDateTime;
   /** Colonne `@db.Date` facultative : minuit UTC du jour civil. */
@@ -97,7 +107,9 @@ export interface InventoryItem {
 
 /** GET /api/reporting/inventory — liste paginée des équipements du parc en
  *  circulation (filtres `filialeId`, `category`, `collaborateurId`,
- *  `situation`, `overdue`, `sansNumeroSerie`, `search`, tri `sort`/`direction`).
+ *  `situation`, `overdue`, `sansNumeroSerie`, `horsCatalogue`, `search`, tri
+ *  `sort`/`direction`). `situation=non_restitue` liste à la place les
+ *  équipements encore non restitués (carte « Encore non restitués »).
  *  `limit` vaut 50 par défaut, 200 au plus. */
 export interface InventoryListResponse {
   items: InventoryItem[];
@@ -118,6 +130,9 @@ export interface InventorySummaryResponse {
   /** Équipements dont la date de restitution prévue est dépassée (jour civil
    *  Europe/Paris). */
   overdue: number;
+  /** Équipements encore non restitués (hors parc, bons clôturés compris,
+   *  jamais sur un bon annulé) : option « Non restitué » du filtre. */
+  notReturned: number;
 }
 
 // ─── GET /api/reporting/inventory/by-collaborateur ────────────────────────────

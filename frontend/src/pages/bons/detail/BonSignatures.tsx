@@ -2,12 +2,18 @@ import { CheckCircle2, Clock, Stamp } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatDateTime } from '@/lib/utils';
 import { LINK_INVALIDATION_LABELS, labelOrKey } from '@/domain/labels';
+import type { BonSubStatus } from '@/contracts';
 import { sigTypeLabel, type FicheSignature } from './types';
 
 export interface BonSignaturesProps {
   readonly signatures: readonly FicheSignature[];
   /** Nom du collaborateur titulaire : c'est lui qui signe, même au guichet. */
   readonly collaborateurName: string;
+  /** Adresse du titulaire : une signature au guichet faite depuis un autre
+   *  compte l'a été « en présence de » ce compte (le technicien). */
+  readonly collaborateurEmail?: string | null;
+  /** Sous-état du bon : situe le PV de non-restitution déjà certifié. */
+  readonly subStatus?: BonSubStatus | null;
 }
 
 const time = (value: string | null | undefined) => (value ? new Date(value).getTime() : 0);
@@ -20,13 +26,51 @@ function itTitle(sig: FicheSignature): string {
   return 'Signature IT';
 }
 
-/** « Signé par Léa Martin, au guichet, en présence de julie.moreau@… » (R-032). */
-function signedBy(sig: FicheSignature, collaborateurName: string): string {
-  if (sig.type === 'it_cachet') return `par ${sig.signerEmail ?? 'l’équipe informatique'}`;
+/**
+ * Pourquoi un lien ou une signature IT ne vaut plus. Une annulation de
+ * marquage enregistre « restitution corrigée » ; les liens de restitution
+ * invalidés avant ce motif portent « bon modifié », qui veut dire la même
+ * chose (le bon lui-même n'a pas changé) : ils sont lus comme tels.
+ */
+export function invalidationLabel(sig: Pick<FicheSignature, 'type' | 'pdfType' | 'invalidatedReason'>): string {
+  const restitution = sig.type === 'restitution' || (sig.type === 'it_cachet' && sig.pdfType === 'restitution');
+  if (restitution && sig.invalidatedReason === 'modified') return 'Restitution corrigée';
+  return labelOrKey(LINK_INVALIDATION_LABELS, sig.invalidatedReason ?? '');
+}
+
+/** Précision sous une signature IT : remplacée depuis, ou PV qui attend son départ. */
+function itNote(sig: FicheSignature, subStatus: BonSubStatus | null | undefined): string | null {
+  if (sig.invalidatedAt) {
+    return `Ne vaut plus depuis le ${formatDateTime(sig.invalidatedAt)} (${invalidationLabel(sig).toLowerCase()}).`;
+  }
+  if (sig.pdfType === 'pv_cloture' && subStatus === 'loss_declared') {
+    return 'PV prêt : il partira à la signature du collaborateur quand plus aucun équipement ne sera chez lui.';
+  }
+  return null;
+}
+
+/** Compte connecté lors de la signature, par son nom comme dans le PDF ;
+ *  l'adresse seulement si elle ne correspond à aucun compte. */
+function accountOf(sig: FicheSignature): string | null {
+  return sig.signerName ?? sig.signerEmail;
+}
+
+const sameEmail = (a: string | null | undefined, b: string | null | undefined) =>
+  !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/** Témoin d'une signature au guichet : le compte connecté, s'il n'est pas
+ *  celui du titulaire (à défaut d'adresse du titulaire, `signedByProxy`). */
+function witnessOf(sig: FicheSignature, holderEmail: string | null | undefined): string | null {
+  const other = holderEmail ? !sameEmail(sig.signerEmail, holderEmail) : sig.signedByProxy === true;
+  return other && sig.signerEmail ? accountOf(sig) : null;
+}
+
+/** « Signé par Léa Martin, au guichet, en présence de Julie Moreau » (R-032). */
+function signedBy(sig: FicheSignature, collaborateurName: string, holderEmail: string | null | undefined): string {
+  if (sig.type === 'it_cachet') return `par ${accountOf(sig) ?? 'l’équipe informatique'}`;
   if (!sig.isInPerson) return `par ${collaborateurName} (${sig.signerEmail ?? 'lien email'})`;
-  return sig.signedByProxy && sig.signerEmail
-    ? `par ${collaborateurName}, au guichet, en présence de ${sig.signerEmail}`
-    : `par ${collaborateurName}, au guichet`;
+  const witness = witnessOf(sig, holderEmail);
+  return witness ? `par ${collaborateurName}, au guichet, en présence de ${witness}` : `par ${collaborateurName}, au guichet`;
 }
 
 /**
@@ -34,7 +78,7 @@ function signedBy(sig: FicheSignature, collaborateurName: string): string {
  * attente n'apparaît pas ici : son état est dans le panneau « À faire
  * maintenant ». Un lien invalidé y figure avec son motif.
  */
-export function BonSignatures({ signatures, collaborateurName }: BonSignaturesProps) {
+export function BonSignatures({ signatures, collaborateurName, collaborateurEmail, subStatus }: BonSignaturesProps) {
   const signed = signatures.filter((s) => s.signed);
   const invalidated = signatures.filter((s) => !s.signed && s.invalidatedReason && s.type !== 'it_cachet');
   const entries = [...signed, ...invalidated].sort(
@@ -54,9 +98,11 @@ export function BonSignatures({ signatures, collaborateurName }: BonSignaturesPr
             <div className="min-w-0 flex-1 text-sm">
               <p className="font-medium text-foreground">{sig.type === 'it_cachet' ? itTitle(sig) : sigTypeLabel(sig.type)}</p>
               <p className="break-words text-xs text-muted-foreground">
-                Signé le {formatDateTime(sig.signedAt)} {signedBy(sig, collaborateurName)}
-                {sig.invalidatedAt && sig.type === 'it_cachet' && ' — remplacée depuis (bon modifié)'}
+                Signé le {formatDateTime(sig.signedAt)} {signedBy(sig, collaborateurName, collaborateurEmail)}
               </p>
+              {sig.type === 'it_cachet' && itNote(sig, subStatus) && (
+                <p className="text-xs text-muted-foreground">{itNote(sig, subStatus)}</p>
+              )}
               {sig.type !== 'it_cachet' && sig.mentionLuApprouve && <p className="text-xs text-success">Lu et approuvé</p>}
             </div>
           </div>
@@ -66,7 +112,7 @@ export function BonSignatures({ signatures, collaborateurName }: BonSignaturesPr
             <div className="min-w-0 flex-1 text-sm">
               <p className="font-medium text-muted-foreground">Lien de signature ({sigTypeLabel(sig.type)}) invalidé</p>
               <p className="text-xs text-muted-foreground">
-                Le {formatDateTime(sig.invalidatedAt)} — {labelOrKey(LINK_INVALIDATION_LABELS, sig.invalidatedReason ?? '')}
+                Le {formatDateTime(sig.invalidatedAt)} — {invalidationLabel(sig)}
               </p>
             </div>
           </div>

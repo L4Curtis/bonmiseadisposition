@@ -81,6 +81,7 @@ export const signDocument = object<SignDocumentResponse>({
   ok: literal(true),
   bonId: uuid,
   signedByProxy: bool,
+  witnessedByIt: bool,
   bon: bonForSignature,
   signature: object<CompletedLinkSignature>({
     ...safeSignatureFields,
@@ -90,6 +91,7 @@ export const signDocument = object<SignDocumentResponse>({
     pdfType: signaturePdfType,
     bonId: uuid,
     signedByProxy: bool,
+    witnessedByIt: bool,
   }),
 });
 

@@ -16,11 +16,18 @@ const TONE_CLASSES: Readonly<Record<FollowUpTone, string>> = {
   not_retained: 'bg-muted text-foreground',
 };
 
+interface MyContestationCardProps {
+  contestation: MyContestation;
+  /** La carte du document, juste au-dessus, dit déjà ce qui va suivre
+   *  (document en cours de correction) : pas deux fois la même phrase. */
+  outcomeShownAbove?: boolean;
+}
+
 /** « Ma contestation » : date, document, motif, où elle en est, et la réponse
  *  de l'équipe informatique (R-055). */
-export function MyContestationCard({ contestation }: { contestation: MyContestation }) {
+export function MyContestationCard({ contestation, outcomeShownAbove = false }: MyContestationCardProps) {
   const followUp = contestationFollowUp(contestation);
-  const explanation = outcomeExplanation(contestation);
+  const explanation = outcomeShownAbove ? null : outcomeExplanation(contestation);
   return (
     <section aria-labelledby="ma-contestation" className="rounded-xl border border-destructive/30 bg-card p-4 space-y-3 shadow-sm">
       <h2 id="ma-contestation" className="flex items-center gap-2 font-semibold">

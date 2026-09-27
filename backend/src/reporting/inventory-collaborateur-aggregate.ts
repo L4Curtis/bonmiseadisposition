@@ -8,6 +8,9 @@ import type { CollaborateurSortField } from './dto/inventory-by-collaborateur-qu
  *  sont nécessaires pour compter, dater et situer géographiquement le parc
  *  d'un collaborateur. */
 export const COLLABORATEUR_GROUP_SELECT = {
+  // Un équipement non restitué (filtre « Non restitué ») n'est jamais « en
+  // retard de restitution » : il est déjà déclaré perdu ou gardé.
+  notReturned: true,
   bon: {
     select: {
       dateMiseDisposition: true,
@@ -83,7 +86,7 @@ export function groupInventoryByCollaborateur(
       row.bon.dateMiseDisposition < oldest.bon.dateMiseDisposition ? row : oldest,
     );
     const overdueCount = groupRows.filter(
-      (row) => row.bon.dateRestitution !== null && row.bon.dateRestitution < overdueCutoff,
+      (row) => !row.notReturned && row.bon.dateRestitution !== null && row.bon.dateRestitution < overdueCutoff,
     ).length;
 
     return {

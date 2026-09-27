@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { api } from '@/lib/api';
+import { withoutReplacedBon } from './lib/serialConflicts';
 import type { EquipmentLine, SerialConflict, SerialConflictsResponse } from './types';
 
 interface CheckedEntry {
@@ -15,8 +16,13 @@ interface CheckedEntry {
  *  saisie (voir /equipment/serial-conflicts, appelé aussi à la soumission).
  *  Un seul appel par sortie de champ (`checkSerial`, à appeler depuis
  *  `onBlur`), et aucun si la valeur n'a pas changé depuis la dernière
- *  vérification de cette ligne. */
-export function useLiveSerialConflicts(equipments: readonly EquipmentLine[], excludeBonId?: string) {
+ *  vérification de cette ligne. `replacedBonId` : bon remplacé par celui-ci,
+ *  dont les numéros ne sont pas des conflits. */
+export function useLiveSerialConflicts(
+  equipments: readonly EquipmentLine[],
+  excludeBonId?: string,
+  replacedBonId?: string | null,
+) {
   const [checkedByLine, setCheckedByLine] = useState<Record<string, CheckedEntry>>({});
   // Évite un appel réseau si la valeur n'a pas bougé depuis la dernière
   // vérification (tabuler dans un champ puis en ressortir sans rien taper).
@@ -41,7 +47,10 @@ export function useLiveSerialConflicts(equipments: readonly EquipmentLine[], exc
     if (excludeBonId) params.set('excludeBonId', excludeBonId);
     api.get<SerialConflictsResponse>(`/equipment/serial-conflicts?${params}`)
       .then(({ items }) => {
-        setCheckedByLine((prev) => ({ ...prev, [lineId]: { value: normalized, conflicts: items } }));
+        setCheckedByLine((prev) => ({
+          ...prev,
+          [lineId]: { value: normalized, conflicts: withoutReplacedBon(items, replacedBonId) },
+        }));
       })
       .catch(() => {
         // L'avertissement à la saisie est un confort — la vérification

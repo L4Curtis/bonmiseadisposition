@@ -7,7 +7,9 @@ import {
 import { useSignatureCanvas } from '@/hooks/use-signature-canvas';
 import { api } from '@/lib/api';
 import { errorMessage } from '@/lib/errors';
-import { PHONE_FULLSCREEN_DIALOG, TOUCH_BUTTON, TOUCH_FOOTER } from './dialog-layout';
+import {
+  DIALOG_BODY, DIALOG_FOOTER_BAR, DIALOG_FRAME, DIALOG_HEADER_BAND, SIGNATURE_CANVAS_HEIGHT, TOUCH_BUTTON, TOUCH_FOOTER,
+} from './dialog-layout';
 
 interface ItSignModalProps {
   bonId: string;
@@ -27,7 +29,9 @@ const DOCUMENT_TITLES = { mise_disposition: 'Remise', restitution: 'Restitution'
  */
 export function ItSignModal({ bonId, reference, pdfType, description, onClose, onSigned }: ItSignModalProps) {
   const { canvasRef, isEmpty, clear, getDataUrl, onMouseDown, onMouseMove, onMouseUp, onMouseLeave } =
-    useSignatureCanvas();
+    // Le cadre change de hauteur selon l'écran (plus bas en paysage) : le
+    // tracé suit ses proportions, l'image signée n'est jamais étirée.
+    useSignatureCanvas({ followFrame: true });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,8 +54,8 @@ export function ItSignModal({ bonId, reference, pdfType, description, onClose, o
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !submitting) onClose(); }}>
-      <DialogContent className={`overflow-hidden p-0 sm:max-w-lg ${PHONE_FULLSCREEN_DIALOG}`}>
-        <div className="flex items-center gap-3 bg-primary px-5 py-4 pr-12">
+      <DialogContent className={`sm:max-w-lg ${DIALOG_FRAME}`}>
+        <div className={`flex items-center gap-3 bg-primary ${DIALOG_HEADER_BAND}`}>
           <Stamp className="h-5 w-5 shrink-0 text-primary-foreground/70" aria-hidden="true" />
           <DialogHeader className="p-0 text-left">
             <DialogTitle className="text-sm text-primary-foreground">Signature IT</DialogTitle>
@@ -61,7 +65,7 @@ export function ItSignModal({ bonId, reference, pdfType, description, onClose, o
           </DialogHeader>
         </div>
 
-        <div className="space-y-4 p-5">
+        <div className={`space-y-4 ${DIALOG_BODY}`}>
           <p className="text-sm text-muted-foreground">{description}</p>
           <div>
             <div className="mb-2 flex items-center justify-between">
@@ -80,7 +84,7 @@ export function ItSignModal({ bonId, reference, pdfType, description, onClose, o
                 width={600}
                 height={200}
                 aria-label="Zone de signature"
-                className="block h-[200px] w-full cursor-crosshair text-foreground sm:h-[150px]"
+                className={`block w-full cursor-crosshair text-foreground ${SIGNATURE_CANVAS_HEIGHT}`}
                 style={{ touchAction: 'none' }}
                 onMouseDown={onMouseDown}
                 onMouseMove={onMouseMove}
@@ -101,18 +105,18 @@ export function ItSignModal({ bonId, reference, pdfType, description, onClose, o
               <span>{error}</span>
             </div>
           )}
-
-          <DialogFooter className={`pt-1 ${TOUCH_FOOTER}`}>
-            <Button variant="outline" size="sm" className={`flex-1 ${TOUCH_BUTTON}`} onClick={onClose} disabled={submitting}>
-              Annuler
-            </Button>
-            <Button size="sm" className={`flex-1 ${TOUCH_BUTTON}`} onClick={handleSubmit} disabled={submitting || isEmpty}>
-              {submitting
-                ? <><Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" /> En cours&hellip;</>
-                : <><Pen className="h-3.5 w-3.5" aria-hidden="true" /> Signer et continuer</>}
-            </Button>
-          </DialogFooter>
         </div>
+
+        <DialogFooter className={`${DIALOG_FOOTER_BAR} ${TOUCH_FOOTER}`}>
+          <Button variant="outline" size="sm" className={`flex-1 ${TOUCH_BUTTON}`} onClick={onClose} disabled={submitting}>
+            Annuler
+          </Button>
+          <Button size="sm" className={`flex-1 ${TOUCH_BUTTON}`} onClick={handleSubmit} disabled={submitting || isEmpty}>
+            {submitting
+              ? <><Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" /> En cours&hellip;</>
+              : <><Pen className="h-3.5 w-3.5" aria-hidden="true" /> Signer et continuer</>}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

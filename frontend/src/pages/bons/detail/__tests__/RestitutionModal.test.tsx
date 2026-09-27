@@ -23,7 +23,7 @@ describe('RestitutionModal — même sélection par email et au guichet (R-001)'
     await user.click(screen.getAllByRole('checkbox')[0]);
     await user.click(screen.getByRole('button', { name: /Continuer : signature IT \(1\)/ }));
 
-    expect(onConfirm).toHaveBeenCalledWith(['e1']);
+    expect(onConfirm).toHaveBeenCalledWith(['e1'], []);
   });
 
   it('un équipement déjà rendu et signé est coché, désactivé, et ne compte pas', () => {
@@ -43,6 +43,21 @@ describe('RestitutionModal — même sélection par email et au guichet (R-001)'
     expect(screen.getAllByRole('checkbox')[0]).toBeChecked();
     expect(screen.getByText('Rendu — restitution à signer')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /Continuer : signature IT \(1\)/ }));
-    expect(onConfirm).toHaveBeenCalledWith([]);
+    expect(onConfirm).toHaveBeenCalledWith([], []);
+  });
+
+  it('au guichet, un équipement marqué par l’email mais pas rapporté se décoche (IMD n° 9)', async () => {
+    const user = userEvent.setup();
+    const onConfirm = vi.fn();
+    const marked = [laptop('e1', 'SN-1', { returnedAt: '2026-01-02T00:00:00.000Z', returnState: 'returned_to_sign' }), laptop('e2', 'SN-2')];
+    render(<RestitutionModal equipments={marked} channel="in_person" onConfirm={onConfirm} onCancel={vi.fn()} loading={false} />);
+
+    const [first, second] = screen.getAllByRole('checkbox');
+    expect(first).toBeEnabled();
+    await user.click(first);
+    expect(screen.getByText('Restera chez le collaborateur')).toBeInTheDocument();
+    await user.click(second);
+    await user.click(screen.getByRole('button', { name: /Continuer : signature IT \(1\)/ }));
+    expect(onConfirm).toHaveBeenCalledWith(['e2'], ['e1']);
   });
 });

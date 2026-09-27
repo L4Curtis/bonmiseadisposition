@@ -1,6 +1,7 @@
 import { bonStatusLabel } from '../bons/bon-status';
 import { buildCsv, type CsvCell } from '../common/csv';
 import { formatParisDate, parisDaysSince } from '../common/dates/paris';
+import { NOT_RETURNED_SITUATION } from '../common/bon-predicates';
 import type { InventoryItemView } from './inventory-mapper';
 
 const HEADERS: readonly string[] = [
@@ -26,10 +27,13 @@ export function buildInventoryCsv(items: InventoryItemView[], now: Date = new Da
 /** Une ligne du fichier : ancienneté et retard en jours calendaires à Paris.
  *  Une remise prévue dans le futur n'a pas encore d'ancienneté : cellule vide
  *  (un nombre négatif serait en plus préfixé d'une apostrophe par la
- *  protection contre les formules du tableur). */
+ *  protection contre les formules du tableur). Un équipement non restitué
+ *  n'est plus attendu : jamais de retard. */
 function inventoryRow(it: InventoryItemView, now: Date): CsvCell[] {
   const anciennete = parisDaysSince(new Date(it.dateMiseDisposition), now);
-  const retard = it.dateRestitution ? parisDaysSince(new Date(it.dateRestitution), now) : null;
+  const retard = it.dateRestitution && it.situation !== NOT_RETURNED_SITUATION
+    ? parisDaysSince(new Date(it.dateRestitution), now)
+    : null;
   return [
     it.label,
     it.categoryLabel,

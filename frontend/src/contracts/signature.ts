@@ -91,16 +91,21 @@ export interface CompletedLinkSignature extends SafeSignature {
   /** Recopie du type de la signature. */
   pdfType: SignaturePdfType;
   bonId: string;
-  /** `true` pour une signature présentielle recueillie par un autre compte
-   *  que celui du titulaire (technicien sur tablette). */
+  /** `true` pour une signature au guichet faite par un mandataire : un autre
+   *  compte que celui du titulaire, qui n'est pas un compte IT. */
   signedByProxy: boolean;
+  /** `true` pour une signature au guichet sur l'appareil d'un compte IT
+   *  (technicien, admin) : le titulaire signe lui-même, « en présence de »
+   *  ce compte. Jamais `true` en même temps que `signedByProxy`. */
+  witnessedByIt: boolean;
 }
 
-/** POST /api/signature/:token/sign — signature du document (200). `bonId` et
- *  `signedByProxy` sont répétés à la racine et dans `signature`. */
+/** POST /api/signature/:token/sign — signature du document (200). `bonId`,
+ *  `signedByProxy` et `witnessedByIt` sont répétés à la racine et dans `signature`. */
 export interface SignDocumentResponse extends OkResponse {
   bonId: string;
   signedByProxy: boolean;
+  witnessedByIt: boolean;
   bon: BonForSignature;
   signature: CompletedLinkSignature;
 }
@@ -114,7 +119,9 @@ export interface SignDocumentResponse extends OkResponse {
  *  (message sans aucune adresse) ; 404 si le jeton est inconnu. */
 export interface RequestNewLinkResponse extends OkResponse {
   /** `requested` : l'équipe vient d'être prévenue ; `already_requested` : une
-   *  demande de moins de 24 h existe déjà pour ce bon, rien n'est renvoyé. */
+   *  demande existe déjà pour ce lien (tant que l'IT ne l'a pas renvoyé),
+   *  l'équipe n'est pas réalertée ; `requestedAt` est alors la date de cette
+   *  première demande. */
   status: 'requested' | 'already_requested';
   requestedAt: IsoDateTime;
 }

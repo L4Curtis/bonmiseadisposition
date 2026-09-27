@@ -80,6 +80,7 @@ export function createMockPrismaService(): MockPrismaService {
       create: vi.fn(),
       update: vi.fn(),
       updateMany: vi.fn(),
+      count: vi.fn().mockResolvedValue(0),
     },
 
     // ── Contestation ───────────────────────────────────────────────────────────
@@ -116,6 +117,10 @@ export function createMockPrismaService(): MockPrismaService {
     pdfSnapshot: {
       findMany: vi.fn(),
       findUnique: vi.fn(),
+      // Un document par signature : jamais écrasé, lu par findFirst.
+      findFirst: vi.fn().mockResolvedValue(null),
+      create: vi.fn().mockResolvedValue({ id: 'snapshot-created' }),
+      count: vi.fn().mockResolvedValue(0),
       upsert: vi.fn(),
       deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
     },

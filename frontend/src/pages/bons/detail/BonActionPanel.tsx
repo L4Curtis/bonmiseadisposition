@@ -9,7 +9,9 @@ import { Card, CardContent } from '@/components/ui/card';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { BON_ACTION_LABELS, DANGEROUS_ACTIONS, SECONDARY_ACTIONS, actionLabel, nextStepSentence } from './bon-lexicon';
+import { DANGEROUS_ACTIONS, actionLabel, nextStepSentence } from './bon-lexicon';
+import { placeActions } from './action-placement';
+import { BonActionNotices, HandleContestationButton } from './BonActionNotices';
 import { PendingLinkLine } from './PendingLinkLine';
 import type { BonFiche } from './types';
 
@@ -72,26 +74,29 @@ export function BonActionPanel({ bon, actionLoading, pdfLoading, onRun, onDownlo
   const navigate = useNavigate();
   const actions = bon.availableActions ?? [];
   const busy = actionLoading !== null;
-  const primary = actions.find((a) => a.primary);
-  const inline = actions.filter((a) => !a.primary && !SECONDARY_ACTIONS.has(a.action));
-  const more = actions.filter((a) => !a.primary && SECONDARY_ACTIONS.has(a.action));
+  const { primary, inline, more } = placeActions(bon);
+  // Bon contesté : la décision se prend sur l'écran des contestations.
+  const openContestation = bon.contestation?.stage === 'open' ? bon.contestation : null;
+  const contestationOpen = openContestation !== null;
   // Un envoi impossible faute de lien est déjà expliqué par le bandeau de la
   // fiche (compte désactivé, pas d'adresse) : on ne répète que les autres motifs.
   const blocked = actions.filter((a) => a.blockedReason && !(bon.linkRefusal && a.blockedReason === bon.linkRefusal.message));
   const sentence = nextStepSentence(bon);
 
   return (
-    <Card className={primary ? 'border-l-4 border-l-primary' : undefined}>
+    <Card className={primary || contestationOpen ? 'border-l-4 border-l-primary' : undefined}>
       <CardContent className="space-y-3 p-4">
         {sentence && (
           <div className="space-y-1">
-            <p className="text-sm font-semibold text-foreground">{primary ? 'À faire maintenant' : 'Où en est ce bon'}</p>
+            <p className="text-sm font-semibold text-foreground">{primary || contestationOpen ? 'À faire maintenant' : 'Où en est ce bon'}</p>
             <p className="text-sm text-muted-foreground">{sentence}</p>
             <PendingLinkLine pending={bon.pendingSignature} />
           </div>
         )}
+        <BonActionNotices bon={bon} />
         <div className="flex flex-wrap items-center gap-2">
           {actionLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground motion-reduce:animate-none" aria-label="Action en cours" />}
+          {openContestation && <HandleContestationButton contestationId={openContestation.id} className={`${TOUCH} max-sm:w-full`} />}
           {primary && <ActionButton entry={primary} label={actionLabel(primary.action, bon)} primary busy={busy} onRun={onRun} />}
           {inline.map((entry) => (
             <ActionButton key={entry.action} entry={entry} label={actionLabel(entry.action, bon)} primary={false} busy={busy} onRun={onRun} />
@@ -125,7 +130,7 @@ export function BonActionPanel({ bon, actionLoading, pdfLoading, onRun, onDownlo
                       onSelect={() => onRun(entry.action)}
                     >
                       <Icon className="h-4 w-4" aria-hidden="true" />
-                      {BON_ACTION_LABELS[entry.action]}
+                      {actionLabel(entry.action, bon)}
                     </DropdownMenuItem>
                   );
                 })}

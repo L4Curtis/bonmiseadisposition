@@ -18,6 +18,14 @@ export class InitiateRestitutionDto {
   @IsUUID('4', { each: true, message: 'returnedEquipmentIds doit contenir des UUIDs valides' })
   returnedEquipmentIds?: string[];
 
+  /** Équipements déjà marqués rendus (restitution pas encore signée) que le
+   *  technicien décoche dans la même fenêtre : ils redeviennent « chez le
+   *  collaborateur », dans la même transaction. */
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true, message: 'undoEquipmentIds doit contenir des UUIDs valides' })
+  undoEquipmentIds?: string[];
+
   /** Restitution au guichet : aucun email ne partira, l'adresse n'est pas exigée. */
   @IsOptional()
   @IsBoolean()

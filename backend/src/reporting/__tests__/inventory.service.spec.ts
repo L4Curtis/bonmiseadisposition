@@ -79,8 +79,10 @@ describe('InventoryService', () => {
       expect(call.where.AND).toContainEqual({ bon: { filialeId: 'f-1' } });
       expect(call.where.AND).toContainEqual({ bon: { collaborateurId: 'u-1' } });
       expect(call.where.AND).toContainEqual({ catalogItem: { category: 'ecran' } });
-      const searchClause = call.where.AND.find((c: { OR?: unknown[] }) => Array.isArray(c.OR) && c.OR.length === 6);
+      const searchClause = call.where.AND.find((c: { OR?: unknown[] }) => Array.isArray(c.OR) && c.OR.length === 7);
       expect(searchClause).toBeDefined();
+      // La référence du bon : la ligne « Retour en retard » de la direction ouvre ce bon dans l'inventaire.
+      expect(searchClause.OR).toContainEqual({ bon: { reference: { contains: 'dell', mode: 'insensitive' } } });
     });
 
     it('ajoute le filtre situation quand fourni (restreint aux statuts de cette situation)', async () => {
@@ -94,6 +96,34 @@ describe('InventoryService', () => {
       await service.getInventory({ situation: 'en_litige' });
       call = (prisma.bonEquipment.findMany as Mock).mock.calls[1][0];
       expect(call.where.AND).toContainEqual({ bon: { status: { in: ['contested'] } } });
+    });
+
+    it('situation « non_restitue » remplace le parc par les équipements encore non restitués', async () => {
+      (prisma.bonEquipment.findMany as Mock).mockResolvedValue([]);
+      (prisma.bonEquipment.count as Mock).mockResolvedValue(0);
+
+      await service.getInventory({ situation: 'non_restitue', sort: 'situation' });
+      const call = (prisma.bonEquipment.findMany as Mock).mock.calls[0][0];
+      expect(call.where.AND).toEqual([{ notReturned: true }, { bon: { status: { not: 'cancelled' } } }]);
+      // Une seule situation : pas de découpage par statut, qui écarterait les bons clôturés.
+      expect(prisma.bonEquipment.findMany).toHaveBeenCalledTimes(1);
+    });
+
+    it('horsCatalogue ne garde que les équipements saisis en texte libre', async () => {
+      (prisma.bonEquipment.findMany as Mock).mockResolvedValue([]);
+      (prisma.bonEquipment.count as Mock).mockResolvedValue(0);
+
+      await service.getInventory({ horsCatalogue: true });
+      expect((prisma.bonEquipment.findMany as Mock).mock.calls[0][0].where.AND).toContainEqual({ catalogItemId: null });
+    });
+
+    it.each([
+      [{ situation: 'non_restitue' }, 0],
+      [{ situation: 'perdu' }, 1],
+      [{ horsCatalogue: '1' }, 0],
+    ])('valide la requête %o (%i erreur)', async (plain, errors) => {
+      const dto = plainToInstance(InventoryQueryDto, plain);
+      expect(await validate(dto)).toHaveLength(errors);
     });
 
     it('catégorie "autre" couvre à la fois les équipements sans fiche catalogue et category=autre', async () => {
@@ -121,12 +151,14 @@ describe('InventoryService', () => {
       });
     });
 
-    it('ajoute le filtre « sans numéro de série » (NULL ou vide) à la liste et à l’export', async () => {
+    it('ajoute le filtre « sans numéro de série » (absent, vide ou fait d’espaces) à la liste et à l’export', async () => {
       (prisma.bonEquipment.findMany as Mock).mockResolvedValue([]);
       (prisma.bonEquipment.count as Mock).mockResolvedValue(0);
+      // Valeurs blanches présentes en base, lues par la requête BLANK_SERIAL_VALUES_SQL.
+      (prisma.$queryRaw as Mock).mockResolvedValue([{ value: '' }, { value: '   ' }]);
 
       await service.getInventory({ sansNumeroSerie: true });
-      const clause = { OR: [{ serialNumber: null }, { serialNumber: '' }] };
+      const clause = { OR: [{ serialNumber: null }, { serialNumber: { in: ['', '   '] } }] };
       expect((prisma.bonEquipment.findMany as Mock).mock.calls[0][0].where.AND).toContainEqual(clause);
 
       await service.getExportCsv({ sansNumeroSerie: true });
@@ -360,7 +392,8 @@ describe('InventoryService', () => {
           { situation: 'en_circulation', count: 4n },
           { situation: 'en_attente_signature', count: 1n },
         ]) // bySituation
-        .mockResolvedValueOnce([{ count: 2n }]); // overdue
+        .mockResolvedValueOnce([{ count: 2n }]) // overdue
+        .mockResolvedValueOnce([{ count: 6n }]); // notReturned
 
       const summary = await service.getSummary();
 
@@ -378,7 +411,18 @@ describe('InventoryService', () => {
       // Invariant verrouillé par l'audit : la somme des situations égale le total.
       expect(summary.bySituation.reduce((sum, s) => sum + s.count, 0)).toBe(summary.total);
       expect(summary.overdue).toBe(2);
-      expect(prisma.$queryRaw).toHaveBeenCalledTimes(5);
+      expect(summary.notReturned).toBe(6);
+      expect(prisma.$queryRaw).toHaveBeenCalledTimes(6);
+    });
+
+    it('compte les non-restitués hors parc, jamais sur un bon annulé (option « Non restitué » du filtre)', async () => {
+      (prisma.$queryRaw as Mock).mockResolvedValue([{ count: 0n }]);
+
+      await service.getSummary();
+
+      const [query] = (prisma.$queryRaw as Mock).mock.calls[5] as [Prisma.Sql];
+      expect(query.sql).toContain('be.not_returned = true');
+      expect(query.sql).toContain("b.status::text <> 'cancelled'");
     });
 
     it('compare le statut enum via un cast ::text (sinon Postgres refuse « "BonStatus" = text »)', async () => {
@@ -386,7 +430,8 @@ describe('InventoryService', () => {
 
       await service.getSummary();
 
-      const calls = (prisma.$queryRaw as Mock).mock.calls as [Prisma.Sql][];
+      // Les cinq agrégats du parc ; le sixième compte les non-restitués, hors parc.
+      const calls = ((prisma.$queryRaw as Mock).mock.calls as [Prisma.Sql][]).slice(0, 5);
       expect(calls).toHaveLength(5);
       for (const [query] of calls) {
         expect(query.sql).toContain('b.status::text IN (');
@@ -399,7 +444,7 @@ describe('InventoryService', () => {
 
       await service.getSummary();
 
-      const calls = (prisma.$queryRaw as Mock).mock.calls as [Prisma.Sql][];
+      const calls = ((prisma.$queryRaw as Mock).mock.calls as [Prisma.Sql][]).slice(0, 5);
       for (const [query] of calls) {
         for (const status of PARC_BON_STATUSES) {
           expect(query.values).toContain(status);
@@ -413,6 +458,7 @@ describe('InventoryService', () => {
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ count: 0n }])
         .mockResolvedValueOnce([{ count: 0n }]);
 
       const summary = await service.getSummary();
@@ -427,6 +473,7 @@ describe('InventoryService', () => {
           { situation: 'en_litige', label: SITUATION_LABELS.en_litige, count: 0 },
         ],
         overdue: 0,
+        notReturned: 0,
       });
     });
   });
@@ -495,6 +542,25 @@ describe('InventoryService', () => {
       const cols = headerLine.split(';');
 
       expect(dataLine.split(';')[cols.indexOf('"Retard (jours)"')]).toBe('""');
+    });
+
+    it('laisse « Retard (jours) » vide pour un équipement non restitué : il n’est plus attendu', async () => {
+      const now = new Date('2026-09-18T10:00:00.000Z');
+      (prisma.bonEquipment.findMany as Mock).mockResolvedValue([
+        makeRow({
+          notReturned: true,
+          notReturnedReason: 'Perdu',
+          bon: { ...makeRow().bon, status: 'archived', dateRestitution: new Date('2026-09-10T00:00:00.000Z') },
+        }),
+      ]);
+
+      const { csv } = await service.getExportCsv({ situation: 'non_restitue' }, now);
+      const [headerLine, dataLine] = csv.slice(1).split('\n');
+      const cols = headerLine.split(';');
+      const values = dataLine.split(';');
+
+      expect(values[cols.indexOf('"Situation"')]).toBe('"Non restitué"');
+      expect(values[cols.indexOf('"Retard (jours)"')]).toBe('""');
     });
 
     it("laisse l'ancienneté vide pour une remise prévue dans le futur (jamais « '-3 »)", async () => {

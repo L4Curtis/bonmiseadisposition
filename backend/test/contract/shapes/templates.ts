@@ -36,6 +36,13 @@ const emailTemplateId = literal(
   'confirmation_pv_cloture',
   'departure_alert',
   'restitution_due_reminder',
+  'bon_cancelled',
+  'handover_without_signature',
+  'closed_without_signature',
+  'bon_replaced',
+  'equipment_found',
+  'link_request_alert',
+  'contestation_overdue_alert',
 );
 
 const pdfTemplateId = literal('mise_disposition', 'restitution', 'cloture', 'avenant');

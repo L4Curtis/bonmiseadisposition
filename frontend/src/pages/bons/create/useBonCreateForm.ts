@@ -7,6 +7,7 @@ import { useBonFormSnapshot } from './useBonFormSnapshot';
 import { useLiveSerialConflicts } from './useLiveSerialConflicts';
 import { runBonValidation } from './lib/validation';
 import { buildBonPayload } from './lib/payload';
+import { withoutReplacedBon } from './lib/serialConflicts';
 import {
   duplicateLine, distributeSerialsFromLine, findDuplicateSerialIds, isNonEmptyLine, placeCatalogItem, splitPastedSerials,
 } from './lib/equipmentLines';
@@ -63,6 +64,7 @@ export function useBonCreateForm() {
   };
   const [internalNote, setInternalNote] = useState('');
   const [editStatus, setEditStatus] = useState<string | null>(null);
+  const [replacedBonId, setReplacedBonId] = useState<string | null>(null);
   const [dateMiseDisposition, setDateMiseDisposition] = useState(() => {
     if (restoredFromDraft && initialDraft?.dateMiseDisposition) return initialDraft.dateMiseDisposition;
     return isEditing ? '' : todayInParis();
@@ -173,6 +175,7 @@ export function useBonCreateForm() {
         }
         setEditReference(bon.reference);
         setEditStatus(bon.status);
+        setReplacedBonId(bon.replaces?.id ?? null);
         setCollaborateurState(bon.collaborateur);
         setFilialeIdState(bon.filialeId);
         civiliteTouchedRef.current = true;
@@ -256,7 +259,7 @@ export function useBonCreateForm() {
   }, []);
 
   const { checkSerial: checkSerialConflict, forgetLine: forgetSerialConflictLine, conflictsByLineId: liveSerialConflicts } =
-    useLiveSerialConflicts(equipments, editBonId);
+    useLiveSerialConflicts(equipments, editBonId, replacedBonId);
 
   const removeEquipment = (id: string) => {
     setEquipments((prev) => prev.filter((e) => e._id !== id));
@@ -376,7 +379,8 @@ export function useBonCreateForm() {
         try {
           const params = new URLSearchParams({ serials: serials.join(',') });
           if (isEditing) params.set('excludeBonId', editBonId!);
-          const { items } = await api.get<SerialConflictsResponse>(`/equipment/serial-conflicts?${params}`);
+          const response = await api.get<SerialConflictsResponse>(`/equipment/serial-conflicts?${params}`);
+          const items = withoutReplacedBon(response.items, replacedBonId);
           if (items.length > 0) {
             setSerialConflicts(items);
             return;

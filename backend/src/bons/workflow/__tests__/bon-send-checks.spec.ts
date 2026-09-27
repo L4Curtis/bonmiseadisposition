@@ -71,7 +71,7 @@ describe('contrôles avant la remise', () => {
     expect(checks).toEqual({ missingSerials: [], serialConflicts: [{ serialNumber: 'SN-001', bonReference: 'BON-2026-0007' }] });
     const where = prisma.bonEquipment.findMany.mock.calls[0][0].where;
     expect(where.serialNumber.in).toEqual(['SN-001']);
-    expect(where.bon.id).toEqual({ not: 'bon-1' });
+    expect(where.bon.id).toEqual({ notIn: ['bon-1'] });
   });
 
   it('ignore le bon remplacé : ses équipements sont les mêmes, par nature', async () => {

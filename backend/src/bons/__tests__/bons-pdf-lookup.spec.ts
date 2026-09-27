@@ -19,6 +19,11 @@ describe('assertValidPdfQuery', () => {
   it('accepte une étape absente (cas limite : stage optionnel)', () => {
     expect(() => assertValidPdfQuery('mise_disposition', undefined)).not.toThrow();
   });
+
+  it('rejette un identifiant de document qui n’est pas un UUID', () => {
+    expect(() => assertValidPdfQuery('mise_disposition', undefined, 'x; DROP')).toThrow(BadRequestException);
+    expect(() => assertValidPdfQuery('mise_disposition', undefined, '3f1c2a4e-9b8d-4c7e-a1f2-0d9e8c7b6a51')).not.toThrow();
+  });
 });
 
 describe('resolveBonPdf', () => {
@@ -29,47 +34,79 @@ describe('resolveBonPdf', () => {
     prisma = createMockPrismaService();
   });
 
+  it('sert le document précis demandé, s’il appartient au bon', async () => {
+    (prisma.pdfSnapshot.findFirst as Mock).mockResolvedValue({ id: 'doc-1', filename: 'premiere.pdf', data: Buffer.from('p') });
+
+    const result = await resolveBonPdf(prisma as never, bon, 'restitution', undefined, 'doc-1', 'it');
+
+    expect(prisma.pdfSnapshot.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'doc-1', bonId: 'bon-1' } }));
+    expect(result).toEqual({ filename: 'premiere.pdf', data: Buffer.from('p') });
+  });
+
+  it('document d’un autre bon ou inconnu : 404, jamais un autre document', async () => {
+    (prisma.pdfSnapshot.findFirst as Mock).mockResolvedValue(null);
+    await expect(resolveBonPdf(prisma as never, bon, 'restitution', undefined, 'doc-x', 'it')).rejects.toThrow('Document introuvable');
+  });
+
+  it('compte non IT : le document demandé est cherché parmi ceux qu’il peut garder seulement', async () => {
+    (prisma.pdfSnapshot.findFirst as Mock).mockResolvedValue(null);
+    await expect(resolveBonPdf(prisma as never, bon, 'restitution', undefined, 'doc-it', 'collaborator')).rejects.toThrow('Document introuvable');
+    const where = (prisma.pdfSnapshot.findFirst as Mock).mock.calls[0][0].where;
+    expect(where).toMatchObject({ id: 'doc-it', bonId: 'bon-1' });
+    expect(where.OR).toContainEqual({ type: 'cloture_equipements_manquants', signature: { type: 'pv_cloture' } });
+    expect(JSON.stringify(where.OR)).not.toContain('signature_it_');
+  });
+
+  it('étape demandée : la version en vigueur, la plus récente', async () => {
+    (prisma.pdfSnapshot.findFirst as Mock).mockResolvedValue({ filename: 'recente.pdf', data: Buffer.from('r') });
+    await resolveBonPdf(prisma as never, bon, 'restitution', 'signature_collab_restitution', undefined, 'it');
+    expect(prisma.pdfSnapshot.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { bonId: 'bon-1', type: 'signature_collab_restitution' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    }));
+  });
+
   it("sert le snapshot de l'étape demandée en priorité quand stage est fourni (cas nominal)", async () => {
-    (prisma.pdfSnapshot.findUnique as Mock).mockResolvedValue({
+    (prisma.pdfSnapshot.findFirst as Mock).mockResolvedValue({
       filename: 'etape.pdf',
       data: Buffer.from('etape'),
     });
 
-    const result = await resolveBonPdf(prisma as never, bon, 'mise_disposition', 'signature_it_cachet');
+    const result = await resolveBonPdf(prisma as never, bon, 'mise_disposition', 'signature_it_cachet', undefined, 'it');
 
     expect(result).toEqual({ filename: 'etape.pdf', data: Buffer.from('etape') });
   });
 
   it('retombe sur le snapshot par défaut du type quand le stage demandé est absent', async () => {
-    (prisma.pdfSnapshot.findUnique as Mock)
+    (prisma.pdfSnapshot.findFirst as Mock)
       .mockResolvedValueOnce(null) // stage
       .mockResolvedValueOnce({ filename: 'defaut.pdf', data: Buffer.from('defaut') }); // type par défaut
 
-    const result = await resolveBonPdf(prisma as never, bon, 'mise_disposition', 'etape-absente');
+    const result = await resolveBonPdf(prisma as never, bon, 'mise_disposition', 'etape-absente', undefined, 'it');
 
     expect(result).toEqual({ filename: 'defaut.pdf', data: Buffer.from('defaut') });
   });
 
   it('retombe sur les colonnes legacy quand aucun PdfSnapshot n’existe', async () => {
-    (prisma.pdfSnapshot.findUnique as Mock).mockResolvedValue(null);
+    (prisma.pdfSnapshot.findFirst as Mock).mockResolvedValue(null);
     (prisma.bon.findUnique as Mock).mockResolvedValue({
       pdfMiseDispoSnapshot: Buffer.from('legacy'),
       pdfRestitutionSnapshot: null,
     });
 
-    const result = await resolveBonPdf(prisma as never, bon, 'mise_disposition');
+    const result = await resolveBonPdf(prisma as never, bon, 'mise_disposition', undefined, undefined, 'it');
 
     expect(result).toEqual({ filename: 'bon-BMD-2026-0042.pdf', data: Buffer.from('legacy') });
   });
 
   it("renvoie null quand rien n'est stocké (cas limite : génération à la volée déléguée au contrôleur)", async () => {
-    (prisma.pdfSnapshot.findUnique as Mock).mockResolvedValue(null);
+    (prisma.pdfSnapshot.findFirst as Mock).mockResolvedValue(null);
     (prisma.bon.findUnique as Mock).mockResolvedValue({
       pdfMiseDispoSnapshot: null,
       pdfRestitutionSnapshot: null,
     });
 
-    const result = await resolveBonPdf(prisma as never, bon, 'restitution');
+    const result = await resolveBonPdf(prisma as never, bon, 'restitution', undefined, undefined, 'it');
 
     expect(result).toBeNull();
   });

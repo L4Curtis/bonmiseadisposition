@@ -136,13 +136,15 @@ export function EquipmentSection({
                 <div key={eq._id} className="grid grid-cols-[1fr_120px_120px_80px_56px] gap-2 items-center">
                   <div>
                     {eq.catalogItemId ? (
-                      <div className="flex items-center gap-1 rounded-md bg-primary/10 border border-primary/20 px-2 py-1.5 text-sm">
-                        <span className="font-medium text-primary">{eq.catalogItemLabel}</span>
+                      // Article du catalogue : pastille neutre (le rouge est réservé aux erreurs).
+                      <div className="flex items-center gap-1 rounded-md border border-border bg-muted/50 py-0.5 pl-2 pr-0.5 text-sm">
+                        <span className="min-w-0 font-medium text-foreground">{eq.catalogItemLabel}</span>
                         <button
                           type="button"
                           onClick={() => onUpdateEquipment(eq._id, 'catalogItemId', '')}
-                          className="ml-auto text-primary/50 hover:text-primary"
-                          aria-label={`Retirer cet article du catalogue - ligne ${rowLabel}`}
+                          className="ml-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                          aria-label={`Détacher du catalogue - ligne ${rowLabel}`}
+                          title="Détacher du catalogue (saisir une désignation libre)"
                         >
                           <X className="h-3 w-3" />
                         </button>

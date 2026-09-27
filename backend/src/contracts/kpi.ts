@@ -415,3 +415,53 @@ export interface KpiTodayResponse {
     partialRestitutionsToSign: KpiTodaySection;
   };
 }
+
+// ─── GET /api/kpi/liste ────────────────────────────────────────────────────────
+
+/** Chiffres « sur la période » qui ouvrent la liste de ce qu'ils comptent
+ *  (onglet Délais : bons créés, envoyés, clôturés, annulés ; onglet
+ *  Incidents : PV émis, remises et clôtures sans signature, bons annulés,
+ *  contestations reçues, emails en échec). */
+export type KpiListKey =
+  | 'bons_crees'
+  | 'bons_envoyes'
+  | 'bons_clotures'
+  | 'bons_annules'
+  | 'pv_emis'
+  | 'remises_sans_signature'
+  | 'clotures_sans_signature'
+  | 'contestations_recues'
+  | 'emails_en_echec';
+
+/** Une ligne de la liste : un bon, ou un événement de ce bon (un PV, une
+ *  remise sans signature, une contestation, un email). */
+export interface KpiListItem {
+  /** Identifiant de l'élément compté (bon, entrée du journal, contestation ou email). */
+  id: string;
+  bonId: string;
+  reference: string;
+  status: BonStatus;
+  collaborateur: string;
+  filiale: string;
+  /** Date de l'élément : création, premier envoi, clôture, annulation,
+   *  émission, réception ou tentative d'envoi selon le chiffre. */
+  at: IsoDateTime;
+  /** Précision lisible : motif (annulation, remise ou clôture sans
+   *  signature), issue d'une contestation (« À traiter », « Fondée »,
+   *  « Non retenue »), destinataire et nature de l'échec d'un email ; sinon null. */
+  detail: string | null;
+}
+
+/** GET /api/kpi/liste?indicateur=…&from&to&filialeId&page&limit (admin,
+ *  technician ; la direction n'ouvre pas de bon) : la liste exacte de ce que
+ *  compte la carte, pour la même période et la même filiale — `total` égale
+ *  la valeur de la carte. Plus récents d'abord ; `limit` 50 par défaut, 200 au
+ *  plus. Non mise en cache. */
+export interface KpiListResponse {
+  indicateur: KpiListKey;
+  period: { from: KpiDate; to: KpiDate };
+  items: KpiListItem[];
+  total: number;
+  page: number;
+  limit: number;
+}

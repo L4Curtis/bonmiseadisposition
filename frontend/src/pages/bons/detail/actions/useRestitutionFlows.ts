@@ -31,13 +31,15 @@ export function useRestitutionFlows(deps: FlowDeps, links: RestitutionLinks) {
   };
 
   /** Fenêtre de sélection confirmée. `selectedIds` : équipements nouvellement
-   *  rendus (ceux déjà marqués et non signés restent cochés d'office). */
-  const confirmRestitution = async (selectedIds: readonly string[], channel: Channel) => {
+   *  rendus ; `undoIds` : équipements déjà marqués que le technicien a
+   *  décochés (un seul appel au serveur quand il y a aussi des nouveaux). */
+  const confirmRestitution = async (selectedIds: readonly string[], channel: Channel, undoIds: readonly string[] = []) => {
     if (!id) return;
-    if (selectedIds.length > 0) {
+    if (selectedIds.length > 0 || undoIds.length > 0) {
       setActionLoading('restitution');
       try {
-        await bonApi.markReturned(id, selectedIds, channel === 'in_person');
+        if (selectedIds.length > 0) await bonApi.markReturned(id, selectedIds, channel === 'in_person', undoIds);
+        else await bonApi.undoReturn(id, undoIds);
       } catch (e: unknown) {
         showActionError(e, 'Erreur lors de l’enregistrement de la restitution');
         return;

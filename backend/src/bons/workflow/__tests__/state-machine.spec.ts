@@ -129,6 +129,31 @@ describe('machine à états du bon', () => {
     });
   });
 
+  describe('bon rouvert après une contestation Fondée (correction à faire)', () => {
+    it('restitution contestée : corriger le marquage passe avant le renvoi du lien', () => {
+      const f = facts({ status: 'sent_restitution', equipmentOut: 0, returnedToSign: 3 });
+      expect(primaryAction(f, { correction: 'restitution' })).toBe('undo_return');
+      const list = availableActions(f, { correction: 'restitution' });
+      expect(list[0]).toEqual({ action: 'undo_return', primary: true, blockedReason: null });
+      expect(list.find((a) => a.action === 'resend')?.primary).toBe(false);
+    });
+
+    it('PV contesté : « équipement retrouvé » passe en tête', () => {
+      const f = facts({ status: 'partially_returned', equipmentOut: 0, returnedSigned: 2, notReturned: 1 });
+      expect(primaryAction(f, { correction: 'pv_cloture' })).toBe('mark_found');
+    });
+
+    it('sans correction en cours, rien ne change', () => {
+      const f = facts({ status: 'sent_restitution', equipmentOut: 0, returnedToSign: 3 });
+      expect(primaryAction(f, { correction: null })).toBe('resend');
+    });
+
+    it('la correction ne s’applique qu’au document réellement en attente', () => {
+      const f = facts({ status: 'partially_returned', equipmentOut: 0, returnedSigned: 2, notReturned: 1 });
+      expect(primaryAction(f, { correction: 'restitution' })).toBe('resend');
+    });
+  });
+
   describe('statut suivant', () => {
     it('après un marquage : tout rendu → restitution à signer ; une partie → restitution en cours', () => {
       expect(statusAfterReturnChange({ equipmentCount: 3, equipmentOut: 0, returnedToSign: 3, notReturned: 0 }))

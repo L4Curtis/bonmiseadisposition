@@ -79,6 +79,7 @@ export const signatureInvalidationReason = enumOf<SignatureInvalidationReason>({
   replaced: true,
   in_person: true,
   modified: true,
+  return_corrected: true,
   cancelled: true,
   contested: true,
   handover_without_signature: true,
