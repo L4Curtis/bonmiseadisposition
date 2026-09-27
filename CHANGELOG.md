@@ -4,6 +4,55 @@ Historique des évolutions notables de l'application. Les entrées les plus réc
 
 ---
 
+## 2026-09-27 — Refonte, vague 2 : le cycle de vie d'un bon, les documents et le mobile
+
+### Fiche d'un bon et parcours de l'IT
+- **La fiche dit quoi faire maintenant** : une action principale, les autres dans « Autres actions », les actions
+  dangereuses en rouge avec un motif obligatoire.
+- **Au guichet** : restitution partielle en cochant les équipements rendus, PV de non-restitution signé sur place.
+- **Nouveaux gestes** : modifier un bon envoyé non signé (nouvelle signature IT), annuler un « rendu » coché par erreur,
+  annuler un bon avec un motif, « Constater la remise sans signature » et « Clôturer sans signature » distincts.
+- **Garde-fous** : aucun lien sans signature IT ni contrôle des numéros de série ; aucun lien ni rappel vers un compte
+  désactivé ; un seul lien valide par bon (plus de doublon au double clic) ; une signature ne peut plus aboutir sur un
+  lien tout juste invalidé ; civilité obligatoire, retenue pour le collaborateur ; « Note interne IT » jamais montrée
+  au collaborateur ; un brouillon n'est plus visible par le collaborateur.
+- Bouton « Renvoyer » présent même quand le lien a expiré, et pour une restitution partielle.
+
+### Documents probants et emails
+- **Chaque PDF dit la vérité de son document** : signataire IT réel, date et signature de ce document, certificat de ce
+  document ; signature au guichet au nom du collaborateur « en présence de » l'IT ; documents dédiés pour une remise
+  ou une clôture sans signature.
+- **Trois rappels par document** (remise, restitution, PV) ; un collaborateur sans adresse n'est plus compté comme un
+  échec d'envoi.
+- Emails d'annulation (avec motif), de remise et de clôture sans signature, de bon remplacé ; confirmation avec le PDF
+  signé et un lien vers le portail ; alertes IT avec lien direct vers le bon ; dates à l'heure de Paris.
+- Un lien expiré propose « Demander un nouveau lien » (alerte à l'IT).
+
+### Contestation
+- Deux issues : **Fondée** (remise : bon corrigé en brouillon prérempli que l'IT corrige puis envoie, l'original reste
+  en cours jusqu'à la signature du remplaçant ; restitution ou PV : le bon d'origine est corrigé puis renvoyé à signer)
+  ou **Non retenue** (rien ne change).
+- Le collaborateur peut contester une restitution ou un PV au moment de signer, et suit sa contestation ; l'IT est
+  relancée après 7 jours ouvrés.
+
+### Indicateurs
+- Chaque chiffre dit **ce qu'il compte** (bons ou équipements), son seuil et sa portée ; **un clic ouvre la liste
+  exacte** qu'il compte. Deux retards distincts : « Signature en retard » et « Retour en retard ».
+- L'accueil IT montre aussi les contestations à traiter, les liens expirés, les départs avec matériel et les
+  restitutions partielles à signer.
+- L'anonymisation est calculée sur la date de clôture du bon.
+
+### Téléphone
+- **Menu en tiroir** sur téléphone (portrait et paysage), page sans défilement de côté, cibles tactiles de 44 px.
+- **Collaborateur** : signature au doigt en plein écran (tracé conservé à la rotation), connexion en un écran depuis
+  l'email, portail rangé par ce qu'il y a à faire avec les numéros de série, PDF ouverts dans le navigateur.
+
+### Base de données (migrations `20260925100000` et `20260925100100`, additives)
+- Civilité, note interne, date d'attente de signature, motifs, lien entre un bon et son remplaçant, motif
+  d'invalidation d'un lien, issue de contestation, document concerné par un rappel. Données existantes reprises.
+
+---
+
 ## 2026-09-25 — Refonte, vague 1 : sécurité et fondations
 
 ### Sécurité
