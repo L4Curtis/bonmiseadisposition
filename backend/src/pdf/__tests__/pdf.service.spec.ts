@@ -210,7 +210,7 @@ describe('PdfService', () => {
 
       const pdf = await service.generateAndSave(
         bon,
-        'signature_collab_restitution',
+        'signature_it_restitution',
         noSigImages,
         'bon-test.pdf',
       );
@@ -258,7 +258,7 @@ describe('PdfService', () => {
       asMock(prisma.pdfSnapshot.upsert).mockImplementation(async () => { order.push('pdfSnapshot'); return {}; });
       asMock(prisma.auditLog.create).mockImplementation(async () => { order.push('auditLog'); return {}; });
 
-      await service.generateAndSave(bonForPdf(), 'signature_collab_restitution', noSigImages, 'bon-test.pdf');
+      await service.generateAndSave(bonForPdf(), 'signature_it_restitution', noSigImages, 'bon-test.pdf');
 
       expect(prisma.$transaction).toHaveBeenCalled();
       expect(order).toEqual(['proofArchive', 'pdfSnapshot', 'auditLog']);
@@ -268,7 +268,7 @@ describe('PdfService', () => {
       asMock(prisma.proofArchive.create).mockRejectedValue(new Error('DB down'));
 
       await expect(
-        service.generateAndSave(bonForPdf(), 'signature_collab_restitution', noSigImages, 'bon-test.pdf'),
+        service.generateAndSave(bonForPdf(), 'signature_it_restitution', noSigImages, 'bon-test.pdf'),
       ).rejects.toThrow('DB down');
 
       expect(prisma.pdfSnapshot.upsert).not.toHaveBeenCalled();
@@ -280,7 +280,7 @@ describe('PdfService', () => {
       asMock(prisma.auditLog.create).mockRejectedValue(new Error('audit write failed'));
 
       await expect(
-        service.generateAndSave(bonForPdf(), 'signature_collab_restitution', noSigImages, 'bon-test.pdf'),
+        service.generateAndSave(bonForPdf(), 'signature_it_restitution', noSigImages, 'bon-test.pdf'),
       ).rejects.toThrow('audit write failed');
     });
   });
@@ -356,15 +356,12 @@ describe('PdfService', () => {
         } as never);
 
       try {
+        // Le cachet est lu en base par l'identifiant de la filiale, jamais
+        // dans l'objet du bon.
+        asMock(prisma.filiale.findUnique).mockResolvedValue({ stampPath: 'uploads/stamp.png' });
         const bon = bonForPdf({
-          filiale: {
-            displayName: 'Livio',
-            name: 'livio',
-            logoPath: null,
-            stampPath: 'uploads/stamp.png',
-            address: null,
-            siret: null,
-          },
+          filialeId: 'filiale-livio',
+          filiale: { displayName: 'Livio', name: 'livio', logoPath: null, address: null, siret: null },
         });
 
         await service.generateBonPdf(bon, noSigImages, 'mise_disposition');
@@ -434,68 +431,17 @@ describe('PdfService', () => {
 
   // ─── getDocumentType (tested through generateAndSave) ─────────────────────
 
-  describe('getDocumentType (via generateAndSave)', () => {
-    let renderSpy: MockInstance;
-
-    beforeEach(() => {
-      asMock(prisma.pdfSnapshot.upsert).mockResolvedValue({});
-      renderSpy = vi.spyOn(service as unknown as SpyTarget, 'renderPdf');
-    });
-
-    afterEach(() => {
-      renderSpy.mockRestore();
-    });
-
-    it('should map signature_collab_mise_disposition to mise_disposition', async () => {
-      const bon = bonForPdf();
-
-      await service.generateAndSave(
-        bon,
-        'signature_collab_mise_disposition',
-        noSigImages,
-        'f.pdf',
-      );
-
-      expect(renderSpy).toHaveBeenCalledWith(bon, noSigImages, 'mise_disposition');
-    });
-
-    it('should map signature_collab_restitution to restitution', async () => {
-      const bon = bonForPdf({ status: 'sent_restitution' });
-
-      await service.generateAndSave(
-        bon,
-        'signature_collab_restitution',
-        noSigImages,
-        'f.pdf',
-      );
-
-      expect(renderSpy).toHaveBeenCalledWith(bon, noSigImages, 'restitution');
-    });
-
-    it('should map cloture_equipements_manquants to cloture', async () => {
-      const bon = partialBonForPdf();
-
-      await service.generateAndSave(
-        bon,
-        'cloture_equipements_manquants',
-        noSigImages,
-        'f.pdf',
-      );
-
-      expect(renderSpy).toHaveBeenCalledWith(bon, noSigImages, 'cloture');
-    });
-
-    it('should map avenant_equipement_retrouve to avenant', async () => {
-      const bon = bonForPdf();
-
-      await service.generateAndSave(
-        bon,
-        'avenant_equipement_retrouve',
-        noSigImages,
-        'f.pdf',
-      );
-
-      expect(renderSpy).toHaveBeenCalledWith(bon, noSigImages, 'avenant');
+  describe('getDocumentType', () => {
+    it.each([
+      ['signature_collab_mise_disposition', 'mise_disposition'],
+      ['signature_it_mise_disposition', 'mise_disposition'],
+      ['remise_sans_signature', 'mise_disposition'],
+      ['signature_collab_restitution', 'restitution'],
+      ['signature_it_restitution', 'restitution'],
+      ['cloture_equipements_manquants', 'cloture'],
+      ['avenant_equipement_retrouve', 'avenant'],
+    ])('maps %s to %s', (snapshotType, documentType) => {
+      expect(service.getDocumentType(snapshotType)).toBe(documentType);
     });
   });
 
@@ -514,13 +460,13 @@ describe('PdfService', () => {
 
     const minimalBon = () => ({
       id: 'bon-1',
-      reference: 'BMD-2026-0001',
+      reference: 'BON-2026-0001',
       civilite: 'mme',
       status: 'archived',
       dateMiseDisposition: new Date('2026-01-01'),
       dateRestitution: null,
       notes: null,
-      filiale: { displayName: 'Livio', name: 'livio', logoPath: null, stampPath: null, address: null, siret: null },
+      filiale: { displayName: 'Livio', name: 'livio', logoPath: null, address: null, siret: null },
       collaborateur: { displayName: 'Jean Dupont', department: null },
       collaborateurEmail: 'jean.dupont@livio.fr',
       createdBy: { displayName: 'Tech' },
@@ -549,7 +495,7 @@ describe('PdfService', () => {
       expect(generateAndSaveSpy).toHaveBeenCalledWith(
         expect.objectContaining({ id: 'bon-1' }),
         'signature_collab_restitution',
-        expect.any(Object),
+        null,
         expect.stringContaining('signature_collab_restitution'),
       );
     });
@@ -586,7 +532,7 @@ describe('PdfService', () => {
       expect(generateAndSaveSpy).toHaveBeenCalledWith(
         expect.objectContaining({ id: 'bon-1' }),
         'signature_it_restitution',
-        expect.any(Object),
+        null,
         expect.stringContaining('signature_it_restitution'),
       );
     });
@@ -607,7 +553,7 @@ describe('PdfService', () => {
       expect(generateAndSaveSpy).toHaveBeenCalledWith(
         expect.objectContaining({ id: 'bon-1' }),
         'signature_it_mise_disposition',
-        expect.any(Object),
+        null,
         expect.stringContaining('signature_it_mise_disposition'),
       );
     });

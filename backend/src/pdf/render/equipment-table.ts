@@ -1,4 +1,4 @@
-import { BonForPdf } from '../pdf.service';
+import type { BonForPdf } from '../pdf-types';
 import { PdfFontsConfig, PdfTemplateConfig, substituteVars } from '../pdf-template-config';
 import { PdfDocumentType, RenderFonts, drawSectionTitle } from './layout';
 
@@ -100,7 +100,7 @@ export function drawAvenantNote(
   );
   doc.font(fontNames.regular).fontSize(fonts.bodySize).fillColor('#15803d');
   doc.text(
-    'ont été retrouvés et récupérés par le service informatique. Le procès-verbal de clôture initial reste valide.',
+    'ont été retrouvés et récupérés par l’équipe informatique. Le PV de non-restitution initial reste valide.',
     leftX + 8, noteY + 16, { width: pageWidth - 16 },
   );
   doc.y = noteY + 34;
@@ -171,9 +171,9 @@ export function drawEquipmentTable(
     // (remplace les anciens placeholders ASCII V / X / ...).
     const statut = hasStatutCol
       ? (eq.returnedAt
-          ? { label: 'Rendu', color: '#16a34a' }
+          ? { label: 'Restitué', color: '#16a34a' }
           : eq.notReturned
-            ? { label: 'Non rendu', color: '#dc2626' }
+            ? { label: 'Non restitué', color: '#dc2626' }
             : { label: 'En attente', color: colors.lightGray })
       : null;
     // Le motif de non-restitution rejoint la colonne Remarques (plus lisible)

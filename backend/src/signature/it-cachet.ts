@@ -8,7 +8,32 @@ import { BON_FOR_SIGNATURE_SELECT } from './select-shape';
 import { buildSealPayload } from './seal';
 import { saveSignatureFile } from './signature-file-store';
 import { generatePdfSnapshot, PdfSnapshotDeps } from './pdf-snapshot';
-import { NON_SIGNABLE_BON_STATUSES, RESTITUTION_PHASE_BON_STATUSES, isBonStatusIn } from '../bons/bon-status';
+import { NON_SIGNABLE_BON_STATUSES, isBonStatusIn } from '../bons/bon-status';
+
+/** Document d'une signature IT (`Signature.pdfType`) : le PDF qui la porte. */
+export type ItSignatureDocument = 'mise_disposition' | 'restitution' | 'pv_cloture' | 'avenant';
+
+/** Avant l'envoi de la remise, la signature IT est celle de la remise ;
+ *  ensuite, celle de la restitution. */
+export function itCachetDocument(
+  requested: 'mise_disposition' | 'restitution' | undefined,
+  bonStatus: string,
+): 'mise_disposition' | 'restitution' {
+  if (requested) return requested;
+  return bonStatus === 'draft' || bonStatus === 'sent_mise_dispo' ? 'mise_disposition' : 'restitution';
+}
+
+/**
+ * Document de la signature IT recueillie lors d'une déclaration de
+ * non-restitution ou d'un équipement retrouvé : l'avenant si le bon est déjà
+ * clôturé, sinon le PV de non-restitution. Une déclaration faite pendant
+ * qu'une restitution attend sa signature signe le PV qui suivra : rangée sous
+ * « restitution », elle prendrait la place de la signature IT de cette
+ * restitution et laisserait la case IT du PV vide.
+ */
+export function pvContextDocument(bonStatus: string): ItSignatureDocument {
+  return bonStatus === 'archived' ? 'avenant' : 'pv_cloture';
+}
 
 export interface ItCachetDeps {
   prisma: PrismaService;
@@ -18,8 +43,8 @@ export interface ItCachetDeps {
   pdfSnapshot: PdfSnapshotDeps;
 }
 
-/** IT technician signs directly in-app (authenticated — no email token needed).
- *  Extrait de SignatureService.signItCachet sans changement de comportement. */
+/** Signature IT d'un document, apposée dans l'application par le technicien
+ *  connecté (aucun lien). Son document est enregistré dans `pdfType`. */
 export async function signItCachet(
   deps: ItCachetDeps,
   bonId: string,
@@ -29,30 +54,35 @@ export async function signItCachet(
   signerUserAgent: string,
   pdfType?: 'mise_disposition' | 'restitution',
 ) {
-  // Idempotency: if a signed it_cachet exists created within the last 10 seconds, return it
+  const bon = await deps.prisma.bon.findUniqueOrThrow({
+    where: { id: bonId },
+    select: BON_FOR_SIGNATURE_SELECT,
+  });
+  const document = itCachetDocument(pdfType, bon.status);
+
+  // Idempotence (double clic) : une signature IT de CE document, par CE
+  // technicien, encore valable, apposée il y a moins de 10 s ET depuis la
+  // dernière modification du bon, est renvoyée telle quelle. Sinon (autre
+  // document, autre technicien, bon modifié ou nouvelle restitution marquée
+  // entre-temps), c'est une nouvelle signature : renvoyer l'ancienne ferait
+  // porter au document le mauvais signataire, ou la bloquerait comme périmée.
+  const since = Math.max(Date.now() - 10_000, new Date(bon.updatedAt).getTime());
   const recentItCachet = await deps.prisma.signature.findFirst({
     where: {
       bonId,
       type: 'it_cachet',
       signed: true,
-      signedAt: { gt: new Date(Date.now() - 10_000) },
+      pdfType: document,
+      signerEmail,
+      invalidatedAt: null,
+      signedAt: { gte: new Date(since) },
     },
     orderBy: { signedAt: 'desc' },
   });
-
   if (recentItCachet) {
-    deps.logger.warn(`signItCachet idempotency hit for bon ${bonId} — returning existing record`);
-    const existingBon = await deps.prisma.bon.findUniqueOrThrow({
-      where: { id: bonId },
-      select: BON_FOR_SIGNATURE_SELECT,
-    });
-    return { ok: true, bon: sanitizeBonForResponse(existingBon), signature: toSafeSignature(recentItCachet as unknown as Record<string, unknown>) };
+    deps.logger.warn(`Signature IT déjà apposée à l'instant pour le bon ${bonId} (${document}) : renvoyée telle quelle`);
+    return { ok: true, bon: sanitizeBonForResponse(bon), signature: toSafeSignature(recentItCachet as unknown as Record<string, unknown>) };
   }
-
-  const bon = await deps.prisma.bon.findUniqueOrThrow({
-    where: { id: bonId },
-    select: BON_FOR_SIGNATURE_SELECT,
-  });
 
   // Liste blanche implicite : le cachet IT ne peut être apposé que sur un bon
   // qui a été envoyé au moins une fois (pas encore un brouillon) et qui n'est
@@ -95,9 +125,11 @@ export async function signItCachet(
       signerIp,
       signerUserAgent,
       mentionLuApprouve: true,
-      isInPerson: true,
+      // Une signature IT n'est pas une signature « au guichet » : elle est
+      // apposée dans l'application par le technicien connecté (R-032).
+      isInPerson: false,
       initiatedById: null,
-      pdfType: pdfType ?? null,
+      pdfType: document,
     },
   });
 
@@ -111,7 +143,7 @@ export async function signItCachet(
       signerEmail,
       signedAt,
       mentionLuApprouve: true,
-      isInPerson: true,
+      isInPerson: false,
       signedByProxy: false,
     }),
   );
@@ -126,13 +158,13 @@ export async function signItCachet(
       bonId,
       userEmail: signerEmail,
       action: 'signed_it_cachet',
-      details: { currentStatus: bon.status },
+      details: { currentStatus: bon.status, document },
       ipAddress: signerIp,
       userAgent: signerUserAgent,
     },
   });
 
-  deps.logger.log(`Bon ${bon.reference} — cachet IT signé par ${signerEmail}`);
+  deps.logger.log(`Bon ${bon.reference} — signature IT (${document}) par ${signerEmail}`);
 
   // Reload bon with fresh signatures list
   const updatedBon = await deps.prisma.bon.findUniqueOrThrow({
@@ -140,14 +172,13 @@ export async function signItCachet(
     select: BON_FOR_SIGNATURE_SELECT,
   });
 
-  // Snapshot PDF avec le cachet IT — attendu (cf. sign()), rendu déterministe
-  const isRestitution = pdfType === 'restitution' || isBonStatusIn(bon.status, RESTITUTION_PHASE_BON_STATUSES);
-  const itSnapshotType = isRestitution ? 'signature_it_restitution' : 'signature_it_mise_disposition';
+  // PDF du document avec la signature IT — attendu, rendu déterministe
+  const itSnapshotType = document === 'restitution' ? 'signature_it_restitution' : 'signature_it_mise_disposition';
   try {
     await generatePdfSnapshot(deps.pdfSnapshot, updatedBon, itSnapshotType);
   } catch (err) {
     const message = (err as Error).message;
-    deps.logger.error(`Échec snapshot PDF IT cachet (cachet conservé): ${message}`);
+    deps.logger.error(`Échec du PDF de la signature IT (signature conservée): ${message}`);
     await deps.prisma.auditLog
       .create({
         data: { bonId, action: 'pdf_snapshot_failed', details: { type: itSnapshotType, error: message } },
@@ -161,9 +192,10 @@ export async function signItCachet(
 }
 
 /**
- * Save an IT signature for PV cloture context (called by BonsService).
- * Creates a signed it_cachet Signature record without the full signItCachet flow.
- * Extrait de SignatureService.saveItPvSignature sans changement de comportement.
+ * Signature IT recueillie lors d'une déclaration de non-restitution ou d'un
+ * équipement retrouvé. Son document (`pdfType`) est celui donné par
+ * l'appelant, sinon déduit de l'état du bon (pvContextDocument) : c'est ce qui
+ * permet au PDF de ce document d'afficher le bon technicien (R-030, C4).
  */
 export async function saveItPvSignature(
   deps: Pick<ItCachetDeps, 'prisma' | 'encryption' | 'logger' | 'uploadsDir'>,
@@ -171,8 +203,12 @@ export async function saveItPvSignature(
   signatureDataUrl: string,
   signerEmail: string,
   userId: string,
+  pdfType?: ItSignatureDocument,
 ): Promise<void> {
   assertPngDataUrl(signatureDataUrl);
+  const document =
+    pdfType ??
+    pvContextDocument((await deps.prisma.bon.findUniqueOrThrow({ where: { id: bonId }, select: { status: true } })).status);
   const signatureImagePath = await saveSignatureFile(
     { encryption: deps.encryption, uploadsDir: deps.uploadsDir, logger: deps.logger },
     bonId,
@@ -191,8 +227,9 @@ export async function saveItPvSignature(
       signedAt,
       signerEmail,
       mentionLuApprouve: true,
-      isInPerson: true,
-      initiatedById: userId,
+      isInPerson: false,
+      initiatedById: userId || null,
+      pdfType: document,
     },
   });
   const seal = deps.encryption.seal(
@@ -203,7 +240,7 @@ export async function saveItPvSignature(
       signerEmail,
       signedAt,
       mentionLuApprouve: true,
-      isInPerson: true,
+      isInPerson: false,
       signedByProxy: false,
     }),
   );

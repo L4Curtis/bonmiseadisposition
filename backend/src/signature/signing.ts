@@ -1,33 +1,55 @@
 import { BadRequestException, ConflictException, ForbiddenException, Logger, NotFoundException } from '@nestjs/common';
-import { ModuleRef } from '@nestjs/core';
+import type { BonStatus, Prisma, Signature } from '@prisma/client';
 import * as crypto from 'crypto';
 import { unlink } from 'fs/promises';
 import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { EncryptionService } from '../config/encryption.service';
 import { TimestampService } from './timestamp.service';
-// Import de TYPE uniquement (effacé à la compilation) : importer la classe
-// formerait un cycle de fichiers avec bons.service.ts (cf. bons.tokens.ts).
-import type { BonsService } from '../bons/bons.service';
-import { BONS_SERVICE } from '../bons/bons.tokens';
-import { BonStatus, sanitizeBonForResponse, toSafeSignature } from '../common/types';
+import { sanitizeBonForResponse, toSafeSignature } from '../common/types';
 import { assertPngDataUrl } from '../common/signature-data-url';
+import { DOMAIN_EVENTS, DomainEventsPublisher, LinkDocumentType } from '../common/events';
 import { BON_FOR_SIGNATURE_SELECT } from './select-shape';
-import { expiredMessage } from './token';
+import { NOT_RECIPIENT_MESSAGE } from './recipient';
+import { EXPIRED_LINK_MESSAGE, isReplacedToken, unusableLinkMessage } from './token';
+import { effectiveInvalidationReason } from './link-invalidation';
 import { buildSealPayload } from './seal';
 import { getNextBonStatus } from './status-transition';
 import { saveSignatureFile } from './signature-file-store';
 import { generatePdfSnapshot, PdfSnapshotDeps } from './pdf-snapshot';
-import { NON_SIGNABLE_BON_STATUSES, isBonStatusIn } from '../bons/bon-status';
+import { LINK_INVALIDATION_MESSAGES, NON_SIGNABLE_BON_STATUSES, isBonStatusIn } from '../bons/bon-status';
 
 export interface SignDeps {
   prisma: PrismaService;
   encryption: EncryptionService;
   timestampService: TimestampService;
-  moduleRef: ModuleRef;
+  events: Pick<DomainEventsPublisher, 'publish'>;
   logger: Logger;
   uploadsDir: string;
   pdfSnapshot: PdfSnapshotDeps;
+}
+
+/** Qui signe, d'où, et avec quelle mention. */
+export interface SignerInput {
+  signatureDataUrl: string;
+  mentionLuApprouve: boolean;
+  signerEmail: string;
+  signerIp: string;
+  signerUserAgent: string;
+  signerId?: string;
+}
+
+/** Document signé par le collaborateur → type du PDF enregistré. */
+const COLLAB_SNAPSHOT_TYPES: Readonly<Record<LinkDocumentType, string>> = Object.freeze({
+  mise_disposition: 'signature_collab_mise_disposition',
+  restitution: 'signature_collab_restitution',
+  pv_cloture: 'cloture_equipements_manquants',
+});
+
+type SignableSignature = Signature & { bon: Awaited<ReturnType<typeof loadBonForSignature>> };
+
+function loadBonForSignature(prisma: PrismaService, bonId: string) {
+  return prisma.bon.findUniqueOrThrow({ where: { id: bonId }, select: BON_FOR_SIGNATURE_SELECT });
 }
 
 /** Horodatage RFC 3161 best-effort du sceau, persisté si la TSA répond. */
@@ -45,257 +67,231 @@ async function applyTimestamp(deps: SignDeps, signatureId: string, seal: string)
   }
 }
 
-/** Sign a document — called after SSO auth with email verification.
- *  Extrait de SignatureService.sign() sans changement de comportement. */
-export async function sign(
-  deps: SignDeps,
-  token: string,
-  signatureDataUrl: string,
-  mentionLuApprouve: boolean,
-  signerEmail: string,
-  signerIp: string,
-  signerUserAgent: string,
-  signerId?: string,
-) {
+/** Le lien existe, n'est pas signé, n'est ni expiré ni invalidé. */
+async function loadSignableSignature(deps: SignDeps, token: string) {
   const sig = await deps.prisma.signature.findUnique({
     where: { token },
-    include: {
-      bon: { select: BON_FOR_SIGNATURE_SELECT },
-    },
+    include: { bon: { select: BON_FOR_SIGNATURE_SELECT } },
   });
-
   if (!sig) throw new NotFoundException('Lien de signature invalide');
   if (sig.signed) throw new BadRequestException('Ce document a déjà été signé');
-  if (new Date() > sig.tokenExpiresAt) throw new BadRequestException(expiredMessage(sig.tokenExpiresAt));
+  if (new Date() > sig.tokenExpiresAt) throw new BadRequestException(unusableLinkMessage(sig, sig.bon.status));
+  return sig as SignableSignature;
+}
 
-  // Identité du signataire : par id (fiable après un changement d'adresse AD)
-  // OU par email (compat / trace) — bon.collaborateurEmail reste inchangé et
-  // sert de trace dans le PDF, elle n'est plus la SEULE source d'autorisation.
-  // Collaborateur sans adresse (compte manuel) : expectedEmail est null, seule
-  // la correspondance par id peut alors valider — mais un tel bon n'atteint de
-  // toute façon jamais ce contrôle par email : il ne se signe qu'en présentiel
-  // (isDeliverableEmail bloque l'envoi/relance du lien à distance).
+/**
+ * Le signataire est le titulaire (par identifiant, fiable après un changement
+ * d'adresse, ou par adresse). Au guichet, tout compte connecté peut recueillir
+ * la signature : c'est alors un mandataire, tracé (`signedByProxy`).
+ */
+function resolveSigner(sig: SignableSignature, signer: SignerInput): { signedByProxy: boolean } {
   const expectedEmail = sig.bon.collaborateurEmail?.toLowerCase().trim() ?? null;
-  const actualEmail = signerEmail.toLowerCase().trim();
-  const isOwner = (!!signerId && signerId === sig.bon.collaborateurId) || (expectedEmail !== null && expectedEmail === actualEmail);
-  if (!sig.isInPerson) {
-    if (!isOwner) {
-      throw new ForbiddenException(
-        `Ce document est destiné à ${sig.bon.collaborateurEmail ?? 'un collaborateur sans adresse email (signature présentielle uniquement)'}, pas à ${signerEmail}`,
-      );
-    }
-  }
-  // Présentiel : si le compte connecté n'est pas le titulaire, c'est une
-  // signature recueillie par un mandataire (technicien sur tablette) → tracé.
-  // Décision produit : PAS de restriction aux comptes IT — tout compte
-  // authentifié peut recueillir une signature présentielle.
-  const signedByProxy = sig.isInPerson && !isOwner;
-
-  if (!mentionLuApprouve) {
+  const actualEmail = signer.signerEmail.toLowerCase().trim();
+  const isOwner =
+    (!!signer.signerId && signer.signerId === sig.bon.collaborateurId) ||
+    (expectedEmail !== null && expectedEmail === actualEmail);
+  if (!sig.isInPerson && !isOwner) throw new ForbiddenException(NOT_RECIPIENT_MESSAGE);
+  if (!signer.mentionLuApprouve) {
     throw new BadRequestException('Vous devez cocher "Lu et approuvé" pour signer');
   }
+  assertPngDataUrl(signer.signatureDataUrl);
+  return { signedByProxy: sig.isInPerson && !isOwner };
+}
 
-  // Validate PNG signature (préfixe, décodage base64, magic bytes, taille max)
-  assertPngDataUrl(signatureDataUrl);
+/** Début du message d'un lien devenu inutilisable pendant la signature. */
+export const LINK_NO_LONGER_VALID_MESSAGE = "Ce lien n'est plus valide.";
 
-  // Save encrypted signature file (outside transaction — file system op)
-  const signatureImagePath = await saveSignatureFile(
-    { encryption: deps.encryption, uploadsDir: deps.uploadsDir, logger: deps.logger },
-    sig.bon.id,
-    sig.type,
-    signatureDataUrl,
-  );
+/** Ce que la signature écrit sur le lien. */
+type SignatureWrite = Pick<
+  Signature,
+  | 'signed' | 'signatureImagePath' | 'signedAt' | 'signerEmail' | 'signerIp' | 'signerUserAgent'
+  | 'mentionLuApprouve' | 'signedByProxy' | 'seal' | 'sealedAt' | 'pdfType'
+>;
 
-  // Atomic transaction: update signature + bon status + audit log.
-  // Everything is re-checked INSIDE the transaction: the pre-transaction reads
-  // (including the file write above) leave a window during which the token can
-  // be invalidated or the bon cancelled/contested — the stale values must not win.
-  const runSignTransaction = () => deps.prisma.$transaction(async (tx) => {
-    const freshSig = await tx.signature.findUnique({
-      where: { token },
-      select: { signed: true, tokenExpiresAt: true, bon: { select: { status: true } } },
+/** Pourquoi l'écriture conditionnelle n'a touché aucune ligne : signé entre-
+ *  temps, invalidé (avec son motif), ou expiré. */
+async function linkNoLongerValidMessage(tx: Prisma.TransactionClient, token: string): Promise<string> {
+  const row = await tx.signature.findUnique({
+    where: { token },
+    select: { signed: true, tokenExpiresAt: true, invalidatedReason: true, bon: { select: { status: true } } },
+  });
+  if (!row) return LINK_NO_LONGER_VALID_MESSAGE;
+  if (row.signed) return 'Ce document a déjà été signé (concurrent)';
+  if (row.invalidatedReason === null && !isReplacedToken(row.tokenExpiresAt)) return EXPIRED_LINK_MESSAGE;
+  const reason = effectiveInvalidationReason(row.invalidatedReason, row.bon.status);
+  return `${LINK_NO_LONGER_VALID_MESSAGE} ${LINK_INVALIDATION_MESSAGES[reason]}`;
+}
+
+/**
+ * Écrit la signature SEULEMENT si le lien est encore utilisable à l'instant
+ * de l'écriture : ni signé, ni invalidé, ni expiré. La relecture de la
+ * transaction ne pose aucun verrou ; entre elle et cette écriture, une
+ * modification du bon ou l'annulation d'un marquage a pu invalider le lien et
+ * se valider. Sans cette condition, la signature porterait sur un document
+ * différent de celui que le collaborateur a lu. Dans ce cas : 400, la
+ * transaction est annulée et le bon n'avance pas.
+ */
+async function writeSignatureIfLinkStillValid(
+  tx: Prisma.TransactionClient,
+  sig: SignableSignature,
+  data: SignatureWrite,
+): Promise<Signature> {
+  const { count } = await tx.signature.updateMany({
+    where: { token: sig.token, signed: false, invalidatedAt: null, tokenExpiresAt: { gt: new Date() } },
+    data,
+  });
+  if (count === 0) throw new BadRequestException(await linkNoLongerValidMessage(tx, sig.token));
+  // La condition garantit que seule cette écriture a changé la ligne relue.
+  const { bon: _bon, ...row } = sig;
+  return { ...row, ...data };
+}
+
+interface SignedRecord {
+  updatedSig: Signature;
+  previousStatus: BonStatus;
+  newStatus: BonStatus;
+  seal: string;
+}
+
+/**
+ * Transaction atomique : signature + statut + audit. Tout est relu DANS la
+ * transaction : entre les lectures préalables (et l'écriture du fichier) et
+ * ici, le lien a pu être invalidé ou le bon annulé/contesté. Les deux
+ * écritures sont en plus conditionnelles (lien encore valide, statut
+ * inchangé) : un geste concurrent validé après la relecture fait échouer.
+ */
+function runSignTransaction(
+  deps: SignDeps,
+  sig: SignableSignature,
+  signer: SignerInput,
+  signedByProxy: boolean,
+  signatureImagePath: string,
+): Promise<SignedRecord> {
+  return deps.prisma.$transaction(async (tx) => {
+    const fresh = await tx.signature.findUnique({
+      where: { token: sig.token },
+      select: { signed: true, tokenExpiresAt: true, invalidatedReason: true, bon: { select: { status: true } } },
     });
-    if (!freshSig || freshSig.signed) {
-      throw new BadRequestException('Ce document a déjà été signé (concurrent)');
-    }
-    if (new Date() > freshSig.tokenExpiresAt) {
-      throw new BadRequestException(expiredMessage(freshSig.tokenExpiresAt));
-    }
-    if (isBonStatusIn(freshSig.bon.status, NON_SIGNABLE_BON_STATUSES)) {
+    if (!fresh || fresh.signed) throw new BadRequestException('Ce document a déjà été signé (concurrent)');
+    if (new Date() > fresh.tokenExpiresAt) throw new BadRequestException(unusableLinkMessage(fresh, fresh.bon.status));
+    if (isBonStatusIn(fresh.bon.status, NON_SIGNABLE_BON_STATUSES)) {
       throw new BadRequestException('Ce bon est clôturé, annulé ou contesté et ne peut plus être signé');
     }
 
-    // Compute the transition from the FRESH status, not the pre-transaction one.
-    // Le compte des équipements non rendus est lu DANS la transaction : une
-    // déclaration concurrente ne doit pas être ignorée par la transition.
-    const notReturnedCount = await tx.bonEquipment.count({
-      where: { bonId: sig.bon.id, notReturned: true },
-    });
-    const txNewStatus = getNextBonStatus(freshSig.bon.status, sig.type, deps.logger, notReturnedCount > 0);
+    // Transition calculée sur le statut FRAIS ; les équipements non restitués
+    // sont comptés dans la transaction (une déclaration concurrente compte).
+    const notReturnedCount = await tx.bonEquipment.count({ where: { bonId: sig.bon.id, notReturned: true } });
+    const newStatus = getNextBonStatus(fresh.bon.status, sig.type, deps.logger, notReturnedCount > 0) as BonStatus;
 
     // Scellement probant : HMAC des champs au moment exact de la signature.
     const signedAt = new Date();
-    const seal = deps.encryption.seal(
-      buildSealPayload({
-        bonId: sig.bon.id,
-        signatureId: sig.id,
-        type: sig.type,
-        signerEmail,
-        signedAt,
-        mentionLuApprouve,
-        isInPerson: sig.isInPerson,
-        signedByProxy,
-      }),
-    );
+    const seal = deps.encryption.seal(buildSealPayload({
+      bonId: sig.bon.id, signatureId: sig.id, type: sig.type, signerEmail: signer.signerEmail, signedAt,
+      mentionLuApprouve: signer.mentionLuApprouve, isInPerson: sig.isInPerson, signedByProxy,
+    }));
 
-    const txUpdatedSig = await tx.signature.update({
-      where: { token },
-      data: {
-        signed: true,
-        signatureImagePath,
-        signedAt,
-        signerEmail,
-        signerIp,
-        signerUserAgent,
-        mentionLuApprouve,
-        signedByProxy,
-        seal,
-        sealedAt: signedAt,
-        // D03 : persister le type de document pour les requêtes de reporting
-        // et de filtrage (cachet IT, PDF d'aperçu multi-type) qui s'appuient
-        // sur pdfType plutôt que sur le champ type (plus générique).
-        pdfType: sig.type,
-      },
+    const updatedSig = await writeSignatureIfLinkStillValid(tx, sig, {
+      signed: true, signatureImagePath, signedAt, signerEmail: signer.signerEmail, signerIp: signer.signerIp,
+      signerUserAgent: signer.signerUserAgent, mentionLuApprouve: signer.mentionLuApprouve, signedByProxy,
+      seal, sealedAt: signedAt, pdfType: sig.type,
     });
 
-    // updateMany conditionné sur le statut lu à l'instant (freshSig.bon.status)
-    // plutôt qu'un update inconditionnel : si le bon a été annulé/clôturé/
-    // contesté par une AUTRE transaction entre la lecture ci-dessus et cet
-    // update (fenêtre de la transaction), count===0 et on échoue proprement
-    // au lieu d'écraser silencieusement ce changement concurrent.
+    // Conditionné sur le statut lu à l'instant : un changement concurrent
+    // (annulation, clôture, contestation) fait échouer proprement.
     const statusUpdate = await tx.bon.updateMany({
-      where: { id: sig.bon.id, status: freshSig.bon.status },
-      data: {
-        status: txNewStatus as BonStatus,
-        // Horodatage d'archivage (lot H) : posé au moment exact où le bon
-        // bascule réellement en archived (restitution complète ou PV
-        // co-signé) — jamais réécrit ensuite.
-        ...(txNewStatus === 'archived' ? { archivedAt: new Date() } : {}),
-      },
+      where: { id: sig.bon.id, status: fresh.bon.status },
+      data: { status: newStatus, ...(newStatus === 'archived' ? { archivedAt: signedAt } : {}) },
     });
-    if (statusUpdate.count === 0) {
-      throw new ConflictException('Le statut du bon a changé entre-temps, veuillez réessayer');
-    }
-    const txUpdatedBon = await tx.bon.findUniqueOrThrow({
-      where: { id: sig.bon.id },
-      select: BON_FOR_SIGNATURE_SELECT,
-    });
+    if (statusUpdate.count === 0) throw new ConflictException('Le statut du bon a changé entre-temps, veuillez réessayer');
 
     await tx.auditLog.create({
       data: {
-        bonId: sig.bon.id,
-        userEmail: signerEmail,
-        action: `signed_${sig.type}`,
+        bonId: sig.bon.id, userEmail: signer.signerEmail, action: `signed_${sig.type}`, ipAddress: signer.signerIp,
+        userAgent: signer.signerUserAgent,
         details: {
-          isInPerson: sig.isInPerson,
-          signedByProxy,
-          titulaireEmail: sig.bon.collaborateurEmail,
-          mentionLuApprouve,
-          newStatus: txNewStatus,
+          isInPerson: sig.isInPerson, signedByProxy, titulaireEmail: sig.bon.collaborateurEmail,
+          mentionLuApprouve: signer.mentionLuApprouve, newStatus,
         },
-        ipAddress: signerIp,
-        userAgent: signerUserAgent,
       },
     });
-
-    return { updatedSig: txUpdatedSig, updatedBon: txUpdatedBon, newStatus: txNewStatus, seal };
+    return { updatedSig, previousStatus: fresh.bon.status, newStatus, seal };
   });
+}
 
-  let txResult: Awaited<ReturnType<typeof runSignTransaction>>;
-  try {
-    txResult = await runSignTransaction();
-  } catch (err) {
-    // Le fichier .enc a été écrit AVANT la transaction (contrainte fs) : si
-    // celle-ci échoue (concurrence, bon annulé/contesté entre-temps…), il ne
-    // faut pas laisser une preuve orpheline, non référencée par aucune
-    // signature, traîner sur le disque. Best-effort : un échec de suppression
-    // n'a pas besoin de faire échouer la réponse (déjà en erreur).
-    await unlink(path.join(deps.uploadsDir, signatureImagePath)).catch((unlinkErr: unknown) =>
-      deps.logger.warn(
-        `Échec suppression fichier signature orphelin ${signatureImagePath}: ${(unlinkErr as Error).message}`,
-      ),
-    );
-    throw err;
-  }
-  const { updatedSig, updatedBon, newStatus, seal } = txResult;
-
-  deps.logger.log(
-    `Bon ${sig.bon.reference} signé (${sig.type}) par ${signerEmail} — nouveau statut: ${newStatus}`,
+/** Le fichier .enc est écrit AVANT la transaction : si elle échoue, il ne
+ *  doit pas rester une preuve orpheline sur le disque (best-effort). */
+async function removeOrphanFile(deps: SignDeps, signatureImagePath: string): Promise<void> {
+  await unlink(path.join(deps.uploadsDir, signatureImagePath)).catch((err: unknown) =>
+    deps.logger.warn(`Échec suppression fichier signature orphelin ${signatureImagePath}: ${(err as Error).message}`),
   );
+}
 
-  // Horodatage RFC 3161 du sceau — best-effort, hors transaction (appel réseau).
-  await applyTimestamp(deps, updatedSig.id, seal);
-
-  // Génération du snapshot PDF de preuve + SHA-256 — ATTENDUE (plus de fire &
-  // forget) : une signature ne doit pas être confirmée sans que son document
-  // probant et son empreinte existent. Le rendu est purement CPU/déterministe
-  // (aucune dépendance réseau), donc awaiter ne pénalise pas notablement.
-  const snapshotType = sig.type === 'restitution'
-    ? 'signature_collab_restitution'
-    : sig.type === 'pv_cloture'
-    ? 'cloture_equipements_manquants'
-    : 'signature_collab_mise_disposition';
+/**
+ * Document probant de la signature, ATTENDU : une signature n'est pas
+ * confirmée sans son PDF et son empreinte. En cas d'échec, la signature reste
+ * valide (déjà validée) et l'échec est tracé ; le PDF est régénérable.
+ */
+async function saveSignedDocument(deps: SignDeps, bon: Awaited<ReturnType<typeof loadBonForSignature>>, type: LinkDocumentType) {
+  const snapshotType = COLLAB_SNAPSHOT_TYPES[type];
   try {
-    await generatePdfSnapshot(deps.pdfSnapshot, updatedBon, snapshotType);
+    await generatePdfSnapshot(deps.pdfSnapshot, bon, snapshotType);
   } catch (err) {
-    // La signature est déjà committée et valide ; le snapshot est
-    // régénérable à la demande (rendu déterministe, cf. lot E
-    // regenerateMissingSnapshots). On trace l'échec en audit log (preuve
-    // exploitable / alerting) sans faire échouer la réponse.
     const message = (err as Error).message;
     deps.logger.error(`Échec génération snapshot PDF (signature conservée): ${message}`);
     await deps.prisma.auditLog
-      .create({
-        data: {
-          bonId: updatedBon.id,
-          action: 'pdf_snapshot_failed',
-          details: { type: snapshotType, error: message },
-        },
-      })
+      .create({ data: { bonId: bon.id, action: 'pdf_snapshot_failed', details: { type: snapshotType, error: message } } })
       .catch((auditErr: unknown) =>
         deps.logger.error(`Échec écriture audit log pdf_snapshot_failed: ${(auditErr as Error).message}`),
       );
   }
+}
 
-  // Hook PV de clôture : une signature de restitution qui laisse le bon en
-  // partially_returned signifie que le collaborateur vient de co-signer ce
-  // qu'il a rendu alors que d'autres équipements sont déjà déclarés non
-  // rendus — c'est le moment de vérifier si le PV de clôture peut être émis
-  // (emitPvClotureIfDue est idempotent et re-vérifie toutes les conditions).
-  if (sig.type === 'restitution' && newStatus === 'partially_returned') {
-    try {
-      // Résolution paresseuse : BonsService n'est pas injecté au constructeur
-      // (ça formerait un cycle de modules, cf. commentaire du constructeur) —
-      // { strict: false } cherche dans tout le conteneur, pas seulement les
-      // providers visibles depuis SignatureModule.
-      const bonsService = deps.moduleRef.get<BonsService>(BONS_SERVICE, { strict: false });
-      const emitted = await bonsService.emitPvClotureIfDue(updatedBon.id);
-      if (!emitted) {
-        deps.logger.warn(
-          `Bon ${sig.bon.reference} — PV clôture non émis après signature restitution (conditions non réunies ou déjà en attente)`,
-        );
-      }
-    } catch (err) {
-      // La signature reste valide même si le hook échoue — pas de PV cette
-      // fois, mais rien n'est perdu (idempotent, ré-essayable via resend).
-      deps.logger.error(`Échec hook PV clôture après signature restitution: ${(err as Error).message}`);
-    }
+/**
+ * Signature d'un document par son lien (à distance, ou au guichet). Après la
+ * validation : horodatage, PDF probant, puis l'événement `signature.signed`,
+ * auquel réagissent la suite du cycle de vie (émission du PV, lot 2A) et
+ * l'email de confirmation (NotificationModule).
+ */
+export async function sign(deps: SignDeps, token: string, signer: SignerInput) {
+  const sig = await loadSignableSignature(deps, token);
+  const { signedByProxy } = resolveSigner(sig, signer);
+  const documentType = sig.type as LinkDocumentType;
+
+  const signatureImagePath = await saveSignatureFile(
+    { encryption: deps.encryption, uploadsDir: deps.uploadsDir, logger: deps.logger },
+    sig.bon.id,
+    sig.type,
+    signer.signatureDataUrl,
+  );
+  let record: SignedRecord;
+  try {
+    record = await runSignTransaction(deps, sig, signer, signedByProxy, signatureImagePath);
+  } catch (err) {
+    await removeOrphanFile(deps, signatureImagePath);
+    throw err;
   }
+  const { updatedSig, previousStatus, newStatus, seal } = record;
+  deps.logger.log(`Bon ${sig.bon.reference} signé (${sig.type}) par ${signer.signerEmail} — nouveau statut: ${newStatus}`);
 
-  // Sanitize before returning: full signature records (with image paths and
-  // tokens) are for internal PDF generation only. bonId/signedByProxy ajoutés
-  // ici (pas par le contrôleur) : c'est le service qui connaît le contrat de
-  // réponse attendu par le frontend (retour à la fiche du bon, mandataire).
+  await applyTimestamp(deps, updatedSig.id, seal);
+  const updatedBon = await loadBonForSignature(deps.prisma, sig.bon.id);
+  await saveSignedDocument(deps, updatedBon, documentType);
+
+  await deps.events.publish(DOMAIN_EVENTS.signatureSigned, {
+    bonId: sig.bon.id,
+    bonReference: sig.bon.reference,
+    actorId: signedByProxy ? signer.signerId ?? null : null,
+    occurredAt: updatedSig.signedAt ?? new Date(),
+    signatureId: updatedSig.id,
+    documentType,
+    previousStatus,
+    newStatus,
+    signerEmail: signer.signerEmail,
+    inPerson: sig.isInPerson,
+    signedByProxy,
+  });
+
+  // Réponse sans jeton ni chemin d'image (réservés au PDF interne).
   const safeSignature = {
     ...toSafeSignature(updatedSig as unknown as Record<string, unknown>),
     bonId: updatedBon.id,

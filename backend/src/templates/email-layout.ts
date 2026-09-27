@@ -80,7 +80,7 @@ export function body(content: string): string {
 
 export function footer(): string {
   return `<div style="border-top:1px solid ${CARD_BORDER};padding:20px 40px 28px">
-      <p style="margin:0;font-size:12px;color:${FAINT};line-height:1.6">Service informatique — Groupe Livio<br>Cet email est envoyé automatiquement, merci de ne pas y répondre.</p>
+      <p style="margin:0;font-size:12px;color:${FAINT};line-height:1.6">Équipe informatique — Groupe Livio<br>Cet email est envoyé automatiquement, merci de ne pas y répondre.</p>
     </div>`;
 }
 

@@ -1,28 +1,21 @@
 import { NotificationBon } from '../../common/types';
 import { escapeHtml } from './escape-html';
 import { buildEquipList, buildNotReturnedList } from './equipment-lists';
+import { civiliteLongOf, filialeNomOf, formatParisLongDate } from './message-parts';
 
 export interface EmailMessage {
   vars: Record<string, string>;
   subject: string;
 }
 
-function filialeNomOf(bon: NotificationBon): string {
-  return bon.filiale?.displayName ?? bon.filiale?.name ?? '';
-}
-
 function civiliteLabel(bon: NotificationBon): string {
-  return bon.civilite === 'mme' ? 'Madame' : 'Monsieur';
+  return civiliteLongOf(bon);
 }
 
 /** Variables + sujet de l'email "bon de mise à disposition à signer". */
 export function buildMiseDispositionRequestMessage(bon: NotificationBon, signerUrl: string): EmailMessage {
   const filialeNom = filialeNomOf(bon);
-  const dateMise = new Date(bon.dateMiseDisposition ?? new Date()).toLocaleDateString('fr-FR', {
-    day: '2-digit',
-    month: 'long',
-    year: 'numeric',
-  });
+  const dateMise = formatParisLongDate(bon.dateMiseDisposition ?? new Date());
 
   return {
     vars: {
@@ -74,7 +67,7 @@ export function buildRestitutionRequestMessage(bon: NotificationBon, signerUrl: 
   };
 }
 
-/** Variables + sujet de l'email "procès-verbal d'équipements non restitués à signer". */
+/** Variables + sujet de l'email « PV de non-restitution à signer ». */
 export function buildPvClotureRequestMessage(bon: NotificationBon, signerUrl: string): EmailMessage {
   const filialeNom = filialeNomOf(bon);
 
@@ -87,6 +80,6 @@ export function buildPvClotureRequestMessage(bon: NotificationBon, signerUrl: st
       SIGNER_URL: signerUrl,
       NOT_RETURNED_LIST: buildNotReturnedList(bon.equipments ?? []),
     },
-    subject: `[${bon.reference}] Procès-verbal d'équipements non restitués à signer — ${filialeNom}`,
+    subject: `[${bon.reference}] PV de non-restitution à signer — ${filialeNom}`,
   };
 }

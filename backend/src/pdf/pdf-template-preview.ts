@@ -1,10 +1,10 @@
-import { BonForPdf } from './pdf.service';
+import type { BonForPdf } from './pdf-types';
 
 // ─── Preview data ────────────────────────────────────────────────────────────
 
 export const PREVIEW_BON: BonForPdf = {
   id: 'preview-bon-001',
-  reference: 'BMD-2026-0042',
+  reference: 'BON-2026-0042',
   civilite: 'mme',
   status: 'active',
   dateMiseDisposition: new Date('2026-03-15'),

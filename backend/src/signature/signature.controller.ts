@@ -13,7 +13,6 @@ import {
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { Request, Response } from 'express';
 import { SignatureService } from './signature.service';
-import { NotificationService } from '../notification/notification.service';
 import { SignDto } from './dto/sign.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -31,10 +30,7 @@ import { AuthUser } from '../auth/auth-user.interface';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(...ALL_ROLES)
 export class SignatureController {
-  constructor(
-    private readonly signatureService: SignatureService,
-    private readonly notificationService: NotificationService,
-  ) {}
+  constructor(private readonly signatureService: SignatureService) {}
 
   /** Authentifié — consultation du bon via token (connexion SSO requise).
    *  Le détail du bon n'est renvoyé qu'au destinataire du lien (ou en mode
@@ -59,6 +55,18 @@ export class SignatureController {
   }
 
   /**
+   * Lien expiré : « Demander un nouveau lien » (R-058). Prévient l'équipe
+   * informatique (lien direct vers le bon) ; une seule alerte par bon et par
+   * 24 h, et au plus 3 appels par minute et par adresse IP.
+   */
+  @Post(':token/request-new-link')
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  async requestNewLink(@Param('token') token: string, @CurrentUser() user: AuthUser) {
+    return this.signatureService.requestNewLink(token, { email: user.email, id: user.id });
+  }
+
+  /**
    * Protected — must be authenticated via SSO
    * Rate-limited : 10 req / 60s par IP pour prévenir le bruteforce de tokens
    */
@@ -78,22 +86,16 @@ export class SignatureController {
       'unknown';
     const userAgent = req.headers['user-agent'] ?? 'unknown';
 
-    const result = await this.signatureService.sign(
-      token,
-      dto.signatureDataUrl,
-      dto.mentionLuApprouve,
-      user.email,
-      ip,
-      userAgent,
-      user.id,
-    );
-
-    // Send confirmation email (fire and forget). it_cachet never reaches this
-    // endpoint; the three token-based types each get their correct label.
-    const type = result.signature.type as 'mise_disposition' | 'restitution' | 'pv_cloture';
-    this.notificationService
-      .sendSignatureConfirmation(result.bon, type)
-      .catch(() => {/* ignore email errors */});
+    // L'email de confirmation suit l'événement `signature.signed`
+    // (notification/listeners/bon-events.listener.ts).
+    const result = await this.signatureService.sign(token, {
+      signatureDataUrl: dto.signatureDataUrl,
+      mentionLuApprouve: dto.mentionLuApprouve,
+      signerEmail: user.email,
+      signerIp: ip,
+      signerUserAgent: userAgent,
+      signerId: user.id,
+    });
 
     // Le service construit déjà l'objet signature au format API-safe, bonId et
     // signedByProxy inclus (cf. SignatureService.sign) — le contrôleur ne fait

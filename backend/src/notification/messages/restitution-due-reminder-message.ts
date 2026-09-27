@@ -2,6 +2,7 @@ import { NotificationBon } from '../../common/types';
 import { escapeHtml } from './escape-html';
 import { buildLoanedEquipList } from './equipment-lists';
 import { EmailMessage } from './signature-request-messages';
+import { portalUrl } from '../app-links';
 
 /**
  * Variables + sujet du rappel de restitution prévue. Contrairement aux autres
@@ -27,7 +28,7 @@ export function buildRestitutionDueReminderMessage(bon: NotificationBon, appUrl:
       REFERENCE: escapeHtml(bon.reference),
       DATE_RESTITUTION: dateRestitution,
       EQUIP_LIST: buildLoanedEquipList(bon.equipments ?? []),
-      PORTAIL_URL: `${appUrl}/mes-bons`,
+      PORTAIL_URL: portalUrl(appUrl),
     },
     subject: `Restitution prévue le ${dateRestitution} — bon ${bon.reference}`,
   };

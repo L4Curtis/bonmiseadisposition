@@ -169,7 +169,7 @@ describe('NotificationService', () => {
       });
     });
 
-    it('should skip sending and log an explicit (non-technical) failure when the collaborator has no email address (manual account)', async () => {
+    it('ne tente aucun envoi et écrit une ligne « non envoyé » (pas un échec) pour un collaborateur sans adresse (R-034)', async () => {
       const bon = { ...activeBon(), collaborateurEmail: null } as unknown as NotificationBon;
       asMock(prisma.notificationLog.create).mockResolvedValue({});
 
@@ -181,8 +181,9 @@ describe('NotificationService', () => {
           bonId: bon.id,
           recipientEmail: '',
           type: 'mise_dispo_request',
-          status: 'failed',
-          errorMessage: expect.stringContaining('Adresse email'),
+          status: 'skipped',
+          errorMessage: expect.stringContaining("pas d'adresse email"),
+          documentType: 'mise_disposition',
         }),
       });
     });
@@ -528,12 +529,15 @@ describe('NotificationService', () => {
       const bon = activeBon() as unknown as NotificationBon;
       asMock(prisma.notificationLog.create).mockResolvedValue({});
 
-      await service.sendCancellationNotice(bon);
+      asMock(prisma.bon.findUnique).mockResolvedValue({ collaborateur: { active: true, email: bon.collaborateurEmail } });
+
+      await service.sendCancellationNotice(bon, 'Bon saisi en double');
 
       expect(mockSendMail).toHaveBeenCalledWith(
         expect.objectContaining({
           to: bon.collaborateurEmail,
           subject: expect.stringContaining('annulé'),
+          html: expect.stringContaining('Bon saisi en double'),
         }),
       );
       expect(prisma.notificationLog.create).toHaveBeenCalledWith({
@@ -542,6 +546,49 @@ describe('NotificationService', () => {
           type: 'cancellation',
           status: 'sent',
         }),
+      });
+    });
+  });
+
+  // ─── sendContestationResolution ────────────────────────────────────────────
+
+  describe('sendContestationResolution', () => {
+    it('envoie la réponse à l’adresse ACTUELLE du compte du collaborateur', async () => {
+      const bon = activeBon() as unknown as NotificationBon;
+      asMock(prisma.notificationLog.create).mockResolvedValue({});
+      asMock(prisma.bon.findUnique).mockResolvedValue({ collaborateur: { active: true, email: 'lea.nouvelle@exemple.fr' } });
+
+      await service.sendContestationResolution(bon, { email: 'ancienne@exemple.fr' }, 'rejected', 'Matériel conforme');
+
+      expect(templatesService.renderTemplate).toHaveBeenCalledWith('contestation_rejected', expect.any(Object));
+      expect(mockSendMail).toHaveBeenCalledWith(expect.objectContaining({ to: 'lea.nouvelle@exemple.fr' }));
+    });
+
+    it('restitution Fondée : la réponse annonce la correction du bon, pas un bon remplaçant', async () => {
+      const bon = activeBon() as unknown as NotificationBon;
+      asMock(prisma.notificationLog.create).mockResolvedValue({});
+      asMock(prisma.bon.findUnique).mockResolvedValue({ collaborateur: { active: true, email: 'lea@exemple.fr' } });
+
+      await service.sendContestationResolution(bon, { email: 'lea@exemple.fr' }, 'resolved', undefined, null, 'restitution');
+
+      expect(templatesService.renderTemplate).toHaveBeenCalledWith(
+        'contestation_resolved',
+        expect.objectContaining({
+          REPLACEMENT_SENTENCE: 'Votre bon va être corrigé, puis la restitution vous sera renvoyée à signer.',
+        }),
+      );
+    });
+
+    it('compte désactivé : aucune réponse envoyée, une ligne « non envoyé » (pas un échec)', async () => {
+      const bon = activeBon() as unknown as NotificationBon;
+      asMock(prisma.notificationLog.create).mockResolvedValue({});
+      asMock(prisma.bon.findUnique).mockResolvedValue({ collaborateur: { active: false, email: 'parti@exemple.fr' } });
+
+      await service.sendContestationResolution(bon, { email: 'parti@exemple.fr' }, 'resolved', undefined, { reference: 'BON-2026-0099' });
+
+      expect(mockSendMail).not.toHaveBeenCalled();
+      expect(prisma.notificationLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ type: 'contestation_resolution', status: 'skipped' }),
       });
     });
   });
@@ -557,6 +604,7 @@ describe('NotificationService', () => {
       const bon = sentMiseDispoBon();
       const pendingBon = {
         ...bon,
+        collaborateur: { ...bon.collaborateur, active: true },
         updatedAt: new Date('2026-01-01T00:00:00Z'), // old enough
         signatures: [{
           id: 'sig-pending-001',
@@ -590,6 +638,7 @@ describe('NotificationService', () => {
       const bon = sentMiseDispoBon();
       const pendingBon = {
         ...bon,
+        collaborateur: { ...bon.collaborateur, active: true },
         updatedAt: new Date('2026-01-01T00:00:00Z'),
         notifications: [
           { type: 'reminder', sentAt: new Date(), status: 'sent' },
@@ -615,6 +664,7 @@ describe('NotificationService', () => {
       // One reminder already sent, bon pending for only 5 days → tier 2 (7 d) not due yet
       const pendingBon = {
         ...bon,
+        collaborateur: { ...bon.collaborateur, active: true },
         updatedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
         notifications: [{ type: 'reminder', sentAt: new Date(), status: 'sent' }],
       };
@@ -669,6 +719,7 @@ describe('NotificationService', () => {
       const bon = sentMiseDispoBon();
       const pendingBon = {
         ...bon,
+        collaborateur: { ...bon.collaborateur, active: true },
         updatedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
         signatures: [{
           id: 'sig-expired-001',
@@ -707,6 +758,7 @@ describe('NotificationService', () => {
       const bon = sentMiseDispoBon();
       const pendingBon = {
         ...bon,
+        collaborateur: { ...bon.collaborateur, active: true },
         updatedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
         signatures: [{
           id: 'sig-in-person-001',
@@ -736,6 +788,7 @@ describe('NotificationService', () => {
       const bon = sentMiseDispoBon();
       const pendingBon = {
         ...bon,
+        collaborateur: { ...bon.collaborateur, active: true },
         status: 'partially_returned',
         updatedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
         signatures: [{
@@ -756,7 +809,8 @@ describe('NotificationService', () => {
       expect(templatesService.renderTemplate).toHaveBeenCalledWith(
         'reminder',
         expect.objectContaining({
-          TYPE_LABEL: "procès-verbal d'équipements non restitués",
+          TYPE_LABEL: 'PV de non-restitution',
+          DOCUMENT_LABEL: 'PV de non-restitution',
           SIGNER_URL: expect.stringContaining('pv-token'),
         }),
       );
@@ -775,6 +829,7 @@ describe('NotificationService', () => {
         const bon = sentMiseDispoBon();
         const pendingBon = {
           ...bon,
+          collaborateur: { ...bon.collaborateur, active: true },
           updatedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
           signatures: [{
             id: 'sig-pending-002',
@@ -826,6 +881,7 @@ describe('NotificationService', () => {
         const bon = sentMiseDispoBon();
         const pendingBon = {
           ...bon,
+          collaborateur: { ...bon.collaborateur, active: true },
           updatedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
           signatures: [{
             id: 'sig-expired-002',
@@ -931,14 +987,14 @@ describe('NotificationService', () => {
               gte: new Date('2026-04-10T00:00:00.000Z'),
               lte: new Date('2026-04-17T23:59:59.999Z'),
             },
-            notifications: { none: { type: 'restitution_due_reminder', status: 'sent' } },
+            notifications: { none: { type: 'restitution_due_reminder', status: { in: ['sent', 'skipped'] } } },
             equipments: { some: { returnedAt: null, notReturned: false } },
           },
         }),
       );
     });
 
-    it('does not exclude a bon whose only prior notification is failed (retries after a transient SMTP failure)', async () => {
+    it('does not exclude a bon whose only prior notification is failed (retries after a transient SMTP failure) — only sent or skipped (no address, inactive account) are final', async () => {
       // L'idempotence porte sur un log 'sent' uniquement : un échec transitoire
       // (SMTP down, app_url absente le jour J) ne doit pas bloquer tout
       // réessai les jours suivants — cf. runDailyReminders qui suit la même règle.
@@ -949,7 +1005,7 @@ describe('NotificationService', () => {
       expect(prisma.bon.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            notifications: { none: { type: 'restitution_due_reminder', status: 'sent' } },
+            notifications: { none: { type: 'restitution_due_reminder', status: { in: ['sent', 'skipped'] } } },
           }),
         }),
       );

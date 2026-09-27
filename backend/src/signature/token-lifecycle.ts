@@ -1,7 +1,9 @@
+import type { SignatureInvalidationReason } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppConfigService } from '../config/config.service';
 import { generateSignatureToken } from '../common/tokens';
 import { clampTokenValidityDays, computeTokenExpiresAt } from './token';
+import { LIVE_LINK_WHERE, invalidationData } from './link-invalidation';
 
 export interface TokenLifecycleDeps {
   prisma: PrismaService;
@@ -10,6 +12,8 @@ export interface TokenLifecycleDeps {
   inPersonTokenValidityHours: number;
 }
 
+export type LinkDocumentType = 'mise_disposition' | 'restitution' | 'pv_cloture';
+
 /** Token validity in days — admin-configurable (tokens.expiry_days), clamped to [1, 30]. */
 async function getTokenValidityDays(deps: TokenLifecycleDeps): Promise<number> {
   const raw = await deps.configService.get('tokens', 'expiry_days');
@@ -17,20 +21,22 @@ async function getTokenValidityDays(deps: TokenLifecycleDeps): Promise<number> {
 }
 
 /**
- * Generate a signature token for a bon (mise_disposition, restitution, or pv_cloture).
- * Extrait de SignatureService.generateToken sans changement de comportement.
+ * Crée un lien de signature du document (remise, restitution ou PV), par
+ * email ou au guichet (`isInPerson`, lien de 2 h). Les liens encore vivants
+ * du même document sont invalidés : « remplacé » par un nouveau lien, ou
+ * « signature au guichet » quand le nouveau lien est présentiel. Un lien déjà
+ * invalidé garde son premier motif.
  */
 export async function generateToken(
   deps: TokenLifecycleDeps,
   bonId: string,
-  type: 'mise_disposition' | 'restitution' | 'pv_cloture',
+  type: LinkDocumentType,
   initiatedById?: string,
   isInPerson = false,
 ) {
-  // Invalidate previous unsigned tokens of same type
   await deps.prisma.signature.updateMany({
-    where: { bonId, type, signed: false },
-    data: { tokenExpiresAt: new Date(0) }, // expire immediately
+    where: { bonId, type, ...LIVE_LINK_WHERE },
+    data: invalidationData(isInPerson ? 'in_person' : 'replaced'),
   });
 
   // 256 bits d'entropie (homogène avec les autres secrets du projet) plutôt
@@ -53,10 +59,15 @@ export async function generateToken(
   });
 }
 
-/** Invalidate all unsigned tokens for a bon (used when bon enters contested state) */
-export async function invalidateUnsignedTokens(deps: Pick<TokenLifecycleDeps, 'prisma'>, bonId: string): Promise<void> {
+/** Invalide tous les liens encore vivants du bon, avec leur motif (par défaut
+ *  « remplacé » ; « contesté », « annulé »… selon l'appelant). */
+export async function invalidateUnsignedTokens(
+  deps: Pick<TokenLifecycleDeps, 'prisma'>,
+  bonId: string,
+  reason: SignatureInvalidationReason = 'replaced',
+): Promise<void> {
   await deps.prisma.signature.updateMany({
-    where: { bonId, signed: false, tokenExpiresAt: { gt: new Date(1000) } },
-    data: { tokenExpiresAt: new Date(0) },
+    where: { bonId, ...LIVE_LINK_WHERE },
+    data: invalidationData(reason),
   });
 }

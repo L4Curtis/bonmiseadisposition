@@ -1,26 +1,28 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import type { ReopenedDocument } from '../contracts/contestations';
 import * as nodemailer from 'nodemailer';
 import { AppConfigService } from '../config/config.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { TemplatesService } from '../templates/templates.service';
 import { NotificationBon } from '../common/types';
+import { canSendLink } from '../common/can-send-link';
 import type { CollaborateurInventoryItem } from '../reporting/inventory-collaborateur-aggregate';
+import type { LinkRequestAlert } from '../signature/link-request';
 import { resolveAppUrl } from './app-url';
+import { portalUrl } from './app-links';
 import { findItAlertRecipients } from './it-alert-recipients';
-import {
-  readSmtpSettings,
-  readFromAddress,
-  buildTransporterCacheKey,
-  buildTransporter,
-} from './transport/smtp-transport';
+import { sendItAlert } from './it-alerts';
+import { readSmtpSettings, readFromAddress, buildTransporterCacheKey, buildTransporter } from './transport/smtp-transport';
 import {
   SendEmailResult,
   logNotificationResult,
   logFailedNotification,
   blockIfAppUrlMissing,
-  blockIfEmailMissing,
+  truncateErrorMessage,
 } from './notification-log';
+import { logRefusedRecipient } from './collaborator-recipient';
+import { loadNotificationBon, loadSignedDocumentAttachment } from './notification-data';
 import {
   buildMiseDispositionRequestMessage,
   buildRestitutionRequestMessage,
@@ -34,12 +36,19 @@ import {
   ContestationResolutionAction,
 } from './messages/contestation-messages';
 import { buildDepartureAlertMessage } from './messages/departure-alert-message';
+import { buildLinkRequestAlert } from './messages/link-request-alert-message';
 import {
   buildCancellationNotice,
+  buildClosedWithoutSignatureNotice,
+  buildHandoverWithoutSignatureNotice,
   buildMarkFoundNotice,
-  buildUnilateralCloseNotice,
+  buildBonReplacedNotice,
 } from './messages/system-notice-emails';
-import { sendTokenSignatureRequest, sendTemplatedNotification, sendPrebuiltNotice } from './senders/notification-senders';
+import {
+  EmailAttachment,
+  sendCollaboratorEmail,
+  sendTokenSignatureRequest,
+} from './senders/notification-senders';
 import { runDailyReminders as runDailyRemindersJob, DailyRemindersOutcome } from './reminders/daily-reminders';
 import { runRestitutionDueReminders as runRestitutionDueRemindersJob, RestitutionDueRemindersOutcome } from './reminders/restitution-due-reminders';
 import { JobTrackerService } from '../monitoring/job-tracker.service';
@@ -47,6 +56,13 @@ import { JOB_KEYS } from '../monitoring/job-registry';
 
 export type { SendEmailResult } from './notification-log';
 
+/**
+ * Tous les emails de l'application : demandes de signature, confirmations,
+ * rappels, informations au collaborateur, alertes à l'équipe informatique.
+ * Chaque envoi (ou non-envoi motivé) laisse une ligne dans le journal du bon
+ * (NotificationLog). Les emails qui suivent une action du cycle de vie sont
+ * déclenchés par les événements du domaine (listeners/bon-events.listener.ts).
+ */
 @Injectable()
 export class NotificationService {
   private readonly logger = new Logger(NotificationService.name);
@@ -62,55 +78,41 @@ export class NotificationService {
   ) {}
 
   // ─── Transport ──────────────────────────────────────────────────────────────
-  // No explicit invalidation needed: the transporter cache key is derived from
-  // the current SMTP config values, and AdminService.bulkSetConfig invalidates
-  // the config cache — a config change therefore rebuilds the transporter.
+  // La clé de cache dérive de la configuration SMTP courante : un changement
+  // de configuration reconstruit le transport.
 
   private async getTransporter(): Promise<nodemailer.Transporter | null> {
     const settings = await readSmtpSettings(this.configService);
     if (!settings.host) return null;
-
     const cacheKey = buildTransporterCacheKey(settings);
-    if (this.cachedTransporter && this.transporterCacheKey === cacheKey) {
-      return this.cachedTransporter;
-    }
-
+    if (this.cachedTransporter && this.transporterCacheKey === cacheKey) return this.cachedTransporter;
     this.cachedTransporter = buildTransporter({ ...settings, host: settings.host });
     this.transporterCacheKey = cacheKey;
     return this.cachedTransporter;
   }
 
-  private async getFromAddress(): Promise<string> {
-    return readFromAddress(this.configService);
-  }
-
-  /** URL publique : general.app_url (base), sinon FRONTEND_URL — voir
-   *  resolveAppUrl (app-url.ts) pour l'ordre de repli exact. En production,
-   *  une chaîne vide (les deux sont absents) est journalisée ici. */
+  /** URL publique : general.app_url, sinon FRONTEND_URL (voir resolveAppUrl).
+   *  En production, une chaîne vide (les deux absents) est journalisée. */
   private async getAppUrl(): Promise<string> {
-    const configured = await this.configService.get('general', 'app_url');
-    const url = resolveAppUrl(configured, process.env);
-    if (!url) {
-      this.logger.error("URL de l'application (general.app_url ou FRONTEND_URL) non configurée en production");
-    }
+    const url = resolveAppUrl(await this.configService.get('general', 'app_url'), process.env);
+    if (!url) this.logger.error("URL de l'application (general.app_url ou FRONTEND_URL) non configurée en production");
     return url;
   }
 
-  async sendEmail(to: string, subject: string, html: string): Promise<SendEmailResult> {
+  async sendEmail(to: string, subject: string, html: string, attachments?: EmailAttachment[]): Promise<SendEmailResult> {
     try {
       const transporter = await this.getTransporter();
       if (!transporter) {
-        const error = 'SMTP non configuré';
-        this.logger.warn(`Email non envoyé (${error}) → ${to}: ${subject}`);
-        return { ok: false, error };
+        this.logger.warn(`Email non envoyé (SMTP non configuré) → ${to}: ${subject}`);
+        return { ok: false, error: 'SMTP non configuré' };
       }
-      const from = await this.getFromAddress();
+      const from = await readFromAddress(this.configService);
       if (!from) {
         const error = 'Expéditeur SMTP (smtp.from) non configuré';
         this.logger.error(error);
         return { ok: false, error };
       }
-      await transporter.sendMail({ from, to, subject, html });
+      await transporter.sendMail({ from, to, subject, html, ...(attachments?.length ? { attachments } : {}) });
       this.logger.log(`Email envoyé → ${to}: ${subject}`);
       return { ok: true };
     } catch (err) {
@@ -120,249 +122,238 @@ export class NotificationService {
     }
   }
 
-  // ─── Email Templates ────────────────────────────────────────────────────────
-
-  async sendMiseDispositionRequest(bon: NotificationBon, token: string): Promise<void> {
-    return sendTokenSignatureRequest(this.senderDeps(), {
-      bon,
-      token,
-      type: 'mise_dispo_request',
-      templateId: 'mise_disposition_request',
-      buildMessage: buildMiseDispositionRequestMessage,
-    });
-  }
-
-  async sendRestitutionRequest(bon: NotificationBon, token: string): Promise<void> {
-    return sendTokenSignatureRequest(this.senderDeps(), {
-      bon,
-      token,
-      type: 'restitution_request',
-      templateId: 'restitution_request',
-      buildMessage: buildRestitutionRequestMessage,
-    });
-  }
-
-  async sendSignatureConfirmation(bon: NotificationBon, type: ConfirmationType): Promise<void> {
-    const { templateId, vars, subject } = buildConfirmationMessage(bon, type);
-    return sendTemplatedNotification(this.senderDeps(), {
-      bonId: bon.id,
-      recipientEmail: bon.collaborateurEmail,
-      type: 'confirmation',
-      templateId,
-      vars,
-      subject,
-    });
-  }
-
-  async sendPvClotureRequest(bon: NotificationBon, token: string): Promise<void> {
-    return sendTokenSignatureRequest(this.senderDeps(), {
-      bon,
-      token,
-      type: 'pv_cloture_request',
-      templateId: 'pv_cloture_request',
-      buildMessage: buildPvClotureRequestMessage,
-    });
-  }
-
-  // ─── Rappel restitution prévue ──────────────────────────────────────────────
-  // Envoyé une seule fois par bon (idempotence portée par le cron via
-  // NotificationLog — voir runRestitutionDueReminders). Contrairement aux
-  // autres rappels, ce message ne porte pas de lien de signature : il pointe
-  // vers le portail collaborateur ({{PORTAIL_URL}} = getAppUrl() + '/mes-bons').
-
-  async sendRestitutionDueReminder(bon: NotificationBon): Promise<boolean> {
-    const recipientEmail = bon.collaborateur?.email ?? bon.collaborateurEmail;
-    if (!recipientEmail) {
-      await blockIfEmailMissing(this.prisma, this.logger, bon.id, recipientEmail, 'restitution_due_reminder');
-      return false;
-    }
-
-    const appUrl = await this.getAppUrl();
-    if (await blockIfAppUrlMissing(this.prisma, this.logger, appUrl, bon.id, recipientEmail, 'restitution_due_reminder')) {
-      return false;
-    }
-
-    const { vars, subject } = buildRestitutionDueReminderMessage(bon, appUrl);
-    const html = await this.templatesService.renderTemplate('restitution_due_reminder', vars);
-    const result = await this.sendEmail(recipientEmail, subject, html);
-
-    await logNotificationResult(this.prisma, {
-      bonId: bon.id,
-      recipientEmail,
-      type: 'restitution_due_reminder',
-      result,
-    });
-
-    return result.ok;
-  }
-
-  // ─── Contestation ────────────────────────────────────────────────────────────
-
-  async sendContestationAlert(bon: NotificationBon, contestingUser: { displayName?: string; email?: string | null }, message: string): Promise<void> {
-    // Tous les administrateurs et techniciens actifs (voir it-alert-recipients.ts) ;
-    // un compte sans adresse délivrable est simplement écarté.
-    const recipients = await findItAlertRecipients(this.prisma);
-    if (recipients.length === 0) {
-      const errorMessage = 'Aucun administrateur ni technicien actif avec une adresse email valide';
-      this.logger.warn(`Alerte contestation non envoyée (bon ${bon.reference}) : ${errorMessage}`);
-      await logFailedNotification(this.prisma, {
-        bonId: bon.id,
-        recipientEmail: '',
-        type: 'contestation_alert',
-        errorMessage,
-      });
-      return;
-    }
-
-    const { vars, subject } = buildContestationAlertMessage(bon, contestingUser, message);
-    const html = await this.templatesService.renderTemplate('contestation_alert', vars);
-
-    const results = await Promise.all(
-      recipients.map((email) => this.sendEmail(email, subject, html)),
-    );
-    const anyOk = results.some((r) => r.ok);
-    const combinedError = results
-      .filter((r) => !r.ok)
-      .map((r) => r.error ?? "Erreur d'envoi inconnue")
-      .join('; ');
-
-    await logNotificationResult(this.prisma, {
-      bonId: bon.id,
-      recipientEmail: recipients.join(', '),
-      type: 'contestation_alert',
-      result: anyOk ? { ok: true } : { ok: false, error: combinedError },
-    });
-  }
-
-  async sendContestationResolution(
-    bon: NotificationBon,
-    collaborateur: { email?: string | null },
-    action: ContestationResolutionAction,
-    resolutionMessage?: string,
-  ): Promise<void> {
-    // Une contestation reste possible sans adresse email : seul l'accusé de
-    // réception par email est alors ignoré (le collaborateur a signé/contesté
-    // en présentiel, il n'y a pas d'email à confirmer).
-    const { templateId, vars, subject } = buildContestationResolutionMessage(bon, action, resolutionMessage);
-    return sendTemplatedNotification(this.senderDeps(), {
-      bonId: bon.id,
-      recipientEmail: collaborateur.email,
-      type: 'contestation_resolution',
-      templateId,
-      vars,
-      subject,
-    });
-  }
-
-  // ─── Départ d'un collaborateur (lot D1) ──────────────────────────────────────
-
-  /**
-   * Alerte récapitulative unique envoyée aux administrateurs et techniciens
-   * actifs (même sélection que sendContestationAlert) quand la synchronisation LDAP
-   * vient de désactiver un ou plusieurs comptes qui détiennent encore du
-   * matériel. Un seul email pour tout le lot (pas un par collaborateur) —
-   * l'appelant (LdapService / departure-notifications.ts) a déjà résolu la
-   * liste et la déduplication (journal d'audit) avant d'appeler cette méthode.
-   *
-   * Ne journalise pas dans NotificationLog : contrairement aux autres emails,
-   * cette alerte ne porte pas sur UN bon (bonId obligatoire dans
-   * NotificationLog) mais sur plusieurs collaborateurs/bons — la traçabilité
-   * de l'envoi est assurée en amont par l'appelant (AuditLog, action
-   * `departure_notified`, un enregistrement par collaborateur notifié).
-   *
-   * Renvoie `true` si l'email est parti chez au moins un destinataire IT, pour
-   * que l'appelant sache s'il peut marquer les collaborateurs comme notifiés
-   * (sinon la prochaine synchronisation retentera l'envoi).
-   */
-  async sendDepartureAlert(candidates: readonly CollaborateurInventoryItem[]): Promise<boolean> {
-    if (candidates.length === 0) return false;
-
-    const appUrl = await this.getAppUrl();
-    if (!appUrl) {
-      this.logger.error(
-        `Alerte départ non envoyée (${candidates.length} collaborateur(s) concerné(s)) : URL de l'application non configurée`,
-      );
-      return false;
-    }
-
-    const recipients = await findItAlertRecipients(this.prisma);
-    if (recipients.length === 0) {
-      this.logger.warn(
-        `Alerte départ non envoyée (${candidates.length} collaborateur(s) concerné(s)) : aucun utilisateur IT actif avec une adresse email délivrable`,
-      );
-      return false;
-    }
-
-    const inventoryUrl = `${appUrl}/inventaire?vue=collaborateurs&compte=inactif`;
-    const { vars, subject } = buildDepartureAlertMessage(candidates, inventoryUrl);
-    const html = await this.templatesService.renderTemplate('departure_alert', vars);
-
-    const results = await Promise.all(recipients.map((email) => this.sendEmail(email, subject, html)));
-    const anyOk = results.some((r) => r.ok);
-    if (!anyOk) {
-      const combinedError = results.map((r) => r.error ?? "Erreur d'envoi inconnue").join('; ');
-      this.logger.error(`Alerte départ : échec d'envoi à tous les destinataires IT (${combinedError})`);
-    }
-    return anyOk;
-  }
-
-  // ─── Cancel / MarkFound ──────────────────────────────────────────────────────
-
-  async sendCancellationNotice(bon: NotificationBon): Promise<void> {
-    const { html, subject } = buildCancellationNotice(bon);
-    return sendPrebuiltNotice(this.senderDeps(), {
-      bonId: bon.id,
-      recipientEmail: bon.collaborateurEmail,
-      type: 'cancellation',
-      html,
-      subject,
-    });
-  }
-
-  async sendMarkFoundNotice(bon: NotificationBon, equipmentIds: string[]): Promise<void> {
-    const { html, subject } = buildMarkFoundNotice(bon, equipmentIds);
-    return sendPrebuiltNotice(this.senderDeps(), {
-      bonId: bon.id,
-      recipientEmail: bon.collaborateurEmail,
-      type: 'mark_found',
-      html,
-      subject,
-    });
-  }
-
-  // ─── Clôture unilatérale ─────────────────────────────────────────────────────
-
-  async sendUnilateralCloseNotice(bon: NotificationBon, reason: string, newStatus: string): Promise<void> {
-    const { html, subject } = buildUnilateralCloseNotice(bon, reason, newStatus);
-    return sendPrebuiltNotice(this.senderDeps(), {
-      bonId: bon.id,
-      recipientEmail: bon.collaborateurEmail,
-      type: 'unilateral_closure',
-      html,
-      subject,
-    });
-  }
-
-  /** Dépendances explicites passées aux fonctions pures de ./senders. */
+  /** Dépendances explicites passées aux fonctions de ./senders. */
   private senderDeps() {
     return {
       prisma: this.prisma,
       logger: this.logger,
       templatesService: this.templatesService,
-      sendEmail: (to: string, subject: string, html: string) => this.sendEmail(to, subject, html),
+      sendEmail: (to: string, subject: string, html: string, attachments?: EmailAttachment[]) =>
+        this.sendEmail(to, subject, html, attachments),
       getAppUrl: () => this.getAppUrl(),
     };
   }
 
-  // ─── Cron: Rappels quotidiens ────────────────────────────────────────────────
+  // ─── Demandes de signature (adresse retenue par l'appelant) ─────────────────
 
-  @Cron('0 9 * * 1-5', { timeZone: 'Europe/Paris' }) // Lundi–Vendredi à 9h (heure de Paris)
+  async sendMiseDispositionRequest(bon: NotificationBon, token: string): Promise<void> {
+    return sendTokenSignatureRequest(this.senderDeps(), {
+      bon, token, type: 'mise_dispo_request', templateId: 'mise_disposition_request', buildMessage: buildMiseDispositionRequestMessage,
+    });
+  }
+
+  async sendRestitutionRequest(bon: NotificationBon, token: string): Promise<void> {
+    return sendTokenSignatureRequest(this.senderDeps(), {
+      bon, token, type: 'restitution_request', templateId: 'restitution_request', buildMessage: buildRestitutionRequestMessage,
+    });
+  }
+
+  async sendPvClotureRequest(bon: NotificationBon, token: string): Promise<void> {
+    return sendTokenSignatureRequest(this.senderDeps(), {
+      bon, token, type: 'pv_cloture_request', templateId: 'pv_cloture_request', buildMessage: buildPvClotureRequestMessage,
+    });
+  }
+
+  // ─── Emails au collaborateur (adresse actuelle du compte, compte actif) ─────
+
+  /**
+   * Confirmation de signature (R-036) : le document signé, ses équipements, un
+   * lien vers le portail, et le PDF signé en pièce jointe s'il reste d'une
+   * taille raisonnable.
+   */
+  async sendSignatureConfirmation(bonId: string, documentType: ConfirmationType): Promise<void> {
+    const bon = await loadNotificationBon(this.prisma, bonId);
+    if (!bon) return;
+    const appUrl = await this.getAppUrl();
+    return sendCollaboratorEmail(this.senderDeps(), {
+      bonId, type: 'confirmation', documentType,
+      build: async () => {
+        const { templateId, vars, subject } = buildConfirmationMessage(bon, documentType, appUrl);
+        const attachment = await loadSignedDocumentAttachment(this.prisma, bonId, documentType);
+        return { subject, html: await this.templatesService.renderTemplate(templateId, vars), attachments: attachment ? [attachment] : [] };
+      },
+    });
+  }
+
+  /** Email « bon annulé » avec son motif (R-013). */
+  async sendCancellationNotice(bon: NotificationBon, reason = ''): Promise<void> {
+    return sendCollaboratorEmail(this.senderDeps(), { bonId: bon.id, type: 'cancellation', build: () => buildCancellationNotice(bon, reason) });
+  }
+
+  /** Email « bon annulé » d'après l'événement : le bon est relu en base. */
+  async sendCancellationNoticeFor(bonId: string, reason: string): Promise<void> {
+    const bon = await loadNotificationBon(this.prisma, bonId);
+    if (bon) await this.sendCancellationNotice(bon, reason);
+  }
+
+  /** Email « remise constatée sans signature » : le bon est En cours (R-014). */
+  async sendHandoverWithoutSignatureNotice(bonId: string, reason: string): Promise<void> {
+    const bon = await loadNotificationBon(this.prisma, bonId);
+    if (!bon) return;
+    const appUrl = await this.getAppUrl();
+    return sendCollaboratorEmail(this.senderDeps(), {
+      bonId, type: 'handover_without_signature', build: () => buildHandoverWithoutSignatureNotice(bon, reason, portalUrl(appUrl)),
+    });
+  }
+
+  /** Email « bon clôturé sans signature » : le bon est Clôturé (R-014). */
+  async sendClosedWithoutSignatureNotice(bonId: string, reason: string, previousStatus: string): Promise<void> {
+    const bon = await loadNotificationBon(this.prisma, bonId);
+    if (!bon) return;
+    const appUrl = await this.getAppUrl();
+    return sendCollaboratorEmail(this.senderDeps(), {
+      bonId, type: 'unilateral_closure', build: () => buildClosedWithoutSignatureNotice(bon, reason, previousStatus, portalUrl(appUrl)),
+    });
+  }
+
+  /**
+   * Ancien point d'entrée des deux gestes sans signature, gardé pour les
+   * appelants : il envoie l'email juste selon le résultat (En cours = remise
+   * constatée ; sinon clôture).
+   * @deprecated les emails suivent les événements `bon.handover_without_signature`
+   * et `bon.closed_without_signature` (listeners/bon-events.listener.ts).
+   */
+  async sendUnilateralCloseNotice(bon: NotificationBon, reason: string, newStatus: string): Promise<void> {
+    if (newStatus === 'active') return this.sendHandoverWithoutSignatureNotice(bon.id, reason);
+    return this.sendClosedWithoutSignatureNotice(bon.id, reason, bon.status ?? 'sent_restitution');
+  }
+
+  /** Email « bon remplacé » : le bon corrigé est signé, l'original est
+   *  clôturé comme remplacé (événement `bon.replaced`). */
+  async sendBonReplacedNotice(bonId: string, replacementReference: string): Promise<void> {
+    const bon = await loadNotificationBon(this.prisma, bonId);
+    if (!bon) return;
+    const appUrl = await this.getAppUrl();
+    return sendCollaboratorEmail(this.senderDeps(), {
+      bonId, type: 'contestation_resolution', build: () => buildBonReplacedNotice(bon, replacementReference, portalUrl(appUrl)),
+    });
+  }
+
+  async sendMarkFoundNotice(bon: NotificationBon, equipmentIds: string[]): Promise<void> {
+    return sendCollaboratorEmail(this.senderDeps(), { bonId: bon.id, type: 'mark_found', build: () => buildMarkFoundNotice(bon, equipmentIds) });
+  }
+
+  // ─── Rappel avant restitution prévue ────────────────────────────────────────
+  // Un seul par bon (idempotence portée par le cron via NotificationLog). Pas
+  // de lien de signature : il mène au portail du collaborateur.
+
+  async sendRestitutionDueReminder(bon: NotificationBon & { collaborateur?: { active?: boolean; email?: string | null } | null }): Promise<boolean> {
+    const recipient = canSendLink({ active: bon.collaborateur?.active ?? true, email: bon.collaborateur?.email ?? bon.collaborateurEmail });
+    if (!recipient.allowed) {
+      await logRefusedRecipient(this.prisma, { bonId: bon.id, type: 'restitution_due_reminder', refusal: recipient });
+      return false;
+    }
+    const appUrl = await this.getAppUrl();
+    if (await blockIfAppUrlMissing(this.prisma, this.logger, appUrl, bon.id, recipient.email, 'restitution_due_reminder')) {
+      return false;
+    }
+    const { vars, subject } = buildRestitutionDueReminderMessage(bon, appUrl);
+    const html = await this.templatesService.renderTemplate('restitution_due_reminder', vars);
+    const result = await this.sendEmail(recipient.email, subject, html);
+    await logNotificationResult(this.prisma, { bonId: bon.id, recipientEmail: recipient.email, type: 'restitution_due_reminder', result });
+    return result.ok;
+  }
+
+  // ─── Contestation ────────────────────────────────────────────────────────────
+
+  /** Alerte à l'équipe informatique, avec un lien direct vers le bon (R-035). */
+  async sendContestationAlert(bon: NotificationBon, contestingUser: { displayName?: string; email?: string | null }, message: string): Promise<void> {
+    const appUrl = await this.getAppUrl();
+    const { vars, subject } = buildContestationAlertMessage(bon, contestingUser, message, appUrl);
+    const html = await this.templatesService.renderTemplate('contestation_alert', vars);
+    await sendItAlert(this.senderDeps(), { bonId: bon.id, bonReference: bon.reference, type: 'contestation_alert', subject, html });
+  }
+
+  /**
+   * Réponse à une contestation, envoyée comme tout email au collaborateur : à
+   * l'adresse ACTUELLE de son compte, jamais à un compte désactivé (ligne
+   * « non envoyé »). `_contestant` est gardé pour les appelants : le
+   * destinataire est relu en base. Fondée : `replacement` est le bon corrigé,
+   * que l'email nomme (R-050) ; `reopenedDocument`, le document que l'IT
+   * corrige sur le bon d'origine puis renvoie à signer (restitution ou PV).
+   */
+  async sendContestationResolution(
+    bon: NotificationBon,
+    _contestant: { email?: string | null },
+    action: ContestationResolutionAction,
+    resolutionMessage?: string,
+    replacement?: { reference: string } | null,
+    reopenedDocument?: ReopenedDocument | null,
+  ): Promise<void> {
+    const { templateId, vars, subject } = buildContestationResolutionMessage(
+      bon, action, resolutionMessage, replacement, reopenedDocument,
+    );
+    return sendCollaboratorEmail(this.senderDeps(), {
+      bonId: bon.id,
+      type: 'contestation_resolution',
+      build: async () => ({ subject, html: await this.templatesService.renderTemplate(templateId, vars) }),
+    });
+  }
+
+  // ─── Nouveau lien demandé (R-058) ───────────────────────────────────────────
+
+  /**
+   * Lance l'alerte « nouveau lien demandé » sans l'attendre (la route répond
+   * tout de suite). Un échec imprévu est journalisé et tracé dans le journal
+   * du bon ; les échecs d'envoi SMTP le sont déjà par sendItAlert.
+   */
+  queueLinkRequestAlert(alert: LinkRequestAlert): void {
+    this.sendLinkRequestAlert(alert).catch(async (err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.error(`Alerte « nouveau lien demandé » (bon ${alert.bonId}) non envoyée : ${message}`);
+      await logFailedNotification(this.prisma, {
+        bonId: alert.bonId, recipientEmail: '', type: 'link_request_alert', errorMessage: truncateErrorMessage(message),
+      }).catch(() => undefined);
+    });
+  }
+
+  /** Alerte à l'équipe informatique : un collaborateur demande un nouveau lien. */
+  async sendLinkRequestAlert(alert: LinkRequestAlert): Promise<void> {
+    const bon = await loadNotificationBon(this.prisma, alert.bonId);
+    if (!bon) return;
+    const { subject, html } = buildLinkRequestAlert(bon, alert, await this.getAppUrl());
+    await sendItAlert(this.senderDeps(), { bonId: bon.id, bonReference: bon.reference, type: 'link_request_alert', subject, html });
+  }
+
+  // ─── Départ d'un collaborateur ───────────────────────────────────────────────
+
+  /**
+   * Alerte récapitulative unique à l'équipe informatique quand la
+   * synchronisation de l'annuaire désactive des comptes qui détiennent encore
+   * des équipements. Non journalisée dans NotificationLog (elle ne porte pas
+   * sur UN bon) : l'appelant trace l'envoi dans l'audit. Renvoie `true` si
+   * l'email est parti chez au moins un destinataire.
+   */
+  async sendDepartureAlert(candidates: readonly CollaborateurInventoryItem[]): Promise<boolean> {
+    if (candidates.length === 0) return false;
+    const appUrl = await this.getAppUrl();
+    if (!appUrl) {
+      this.logger.error(`Alerte départ non envoyée (${candidates.length} collaborateur(s)) : URL de l'application non configurée`);
+      return false;
+    }
+    const recipients = await findItAlertRecipients(this.prisma);
+    if (recipients.length === 0) {
+      this.logger.warn(`Alerte départ non envoyée (${candidates.length} collaborateur(s)) : aucun utilisateur IT actif avec une adresse délivrable`);
+      return false;
+    }
+    const { vars, subject } = buildDepartureAlertMessage(candidates, `${appUrl}/inventaire?vue=collaborateurs&compte=inactif`);
+    const html = await this.templatesService.renderTemplate('departure_alert', vars);
+    const results = await Promise.all(recipients.map((email) => this.sendEmail(email, subject, html)));
+    const anyOk = results.some((r) => r.ok);
+    if (!anyOk) {
+      this.logger.error(`Alerte départ : échec d'envoi à tous les destinataires IT (${results.map((r) => r.error).join('; ')})`);
+    }
+    return anyOk;
+  }
+
+  // ─── Tâches planifiées ───────────────────────────────────────────────────────
+
+  @Cron('0 9 * * 1-5', { timeZone: 'Europe/Paris' }) // du lundi au vendredi à 9 h, heure de Paris
   async sendDailyReminders(): Promise<void> {
     try {
       await this.jobTracker.track(JOB_KEYS.SIGNATURE_REMINDERS, () => this.runDailyReminders());
     } catch (err) {
-      // The cron package does not catch rejected promises — never let this
-      // escape as an unhandledRejection
+      // Le paquet cron ne rattrape pas les promesses rejetées.
       this.logger.error(`Cron rappels en échec: ${(err as Error).stack ?? err}`);
     }
   }
@@ -379,9 +370,7 @@ export class NotificationService {
     });
   }
 
-  // ─── Cron: Rappel avant restitution prévue ───────────────────────────────────
-
-  @Cron('0 9 * * *', { name: 'restitution-due-reminder', timeZone: 'Europe/Paris' }) // Tous les jours à 9h (heure de Paris)
+  @Cron('0 9 * * *', { name: 'restitution-due-reminder', timeZone: 'Europe/Paris' }) // tous les jours à 9 h, heure de Paris
   async runRestitutionDueReminders(): Promise<void> {
     try {
       await this.jobTracker.track<RestitutionDueRemindersOutcome>(JOB_KEYS.RESTITUTION_REMINDER, () =>
@@ -394,8 +383,6 @@ export class NotificationService {
         }),
       );
     } catch (err) {
-      // Le package cron ne rattrape pas les promesses rejetées — ne jamais
-      // laisser fuir ceci en unhandledRejection.
       this.logger.error(`Cron rappel restitution en échec: ${(err as Error).stack ?? err}`);
     }
   }

@@ -7,6 +7,7 @@ import {
   footer,
   refBadge,
   quoteBox,
+  ctaButton,
   sectionLabel,
   statusIcon,
 } from '../email-layout';
@@ -24,33 +25,34 @@ export function defaultContestationAlert(): string {
       </p>
       ${sectionLabel('Motif de la contestation')}
       ${quoteBox('#dc2626', '#fef2f2', '#fecaca', '<em>&ldquo;{{CONTESTATION_MESSAGE}}&rdquo;</em>')}
+      ${ctaButton('{{BON_URL}}', 'Ouvrir le bon contest&eacute;')}
       <p style="margin:0;font-size:14px;color:#6B665E;line-height:1.6;background:#F6F3EE;border-radius:10px;padding:12px 16px">
-        Connectez-vous &agrave; l&rsquo;application pour consulter le bon concern&eacute; et apporter une r&eacute;ponse au collaborateur.
+        Prenez la contestation en charge puis tranchez-la : &laquo;&nbsp;Fond&eacute;e&nbsp;&raquo; (un bon corrig&eacute; est envoy&eacute;) ou &laquo;&nbsp;Non retenue&nbsp;&raquo;. <a href="{{CONTESTATIONS_URL}}" style="color:#B92A20">Toutes les contestations &agrave; traiter</a>
       </p>
       `),
     footer(),
   ));
 }
 
-// ─── 7. Contestation retenue ─────────────────────────────────────────────────
+// ─── 7. Contestation fondée ──────────────────────────────────────────────────
 
 export function defaultContestationResolved(): string {
   return emailWrapper(card(
-    brandHeader('Contestation prise en compte', '{{FILIALE_NOM}}', { text: 'Acceptée', bg: 'rgba(255,255,255,0.18)' }),
+    brandHeader('Contestation fondée', '{{FILIALE_NOM}}', { text: 'Fondée', bg: 'rgba(255,255,255,0.18)' }),
     metaStrip(['Réf. <strong style="color:#1B1A18;font-family:monospace">{{REFERENCE}}</strong>']),
     body(`
       ${statusIcon('&#10003;', '#dcfce7')}
       <p style="margin:0 0 20px;font-size:15px;color:#4A463F;line-height:1.75;text-align:center">
-        Votre contestation relative au bon ${refBadge('{{REFERENCE}}')} a été <strong style="color:#166534">examinée et prise en compte</strong> par le service informatique.
+        Votre contestation relative au bon ${refBadge('{{REFERENCE}}')} a été jugée <strong style="color:#166534">fondée</strong> par l’équipe informatique. {{REPLACEMENT_SENTENCE}}
       </p>
-      ${sectionLabel('Message du service IT')}
+      ${sectionLabel('Message de l’équipe informatique')}
       ${quoteBox('#16a34a', '#f0fdf4', '#bbf7d0', '{{RESOLUTION_MESSAGE}}')}
       `),
     footer(),
   ));
 }
 
-// ─── 8. Contestation rejetée ─────────────────────────────────────────────────
+// ─── 8. Contestation non retenue ─────────────────────────────────────────────
 
 export function defaultContestationRejected(): string {
   return emailWrapper(card(
@@ -58,9 +60,9 @@ export function defaultContestationRejected(): string {
     metaStrip(['Réf. <strong style="color:#1B1A18;font-family:monospace">{{REFERENCE}}</strong>']),
     body(`
       <p style="margin:0 0 20px;font-size:15px;color:#4A463F;line-height:1.75;text-align:center">
-        Votre contestation relative au bon ${refBadge('{{REFERENCE}}')} a été examinée par le service informatique. Après vérification, elle <strong style="color:#991b1b">n'a pas pu être retenue</strong>.
+        Votre contestation relative au bon ${refBadge('{{REFERENCE}}')} a été examinée par l’équipe informatique. Après vérification, elle <strong style="color:#991b1b">n’est pas retenue</strong> : le bon reste valable tel qu’il a été signé.
       </p>
-      ${sectionLabel('Message du service IT')}
+      ${sectionLabel('Message de l’équipe informatique')}
       ${quoteBox('#dc2626', '#fef2f2', '#fecaca', '{{RESOLUTION_MESSAGE}}')}
       `),
     footer(),

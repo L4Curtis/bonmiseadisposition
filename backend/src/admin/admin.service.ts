@@ -130,7 +130,7 @@ export class AdminService {
               <p>Cet email confirme que votre configuration SMTP est correctement paramétrée dans l'application <strong>Bons de mise à disposition</strong>.</p>
               <p style="color:#6B665E;font-size:13px">Envoyé depuis : <code>${host}:${port}</code></p>
               <hr style="border:none;border-top:1px solid #E2DFD9;margin:16px 0">
-              <p style="font-size:12px;color:#A79F94">Service informatique — Groupe Livio</p>
+              <p style="font-size:12px;color:#A79F94">Équipe informatique — Groupe Livio</p>
             </div>`,
         });
         return { success: true, message: `Email de test envoyé à ${testEmail}` };

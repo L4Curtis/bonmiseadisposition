@@ -119,6 +119,7 @@ describe('buildBonPreviewVars', () => {
   it('rend les confirmations de signature', () => {
     const { vars } = buildBonPreviewVars(template('confirmation_pv_cloture'), bon(), APP_URL);
     expect(vars.REFERENCE).toBe('BMD-2026-0107');
-    expect(vars.TYPE_LABEL).toContain('procès-verbal');
+    expect(vars.DOCUMENT_LABEL).toBe('PV de non-restitution');
+    expect(vars.PORTAIL_URL).toBe(`${APP_URL}/mes-bons`);
   });
 });

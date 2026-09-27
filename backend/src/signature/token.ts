@@ -1,25 +1,32 @@
+import type { SignatureInvalidationReason } from '@prisma/client';
 import { INVALIDATED_TOKEN_SENTINEL } from '../common/bon-predicates';
+import { LINK_INVALIDATION_MESSAGES } from '../bons/bon-status';
+import { effectiveInvalidationReason } from './link-invalidation';
 
 /**
- * Fonctions pures liées au cycle de vie d'un token de signature : lecture de
- * la sémantique « remplacé » vs « expiré », et calcul de la date d'expiration
- * à la création. Extrait de SignatureService (lot de découpage) sans aucun
- * changement de comportement.
+ * Fonctions pures du cycle de vie d'un lien de signature : lien invalidé
+ * volontairement ou expiré, message au collaborateur, date d'expiration.
  */
 
-/** Un token ramené à l'epoch (cf. INVALIDATED_TOKEN_SENTINEL) a été invalidé
- *  volontairement (relance, nouvelle demande, clôture) : un lien plus récent
- *  existe. */
+/** Un lien ramené à l'epoch (cf. INVALIDATED_TOKEN_SENTINEL) a été invalidé
+ *  volontairement (renvoi, passage au guichet, clôture…) ; son motif est dans
+ *  `Signature.invalidatedReason`. */
 export function isReplacedToken(tokenExpiresAt: Date): boolean {
   return tokenExpiresAt.getTime() <= INVALIDATED_TOKEN_SENTINEL.getTime();
 }
 
-/** Message affiché quand un token n'est plus utilisable : distingue un lien
- *  remplacé (nouveau lien envoyé) d'une expiration naturelle. */
-export function expiredMessage(tokenExpiresAt: Date): string {
-  return isReplacedToken(tokenExpiresAt)
-    ? 'Ce lien a été remplacé par un nouveau lien de signature : ouvrez le dernier email reçu'
-    : 'Ce lien de signature a expiré';
+export const EXPIRED_LINK_MESSAGE = 'Ce lien de signature a expiré : demandez un nouveau lien depuis la page de signature.';
+
+/**
+ * Message renvoyé quand un lien n'est plus utilisable : le vrai motif d'une
+ * invalidation (R-038), ou l'expiration naturelle.
+ */
+export function unusableLinkMessage(
+  sig: { tokenExpiresAt: Date; invalidatedReason?: SignatureInvalidationReason | null },
+  bonStatus: string,
+): string {
+  if (!isReplacedToken(sig.tokenExpiresAt)) return EXPIRED_LINK_MESSAGE;
+  return LINK_INVALIDATION_MESSAGES[effectiveInvalidationReason(sig.invalidatedReason, bonStatus)];
 }
 
 /** Clamp de la validité configurée (tokens.expiry_days) dans [1, 30], avec
@@ -31,9 +38,9 @@ export function clampTokenValidityDays(raw: string | null, defaultDays: number):
 }
 
 /**
- * Date d'expiration d'un nouveau token. Contrat isInPerson (lot B) : un lien
- * présentiel expire après `inPersonValidityHours`, indépendamment de la
- * validité configurable en jours (qui ne s'applique qu'aux liens email).
+ * Date d'expiration d'un nouveau lien : un lien présentiel (guichet) expire
+ * après `inPersonValidityHours`, indépendamment de la validité configurable en
+ * jours (qui ne s'applique qu'aux liens envoyés par email).
  */
 export function computeTokenExpiresAt(
   isInPerson: boolean,

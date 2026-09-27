@@ -12,7 +12,7 @@
  * n'est renvoyé qu'au destinataire du lien, ou à tout compte connecté pour une
  * signature présentielle (signature/recipient.ts).
  */
-import type { IsoDateTime, OkResponse } from './common';
+import type { IsoDateTime, OkResponse, SignatureInvalidationReason } from './common';
 import type { BonForSignature, LinkSignatureType, SafeSignature, SignaturePdfType } from './bons';
 
 // ─── GET /api/signature/:token ────────────────────────────────────────────────
@@ -36,17 +36,26 @@ export interface SignatureAlreadySignedResponse {
   bonId: string;
 }
 
-/** Lien invalidé volontairement (relance, nouvelle demande) : un lien plus
- *  récent existe. */
+/** Lien invalidé volontairement avant usage (le statut garde son nom
+ *  historique). `invalidatedReason` donne le vrai motif (R-038) : la page de
+ *  signature affiche le message correspondant (`LINK_INVALIDATION_MESSAGES`). */
 export interface SignatureReplacedResponse {
   status: 'replaced';
   reference: string;
+  /** Toujours renseigné par le serveur : motif enregistré, ou, pour un lien
+   *  invalidé avant la vague 2, motif déduit de l'état du bon. Facultatif le
+   *  temps de la vague 2, obligatoire ensuite. */
+  invalidatedReason?: SignatureInvalidationReason | null;
 }
 
-/** Lien arrivé à expiration. */
+/** Lien arrivé à expiration. La page propose « Demander un nouveau lien »
+ *  (POST /api/signature/:token/request-new-link). */
 export interface SignatureExpiredResponse {
   status: 'expired';
   reference: string;
+  /** Dernière demande de nouveau lien pour ce bon depuis l'envoi de ce lien,
+   *  ou `null`. Facultatif le temps de la vague 2, obligatoire ensuite. */
+  newLinkRequestedAt?: IsoDateTime | null;
 }
 
 /** Signature du lien, en attente : jamais le cachet IT, jamais signée. */
@@ -94,4 +103,18 @@ export interface SignDocumentResponse extends OkResponse {
   signedByProxy: boolean;
   bon: BonForSignature;
   signature: CompletedLinkSignature;
+}
+
+// ─── POST /api/signature/:token/request-new-link ──────────────────────────────
+
+/** POST /api/signature/:token/request-new-link — lien expiré : l'équipe
+ *  informatique est prévenue par email (R-058). 200 ; 400 si le lien n'est pas
+ *  expiré (encore valable, invalidé — le message dit alors le vrai motif —,
+ *  lien au guichet, bon clôturé) ; 403 pour un autre compte que le destinataire
+ *  (message sans aucune adresse) ; 404 si le jeton est inconnu. */
+export interface RequestNewLinkResponse extends OkResponse {
+  /** `requested` : l'équipe vient d'être prévenue ; `already_requested` : une
+   *  demande de moins de 24 h existe déjà pour ce bon, rien n'est renvoyé. */
+  status: 'requested' | 'already_requested';
+  requestedAt: IsoDateTime;
 }

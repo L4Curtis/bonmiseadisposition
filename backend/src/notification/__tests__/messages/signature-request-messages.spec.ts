@@ -18,6 +18,11 @@ describe('buildMiseDispositionRequestMessage', () => {
     expect(subject).toBe(`[${bon.reference}] Bon de mise à disposition à signer — ${bon.filiale?.displayName}`);
   });
 
+  it('date de remise à l’heure de Paris (R-040)', () => {
+    const bon = { ...activeBon(), dateMiseDisposition: new Date('2026-09-24T22:30:00Z') } as unknown as NotificationBon;
+    expect(buildMiseDispositionRequestMessage(bon, '#').vars.DATE_MISE_DISPO).toBe('25 septembre 2026');
+  });
+
   it('uses "Madame" for civilite "mme"', () => {
     const bon = { ...activeBon(), civilite: 'mme' } as unknown as NotificationBon;
     const { vars } = buildMiseDispositionRequestMessage(bon, '#');
@@ -64,6 +69,6 @@ describe('buildPvClotureRequestMessage', () => {
 
     expect(vars.SIGNER_URL).toBe('https://app.test/signer/pv');
     expect(vars.NOT_RETURNED_LIST).toContain('Perdu');
-    expect(subject).toContain("Procès-verbal d'équipements non restitués à signer");
+    expect(subject).toBe(`[${bon.reference}] PV de non-restitution à signer — ${bon.filiale?.displayName}`);
   });
 });

@@ -1,6 +1,6 @@
 import {
   isReplacedToken,
-  expiredMessage,
+  unusableLinkMessage,
   clampTokenValidityDays,
   computeTokenExpiresAt,
 } from '../token';
@@ -21,15 +21,26 @@ describe('token (pure helpers)', () => {
     });
   });
 
-  describe('expiredMessage', () => {
-    it('should return the "replaced" message for an invalidated token', () => {
-      expect(expiredMessage(new Date(0))).toBe(
-        'Ce lien a été remplacé par un nouveau lien de signature : ouvrez le dernier email reçu',
+  describe('unusableLinkMessage', () => {
+    it('dit le vrai motif d’un lien invalidé (R-038)', () => {
+      expect(unusableLinkMessage({ tokenExpiresAt: new Date(0), invalidatedReason: 'in_person' }, 'sent_mise_dispo')).toBe(
+        "Ce document se signe au guichet, avec l'équipe informatique.",
+      );
+      expect(unusableLinkMessage({ tokenExpiresAt: new Date(0), invalidatedReason: 'replaced' }, 'sent_restitution')).toBe(
+        'Ce lien a été remplacé : un nouveau lien vous a été envoyé par email.',
       );
     });
 
-    it('should return the "expired" message for a naturally expired token', () => {
-      expect(expiredMessage(new Date(Date.now() - 1000))).toBe('Ce lien de signature a expiré');
+    it('lien invalidé sans motif enregistré : motif déduit de l’état du bon', () => {
+      expect(unusableLinkMessage({ tokenExpiresAt: new Date(0), invalidatedReason: null }, 'archived')).toBe(
+        "Ce bon a été clôturé : il n'y a plus rien à signer.",
+      );
+    });
+
+    it('lien expiré naturellement', () => {
+      expect(unusableLinkMessage({ tokenExpiresAt: new Date(Date.now() - 1000) }, 'sent_mise_dispo')).toBe(
+        'Ce lien de signature a expiré : demandez un nouveau lien depuis la page de signature.',
+      );
     });
   });
 

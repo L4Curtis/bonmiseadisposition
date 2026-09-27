@@ -1,47 +1,166 @@
-import { BonForPdf } from '../pdf.service';
+import type { BonForPdf, PdfSignature } from '../pdf-types';
+import type { DocumentSignatures } from '../document-signatures';
 import { PdfColorScheme, PdfFontsConfig } from '../pdf-template-config';
 import { RenderFonts, drawSectionTitle, formatDateTime, formatOptionalText } from './layout';
+import { SignerNames, signerName } from './signer-names';
 
 // ─── CERTIFICAT DE SIGNATURE ÉLECTRONIQUE ─────────────────────────────────────
-// Pièce probante annexée au document : rôle + phase de chaque signature,
-// horodatage, IP, user-agent, mention « Lu et approuvé ».
+// Pièce probante annexée au document : pour chaque signature DE CE DOCUMENT,
+// rôle, signataire, horodatage, IP, navigateur, mention « Lu et approuvé ».
 
-export const ROLE_LABELS: Record<string, string> = {
-  it_cachet: 'Service informatique — cachet',
+export const ROLE_LABELS: Readonly<Record<string, string>> = Object.freeze({
+  it_cachet: 'Équipe informatique — signature IT',
   mise_disposition: 'Collaborateur — mise à disposition',
   restitution: 'Collaborateur — restitution',
-  pv_cloture: 'Collaborateur — procès-verbal de clôture',
-};
+  pv_cloture: 'Collaborateur — PV de non-restitution',
+});
 
-/** Libellé d'une signature dans le certificat : rôle + phase (le cachet IT
- *  précise la phase via pdfType quand elle est connue). */
+/** Document auquel se rapporte une signature IT (`Signature.pdfType`). */
+const IT_DOCUMENT_LABELS: Readonly<Record<string, string>> = Object.freeze({
+  mise_disposition: 'mise à disposition',
+  restitution: 'restitution',
+  pv_cloture: 'PV de non-restitution',
+  avenant: 'avenant',
+});
+
+/** Libellé d'une signature dans le certificat : rôle + document (la signature
+ *  IT précise son document via pdfType quand il est connu). */
 export function certificateLabel(sig: { type: string; pdfType?: string | null }): string {
   const base = ROLE_LABELS[sig.type] ?? sig.type;
-  if (sig.type !== 'it_cachet' || !sig.pdfType) return base;
-  return `${base} — ${sig.pdfType === 'restitution' ? 'restitution' : 'mise à disposition'}`;
+  const document = sig.type === 'it_cachet' && sig.pdfType ? IT_DOCUMENT_LABELS[sig.pdfType] : undefined;
+  return document ? `${base} — ${document}` : base;
+}
+
+/** Une carte du certificat, prête à dessiner. */
+export interface CertificateEntry {
+  role: string;
+  /** Mention sous le rôle (« Signature au guichet »), ou `null`. */
+  badge: string | null;
+  luApprouve: boolean;
+  meta: [string, string][];
+  userAgent: string | null;
+}
+
+function signedTime(sig: PdfSignature): number {
+  return sig.signedAt ? new Date(sig.signedAt).getTime() : 0;
 }
 
 /**
- * Annexe un certificat de signature électronique : pour chaque signature
- * réellement apposée, l'identité, l'horodatage, l'IP, le user-agent et la
- * mention « Lu et approuvé ». C'est la pièce probante d'un e-sign 2026 —
- * elle rend le PDF auto-portant en cas de litige.
+ * Qui a signé. Au guichet, le compte connecté peut être celui du technicien
+ * qui tient la tablette (mandataire) : le signataire reste le collaborateur,
+ * le technicien est nommé comme présent (R-032). Une signature IT n'est
+ * jamais « au guichet » : elle est apposée dans l'application.
+ */
+function signerMeta(bon: BonForPdf, sig: PdfSignature, names: SignerNames): { badge: string | null; rows: [string, string][] } {
+  const collabName = formatOptionalText(bon.collaborateur?.displayName);
+  const account = formatOptionalText(sig.signerEmail);
+  const accountName = signerName(names, sig.signerEmail);
+  if (sig.type === 'it_cachet') {
+    return { badge: null, rows: [['Signataire', accountName ?? account], ['Compte', account]] };
+  }
+  if (sig.signedByProxy) {
+    return {
+      badge: 'Signature au guichet',
+      rows: [['Signataire', collabName], ['En présence de', accountName ?? account], ['Compte utilisé', account]],
+    };
+  }
+  return {
+    badge: sig.isInPerson ? 'Signature au guichet' : null,
+    rows: [['Signataire', accountName ?? collabName], ['Compte', account]],
+  };
+}
+
+/** Cartes du certificat : les signatures du document, dans l'ordre chronologique. */
+export function buildCertificateEntries(
+  bon: BonForPdf,
+  selection: DocumentSignatures,
+  names: SignerNames,
+): CertificateEntry[] {
+  return [selection.it, selection.collab]
+    .filter((s): s is PdfSignature => !!s && s.signed && !!s.signedAt)
+    .sort((a, b) => signedTime(a) - signedTime(b))
+    .map((sig) => {
+      const { badge, rows } = signerMeta(bon, sig, names);
+      return {
+        role: certificateLabel(sig),
+        badge,
+        // « Lu et approuvé » est la mention du collaborateur ; la signature IT
+        // porte sa propre attestation dans la case du document.
+        luApprouve: sig.type !== 'it_cachet' && !!sig.mentionLuApprouve,
+        meta: [...rows, ['Horodatage', formatDateTime(sig.signedAt)], ['Adresse IP', sig.signerIp || '—']],
+        userAgent: sig.signerUserAgent ?? null,
+      };
+    });
+}
+
+const CARD_TEXT_WIDTH_OFFSET = 232;
+const META_COLUMN_WIDTH = 196;
+const META_LINE_HEIGHT = 11;
+
+function drawCertificateCard(
+  doc: PDFKit.PDFDocument,
+  entry: CertificateEntry,
+  leftX: number,
+  pageWidth: number,
+  colors: PdfColorScheme,
+  fontNames: RenderFonts,
+): void {
+  const cardY = doc.y;
+  const cardH = Math.max(52, 16 + (entry.meta.length + 1) * META_LINE_HEIGHT);
+  const textWidth = pageWidth - CARD_TEXT_WIDTH_OFFSET;
+  doc.roundedRect(leftX, cardY, pageWidth, cardH, 8).lineWidth(0.5).fillAndStroke(colors.rowAlt, colors.border);
+
+  // Pastille de rôle + « signé électroniquement »
+  doc.circle(leftX + 14, cardY + 14, 2.6).fillColor('#16a34a').fill();
+  // Le rôle peut tenir sur deux lignes : les mentions suivantes se placent dessous.
+  doc.font(fontNames.bold).fontSize(8);
+  const roleHeight = doc.heightOfString(entry.role, { width: textWidth });
+  doc.fillColor(colors.dark).text(entry.role, leftX + 22, cardY + 10, { width: textWidth });
+  const signedY = cardY + 12 + roleHeight;
+  doc.font(fontNames.regular).fontSize(6.5).fillColor('#16a34a').text('SIGNÉ ÉLECTRONIQUEMENT', leftX + 22, signedY, { width: textWidth, characterSpacing: 0.4 });
+  let leftY = signedY + 10;
+  if (entry.badge) {
+    doc.font(fontNames.regular).fontSize(6.5).fillColor(colors.gray).text(entry.badge, leftX + 22, leftY, { width: textWidth });
+    leftY += 9;
+  }
+  if (entry.luApprouve) {
+    doc.font(fontNames.bold).fontSize(6.5).fillColor(colors.gray).text('« Lu et approuvé »', leftX + 22, leftY, { width: textWidth });
+  }
+
+  // Colonne droite : signataire, horodatage, IP, navigateur.
+  const rX = leftX + pageWidth - 200;
+  let ry = cardY + 8;
+  for (const [k, v] of entry.meta) {
+    doc.font(fontNames.regular).fontSize(6.5).fillColor(colors.gray).text(`${k} : `, rX, ry, { width: META_COLUMN_WIDTH, continued: true });
+    doc.font(fontNames.bold).fillColor(colors.dark).text(v, { width: META_COLUMN_WIDTH });
+    ry += META_LINE_HEIGHT;
+  }
+  if (entry.userAgent) {
+    doc.font(fontNames.regular).fontSize(5.5).fillColor(colors.lightGray).text(entry.userAgent.slice(0, 70), rX, ry, { width: META_COLUMN_WIDTH, lineBreak: false });
+  }
+
+  doc.y = cardY + cardH + 8;
+}
+
+/**
+ * Annexe le certificat de signature électronique du document. C'est la pièce
+ * probante d'une signature électronique : elle rend le PDF auto-portant en
+ * cas de litige. Rien n'est dessiné si le document n'a encore aucune signature.
  */
 export function drawCertificateSection(
   doc: PDFKit.PDFDocument,
-  bon: BonForPdf,
+  reference: string,
+  entries: readonly CertificateEntry[],
   leftX: number,
   pageWidth: number,
   colors: PdfColorScheme,
   fonts: PdfFontsConfig,
   fontNames: RenderFonts,
 ): void {
-  const signed = (bon.signatures || []).filter((s) => s.signed && s.signedAt);
-  if (signed.length === 0) return;
-  signed.sort((a, b) => new Date(a.signedAt!).getTime() - new Date(b.signedAt!).getTime());
+  if (entries.length === 0) return;
 
   // Nouvelle page si l'espace restant est insuffisant
-  const NEEDED = 90 + signed.length * 70;
+  const NEEDED = 90 + entries.length * 70;
   if (doc.y + NEEDED > doc.page.height - doc.page.margins.bottom) {
     doc.addPage();
   } else {
@@ -52,59 +171,12 @@ export function drawCertificateSection(
   doc.y += 6;
   doc.font(fontNames.regular).fontSize(fonts.labelSize).fillColor(colors.gray);
   doc.text(
-    `Réf. ${bon.reference} — Les signatures ci-dessous ont été recueillies électroniquement par l'application Bons IT.`,
+    `Réf. ${reference} — Les signatures ci-dessous ont été recueillies électroniquement par l'application Bons IT pour ce document.`,
     leftX, doc.y, { width: pageWidth },
   );
   doc.y += 16;
 
-  for (const sig of signed) {
-    const cardY = doc.y;
-    const cardH = sig.signedByProxy ? 62 : 52;
-    doc.roundedRect(leftX, cardY, pageWidth, cardH, 8).lineWidth(0.5).fillAndStroke(colors.rowAlt, colors.border);
-
-    // Pastille de rôle + « signé électroniquement »
-    const role = certificateLabel(sig) || 'Signataire';
-    doc.circle(leftX + 14, cardY + 14, 2.6).fillColor('#16a34a').fill();
-    doc.font(fontNames.bold).fontSize(8).fillColor(colors.dark).text(role, leftX + 22, cardY + 10, { width: pageWidth - 220 });
-    doc.font(fontNames.regular).fontSize(6.5).fillColor('#16a34a').text('SIGNÉ ÉLECTRONIQUEMENT', leftX + 22, cardY + 22, { width: pageWidth - 220, characterSpacing: 0.4 });
-    if (sig.isInPerson) {
-      const presLabel = sig.signedByProxy
-        ? 'Signature recueillie en présentiel (mandataire)'
-        : 'Signature recueillie en présentiel';
-      doc.font(fontNames.regular).fontSize(6.5).fillColor(colors.gray).text(presLabel, leftX + 22, cardY + 32, { width: pageWidth - 220 });
-    }
-    if (sig.mentionLuApprouve) {
-      doc.font(fontNames.bold).fontSize(6.5).fillColor(colors.gray).text('« Lu et approuvé »', leftX + 22, cardY + (sig.isInPerson ? 41 : 32), { width: pageWidth - 220 });
-    }
-
-    // Colonne droite : identité, horodatage, IP, UA. En présentiel par
-    // mandataire, on distingue le TITULAIRE du compte ayant recueilli la signature.
-    const rX = leftX + pageWidth - 200;
-    const rW = 196;
-    let ry = cardY + 8;
-    const meta: [string, string][] = sig.signedByProxy
-      ? [
-          ['Titulaire', formatOptionalText(bon.collaborateurEmail)],
-          ['Recueilli par', sig.signerEmail || '—'],
-          ['Horodatage', formatDateTime(sig.signedAt)],
-          ['Adresse IP', sig.signerIp || '—'],
-        ]
-      : [
-          ['Identité', sig.signerEmail || '—'],
-          ['Horodatage', formatDateTime(sig.signedAt)],
-          ['Adresse IP', sig.signerIp || '—'],
-        ];
-    for (const [k, v] of meta) {
-      doc.font(fontNames.regular).fontSize(6.5).fillColor(colors.gray).text(`${k} : `, rX, ry, { width: rW, continued: true });
-      doc.font(fontNames.bold).fillColor(colors.dark).text(v, { width: rW });
-      ry += 11;
-    }
-    if (sig.signerUserAgent) {
-      doc.font(fontNames.regular).fontSize(5.5).fillColor(colors.lightGray).text(sig.signerUserAgent.slice(0, 70), rX, ry, { width: rW, lineBreak: false });
-    }
-
-    doc.y = cardY + cardH + 8;
-  }
+  for (const entry of entries) drawCertificateCard(doc, entry, leftX, pageWidth, colors, fontNames);
 
   // Sceau d'intégrité
   doc.font(fontNames.regular).fontSize(6.5).fillColor(colors.lightGray);

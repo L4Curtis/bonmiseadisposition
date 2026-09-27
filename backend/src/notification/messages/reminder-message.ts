@@ -1,12 +1,13 @@
 import { escapeHtml } from './escape-html';
 import { EmailMessage } from './signature-request-messages';
+import { DOCUMENT_LABELS } from './message-parts';
 
-/** Libellés du type de document rappelé (miroir de confirmation-messages,
- *  dupliqué volontairement : les deux évoluent indépendamment). */
+/** Ancienne variable {{TYPE_LABEL}} (« bon de {{TYPE_LABEL}} » dans les
+ *  modèles personnalisés) : gardée, au vocabulaire du lexique. */
 const TYPE_LABELS: Record<string, string> = {
   mise_disposition: 'mise à disposition',
   restitution: 'restitution',
-  pv_cloture: "procès-verbal d'équipements non restitués",
+  pv_cloture: 'PV de non-restitution',
 };
 
 export interface ReminderMessageInput {
@@ -15,18 +16,20 @@ export interface ReminderMessageInput {
   signerUrl: string;
   reminderNumber: number;
   maxReminders: number;
-  /** Type du document en attente (sig.type) — clé de TYPE_LABELS. */
+  /** Type du document en attente (sig.type). */
   docType: string;
 }
 
-/** Variables + sujet du rappel de signature (bon en attente depuis trop longtemps). */
+/** Variables + sujet du rappel de signature d'un document. */
 export function buildReminderMessage(input: ReminderMessageInput): EmailMessage {
-  const typeLabel = TYPE_LABELS[input.docType] ?? 'mise à disposition';
-  const subjectDoc = input.docType === 'pv_cloture' ? 'Procès-verbal' : `Bon de ${typeLabel}`;
+  const docType = input.docType in DOCUMENT_LABELS ? (input.docType as keyof typeof DOCUMENT_LABELS) : 'mise_disposition';
+  const documentLabel = DOCUMENT_LABELS[docType];
+  const subjectDoc = documentLabel.charAt(0).toUpperCase() + documentLabel.slice(1);
 
   return {
     vars: {
-      TYPE_LABEL: typeLabel,
+      TYPE_LABEL: TYPE_LABELS[docType],
+      DOCUMENT_LABEL: documentLabel,
       REFERENCE: escapeHtml(input.reference),
       SIGNER_URL: input.signerUrl,
       REMINDER_NUMBER: String(input.reminderNumber),

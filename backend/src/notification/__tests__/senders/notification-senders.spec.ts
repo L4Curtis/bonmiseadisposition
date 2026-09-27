@@ -1,8 +1,7 @@
 import { Logger } from '@nestjs/common';
 import {
-  sendTemplatedNotification,
   sendTokenSignatureRequest,
-  sendPrebuiltNotice,
+  sendCollaboratorEmail,
 } from '../../senders/notification-senders';
 import { createMockPrismaService } from '../../../common/__tests__/helpers/mock-prisma';
 import { createMockTemplatesService } from '../../../common/__tests__/helpers/mock-services';
@@ -26,47 +25,6 @@ const baseBon: NotificationBon = {
   civilite: 'mr',
   collaborateurEmail: 'jean.dupont@exemple.fr',
 };
-
-describe('sendTemplatedNotification', () => {
-  it('renders, sends and logs "sent" when the recipient email is present (cas nominal)', async () => {
-    const deps = makeDeps();
-
-    await sendTemplatedNotification(deps as never, {
-      bonId: 'bon-1',
-      recipientEmail: 'jean.dupont@exemple.fr',
-      type: 'confirmation',
-      templateId: 'confirmation_mise_disposition',
-      vars: { REFERENCE: 'BON-2026-0001' },
-      subject: 'Confirmation',
-    });
-
-    expect(deps.templatesService.renderTemplate).toHaveBeenCalledWith('confirmation_mise_disposition', {
-      REFERENCE: 'BON-2026-0001',
-    });
-    expect(deps.sendEmail).toHaveBeenCalledWith('jean.dupont@exemple.fr', 'Confirmation', expect.any(String));
-    expect(deps.prisma.notificationLog.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ status: 'sent' }) }),
-    );
-  });
-
-  it('blocks the send and logs an explicit failure when the recipient email is missing (cas limite)', async () => {
-    const deps = makeDeps();
-
-    await sendTemplatedNotification(deps as never, {
-      bonId: 'bon-1',
-      recipientEmail: null,
-      type: 'confirmation',
-      templateId: 'confirmation_mise_disposition',
-      vars: {},
-      subject: 'Confirmation',
-    });
-
-    expect(deps.sendEmail).not.toHaveBeenCalled();
-    expect(deps.prisma.notificationLog.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ status: 'failed', recipientEmail: '' }) }),
-    );
-  });
-});
 
 describe('sendTokenSignatureRequest', () => {
   it('builds the signer URL from the app URL and token, then sends (cas nominal)', async () => {
@@ -122,35 +80,71 @@ describe('sendTokenSignatureRequest', () => {
   });
 });
 
-describe('sendPrebuiltNotice', () => {
-  it('sends the already-rendered HTML and logs the result (cas nominal)', async () => {
+describe('sendCollaboratorEmail — adresse actuelle du compte, compte actif (R-004, R-008)', () => {
+  const email = { subject: 'Bon annulé', html: '<p>Annulé</p>' };
+
+  function withAccount(account: { active: boolean; email: string | null } | null) {
     const deps = makeDeps();
+    asMock(deps.prisma.bon.findUnique).mockResolvedValue(account ? { collaborateur: account } : null);
+    return deps;
+  }
 
-    await sendPrebuiltNotice(deps as never, {
-      bonId: 'bon-1',
-      recipientEmail: 'jean.dupont@exemple.fr',
-      type: 'cancellation',
-      html: '<p>Annulé</p>',
-      subject: 'Bon annulé',
-    });
-
-    expect(deps.sendEmail).toHaveBeenCalledWith('jean.dupont@exemple.fr', 'Bon annulé', '<p>Annulé</p>');
+  it('envoie à l’adresse ACTUELLE du compte, pas à celle recopiée sur le bon', async () => {
+    const deps = withAccount({ active: true, email: 'nouvelle.adresse@exemple.fr' });
+    await sendCollaboratorEmail(deps as never, { bonId: 'bon-1', type: 'cancellation', build: () => email });
+    expect(deps.sendEmail).toHaveBeenCalledWith('nouvelle.adresse@exemple.fr', 'Bon annulé', '<p>Annulé</p>', undefined);
     expect(deps.prisma.notificationLog.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ status: 'sent' }) }),
+      expect.objectContaining({ data: expect.objectContaining({ status: 'sent', recipientEmail: 'nouvelle.adresse@exemple.fr' }) }),
     );
   });
 
-  it('blocks the send when the recipient email is missing (cas limite)', async () => {
-    const deps = makeDeps();
-
-    await sendPrebuiltNotice(deps as never, {
-      bonId: 'bon-1',
-      recipientEmail: undefined,
-      type: 'cancellation',
-      html: '<p>Annulé</p>',
-      subject: 'Bon annulé',
-    });
-
+  it('compte désactivé : rien n’est envoyé, une ligne « non envoyé » (pas un échec)', async () => {
+    const deps = withAccount({ active: false, email: 'parti@exemple.fr' });
+    const build = vi.fn(() => email);
+    await sendCollaboratorEmail(deps as never, { bonId: 'bon-1', type: 'unilateral_closure', build });
     expect(deps.sendEmail).not.toHaveBeenCalled();
+    expect(build).not.toHaveBeenCalled();
+    expect(deps.prisma.notificationLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'skipped', errorMessage: expect.stringContaining('désactivé') }) }),
+    );
+  });
+
+  it('collaborateur sans adresse : ligne « non envoyé » (R-034)', async () => {
+    const deps = withAccount({ active: true, email: null });
+    await sendCollaboratorEmail(deps as never, { bonId: 'bon-1', type: 'confirmation', documentType: 'restitution', build: () => email });
+    expect(deps.sendEmail).not.toHaveBeenCalled();
+    expect(deps.prisma.notificationLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'skipped', documentType: 'restitution' }) }),
+    );
+  });
+
+  it('email impossible à construire (modèle, PDF joint) : un échec tracé dans le journal du bon, sans rien envoyer', async () => {
+    const deps = withAccount({ active: true, email: 'lea@exemple.fr' });
+    const build = vi.fn(async () => {
+      throw new Error('Modèle « confirmation_restitution » introuvable');
+    });
+    await expect(
+      sendCollaboratorEmail(deps as never, { bonId: 'bon-1', type: 'confirmation', documentType: 'restitution', build }),
+    ).resolves.toBeUndefined();
+    expect(deps.sendEmail).not.toHaveBeenCalled();
+    expect(deps.prisma.notificationLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'failed',
+          type: 'confirmation',
+          documentType: 'restitution',
+          recipientEmail: 'lea@exemple.fr',
+          errorMessage: expect.stringContaining('introuvable'),
+        }),
+      }),
+    );
+  });
+
+  it('adresse invalide : un échec à corriger', async () => {
+    const deps = withAccount({ active: true, email: 'pas-une-adresse' });
+    await sendCollaboratorEmail(deps as never, { bonId: 'bon-1', type: 'cancellation', build: () => email });
+    expect(deps.prisma.notificationLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'failed' }) }),
+    );
   });
 });

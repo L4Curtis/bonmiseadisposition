@@ -92,16 +92,16 @@ function buildRealMessage(templateId: string, bon: PreviewBon, appUrl: string): 
     case 'pv_cloture_request':
       return buildPvClotureRequestMessage(bon, signerUrl);
     case 'confirmation_mise_disposition':
-      return buildConfirmationMessage(bon, 'mise_disposition');
+      return buildConfirmationMessage(bon, 'mise_disposition', appUrl);
     case 'confirmation_restitution':
-      return buildConfirmationMessage(bon, 'restitution');
+      return buildConfirmationMessage(bon, 'restitution', appUrl);
     case 'confirmation_pv_cloture':
-      return buildConfirmationMessage(bon, 'pv_cloture');
+      return buildConfirmationMessage(bon, 'pv_cloture', appUrl);
     case 'contestation_alert': {
       if (!contestation) {
-        return withoutVars(buildContestationAlertMessage(bon, bon.collaborateur ?? {}, ''), ['CONTESTATION_MESSAGE']);
+        return withoutVars(buildContestationAlertMessage(bon, bon.collaborateur ?? {}, '', appUrl), ['CONTESTATION_MESSAGE']);
       }
-      return buildContestationAlertMessage(bon, contestation.user ?? {}, contestation.message);
+      return buildContestationAlertMessage(bon, contestation.user ?? {}, contestation.message, appUrl);
     }
     case 'contestation_resolved':
     case 'contestation_rejected': {

@@ -18,11 +18,11 @@ import { CHIP_WARNING } from './chips';
 
 export function defaultDepartureAlert(): string {
   return emailWrapper(card(
-    brandHeader('Départs avec matériel non restitué', 'Synchronisation annuaire', CHIP_WARNING('Alerte')),
+    brandHeader('Départs avec équipements non restitués', 'Synchronisation de l’annuaire', CHIP_WARNING('Alerte')),
     metaStrip(['<strong style="color:#1B1A18">{{COUNT}}</strong> collaborateur(s) concerné(s)']),
     body(`
       <p style="margin:0 0 20px;font-size:15px;color:#4A463F;line-height:1.75">
-        La synchronisation avec l'annuaire vient de désactiver un ou plusieurs comptes qui détiennent encore du matériel non restitué. Cette alerte ne déclenche <strong style="color:#1B1A18">aucune action automatique</strong> : un compte peut être désactivé pour un congé long, une erreur de synchronisation ou un changement de structure. Vérifiez chaque situation avant toute restitution.
+        La synchronisation avec l'annuaire vient de désactiver un ou plusieurs comptes qui détiennent encore des équipements non restitués. Cette alerte ne déclenche <strong style="color:#1B1A18">aucune action automatique</strong> : un compte peut être désactivé pour un congé long, une erreur de synchronisation ou un changement de structure. Vérifiez chaque situation : restitution au guichet, ou clôture sans signature avec son motif.
       </p>
       ${sectionLabel('Collaborateurs concernés')}
       ${equipList('{{DEPART_LIST}}')}

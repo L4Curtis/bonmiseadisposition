@@ -42,7 +42,7 @@ describe('getNextBonStatus (pure)', () => {
 
     expect(result).toBe('active');
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0][0]).toContain('Invalid status transition');
+    expect(warn.mock.calls[0][0]).toContain('Transition de statut invalide');
   });
 
   it('should not warn when no logger is provided (optional dependency)', () => {

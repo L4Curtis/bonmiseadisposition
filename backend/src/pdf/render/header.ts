@@ -1,5 +1,5 @@
 import { Logger } from '@nestjs/common';
-import { BonForPdf } from '../pdf.service';
+import type { BonForPdf } from '../pdf-types';
 import { PdfTemplateConfig, substituteVars } from '../pdf-template-config';
 import { RenderFonts, formatDate } from './layout';
 

@@ -10,125 +10,148 @@ import {
   sectionLabel,
   equipList,
   refBadge,
+  ctaButton,
 } from '../../templates/email-layout';
 import { escapeHtml } from './escape-html';
+import { buildEquipList } from './equipment-lists';
+import { civiliteLongOf, filialeNomOf } from './message-parts';
+
+/**
+ * Emails d'information au collaborateur, construits directement (pas de
+ * modèle personnalisable) : annulation, remise constatée sans signature,
+ * clôture sans signature, équipement retrouvé. Chacun dit exactement ce qui
+ * s'est passé, avec le motif saisi par l'équipe informatique.
+ */
 
 export interface SystemNoticeEmail {
   html: string;
   subject: string;
 }
 
-function filialeNomOf(bon: NotificationBon): string {
-  return bon.filiale?.displayName ?? bon.filiale?.name ?? '';
+const CHIP = { bg: 'rgba(255,255,255,0.18)' };
+const CONTACT_IT =
+  '<p style="margin:0;font-size:14px;color:#6B665E;line-height:1.6;background:#F6F3EE;border-radius:10px;padding:12px 16px">Pour toute question, contactez l’équipe informatique.</p>';
+
+function refStrip(bon: NotificationBon): string {
+  return metaStrip([`Réf. <strong style="color:#1B1A18;font-family:monospace">${escapeHtml(bon.reference)}</strong>`]);
 }
 
-function civiliteLabel(bon: NotificationBon): string {
-  return bon.civilite === 'mme' ? 'Madame' : 'Monsieur';
+function greeting(bon: NotificationBon): string {
+  const salutation = [civiliteLongOf(bon), bon.collaborateur?.displayName ?? ''].filter(Boolean).join(' ');
+  return `<p style="margin:0 0 8px;font-size:16px;color:#1B1A18;font-weight:500">${escapeHtml(salutation || 'Bonjour')},</p>`;
 }
 
-/** Email "bon annulé" — HTML complet construit directement via email-layout
- *  (ces notices système n'utilisent pas TemplatesService/renderTemplate). */
-export function buildCancellationNotice(bon: NotificationBon): SystemNoticeEmail {
-  const filialeNom = filialeNomOf(bon);
-  const collabName = bon.collaborateur?.displayName ?? '';
-  const civilite = civiliteLabel(bon);
+function paragraph(html: string): string {
+  return `<p style="margin:0 0 20px;font-size:15px;color:#4A463F;line-height:1.75">${html}</p>`;
+}
 
+function reasonBox(reason: string): string {
+  return `${sectionLabel('Motif indiqué par l’équipe informatique')}${quoteBox('#d97706', '#fffbeb', '#fde68a', escapeHtml(reason))}`;
+}
+
+/** Email « bon annulé », avec le motif (R-013). Envoyé quand un lien de
+ *  signature avait été transmis au collaborateur. */
+export function buildCancellationNotice(bon: NotificationBon, reason: string): SystemNoticeEmail {
+  const filialeNom = escapeHtml(filialeNomOf(bon));
   const html = emailWrapper(card(
-    brandHeader('Bon annulé', escapeHtml(filialeNom), { text: 'Annulation', bg: 'rgba(255,255,255,0.18)' }),
-    metaStrip([`Réf. <strong style="color:#1B1A18;font-family:monospace">${escapeHtml(bon.reference)}</strong>`]),
+    brandHeader('Bon annulé', filialeNom, { text: 'Annulé', ...CHIP }),
+    refStrip(bon),
     emailBody(`
-      <p style="margin:0 0 8px;font-size:16px;color:#1B1A18;font-weight:500">${escapeHtml(civilite)} ${escapeHtml(collabName)},</p>
-      <p style="margin:0 0 16px;font-size:15px;color:#4A463F;line-height:1.75">
-        Nous vous informons que le bon de mise à disposition ${refBadge(escapeHtml(bon.reference))}
-        (${escapeHtml(filialeNom)}) a été <strong style="color:#991b1b">annulé</strong>.
-        Aucune action n'est attendue de votre part.
-      </p>
-      <p style="margin:0;font-size:14px;color:#6B665E;line-height:1.6;background:#F6F3EE;border-radius:10px;padding:12px 16px">
-        Si vous avez des questions, veuillez contacter votre service informatique.
-      </p>
+      ${greeting(bon)}
+      ${paragraph(`Le bon de mise à disposition ${refBadge(escapeHtml(bon.reference))} (${filialeNom}) qui vous avait été envoyé pour signature <strong style="color:#991b1b">a été annulé</strong>. Le lien de signature n’est plus valable et aucune action n’est attendue de votre part.`)}
+      ${reasonBox(reason)}
+      ${CONTACT_IT}
       `),
     footer(),
   ));
-
-  return { html, subject: `Bon ${bon.reference} — annulé` };
+  return { html, subject: `[${bon.reference}] Bon annulé` };
 }
 
-/** Email "équipement(s) retrouvé(s)" pour les équipements listés dans
- *  equipmentIds (parmi ceux du bon), précédemment signalés non restitués. */
-export function buildMarkFoundNotice(bon: NotificationBon, equipmentIds: string[]): SystemNoticeEmail {
-  const filialeNom = filialeNomOf(bon);
-  const collabName = bon.collaborateur?.displayName ?? '';
-  const civilite = civiliteLabel(bon);
-
-  const foundEquipments = (bon.equipments ?? []).filter((eq) => equipmentIds.includes(eq.id));
-
-  const equipLines = foundEquipments
-    .map((eq) => {
-      const label = eq.catalogItem
-        ? escapeHtml(`${eq.catalogItem.brand} ${eq.catalogItem.model}`)
-        : escapeHtml(eq.customLabel || 'Équipement');
-      const serial = eq.serialNumber ? ` (N° série : ${escapeHtml(eq.serialNumber)})` : '';
-      return `<li style="padding:6px 0;font-size:14px;color:#4A463F;list-style:none">${label}${serial}</li>`;
-    })
-    .join('\n');
-
-  const equipItems = equipLines
-    ? equipLines
-    : '<li style="padding:6px 0;font-size:14px;color:#A79F94;list-style:none">Voir le bon en ligne</li>';
-
+/** Email « remise constatée sans signature » (R-014) : le bon est désormais
+ *  « En cours », les équipements sont attribués au collaborateur. */
+export function buildHandoverWithoutSignatureNotice(bon: NotificationBon, reason: string, portalUrl: string): SystemNoticeEmail {
+  const filialeNom = escapeHtml(filialeNomOf(bon));
   const html = emailWrapper(card(
-    brandHeader('Équipement(s) retrouvé(s)', escapeHtml(filialeNom), { text: 'Mise à jour', bg: 'rgba(255,255,255,0.18)' }),
-    metaStrip([`Réf. <strong style="color:#1B1A18;font-family:monospace">${escapeHtml(bon.reference)}</strong>`]),
+    brandHeader('Remise des équipements enregistrée', filialeNom, { text: 'Remise constatée sans signature', ...CHIP }),
+    refStrip(bon),
     emailBody(`
-      <p style="margin:0 0 8px;font-size:16px;color:#1B1A18;font-weight:500">${escapeHtml(civilite)} ${escapeHtml(collabName)},</p>
-      <p style="margin:0 0 24px;font-size:15px;color:#4A463F;line-height:1.75">
-        Nous vous informons que le ou les équipements suivants, précédemment signalés comme non restitués
-        sur le bon ${refBadge(escapeHtml(bon.reference))} (${escapeHtml(filialeNom)}),
-        ont été <strong style="color:#166534">retrouvés</strong> :
-      </p>
-      ${sectionLabel('Équipements retrouvés')}
-      ${equipList(equipItems, '#f0fdf4', '#bbf7d0')}
-      <p style="margin:0;font-size:14px;color:#6B665E;line-height:1.6;background:#F6F3EE;border-radius:10px;padding:12px 16px">
-        Si vous avez des questions, veuillez contacter votre service informatique.
-      </p>
+      ${greeting(bon)}
+      ${paragraph(`L’équipe informatique a enregistré la remise des équipements du bon ${refBadge(escapeHtml(bon.reference))} (${filialeNom}) <strong style="color:#1B1A18">sans votre signature</strong>. Le bon est désormais <strong style="color:#1B1A18">En cours</strong> : les équipements ci-dessous vous sont attribués.`)}
+      ${sectionLabel('Équipements remis')}
+      ${equipList(buildEquipList(bon.equipments ?? []))}
+      ${reasonBox(reason)}
+      ${paragraph('Si ces équipements ne vous ont pas été remis, contactez l’équipe informatique au plus vite.')}
+      ${ctaButton(portalUrl, 'Voir mes équipements')}
       `),
     footer(),
   ));
-
-  return { html, subject: `Bon ${bon.reference} — équipement(s) retrouvé(s)` };
+  return { html, subject: `[${bon.reference}] Remise des équipements enregistrée sans votre signature` };
 }
 
-/** Email "bon clôturé sans signature" (constat unilatéral IT). */
-export function buildUnilateralCloseNotice(
+/** Étape que la clôture a abandonnée, dite au collaborateur. */
+function abandonedStep(previousStatus: string): string {
+  if (previousStatus === 'partially_returned') return 'la restitution et le PV de non-restitution';
+  if (previousStatus === 'sent_restitution') return 'la restitution';
+  return 'le bon';
+}
+
+/** Email « bon clôturé sans signature » (R-014) : le bon est « Clôturé ». */
+export function buildClosedWithoutSignatureNotice(
   bon: NotificationBon,
   reason: string,
-  newStatus: string,
+  previousStatus: string,
+  portalUrl: string,
 ): SystemNoticeEmail {
-  const filialeNom = filialeNomOf(bon);
-  const collabName = bon.collaborateur?.displayName ?? '';
-  const civilite = civiliteLabel(bon);
-  const outcome =
-    newStatus === 'active'
-      ? 'la remise du matériel a été constatée et le bon est désormais actif'
-      : 'le bon a été clôturé et archivé';
-
+  const filialeNom = escapeHtml(filialeNomOf(bon));
   const html = emailWrapper(card(
-    brandHeader('Bon clôturé sans signature', escapeHtml(filialeNom), { text: 'Constat unilatéral', bg: 'rgba(255,255,255,0.18)' }),
-    metaStrip([`Réf. <strong style="color:#1B1A18;font-family:monospace">${escapeHtml(bon.reference)}</strong>`]),
+    brandHeader('Bon clôturé', filialeNom, { text: 'Clôturé sans signature', ...CHIP }),
+    refStrip(bon),
     emailBody(`
-      <p style="margin:0 0 8px;font-size:16px;color:#1B1A18;font-weight:500">${escapeHtml(civilite)} ${escapeHtml(collabName)},</p>
-      <p style="margin:0 0 20px;font-size:15px;color:#4A463F;line-height:1.75">
-        En l'absence de signature de votre part, ${outcome} par le service informatique
-        pour le bon ${refBadge(escapeHtml(bon.reference))} (${escapeHtml(filialeNom)}).
-      </p>
-      ${sectionLabel('Motif indiqué')}
-      ${quoteBox('#d97706', '#fffbeb', '#fde68a', escapeHtml(reason))}
-      <p style="margin:0;font-size:14px;color:#6B665E;line-height:1.6;background:#F6F3EE;border-radius:10px;padding:12px 16px">
-        Si vous contestez ce constat, veuillez contacter votre service informatique au plus vite.
-      </p>
+      ${greeting(bon)}
+      ${paragraph(`Votre signature était attendue pour ${abandonedStep(previousStatus)} du bon ${refBadge(escapeHtml(bon.reference))} (${filialeNom}). L’équipe informatique a <strong style="color:#1B1A18">clôturé ce bon sans votre signature</strong> ; il n’y a plus rien à signer.`)}
+      ${reasonBox(reason)}
+      ${paragraph('Si vous contestez cette clôture, contactez l’équipe informatique au plus vite.')}
+      ${ctaButton(portalUrl, 'Voir mes bons')}
       `),
     footer(),
   ));
+  return { html, subject: `[${bon.reference}] Bon clôturé sans votre signature` };
+}
 
-  return { html, subject: `Bon ${bon.reference} — clôturé sans signature` };
+/** Email « bon remplacé » : le collaborateur a signé le bon corrigé d'une
+ *  contestation Fondée ; le bon contesté est clôturé, remplacé par celui-ci. */
+export function buildBonReplacedNotice(bon: NotificationBon, replacementReference: string, portalUrl: string): SystemNoticeEmail {
+  const filialeNom = escapeHtml(filialeNomOf(bon));
+  const html = emailWrapper(card(
+    brandHeader('Bon remplacé', filialeNom, { text: 'Contestation fondée', ...CHIP }),
+    refStrip(bon),
+    emailBody(`
+      ${greeting(bon)}
+      ${paragraph(`Suite à votre contestation, vous avez signé le bon corrigé ${refBadge(escapeHtml(replacementReference))}. Il <strong style="color:#1B1A18">remplace</strong> le bon ${refBadge(escapeHtml(bon.reference))} (${filialeNom}), désormais clôturé.`)}
+      ${ctaButton(portalUrl, 'Voir mes bons')}
+      ${CONTACT_IT}
+      `),
+    footer(),
+  ));
+  return { html, subject: `[${bon.reference}] Bon remplacé par ${replacementReference}` };
+}
+
+/** Email « équipement(s) retrouvé(s) » pour les équipements listés dans
+ *  equipmentIds (parmi ceux du bon), précédemment déclarés non restitués. */
+export function buildMarkFoundNotice(bon: NotificationBon, equipmentIds: string[]): SystemNoticeEmail {
+  const filialeNom = escapeHtml(filialeNomOf(bon));
+  const found = (bon.equipments ?? []).filter((eq) => equipmentIds.includes(eq.id));
+  const html = emailWrapper(card(
+    brandHeader('Équipement(s) retrouvé(s)', filialeNom, { text: 'Mise à jour', ...CHIP }),
+    refStrip(bon),
+    emailBody(`
+      ${greeting(bon)}
+      ${paragraph(`Le ou les équipements suivants, déclarés non restitués sur le bon ${refBadge(escapeHtml(bon.reference))} (${filialeNom}), ont été <strong style="color:#166534">retrouvés</strong> :`)}
+      ${sectionLabel('Équipements retrouvés')}
+      ${equipList(buildEquipList(found), '#f0fdf4', '#bbf7d0')}
+      ${CONTACT_IT}
+      `),
+    footer(),
+  ));
+  return { html, subject: `[${bon.reference}] Équipement(s) retrouvé(s)` };
 }

@@ -1,4 +1,4 @@
-import { BonForPdf } from '../pdf.service';
+import type { BonForPdf } from '../pdf-types';
 import { PdfColorScheme, PdfTemplateConfig } from '../pdf-template-config';
 import { formatOptionalText, RenderFonts } from './layout';
 

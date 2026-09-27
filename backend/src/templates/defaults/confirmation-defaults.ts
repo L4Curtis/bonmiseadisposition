@@ -8,65 +8,56 @@ import {
   infoBox,
   refBadge,
   statusIcon,
+  sectionLabel,
+  equipList,
+  ctaButton,
 } from '../email-layout';
 import { CHIP_SUCCESS } from './chips';
 
-// ─── 3. Confirmation mise à disposition ──────────────────────────────────────
+// ─── Confirmations de signature (R-036) ─────────────────────────────────────
+// Même gabarit pour les trois documents : le document signé, ses équipements,
+// un lien vers le portail. Le PDF signé est joint à l'email quand sa taille
+// le permet (notification/listeners), le texte n'y fait donc qu'allusion.
+
+function confirmation(typeText: string, equipmentsTitle: string, legalText: string): string {
+  return emailWrapper(card(
+    brandHeader('Signature confirmée', '{{FILIALE_NOM}}', CHIP_SUCCESS),
+    metaStrip(['Réf. <strong style="color:#1B1A18;font-family:monospace">{{REFERENCE}}</strong>', `Document : <strong style="color:#1B1A18">${typeText}</strong>`]),
+    body(`
+      ${statusIcon('&#10003;', '#dcfce7')}
+      <p style="margin:0 0 8px;font-size:16px;color:#1B1A18;font-weight:500">{{COLLAB_CIVILITE}} {{COLLAB_NAME}},</p>
+      <p style="margin:0 0 20px;font-size:15px;color:#4A463F;line-height:1.75">
+        Votre signature du <strong style="color:#1B1A18">{{DOCUMENT_LABEL}}</strong> ${refBadge('{{REFERENCE}}')} est bien enregistrée. Le document signé est joint à cet email et reste consultable dans votre espace.
+      </p>
+      ${sectionLabel(equipmentsTitle)}
+      ${equipList('{{EQUIP_LIST}}')}
+      ${ctaButton('{{PORTAIL_URL}}', 'Voir mes bons et mes équipements')}
+      ${infoBox('#f0fdf4', '#bbf7d0', '#166534', legalText)}
+      `),
+    footer(),
+  ));
+}
 
 export function defaultConfirmationMiseDisposition(): string {
-  return emailWrapper(card(
-    brandHeader('Signature confirmée', '{{FILIALE_NOM}}', CHIP_SUCCESS),
-    metaStrip(['Réf. <strong style="color:#1B1A18;font-family:monospace">{{REFERENCE}}</strong>', 'Type : <strong style="color:#1B1A18">Mise à disposition</strong>']),
-    body(`
-      ${statusIcon('&#10003;', '#dcfce7')}
-      <p style="margin:0 0 16px;font-size:15px;color:#4A463F;line-height:1.75;text-align:center">
-        Votre bon de <strong style="color:#1B1A18">{{TYPE_LABEL}}</strong> portant la référence ${refBadge('{{REFERENCE}}')} a bien été <strong style="color:#166534">signé électroniquement</strong>.
-      </p>
-      <p style="margin:0 0 24px;font-size:15px;color:#4A463F;line-height:1.75;text-align:center">
-        Ce document est désormais archivé dans notre système. Conservez cet email comme preuve de signature.
-      </p>
-      ${infoBox('#f0fdf4', '#bbf7d0', '#166534', 'Document archivé de façon sécurisée &middot; Ce bon a valeur contractuelle &middot; Aucune action supplémentaire requise')}
-      `),
-    footer(),
-  ));
+  return confirmation(
+    'Mise à disposition',
+    'Équipements mis à votre disposition',
+    'Signature électronique enregistrée &middot; Document à valeur contractuelle &middot; Aucune autre action requise',
+  );
 }
-
-// ─── 4. Confirmation restitution ─────────────────────────────────────────────
 
 export function defaultConfirmationRestitution(): string {
-  return emailWrapper(card(
-    brandHeader('Signature confirmée', '{{FILIALE_NOM}}', CHIP_SUCCESS),
-    metaStrip(['Réf. <strong style="color:#1B1A18;font-family:monospace">{{REFERENCE}}</strong>', 'Type : <strong style="color:#1B1A18">Restitution</strong>']),
-    body(`
-      ${statusIcon('&#10003;', '#dcfce7')}
-      <p style="margin:0 0 16px;font-size:15px;color:#4A463F;line-height:1.75;text-align:center">
-        Votre bon de <strong style="color:#1B1A18">{{TYPE_LABEL}}</strong> portant la référence ${refBadge('{{REFERENCE}}')} a bien été <strong style="color:#166534">signé électroniquement</strong>.
-      </p>
-      <p style="margin:0 0 24px;font-size:15px;color:#4A463F;line-height:1.75;text-align:center">
-        Ce document est désormais archivé dans notre système. Conservez cet email comme preuve de signature.
-      </p>
-      ${infoBox('#f0fdf4', '#bbf7d0', '#166534', 'Document archivé de façon sécurisée &middot; Ce bon a valeur contractuelle &middot; Aucune action supplémentaire requise')}
-      `),
-    footer(),
-  ));
+  return confirmation(
+    'Restitution',
+    'Équipements restitués',
+    'Signature électronique enregistrée &middot; Document à valeur contractuelle &middot; Aucune autre action requise',
+  );
 }
 
-// ─── 4b. Confirmation procès-verbal de clôture ───────────────────────────────
-
 export function defaultConfirmationPvCloture(): string {
-  return emailWrapper(card(
-    brandHeader('Signature confirmée', '{{FILIALE_NOM}}', CHIP_SUCCESS),
-    metaStrip(['Réf. <strong style="color:#1B1A18;font-family:monospace">{{REFERENCE}}</strong>', 'Type : <strong style="color:#1B1A18">Procès-verbal de clôture</strong>']),
-    body(`
-      ${statusIcon('&#10003;', '#dcfce7')}
-      <p style="margin:0 0 16px;font-size:15px;color:#4A463F;line-height:1.75;text-align:center">
-        Votre <strong style="color:#1B1A18">{{TYPE_LABEL}}</strong> portant la référence ${refBadge('{{REFERENCE}}')} a bien été <strong style="color:#166534">signé électroniquement</strong>.
-      </p>
-      <p style="margin:0 0 24px;font-size:15px;color:#4A463F;line-height:1.75;text-align:center">
-        Ce document est désormais archivé dans notre système. Conservez cet email comme preuve de signature.
-      </p>
-      ${infoBox('#f0fdf4', '#bbf7d0', '#166534', 'Document archivé de façon sécurisée &middot; Ce document a valeur probante &middot; Aucune action supplémentaire requise')}
-      `),
-    footer(),
-  ));
+  return confirmation(
+    'PV de non-restitution',
+    'Équipements non restitués',
+    'Signature électronique enregistrée &middot; Document à valeur probante &middot; Aucune autre action requise',
+  );
 }

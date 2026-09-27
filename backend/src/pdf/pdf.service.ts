@@ -10,9 +10,9 @@ import { join } from 'path';
 // reste une vraie classe quand les tests l'exécutent en ESM (Vitest), là où un
 // espace de noms `import * as` n'est pas constructible.
 import PDFDocument = require('pdfkit');
+import type { PdfSnapshotType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EncryptionService } from '../config/encryption.service';
-import { PdfSnapshotType } from '../common/types';
 import { PdfTemplatesService } from './pdf-templates.service';
 import { PdfTemplateConfig } from './pdf-template-config';
 import { regenerateMissingSnapshots as regenerateMissingSnapshotsImpl } from './snapshot-regeneration';
@@ -20,70 +20,39 @@ import { PdfDocumentType, RenderFonts, formatDate, getStatusLabel } from './rend
 import { drawHeader } from './render/header';
 import { drawPartiesSection } from './render/parties';
 import { drawEquipmentTable, drawAvenantNote } from './render/equipment-table';
-import { drawSignaturesSection, renderSignatureBox, SignatureBoxOptions } from './render/signatures';
-import { drawCertificateSection } from './render/certificate';
+import { drawSignaturesSection, renderSignatureBox } from './render/signatures';
+import { SignatureBoxModel, buildSignaturesModel } from './render/signature-model';
+import { buildCertificateEntries, drawCertificateSection } from './render/certificate';
 import { drawFooterSection } from './render/footer';
+import { DocumentSignatures, selectDocumentSignatures } from './document-signatures';
+import { loadDocumentSignatureImages } from './signature-images';
+import { loadSignerNames, loadStampPath } from './render-data';
+import { COLLAB_SIGNED_SNAPSHOT_TYPES, DocumentRendering, resolveSnapshotRendering } from './snapshot-rendering';
+import { CIVILITE_LABELS } from '../bons/bon-status';
 import { SIGNATURES_DIR, UPLOADS_DIR } from '../common/storage-paths';
+import type { BonForPdf, SigImages } from './pdf-types';
 
-export interface SigImages {
-  it: string | null;
-  collab: string | null;
+export type { BonForPdf, SigImages, PdfSignature, WithoutSignatureNotice } from './pdf-types';
+
+/** Tout ce que le dessin d'un document utilise, chargé avant le rendu. */
+interface PreparedDocument {
+  config: PdfTemplateConfig;
+  rendering: DocumentRendering;
+  selection: DocumentSignatures;
+  model: ReturnType<typeof buildSignaturesModel>;
+  certificate: ReturnType<typeof buildCertificateEntries>;
+  logoBuffer: Buffer | null;
+  stampBuffer: Buffer | null;
 }
 
-/** Shape of the bon object expected by PDF generation methods. */
-export interface BonForPdf {
-  id: string;
-  reference: string;
-  civilite: string;
-  status: string;
-  dateMiseDisposition: Date | string;
-  dateRestitution?: Date | string | null;
-  notes?: string | null;
-  filiale: {
-    displayName?: string;
-    name?: string;
-    logoPath?: string | null;
-    stampPath?: string | null;
-    address?: string | null;
-    siret?: string | null;
-  };
-  collaborateur: {
-    displayName?: string;
-    department?: string | null;
-  };
-  collaborateurEmail?: string | null;
-  createdBy?: {
-    displayName?: string;
-  };
-  equipments: Array<{
-    id: string;
-    catalogItem?: { brand: string; model: string } | null;
-    customLabel?: string | null;
-    serialNumber?: string | null;
-    inventoryNumber?: string | null;
-    notes?: string | null;
-    returnedAt?: Date | string | null;
-    notReturned?: boolean;
-    notReturnedReason?: string | null;
-  }>;
-  signatures?: Array<{
-    type: string;
-    signed: boolean;
-    signedAt?: Date | string | null;
-    signatureImagePath?: string | null;
-    // Métadonnées de preuve (certificat de signature électronique)
-    signerEmail?: string | null;
-    signerIp?: string | null;
-    signerUserAgent?: string | null;
-    mentionLuApprouve?: boolean;
-    isInPerson?: boolean;
-    signedByProxy?: boolean;
-  }>;
-  /** Used by avenant generation to filter equipment */
-  _avenantEquipmentIds?: string[];
-  /** Clôture unilatérale : remplace la mention de la case signature collaborateur */
-  _unilateralNote?: string;
-}
+const MAX_PDF_SIZE = 10 * 1024 * 1024;
+
+const TITLES: Readonly<Record<PdfDocumentType, string>> = Object.freeze({
+  mise_disposition: 'Bon de mise à disposition',
+  restitution: 'Bon de restitution',
+  cloture: 'PV de non-restitution',
+  avenant: 'Avenant — équipement(s) retrouvé(s)',
+});
 
 @Injectable()
 export class PdfService {
@@ -91,21 +60,17 @@ export class PdfService {
 
   // ─── Polices Unicode embarquées ─────────────────────────────────────────────
   // Les polices AFM standard de PDFKit (Helvetica…) n'encodent que Latin-1 :
-  // tout caractère hors de ce jeu (Ł, cyrillique, CJK, emoji…) est rendu en
-  // glyphe faux. Sur un document de preuve légale (identité du signataire),
-  // c'est inacceptable. On embarque donc DejaVu Sans (licence Bitstream Vera,
-  // libre et redistribuable) et on l'enregistre sur chaque document généré.
-  // __dirname résout correctement en dev (tests Vitest / ts-node : backend/src/pdf)
-  // ET en prod (dist/pdf, copié par compilerOptions.assets de nest-cli.json).
+  // tout caractère hors de ce jeu est rendu en glyphe faux. Sur un document de
+  // preuve (identité du signataire), c'est inacceptable : DejaVu Sans (licence
+  // libre) est embarquée. __dirname résout en dev (backend/src/pdf) comme en
+  // prod (dist/pdf, copié par compilerOptions.assets de nest-cli.json).
   private readonly fontsDir = join(__dirname, 'fonts');
   private readonly fontRegularPath = join(this.fontsDir, 'DejaVuSans.ttf');
   private readonly fontBoldPath = join(this.fontsDir, 'DejaVuSans-Bold.ttf');
   private readonly customFontsAvailable: boolean =
     existsSync(this.fontRegularPath) && existsSync(this.fontBoldPath);
 
-  /** Nom de police (corps de texte) à utiliser dans tout le document. */
   private readonly FONT_REGULAR: string = this.customFontsAvailable ? 'Body' : 'Helvetica';
-  /** Nom de police (gras) à utiliser dans tout le document. */
   private readonly FONT_BOLD: string = this.customFontsAvailable ? 'Body-Bold' : 'Helvetica-Bold';
 
   /** Signatures manuscrites chiffrées (même dossier que SignatureService). */
@@ -125,178 +90,180 @@ export class PdfService {
   }
 
   /**
-   * Génère le PDF d'un bon et le sauvegarde en base.
-   * snapshotType = PdfSnapshotType enum value.
+   * Génère le PDF d'un document du bon et l'enregistre (archive probante,
+   * version courante, trace du hash).
+   *
+   * Le document montre les signatures de CE document, lues par le PDF
+   * lui-même : `_sigImages` n'est plus lu (gardé pour les appelants). Un
+   * geste sans signature (`_withoutSignature`, ou l'ancien `_unilateralNote`)
+   * est rangé sous `remise_sans_signature` / `cloture_sans_signature`, et un
+   * document « signature du collaborateur » exige que le collaborateur ait
+   * signé ce document (R-031).
    *
    * Sémantique d'écrasement (UNIQUE(bonId, type) — une seule ligne par type) :
    * - signature_collab_mise_disposition : signé UNE fois → jamais écrasé ;
-   * - signature_collab_restitution / cloture / it_* : régénérés par design
-   *   (restitutions partielles successives, PV brouillon IT → PV co-signé) ;
-   * - avenant : un seul avenant conservé par bon (limitation connue).
+   * - les autres types sont régénérés par design (restitutions partielles
+   *   successives, PV brouillon IT → PV co-signé), l'archive gardant chaque version.
    */
   async generateAndSave(
     bon: BonForPdf,
-    snapshotType: string, // PdfSnapshotType enum value
-    sigImages: SigImages,
+    snapshotType: string,
+    _sigImages: SigImages | null,
     filename: string,
   ): Promise<Buffer> {
-    // Determine document type from snapshot type
-    const documentType = this.getDocumentType(snapshotType);
-    const pdf = await this.renderPdf(bon, sigImages, documentType);
-
-    // Guard: reject oversized PDFs (10 MB max)
-    const MAX_PDF_SIZE = 10 * 1024 * 1024;
+    const { snapshotType: type, rendering } = resolveSnapshotRendering(bon, snapshotType);
+    const prepared = await this.prepareDocument(bon, rendering);
+    if (COLLAB_SIGNED_SNAPSHOT_TYPES.includes(type) && !prepared.selection.collab) {
+      throw new Error(`Le collaborateur n'a pas signé ce document : aucun PDF « ${type} » n'est produit pour le bon ${bon.reference}`);
+    }
+    const pdf = await this.renderPdf(bon, prepared);
     if (pdf.length > MAX_PDF_SIZE) {
       throw new Error(`PDF trop volumineux (${(pdf.length / 1024 / 1024).toFixed(1)} MB > 10 MB) pour le bon ${bon.reference}`);
     }
 
-    // The signed mise-à-disposition document is legally final: never replace it
-    if (snapshotType === 'signature_collab_mise_disposition') {
+    // Le document de remise signé est définitif : jamais remplacé.
+    if (type === 'signature_collab_mise_disposition') {
       const existing = await this.prisma.pdfSnapshot.findUnique({
-        where: { bonId_type: { bonId: bon.id, type: snapshotType } },
+        where: { bonId_type: { bonId: bon.id, type } },
         select: { id: true, data: true },
       });
       if (existing) {
-        this.logger.warn(
-          `Snapshot ${snapshotType} existe déjà pour le bon ${bon.reference} — document signé conservé, régénération ignorée`,
-        );
+        this.logger.warn(`Snapshot ${type} existe déjà pour le bon ${bon.reference} — document signé conservé, régénération ignorée`);
         return Buffer.from(existing.data);
       }
     }
 
-    // SHA-256 du document : chaîne de preuve — permet de vérifier a posteriori
-    // que le PDF archivé (DB ou partage SMB) n'a pas été altéré
-    const sha256 = createHash('sha256').update(pdf).digest('hex');
-
-    // Chaîne de preuve ATOMIQUE : l'archive probante APPEND-ONLY, le snapshot
-    // « courant » (pour l'affichage) et la trace d'audit du hash sont écrits
-    // dans la même transaction. Si l'une des trois écritures échoue, TOUT est
-    // annulé et l'erreur remonte à l'appelant : la preuve n'est jamais
-    // considérée comme archivée en cas d'échec partiel.
-    await this.prisma.$transaction(async (tx) => {
-      // Archive APPEND-ONLY : copie scellée immuable de CE document. Garantit
-      // qu'une preuve co-signée (ex. 1re restitution partielle) ne disparaît pas
-      // quand un document du même type est régénéré plus tard. Créée AVANT le
-      // snapshot « courant » : c'est la preuve légale, jamais écrasée.
-      await tx.proofArchive.create({
-        data: { bonId: bon.id, type: snapshotType, filename, data: pdf, sha256 },
-      });
-
-      // Upsert dans PdfSnapshot (le « courant » par type, pour l'affichage)
-      await tx.pdfSnapshot.upsert({
-        where: { bonId_type: { bonId: bon.id, type: snapshotType as PdfSnapshotType } },
-        update: { data: pdf, filename, sha256 },
-        create: { bonId: bon.id, type: snapshotType as PdfSnapshotType, data: pdf, filename, sha256 },
-      });
-
-      // Trace d'audit immuable du hash — jamais avalée : un échec ici annule
-      // aussi l'archive et le snapshot ci-dessus (rollback de la transaction).
-      await tx.auditLog.create({
-        data: {
-          bonId: bon.id,
-          action: 'pdf_snapshot_saved',
-          details: { type: snapshotType, filename, sha256 },
-        },
-      });
-    });
-
-    this.logger.log(`PDF snapshot ${snapshotType} sauvegardé pour le bon ${bon.reference} (sha256=${sha256.slice(0, 12)}…)`);
+    await this.saveProof(bon, type, filename, pdf);
     return pdf;
   }
 
-  getDocumentType(snapshotType: string): 'mise_disposition' | 'restitution' | 'cloture' | 'avenant' {
+  /**
+   * Chaîne de preuve ATOMIQUE : archive probante APPEND-ONLY, version
+   * « courante » (affichage) et trace d'audit du hash dans la même
+   * transaction. Un échec annule tout et remonte à l'appelant : la preuve
+   * n'est jamais considérée comme archivée en cas d'échec partiel.
+   */
+  private async saveProof(bon: BonForPdf, type: PdfSnapshotType, filename: string, pdf: Buffer): Promise<void> {
+    // SHA-256 : permet de vérifier a posteriori que le PDF archivé (base ou
+    // partage SMB) n'a pas été altéré.
+    const sha256 = createHash('sha256').update(pdf).digest('hex');
+    await this.prisma.$transaction(async (tx) => {
+      await tx.proofArchive.create({ data: { bonId: bon.id, type, filename, data: pdf, sha256 } });
+      await tx.pdfSnapshot.upsert({
+        where: { bonId_type: { bonId: bon.id, type } },
+        update: { data: pdf, filename, sha256 },
+        create: { bonId: bon.id, type, data: pdf, filename, sha256 },
+      });
+      await tx.auditLog.create({
+        data: { bonId: bon.id, action: 'pdf_snapshot_saved', details: { type, filename, sha256 } },
+      });
+    });
+    this.logger.log(`PDF snapshot ${type} sauvegardé pour le bon ${bon.reference} (sha256=${sha256.slice(0, 12)}…)`);
+  }
+
+  /** Modèle de document d'un type enregistré (sans tenir compte d'un constat). */
+  getDocumentType(snapshotType: string): PdfDocumentType {
     if (snapshotType.includes('avenant')) return 'avenant';
+    if (snapshotType === 'remise_sans_signature') return 'mise_disposition';
     if (snapshotType.includes('restitution')) return 'restitution';
     if (snapshotType.includes('cloture')) return 'cloture';
     return 'mise_disposition';
   }
 
-  /** Génère le PDF sans le sauvegarder (appel à la demande). */
+  /**
+   * Génère le PDF sans l'enregistrer (téléchargement à la volée, aperçu avant
+   * signature, aperçu d'un modèle). La case collaborateur porte sa signature
+   * de ce document s'il l'a déjà signé. `_sigImages` n'est plus lu.
+   */
   async generateBonPdf(
     bon: BonForPdf,
-    sigImages: SigImages = { it: null, collab: null },
-    documentType: 'mise_disposition' | 'restitution' | 'cloture' | 'avenant' = 'mise_disposition',
-    configOverride?: PdfTemplateConfig,
-  ): Promise<Buffer> {
-    return this.renderPdf(bon, sigImages, documentType, configOverride);
-  }
-
-  // ─── Rendering (PDFKit) ────────────────────────────────────────────────────
-  // L'assemblage du document délègue aux modules purs de `./render/*` (un
-  // module par section : en-tête, parties, tableau, signatures, certificat,
-  // pied de page) — voir chacun pour le détail du rendu. Cette classe garde
-  // le chargement des données (Prisma, fichiers) et le choix du modèle.
-
-  private async renderPdf(
-    bon: BonForPdf,
-    sigImages: SigImages,
+    _sigImages: SigImages | null = null,
     documentType: PdfDocumentType = 'mise_disposition',
     configOverride?: PdfTemplateConfig,
   ): Promise<Buffer> {
-    // Load template config: override > custom from DB > default
-    const config = configOverride ?? await this.pdfTemplatesService.getTemplateConfig(documentType);
+    const prepared = await this.prepareDocument(bon, { documentType, collab: 'document' }, configOverride);
+    return this.renderPdf(bon, prepared);
+  }
 
-    // Build template variables for text substitution.
+  // ─── Préparation : tout ce qui se lit avant de dessiner ─────────────────────
+
+  private async prepareDocument(
+    bon: BonForPdf,
+    rendering: DocumentRendering,
+    configOverride?: PdfTemplateConfig,
+  ): Promise<PreparedDocument> {
+    const config = configOverride ?? (await this.pdfTemplatesService.getTemplateConfig(rendering.documentType));
+    const selection = selectDocumentSignatures(bon.signatures ?? [], rendering.documentType, rendering.collab);
+    const [images, names, stampPath, logoBuffer] = await Promise.all([
+      loadDocumentSignatureImages({ encryption: this.encryption, signaturesDir: this.signaturesDir }, selection),
+      loadSignerNames(this.prisma, selection),
+      loadStampPath(this.prisma, bon.filialeId),
+      this.getLogoBuffer(bon.filiale?.logoPath || null),
+    ]);
+    const model = buildSignaturesModel({
+      bon,
+      documentType: rendering.documentType,
+      selection,
+      images,
+      names,
+      config,
+      civiliteLabel: this.civiliteLabel(bon),
+      notice: rendering.notice,
+    });
+    return {
+      config,
+      rendering,
+      selection,
+      model,
+      certificate: buildCertificateEntries(bon, selection, names),
+      logoBuffer,
+      stampBuffer: await this.getLogoBuffer(stampPath),
+    };
+  }
+
+  private civiliteLabel(bon: BonForPdf): string {
+    return CIVILITE_LABELS[bon.civilite as keyof typeof CIVILITE_LABELS] ?? '';
+  }
+
+  // ─── Rendu (PDFKit) ──────────────────────────────────────────────────────────
+  // Chaque section est dessinée par un module pur de `./render/*`.
+
+  private renderPdf(bon: BonForPdf, prepared: PreparedDocument): Promise<Buffer> {
+    const { config, rendering } = prepared;
     // IMPORTANT — déterminisme : le document de preuve NE DOIT PAS dépendre de
-    // l'horloge murale (new Date()) ni du statut courant, sinon deux rendus du
-    // même bon diffèrent et le SHA-256 ne prouve plus l'intégrité de ce que le
-    // signataire a vu. DATE est ancrée sur la date métier (mise à disposition),
-    // les horodatages réels des signatures figurent dans le certificat annexé.
-    const filialeName = bon.filiale?.displayName || bon.filiale?.name || '';
+    // l'horloge murale ni du statut courant, sinon deux rendus du même bon
+    // diffèrent et le SHA-256 ne prouve plus rien. DATE est ancrée sur la date
+    // métier (mise à disposition) ; les horodatages réels sont au certificat.
     const templateVars: Record<string, string> = {
-      FILIALE: filialeName,
+      FILIALE: bon.filiale?.displayName || bon.filiale?.name || '',
       REFERENCE: bon.reference,
       DATE: formatDate(bon.dateMiseDisposition),
       TIME: '',
       COLLAB_NAME: bon.collaborateur?.displayName || '—',
       STATUS: getStatusLabel(bon.status),
     };
-
-    const titleMap: Record<string, string> = {
-      mise_disposition: `Bon de Mise à Disposition - ${bon.reference}`,
-      restitution: `Bon de Restitution - ${bon.reference}`,
-      cloture: `Procès-verbal d'équipements non restitués - ${bon.reference}`,
-      avenant: `Avenant — Équipement(s) retrouvé(s) - ${bon.reference}`,
-    };
-
-    // Pre-load logo/stamp buffers asynchronously before synchronous PDF build
-    const logoBuffer = await this.getLogoBuffer(bon.filiale?.logoPath || null);
-    const stampBuffer = await this.getLogoBuffer(bon.filiale?.stampPath || null);
-
-    // Déterminisme des métadonnées PDF : PDFKit fixe par défaut
-    // info.CreationDate/ModDate à `new Date()` (horloge murale), ce qui ferait
-    // varier le hash SHA-256 à chaque rendu du MÊME bon. On les ancre sur une
-    // date métier stable (mise à disposition) — les horodatages réels des
-    // signatures restent dans le certificat annexé, jamais dans les métadonnées.
+    // Métadonnées ancrées elles aussi sur la date métier (PDFKit y mettrait
+    // l'horloge murale, et le hash varierait à chaque rendu).
     const anchorDate = new Date(bon.dateMiseDisposition);
+    const title = rendering.titleSuffix ? `${TITLES[rendering.documentType]} — ${rendering.titleSuffix}` : TITLES[rendering.documentType];
 
     return new Promise((resolve, reject) => {
       const doc = new PDFDocument({
         size: 'A4',
-        margins: { top: config.margins.top, bottom: config.margins.bottom, left: config.margins.left, right: config.margins.right },
+        margins: { ...config.margins },
         bufferPages: true,
-        info: {
-          Title: titleMap[documentType],
-          Author: bon.createdBy?.displayName || 'Service IT',
-          CreationDate: anchorDate,
-          ModDate: anchorDate,
-        },
+        info: { Title: `${title} - ${bon.reference}`, Author: 'Équipe informatique', CreationDate: anchorDate, ModDate: anchorDate },
       });
-
-      // Enregistrement des polices Unicode (une fois par document — l'API
-      // PDFKit registerFont() est scopée à l'instance PDFDocument)
       if (this.customFontsAvailable) {
         doc.registerFont('Body', this.fontRegularPath);
         doc.registerFont('Body-Bold', this.fontBoldPath);
       }
-
       const chunks: Buffer[] = [];
       doc.on('data', (chunk: Buffer) => chunks.push(chunk));
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
-
       try {
-        this.buildPdf(doc, bon, sigImages, documentType, logoBuffer, stampBuffer, config, templateVars);
+        this.buildPdf(doc, bon, prepared, templateVars);
         doc.end();
       } catch (err) {
         reject(err);
@@ -304,74 +271,71 @@ export class PdfService {
     });
   }
 
-  private buildPdf(
-    doc: PDFKit.PDFDocument,
-    bon: BonForPdf,
-    sigImages: SigImages,
-    documentType: PdfDocumentType,
-    logoBuffer: Buffer | null,
-    stampBuffer: Buffer | null,
-    config: PdfTemplateConfig,
-    templateVars: Record<string, string>,
-  ): void {
+  private buildPdf(doc: PDFKit.PDFDocument, bon: BonForPdf, prepared: PreparedDocument, templateVars: Record<string, string>): void {
+    const { rendering, logoBuffer, stampBuffer } = prepared;
+    const config = this.withTitleSuffix(prepared.config, rendering.titleSuffix);
     const { colors, fonts } = config;
     const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
     const leftX = doc.page.margins.left;
-    const civiliteLabel = bon.civilite === 'mme' ? 'Mme' : 'M.';
     const fontNames: RenderFonts = { regular: this.FONT_REGULAR, bold: this.FONT_BOLD };
 
     drawHeader(doc, bon, config, templateVars, fontNames, logoBuffer, leftX, pageWidth, this.logger);
-    drawPartiesSection(doc, bon, config, civiliteLabel, fontNames, leftX, pageWidth);
-
-    if (documentType === 'avenant') {
-      drawAvenantNote(doc, fonts, fontNames, leftX, pageWidth);
-    }
-
-    drawEquipmentTable(doc, bon, documentType, config, templateVars, fontNames, leftX, pageWidth);
-
-    // ─── NOTES ───────────────────────────────────────────────────────────────
-    if (bon.notes) {
-      doc.y += 8;
-      doc.rect(leftX, doc.y, pageWidth, 1).fill(colors.border);
-      doc.y += 6;
-      doc.font(this.FONT_BOLD).fontSize(fonts.labelSize).fillColor(colors.lightGray).text('REMARQUES GÉNÉRALES', leftX);
-      doc.y += 4;
-      doc.font(this.FONT_REGULAR).fontSize(fonts.bodySize).fillColor(colors.dark).text(bon.notes, leftX, doc.y, { width: pageWidth });
-      doc.y += 12;
-    }
-
+    drawPartiesSection(doc, bon, config, this.civiliteLabel(bon), fontNames, leftX, pageWidth);
+    if (rendering.documentType === 'avenant') drawAvenantNote(doc, fonts, fontNames, leftX, pageWidth);
+    drawEquipmentTable(doc, bon, rendering.documentType, config, templateVars, fontNames, leftX, pageWidth);
+    this.drawNotes(doc, bon, config, fontNames, leftX, pageWidth);
     drawSignaturesSection(
-      doc, bon, sigImages, documentType, config, civiliteLabel, fontNames, leftX, pageWidth, stampBuffer, this.logger,
+      doc, prepared.model, config, fontNames, leftX, pageWidth, stampBuffer, this.logger,
       (d, x, y, w, o, c) => this.drawSignatureBox(d, x, y, w, o, c),
     );
-
-    // ─── CERTIFICAT DE SIGNATURE ÉLECTRONIQUE ────────────────────────────────
-    drawCertificateSection(doc, bon, leftX, pageWidth, colors, fonts, fontNames);
-
-    // ─── FOOTER ──────────────────────────────────────────────────────────────
+    drawCertificateSection(doc, bon.reference, prepared.certificate, leftX, pageWidth, colors, fonts, fontNames);
     drawFooterSection(doc, config, templateVars, fontNames, leftX, pageWidth);
   }
 
-  /** Case de signature (cadre, identité, mention, image ou placeholder, date).
-   *  Conservée comme méthode d'instance (plutôt que délégation directe depuis
-   *  ./render/signatures) : les specs existants espionnent explicitement
-   *  cette méthode pour vérifier le non-chevauchement case IT / cachet. */
+  /** Titre complété pour un geste sans signature (« … — CLÔTURÉ SANS SIGNATURE »). */
+  private withTitleSuffix(config: PdfTemplateConfig, suffix: string | undefined): PdfTemplateConfig {
+    if (!suffix) return config;
+    return { ...config, header: { ...config.header, titleText: `${config.header.titleText} — ${suffix}` } };
+  }
+
+  /** « Remarques sur le bon » : visibles par le collaborateur, imprimées. */
+  private drawNotes(
+    doc: PDFKit.PDFDocument,
+    bon: BonForPdf,
+    config: PdfTemplateConfig,
+    fontNames: RenderFonts,
+    leftX: number,
+    pageWidth: number,
+  ): void {
+    if (!bon.notes) return;
+    const { colors, fonts } = config;
+    doc.y += 8;
+    doc.rect(leftX, doc.y, pageWidth, 1).fill(colors.border);
+    doc.y += 6;
+    doc.font(fontNames.bold).fontSize(fonts.labelSize).fillColor(colors.lightGray).text('REMARQUES SUR LE BON', leftX);
+    doc.y += 4;
+    doc.font(fontNames.regular).fontSize(fonts.bodySize).fillColor(colors.dark).text(bon.notes, leftX, doc.y, { width: pageWidth });
+    doc.y += 12;
+  }
+
+  /** Case de signature. Méthode d'instance (plutôt que délégation directe) :
+   *  les specs l'espionnent pour vérifier le non-chevauchement case IT / cachet. */
   private drawSignatureBox(
     doc: PDFKit.PDFDocument,
     x: number,
     y: number,
     width: number,
-    opts: SignatureBoxOptions,
+    opts: SignatureBoxModel,
     colors: PdfTemplateConfig['colors'],
   ): void {
     renderSignatureBox(doc, x, y, width, opts, colors, { regular: this.FONT_REGULAR, bold: this.FONT_BOLD });
   }
 
-  // ─── Utility methods ─────────────────────────────────────────────────────────
+  // ─── Utilitaires ─────────────────────────────────────────────────────────────
 
   /** Lit un fichier image (logo OU cachet de filiale) depuis data/uploads.
-   *  Conservée comme méthode d'instance : espionnée directement par les
-   *  specs (mock du chargement du cachet de filiale sans mock du disque). */
+   *  Méthode d'instance : espionnée par les specs (chargement du cachet sans
+   *  toucher au disque). */
   private async getLogoBuffer(logoPath: string | null): Promise<Buffer | null> {
     if (!logoPath) return null;
     const filename = logoPath.split('/').pop() || '';
@@ -387,16 +351,12 @@ export class PdfService {
 
   // ─── Régénération des snapshots manquants ────────────────────────────────────
 
-  /** Régénère les PdfSnapshot manquants — voir ./snapshot-regeneration.ts pour
-   *  le détail (déduction du type, limites connues de l'heuristique). */
+  /** Régénère les PdfSnapshot manquants — voir ./snapshot-regeneration.ts. */
   async regenerateMissingSnapshots(): Promise<{ regenerated: number; failed: number }> {
     return regenerateMissingSnapshotsImpl({
       prisma: this.prisma,
-      encryption: this.encryption,
-      signaturesDir: this.signaturesDir,
       logger: this.logger,
-      generateAndSave: (bon, snapshotType, sigImages, filename) =>
-        this.generateAndSave(bon, snapshotType, sigImages, filename),
+      generateAndSave: (bon, snapshotType, filename) => this.generateAndSave(bon, snapshotType, null, filename),
     });
   }
 }

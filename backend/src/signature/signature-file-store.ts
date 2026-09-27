@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import { readFile, writeFile } from 'fs/promises';
 import * as path from 'path';
 import { EncryptionService } from '../config/encryption.service';
-import { SigImages, BonForPdf } from '../pdf/pdf.service';
+import type { SigImages } from '../pdf/pdf.service';
 import { SignatureEntry } from '../common/types';
 import { assertPngDataUrl } from '../common/signature-data-url';
 
@@ -61,43 +61,12 @@ export async function getSignatureImageDecrypted(
   }
 }
 
-/** Build SigImages with only the relevant signatures for a given snapshot type */
-export async function buildSigImagesForSnapshot(
-  deps: SignatureFileStoreDeps,
-  bon: BonForPdf,
-  snapshotType: string,
-): Promise<SigImages> {
-  const sigImages: SigImages = { it: null, collab: null };
-  const signatures = bon.signatures || [];
-
-  for (const sig of signatures) {
-    if (!sig.signed || !sig.signatureImagePath) continue;
-    const raw = await getSignatureImageDecrypted(deps, sig.signatureImagePath);
-    if (!raw) continue;
-    const src = raw.startsWith('data:') ? raw : `data:image/png;base64,${raw}`;
-
-    if (sig.type === 'it_cachet') {
-      sigImages.it = src;
-    } else if (snapshotType === 'cloture_equipements_manquants') {
-      // For PV cloture final snapshot (collab signed): use pv_cloture sig
-      if (sig.type === 'pv_cloture') {
-        sigImages.collab = src;
-      }
-    } else if (snapshotType.includes('collab')) {
-      // For collab snapshots, include the collab signature matching the context
-      const isRestitutionSnapshot = snapshotType.includes('restitution');
-      const isRestitutionSig = sig.type === 'restitution';
-      if (isRestitutionSnapshot === isRestitutionSig) {
-        sigImages.collab = src;
-      }
-    }
-    // For IT-only snapshots (signature_it_*), don't include collab signature
-  }
-
-  return sigImages;
-}
-
-/** Resolve decrypted SigImages for a list of signatures (used by BonsController for on-the-fly PDF) */
+/**
+ * Dernière image IT et dernière image du collaborateur, tous documents
+ * confondus. Le PDF n'en tient plus compte (il lit les images des signatures
+ * de SON document) : gardé pour les appelants existants.
+ * @deprecated le PDF charge lui-même les images du document.
+ */
 export async function getSignatureImagesForBon(
   deps: SignatureFileStoreDeps,
   signatures: SignatureEntry[],

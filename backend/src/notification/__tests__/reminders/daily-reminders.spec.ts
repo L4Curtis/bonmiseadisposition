@@ -67,8 +67,8 @@ describe('regenerateSignatureToken', () => {
     );
 
     expect(prisma.signature.updateMany).toHaveBeenCalledWith({
-      where: { bonId: 'bon-1', type: 'mise_disposition', signed: false },
-      data: { tokenExpiresAt: new Date(0) },
+      where: { bonId: 'bon-1', type: 'mise_disposition', signed: false, invalidatedAt: null, tokenExpiresAt: { gt: new Date(1000) } },
+      data: { tokenExpiresAt: new Date(0), invalidatedAt: expect.any(Date), invalidatedReason: 'replaced' },
     });
     expect(prisma.signature.create).toHaveBeenCalledWith(
       expect.objectContaining({

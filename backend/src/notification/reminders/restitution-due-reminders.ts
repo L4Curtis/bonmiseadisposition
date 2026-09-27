@@ -88,12 +88,12 @@ export async function runRestitutionDueReminders(deps: RestitutionDueRemindersDe
       // certains équipements ont déjà été restitués.
       status: { in: [...RESTITUTION_START_BON_STATUSES] },
       dateRestitution: { gte: start, lte: end },
-      notifications: { none: { type: 'restitution_due_reminder', status: 'sent' } },
+      notifications: { none: { type: 'restitution_due_reminder', status: { in: ['sent', 'skipped'] } } },
       equipments: { some: { returnedAt: null, notReturned: false } },
     },
     include: {
       filiale: true,
-      collaborateur: { select: { id: true, displayName: true, email: true } },
+      collaborateur: { select: { id: true, displayName: true, email: true, active: true } },
       equipments: {
         orderBy: { order: 'asc' },
         include: { catalogItem: { select: { brand: true, model: true } } },

@@ -17,7 +17,7 @@ function serialSuffix(eq: Equipments[number]): string {
 
 /** Liste HTML (balises <li>) des équipements d'un bon, triée par ordre d'affichage. */
 export function buildEquipList(equipments: Equipments): string {
-  const items = (equipments ?? [])
+  const items = [...(equipments ?? [])]
     .sort((a, b) => a.order - b.order)
     .map((eq) => {
       const label = equipmentLabel(eq);
@@ -31,7 +31,7 @@ export function buildEquipList(equipments: Equipments): string {
 
 /** Liste HTML des équipements marqués non restitués, avec leur motif. */
 export function buildNotReturnedList(equipments: Equipments): string {
-  const items = (equipments ?? [])
+  const items = [...(equipments ?? [])]
     .filter((eq) => eq.notReturned)
     .sort((a, b) => a.order - b.order)
     .map((eq) => {
@@ -42,12 +42,12 @@ export function buildNotReturnedList(equipments: Equipments): string {
     });
   return items.length
     ? items.join('\n')
-    : '<li style="padding:8px 0;font-size:14px;color:#A79F94;list-style:none">Voir le procès-verbal en ligne</li>';
+    : '<li style="padding:8px 0;font-size:14px;color:#A79F94;list-style:none">Voir le PV de non-restitution en ligne</li>';
 }
 
 /** Liste HTML des équipements encore prêtés (ni restitués, ni signalés non restitués). */
 export function buildLoanedEquipList(equipments: Equipments): string {
-  const items = (equipments ?? [])
+  const items = [...(equipments ?? [])]
     .filter((eq) => !eq.returnedAt && !eq.notReturned)
     .sort((a, b) => a.order - b.order)
     .map((eq) => {

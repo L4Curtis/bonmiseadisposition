@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ModuleRef } from '@nestjs/core';
+import type { SignatureInvalidationReason } from '@prisma/client';
 import * as fs from 'fs';
 import { PrismaService } from '../prisma/prisma.service';
 import { EncryptionService } from '../config/encryption.service';
@@ -7,12 +7,23 @@ import { AppConfigService } from '../config/config.service';
 import { TimestampService } from './timestamp.service';
 import { PdfService } from '../pdf/pdf.service';
 import { SmbService } from '../smb/smb.service';
+import { NotificationService } from '../notification/notification.service';
+import { LinkRequestResult, requestNewLink as requestNewLinkImpl } from './link-request';
 import { SignatureEntry } from '../common/types';
-import { generateToken as generateTokenImpl, invalidateUnsignedTokens as invalidateUnsignedTokensImpl } from './token-lifecycle';
+import { DomainEventsPublisher } from '../common/events';
+import {
+  LinkDocumentType,
+  generateToken as generateTokenImpl,
+  invalidateUnsignedTokens as invalidateUnsignedTokensImpl,
+} from './token-lifecycle';
 import { getBonInfoByToken as getBonInfoByTokenImpl } from './bon-info';
 import { getPreviewPdfByToken as getPreviewPdfByTokenImpl } from './preview-pdf';
-import { sign as signImpl } from './signing';
-import { signItCachet as signItCachetImpl, saveItPvSignature as saveItPvSignatureImpl } from './it-cachet';
+import { SignerInput, sign as signImpl } from './signing';
+import {
+  ItSignatureDocument,
+  signItCachet as signItCachetImpl,
+  saveItPvSignature as saveItPvSignatureImpl,
+} from './it-cachet';
 import {
   getSignatureImageDecrypted as getSignatureImageDecryptedImpl,
   getSignatureImagesForBon as getSignatureImagesForBonImpl,
@@ -22,14 +33,12 @@ import { computeSignatureIntegrity } from './seal';
 import { SIGNATURES_DIR } from '../common/storage-paths';
 
 /**
- * Façade fine : chaque méthode publique délègue à un module pur/dédié sous
+ * Façade fine : chaque méthode publique délègue à un module dédié sous
  * `signature/` (token-lifecycle, bon-info, preview-pdf, signing, it-cachet,
- * signature-file-store, seal). Aucun changement de comportement — le
- * découpage extrait uniquement l'implémentation, pas le contrat.
+ * signature-file-store, seal).
  *
- * BonsService reste résolu PARESSEUSEMENT via ModuleRef (jamais injecté au
- * constructeur, jamais importé autrement qu'en `import type`) : voir le
- * commentaire du constructeur ci-dessous et signing.ts.
+ * La signature ne connaît pas le module des bons : elle annonce
+ * `signature.signed` (common/events), et la suite du cycle de vie y réagit.
  */
 @Injectable()
 export class SignatureService {
@@ -48,13 +57,8 @@ export class SignatureService {
     private readonly timestampService: TimestampService,
     private readonly pdfService: PdfService,
     private readonly smbService: SmbService,
-    // BonsService dépend déjà de SignatureService (envoi des tokens) ; injecter
-    // BonsService ici en retour formerait un cycle de MODULES (BonsModule ↔
-    // SignatureModule) qui casse le démarrage réel de l'app (cf.
-    // src/__tests__/modules-boot.spec.ts). Le hook post-signature de
-    // restitution (cf. sign()) résout donc BonsService PARESSEUSEMENT via
-    // ModuleRef au moment de l'appel plutôt que par injection de constructeur.
-    private readonly moduleRef: ModuleRef,
+    private readonly events: DomainEventsPublisher,
+    private readonly notificationService: NotificationService,
   ) {
     // Ensure signatures directory exists
     if (!fs.existsSync(this.UPLOADS_DIR)) {
@@ -67,18 +71,15 @@ export class SignatureService {
   }
 
   private get pdfSnapshotDeps() {
-    return {
-      pdfService: this.pdfService,
-      smbService: this.smbService,
-      logger: this.logger,
-      fileStore: this.fileStoreDeps,
-    };
+    return { pdfService: this.pdfService, smbService: this.smbService, logger: this.logger };
   }
 
-  /** Generate a signature token for a bon (mise_disposition, restitution, or pv_cloture). */
+  /** Lien de signature d'un document (remise, restitution ou PV), par email
+   *  ou au guichet (`isInPerson`, 2 h) ; les liens vivants du même document
+   *  sont invalidés avec leur motif. */
   async generateToken(
     bonId: string,
-    type: 'mise_disposition' | 'restitution' | 'pv_cloture',
+    type: LinkDocumentType,
     initiatedById?: string,
     isInPerson = false,
   ) {
@@ -108,44 +109,40 @@ export class SignatureService {
     requesterId?: string,
   ): Promise<{ pdf: Buffer; filename: string }> {
     return getPreviewPdfByTokenImpl(
-      { prisma: this.prisma, pdfService: this.pdfService, fileStore: this.fileStoreDeps },
+      { prisma: this.prisma, pdfService: this.pdfService },
       token,
       requesterEmail,
       requesterId,
     );
   }
 
-  /** Sign a document — called after SSO auth with email verification */
-  async sign(
-    token: string,
-    signatureDataUrl: string,
-    mentionLuApprouve: boolean,
-    signerEmail: string,
-    signerIp: string,
-    signerUserAgent: string,
-    signerId?: string,
-  ) {
+  /** Lien expiré : prévient l'équipe informatique (R-058). */
+  async requestNewLink(token: string, requester: { email: string; id?: string }): Promise<LinkRequestResult> {
+    return requestNewLinkImpl(
+      { prisma: this.prisma, alertIt: (alert) => this.notificationService.queueLinkRequestAlert(alert) },
+      token,
+      requester,
+    );
+  }
+
+  /** Signature d'un document par son lien (session exigée). */
+  async sign(token: string, signer: SignerInput) {
     return signImpl(
       {
         prisma: this.prisma,
         encryption: this.encryption,
         timestampService: this.timestampService,
-        moduleRef: this.moduleRef,
+        events: this.events,
         logger: this.logger,
         uploadsDir: this.UPLOADS_DIR,
         pdfSnapshot: this.pdfSnapshotDeps,
       },
       token,
-      signatureDataUrl,
-      mentionLuApprouve,
-      signerEmail,
-      signerIp,
-      signerUserAgent,
-      signerId,
+      signer,
     );
   }
 
-  /** Resolve decrypted SigImages for a list of signatures (used by BonsController for on-the-fly PDF) */
+  /** @deprecated Le PDF lit lui-même les images des signatures de son document. */
   async getSignatureImagesForBon(signatures: SignatureEntry[]) {
     return getSignatureImagesForBonImpl(this.fileStoreDeps, signatures);
   }
@@ -218,20 +215,23 @@ export class SignatureService {
     return { allValid, anonymized, signatures };
   }
 
-  /** Invalidate all unsigned tokens for a bon (used when bon enters contested state) */
-  async invalidateUnsignedTokens(bonId: string): Promise<void> {
-    return invalidateUnsignedTokensImpl({ prisma: this.prisma }, bonId);
+  /** Invalide tous les liens vivants du bon, avec leur motif (« remplacé »
+   *  par défaut ; « contesté », « annulé »… selon l'appelant). */
+  async invalidateUnsignedTokens(bonId: string, reason: SignatureInvalidationReason = 'replaced'): Promise<void> {
+    return invalidateUnsignedTokensImpl({ prisma: this.prisma }, bonId, reason);
   }
 
   /**
-   * Save an IT signature for PV cloture context (called by BonsService).
-   * Creates a signed it_cachet Signature record without the full signItCachet flow.
+   * Signature IT recueillie lors d'une déclaration de non-restitution ou d'un
+   * équipement retrouvé ; `pdfType` (document concerné) est déduit de l'état
+   * du bon quand l'appelant ne le donne pas.
    */
   async saveItPvSignature(
     bonId: string,
     signatureDataUrl: string,
     signerEmail: string,
     userId: string,
+    pdfType?: ItSignatureDocument,
   ): Promise<void> {
     return saveItPvSignatureImpl(
       { prisma: this.prisma, encryption: this.encryption, logger: this.logger, uploadsDir: this.UPLOADS_DIR },
@@ -239,6 +239,7 @@ export class SignatureService {
       signatureDataUrl,
       signerEmail,
       userId,
+      pdfType,
     );
   }
 }

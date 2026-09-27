@@ -4,6 +4,8 @@ import {
   logNotificationResult,
   logFailedNotification,
   blockIfAppUrlMissing,
+  blockIfEmailMissing,
+  logSkippedNotification,
 } from '../notification-log';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
 import type { Mock } from 'vitest';
@@ -182,6 +184,52 @@ describe('blockIfAppUrlMissing', () => {
 
     expect(prisma.notificationLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ reminderNumber: 2 }),
+    });
+  });
+});
+
+describe('logSkippedNotification — email volontairement non envoyé (R-034)', () => {
+  it('écrit une ligne « skipped » avec le motif, jamais « failed »', async () => {
+    const prisma = { notificationLog: { create: vi.fn().mockResolvedValue({}) } };
+    await logSkippedNotification(prisma as never, {
+      bonId: 'bon-1',
+      type: 'reminder',
+      reason: "Le collaborateur n'a pas d'adresse email.",
+      documentType: 'restitution',
+    });
+    expect(prisma.notificationLog.create).toHaveBeenCalledWith({
+      data: {
+        bonId: 'bon-1',
+        recipientEmail: '',
+        type: 'reminder',
+        status: 'skipped',
+        errorMessage: "Le collaborateur n'a pas d'adresse email.",
+        documentType: 'restitution',
+      },
+    });
+  });
+});
+
+describe('logNotificationResult — document concerné', () => {
+  it('enregistre le document d’une demande ou d’un rappel', async () => {
+    const prisma = { notificationLog: { create: vi.fn().mockResolvedValue({}) } };
+    await logNotificationResult(prisma as never, {
+      bonId: 'bon-1', recipientEmail: 'a@b.fr', type: 'reminder', result: { ok: true }, reminderNumber: 2, documentType: 'pv_cloture',
+    });
+    expect(prisma.notificationLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ documentType: 'pv_cloture', reminderNumber: 2, status: 'sent' }),
+    });
+  });
+});
+
+describe('blockIfEmailMissing — collaborateur sans adresse', () => {
+  it('écrit une ligne « skipped », pas un échec', async () => {
+    const prisma = { notificationLog: { create: vi.fn().mockResolvedValue({}) } };
+    const logger = { log: vi.fn() };
+    const blocked = await blockIfEmailMissing(prisma as never, logger as never, 'bon-1', null, 'confirmation');
+    expect(blocked).toBe(true);
+    expect(prisma.notificationLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ status: 'skipped', type: 'confirmation' }),
     });
   });
 });

@@ -140,9 +140,11 @@ describe('TemplatesService', () => {
     it('renders default HTML distinct from confirmation_restitution', () => {
       const pvHtml = service.getDefaultHtml('confirmation_pv_cloture');
       const restitutionHtml = service.getDefaultHtml('confirmation_restitution');
-      expect(pvHtml).toContain('{{TYPE_LABEL}}');
+      expect(pvHtml).toContain('{{DOCUMENT_LABEL}}');
       expect(pvHtml).not.toEqual(restitutionHtml);
-      expect(pvHtml).toContain('Procès-verbal de clôture');
+      expect(pvHtml).toContain('PV de non-restitution');
+      expect(pvHtml).toContain('{{PORTAIL_URL}}');
+      expect(pvHtml).not.toMatch(/archiv/i);
     });
 
     it('is used by getAll()', async () => {

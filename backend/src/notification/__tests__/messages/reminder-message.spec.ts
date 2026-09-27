@@ -17,7 +17,7 @@ describe('buildReminderMessage', () => {
     expect(subject).toBe('[RAPPEL] [BON-2026-0010] Bon de mise à disposition à signer — Filiale Demo');
   });
 
-  it('uses "Procès-verbal" (not "Bon de ...") as the subject document label for pv_cloture', () => {
+  it('uses « PV de non-restitution » as the document label for pv_cloture', () => {
     const { subject, vars } = buildReminderMessage({
       reference: 'BON-2026-0040',
       filialeNom: 'Filiale Demo',
@@ -27,8 +27,9 @@ describe('buildReminderMessage', () => {
       docType: 'pv_cloture',
     });
 
-    expect(vars.TYPE_LABEL).toBe("procès-verbal d'équipements non restitués");
-    expect(subject).toBe('[RAPPEL] [BON-2026-0040] Procès-verbal à signer — Filiale Demo');
+    expect(vars.TYPE_LABEL).toBe('PV de non-restitution');
+    expect(vars.DOCUMENT_LABEL).toBe('PV de non-restitution');
+    expect(subject).toBe('[RAPPEL] [BON-2026-0040] PV de non-restitution à signer — Filiale Demo');
   });
 
   it('falls back to the mise_disposition label for an unknown docType', () => {

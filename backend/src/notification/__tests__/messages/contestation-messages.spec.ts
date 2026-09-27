@@ -46,3 +46,42 @@ describe('buildContestationResolutionMessage', () => {
     expect(msg.vars.RESOLUTION_MESSAGE).toBe('');
   });
 });
+
+describe('buildContestationResolutionMessage — contestation Fondée (R-050)', () => {
+  const bon = activeBon() as unknown as NotificationBon;
+
+  it('nomme le bon corrigé qui remplacera le bon contesté', () => {
+    const { vars } = buildContestationResolutionMessage(bon, 'resolved', 'Numéro corrigé', { reference: 'BON-2026-0099' });
+    expect(vars.REPLACEMENT_SENTENCE).toContain('BON-2026-0099');
+    expect(vars.REPLACEMENT_SENTENCE).toContain(bon.reference);
+  });
+
+  it('sans référence connue, annonce le bon corrigé sans le nommer', () => {
+    const { vars } = buildContestationResolutionMessage(bon, 'resolved');
+    expect(vars.REPLACEMENT_SENTENCE).toContain('Un bon corrigé vous est envoyé');
+  });
+});
+
+describe('buildContestationResolutionMessage — ce qui va se passer, selon le document contesté (décision du 26/09)', () => {
+  const bon = activeBon() as unknown as NotificationBon;
+
+  it('remise : un bon corrigé, nommé, remplacera le bon contesté', () => {
+    const { vars } = buildContestationResolutionMessage(bon, 'resolved', undefined, { reference: 'BON-2026-0099' }, null);
+    expect(vars.REPLACEMENT_SENTENCE).toContain('Le bon corrigé');
+    expect(vars.REPLACEMENT_SENTENCE).toContain('BON-2026-0099');
+    expect(vars.REPLACEMENT_SENTENCE).toContain('il remplacera le bon');
+  });
+
+  it('restitution : le bon est corrigé, puis la restitution renvoyée à signer ; aucun nouveau bon annoncé', () => {
+    const { vars } = buildContestationResolutionMessage(bon, 'resolved', undefined, null, 'restitution');
+    expect(vars.REPLACEMENT_SENTENCE).toBe('Votre bon va être corrigé, puis la restitution vous sera renvoyée à signer.');
+    expect(vars.REPLACEMENT_SENTENCE).not.toContain('bon corrigé');
+  });
+
+  it('PV : le bon est corrigé, puis le PV de non-restitution renvoyé à signer', () => {
+    const { vars } = buildContestationResolutionMessage(bon, 'resolved', undefined, null, 'pv_cloture');
+    expect(vars.REPLACEMENT_SENTENCE).toBe(
+      'Votre bon va être corrigé, puis le PV de non-restitution vous sera renvoyé à signer.',
+    );
+  });
+});

@@ -60,7 +60,7 @@ describe('buildNotReturnedList', () => {
   });
 
   it('renders a placeholder line when nothing is not-returned', () => {
-    expect(buildNotReturnedList([])).toContain('Voir le procès-verbal en ligne');
+    expect(buildNotReturnedList([])).toContain('Voir le PV de non-restitution en ligne');
   });
 });
 
