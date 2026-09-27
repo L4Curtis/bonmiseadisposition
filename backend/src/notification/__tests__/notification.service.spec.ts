@@ -533,12 +533,13 @@ describe('NotificationService', () => {
 
       await service.sendCancellationNotice(bon, 'Bon saisi en double');
 
+      // Modèle personnalisable « bon_cancelled », motif dans ses variables.
+      expect(templatesService.renderTemplate).toHaveBeenCalledWith(
+        'bon_cancelled',
+        expect.objectContaining({ REASON: 'Bon saisi en double', REFERENCE: bon.reference }),
+      );
       expect(mockSendMail).toHaveBeenCalledWith(
-        expect.objectContaining({
-          to: bon.collaborateurEmail,
-          subject: expect.stringContaining('annulé'),
-          html: expect.stringContaining('Bon saisi en double'),
-        }),
+        expect.objectContaining({ to: bon.collaborateurEmail, subject: expect.stringContaining('annulé') }),
       );
       expect(prisma.notificationLog.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
@@ -562,6 +563,47 @@ describe('NotificationService', () => {
 
       expect(templatesService.renderTemplate).toHaveBeenCalledWith('contestation_rejected', expect.any(Object));
       expect(mockSendMail).toHaveBeenCalledWith(expect.objectContaining({ to: 'lea.nouvelle@exemple.fr' }));
+    });
+
+    it('Non retenue avec une restitution encore à signer : lien pour signer, jamais « tel qu’il a été signé »', async () => {
+      const bon = activeBon() as unknown as NotificationBon;
+      asMock(prisma.notificationLog.create).mockResolvedValue({});
+      asMock(prisma.bon.findUnique).mockResolvedValue({ collaborateur: { active: true, email: 'lea@exemple.fr' } });
+      asMock(prisma.signature.findFirst).mockResolvedValue({
+        token: 'tok-restitution', type: 'restitution', tokenExpiresAt: new Date(Date.now() + 86_400_000),
+      });
+      asMock(prisma.signature.count).mockResolvedValue(1);
+
+      await service.sendContestationResolution(bon, { email: 'lea@exemple.fr' }, 'rejected', 'Vérifié');
+
+      expect(templatesService.renderTemplate).toHaveBeenCalledWith('contestation_rejected', expect.objectContaining({
+        REJECTION_SENTENCE: 'la restitution reste à signer.',
+        SIGN_BUTTON: expect.stringContaining('/signer/tok-restitution'),
+      }));
+      // Jamais un lien du guichet, remplacé ou invalidé, ni une signature IT.
+      expect(prisma.signature.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({
+          bonId: bon.id, signed: false, isInPerson: false, invalidatedAt: null,
+          type: { not: 'it_cachet' }, tokenExpiresAt: { gt: new Date(1000) },
+        }),
+      }));
+    });
+
+    it('Non retenue, lien expiré pendant la contestation : bouton « Demander un nouveau lien »', async () => {
+      const bon = activeBon() as unknown as NotificationBon;
+      asMock(prisma.notificationLog.create).mockResolvedValue({});
+      asMock(prisma.bon.findUnique).mockResolvedValue({ collaborateur: { active: true, email: 'lea@exemple.fr' } });
+      asMock(prisma.signature.findFirst).mockResolvedValue({
+        token: 'tok-expire', type: 'restitution', tokenExpiresAt: new Date(Date.now() - 60_000),
+      });
+      asMock(prisma.signature.count).mockResolvedValue(0);
+
+      await service.sendContestationResolution(bon, { email: 'lea@exemple.fr' }, 'rejected', 'Vérifié');
+
+      expect(templatesService.renderTemplate).toHaveBeenCalledWith('contestation_rejected', expect.objectContaining({
+        REJECTION_SENTENCE: expect.stringContaining('Son lien a expiré'),
+        SIGN_BUTTON: expect.stringMatching(/signer\/tok-expire[\s\S]*Demander un nouveau lien/),
+      }));
     });
 
     it('restitution Fondée : la réponse annonce la correction du bon, pas un bon remplaçant', async () => {

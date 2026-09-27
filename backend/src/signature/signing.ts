@@ -18,6 +18,7 @@ import { getNextBonStatus } from './status-transition';
 import { saveSignatureFile } from './signature-file-store';
 import { generatePdfSnapshot, PdfSnapshotDeps } from './pdf-snapshot';
 import { LINK_INVALIDATION_MESSAGES, NON_SIGNABLE_BON_STATUSES, isBonStatusIn } from '../bons/bon-status';
+import { isItRole } from '../common/roles';
 
 export interface SignDeps {
   prisma: PrismaService;
@@ -37,6 +38,8 @@ export interface SignerInput {
   signerIp: string;
   signerUserAgent: string;
   signerId?: string;
+  /** Rôle du compte connecté : au guichet, un compte IT est un témoin. */
+  signerRole?: string;
 }
 
 /** Document signé par le collaborateur → type du PDF enregistré. */
@@ -81,10 +84,13 @@ async function loadSignableSignature(deps: SignDeps, token: string) {
 
 /**
  * Le signataire est le titulaire (par identifiant, fiable après un changement
- * d'adresse, ou par adresse). Au guichet, tout compte connecté peut recueillir
- * la signature : c'est alors un mandataire, tracé (`signedByProxy`).
+ * d'adresse, ou par adresse). Au guichet, le compte connecté sur l'appareil
+ * peut être un autre : un compte IT (technicien, admin) est un TÉMOIN — le
+ * titulaire signe lui-même devant lui, ce n'est pas une procuration. Seul un
+ * autre compte, ni IT ni titulaire, signe pour le compte du collaborateur :
+ * c'est un mandataire, tracé (`signedByProxy`).
  */
-function resolveSigner(sig: SignableSignature, signer: SignerInput): { signedByProxy: boolean } {
+function resolveSigner(sig: SignableSignature, signer: SignerInput): { signedByProxy: boolean; collectedByOtherAccount: boolean } {
   const expectedEmail = sig.bon.collaborateurEmail?.toLowerCase().trim() ?? null;
   const actualEmail = signer.signerEmail.toLowerCase().trim();
   const isOwner =
@@ -95,7 +101,8 @@ function resolveSigner(sig: SignableSignature, signer: SignerInput): { signedByP
     throw new BadRequestException('Vous devez cocher "Lu et approuvé" pour signer');
   }
   assertPngDataUrl(signer.signatureDataUrl);
-  return { signedByProxy: sig.isInPerson && !isOwner };
+  const itWitness = isItRole(signer.signerRole ?? '');
+  return { signedByProxy: sig.isInPerson && !isOwner && !itWitness, collectedByOtherAccount: sig.isInPerson && !isOwner };
 }
 
 /** Début du message d'un lien devenu inutilisable pendant la signature. */
@@ -254,7 +261,7 @@ async function saveSignedDocument(deps: SignDeps, bon: Awaited<ReturnType<typeof
  */
 export async function sign(deps: SignDeps, token: string, signer: SignerInput) {
   const sig = await loadSignableSignature(deps, token);
-  const { signedByProxy } = resolveSigner(sig, signer);
+  const { signedByProxy, collectedByOtherAccount } = resolveSigner(sig, signer);
   const documentType = sig.type as LinkDocumentType;
 
   const signatureImagePath = await saveSignatureFile(
@@ -280,7 +287,8 @@ export async function sign(deps: SignDeps, token: string, signer: SignerInput) {
   await deps.events.publish(DOMAIN_EVENTS.signatureSigned, {
     bonId: sig.bon.id,
     bonReference: sig.bon.reference,
-    actorId: signedByProxy ? signer.signerId ?? null : null,
+    // Au guichet, le compte qui a recueilli la signature (témoin ou mandataire).
+    actorId: collectedByOtherAccount ? signer.signerId ?? null : null,
     occurredAt: updatedSig.signedAt ?? new Date(),
     signatureId: updatedSig.id,
     documentType,
@@ -296,6 +304,7 @@ export async function sign(deps: SignDeps, token: string, signer: SignerInput) {
     ...toSafeSignature(updatedSig as unknown as Record<string, unknown>),
     bonId: updatedBon.id,
     signedByProxy: updatedSig.signedByProxy,
+    witnessedByIt: collectedByOtherAccount && !signedByProxy,
   };
   return { signature: safeSignature, bon: sanitizeBonForResponse(updatedBon) };
 }

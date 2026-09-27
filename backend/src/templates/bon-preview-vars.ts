@@ -9,9 +9,19 @@ import { buildConfirmationMessage } from '../notification/messages/confirmation-
 import {
   buildContestationAlertMessage,
   buildContestationResolutionMessage,
+  RejectionContext,
 } from '../notification/messages/contestation-messages';
 import { buildReminderMessage } from '../notification/messages/reminder-message';
 import { buildRestitutionDueReminderMessage } from '../notification/messages/restitution-due-reminder-message';
+import {
+  buildBonReplacedNotice,
+  buildCancellationNotice,
+  buildClosedWithoutSignatureNotice,
+  buildHandoverWithoutSignatureNotice,
+  buildMarkFoundNotice,
+} from '../notification/messages/system-notice-emails';
+import { buildLinkRequestAlert, LinkRequestAlertInput } from '../notification/messages/link-request-alert-message';
+import { portalUrl } from '../notification/app-links';
 
 /**
  * Aperçu d'un modèle d'email avec les données d'un vrai bon (lot H3).
@@ -30,8 +40,9 @@ import { buildRestitutionDueReminderMessage } from '../notification/messages/res
 export const FAKE_SIGNATURE_TOKEN = 'APERCU-LIEN-FACTICE';
 
 /** Modèles qui ne portent pas sur un bon (alerte de départs : une liste de
- *  collaborateurs issue de la synchronisation LDAP). */
-export const NON_BON_TEMPLATES = ['departure_alert'];
+ *  collaborateurs issue de la synchronisation LDAP ; relance des contestations
+ *  à trancher : une liste de bons). */
+export const NON_BON_TEMPLATES = ['departure_alert', 'contestation_overdue_alert'];
 
 /** Données d'un bon lues pour l'aperçu — jamais de jeton de signature. */
 export interface PreviewBon extends NotificationBon {
@@ -64,6 +75,20 @@ export function fakeSignerUrl(appUrl: string): string {
 function pendingDocType(bon: PreviewBon): string {
   const pending = (bon.signatures ?? []).find((s) => !s.signed);
   return pending?.type ?? 'mise_disposition';
+}
+
+const REJECTION_DOCUMENTS: readonly string[] = ['mise_disposition', 'restitution', 'pv_cloture'];
+
+/** Réponse « Non retenue » de CE bon : le document qu'il attend encore
+ *  (lien factice), ou s'il a déjà été signé. */
+function previewRejection(bon: PreviewBon, appUrl: string): RejectionContext {
+  const signatures = (bon.signatures ?? []).filter((s) => s.type !== 'it_cachet');
+  const pending = signatures.find((s) => !s.signed && REJECTION_DOCUMENTS.includes(s.type));
+  return {
+    signUrl: pending ? fakeSignerUrl(appUrl) : null,
+    documentType: pending ? (pending.type as NonNullable<RejectionContext['documentType']>) : null,
+    signed: signatures.some((s) => s.signed),
+  };
 }
 
 interface PartialMessage {
@@ -106,7 +131,8 @@ function buildRealMessage(templateId: string, bon: PreviewBon, appUrl: string): 
     case 'contestation_resolved':
     case 'contestation_rejected': {
       const action = templateId === 'contestation_resolved' ? 'resolved' : 'rejected';
-      const message = buildContestationResolutionMessage(bon, action, contestation?.resolutionMessage ?? undefined);
+      const rejection = action === 'rejected' ? previewRejection(bon, appUrl) : null;
+      const message = buildContestationResolutionMessage(bon, action, contestation?.resolutionMessage ?? undefined, null, null, rejection);
       return contestation?.resolutionMessage ? message : withoutVars(message, ['RESOLUTION_MESSAGE']);
     }
     case 'reminder': {
@@ -123,6 +149,34 @@ function buildRealMessage(templateId: string, bon: PreviewBon, appUrl: string): 
     }
     case 'restitution_due_reminder':
       return buildRestitutionDueReminderMessage(bon, appUrl);
+    default:
+      return buildNoticeMessage(templateId, bon, appUrl);
+  }
+}
+
+/** Emails d'information et alerte « nouveau lien demandé ». Le motif, le bon
+ *  corrigé et la date d'expiration d'un lien ne se lisent pas sur le bon :
+ *  valeurs d'exemple. */
+function buildNoticeMessage(templateId: string, bon: PreviewBon, appUrl: string): PartialMessage {
+  const portal = portalUrl(appUrl);
+  switch (templateId) {
+    case 'bon_cancelled':
+      return withoutVars(buildCancellationNotice(bon, ''), ['REASON']);
+    case 'handover_without_signature':
+      return withoutVars(buildHandoverWithoutSignatureNotice(bon, '', portal), ['REASON']);
+    case 'closed_without_signature':
+      return withoutVars(buildClosedWithoutSignatureNotice(bon, '', bon.status ?? 'sent_restitution', portal), ['REASON']);
+    case 'bon_replaced':
+      return withoutVars(buildBonReplacedNotice(bon, '', portal), ['REPLACEMENT_REFERENCE']);
+    case 'equipment_found':
+      return buildMarkFoundNotice(bon, (bon.equipments ?? []).filter((eq) => eq.notReturned).map((eq) => eq.id));
+    case 'link_request_alert': {
+      const pending = pendingDocType(bon);
+      const documentType: LinkRequestAlertInput['documentType'] =
+        pending === 'restitution' || pending === 'pv_cloture' ? pending : 'mise_disposition';
+      const requesterEmail = bon.collaborateur?.email ?? bon.collaborateurEmail ?? '';
+      return withoutVars(buildLinkRequestAlert(bon, { documentType, requesterEmail, expiredAt: new Date() }, appUrl), ['EXPIRED_AT']);
+    }
     default:
       return { vars: {}, subject: '' };
   }

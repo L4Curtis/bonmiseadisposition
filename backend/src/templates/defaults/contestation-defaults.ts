@@ -27,7 +27,7 @@ export function defaultContestationAlert(): string {
       ${quoteBox('#dc2626', '#fef2f2', '#fecaca', '<em>&ldquo;{{CONTESTATION_MESSAGE}}&rdquo;</em>')}
       ${ctaButton('{{BON_URL}}', 'Ouvrir le bon contest&eacute;')}
       <p style="margin:0;font-size:14px;color:#6B665E;line-height:1.6;background:#F6F3EE;border-radius:10px;padding:12px 16px">
-        Prenez la contestation en charge puis tranchez-la : &laquo;&nbsp;Fond&eacute;e&nbsp;&raquo; (un bon corrig&eacute; est envoy&eacute;) ou &laquo;&nbsp;Non retenue&nbsp;&raquo;. <a href="{{CONTESTATIONS_URL}}" style="color:#B92A20">Toutes les contestations &agrave; traiter</a>
+        Prenez la contestation en charge puis tranchez-la : &laquo;&nbsp;Fond&eacute;e&nbsp;&raquo; (le document est corrig&eacute;, puis renvoy&eacute; &agrave; signer) ou &laquo;&nbsp;Non retenue&nbsp;&raquo;. <a href="{{CONTESTATIONS_URL}}" style="color:#B92A20">Toutes les contestations &agrave; traiter</a>
       </p>
       `),
     footer(),
@@ -60,10 +60,11 @@ export function defaultContestationRejected(): string {
     metaStrip(['Réf. <strong style="color:#1B1A18;font-family:monospace">{{REFERENCE}}</strong>']),
     body(`
       <p style="margin:0 0 20px;font-size:15px;color:#4A463F;line-height:1.75;text-align:center">
-        Votre contestation relative au bon ${refBadge('{{REFERENCE}}')} a été examinée par l’équipe informatique. Après vérification, elle <strong style="color:#991b1b">n’est pas retenue</strong> : le bon reste valable tel qu’il a été signé.
+        Votre contestation relative au bon ${refBadge('{{REFERENCE}}')} a été examinée par l’équipe informatique. Après vérification, elle <strong style="color:#991b1b">n’est pas retenue</strong> : {{REJECTION_SENTENCE}}
       </p>
       ${sectionLabel('Message de l’équipe informatique')}
       ${quoteBox('#dc2626', '#fef2f2', '#fecaca', '{{RESOLUTION_MESSAGE}}')}
+      {{SIGN_BUTTON}}
       `),
     footer(),
   ));

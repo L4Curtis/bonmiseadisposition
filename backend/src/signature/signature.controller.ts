@@ -95,15 +95,17 @@ export class SignatureController {
       signerIp: ip,
       signerUserAgent: userAgent,
       signerId: user.id,
+      signerRole: user.role,
     });
 
-    // Le service construit déjà l'objet signature au format API-safe, bonId et
-    // signedByProxy inclus (cf. SignatureService.sign) — le contrôleur ne fait
+    // Le service construit déjà l'objet signature au format API-safe, bonId,
+    // signedByProxy et witnessedByIt inclus (cf. SignatureService.sign) — le contrôleur ne fait
     // que le relayer, il ne reconstruit plus le contrat de réponse ici.
     return {
       ok: true,
       bonId: result.signature.bonId,
       signedByProxy: result.signature.signedByProxy,
+      witnessedByIt: result.signature.witnessedByIt,
       bon: result.bon,
       signature: result.signature,
     };

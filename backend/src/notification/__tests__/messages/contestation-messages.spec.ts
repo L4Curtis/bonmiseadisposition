@@ -58,7 +58,8 @@ describe('buildContestationResolutionMessage — contestation Fondée (R-050)', 
 
   it('sans référence connue, annonce le bon corrigé sans le nommer', () => {
     const { vars } = buildContestationResolutionMessage(bon, 'resolved');
-    expect(vars.REPLACEMENT_SENTENCE).toContain('Un bon corrigé vous est envoyé');
+    expect(vars.REPLACEMENT_SENTENCE).toContain('Un bon corrigé va vous être envoyé');
+    expect(vars.REPLACEMENT_SENTENCE).not.toMatch(/vous est envoyé/);
   });
 });
 
@@ -83,5 +84,41 @@ describe('buildContestationResolutionMessage — ce qui va se passer, selon le d
     expect(vars.REPLACEMENT_SENTENCE).toBe(
       'Votre bon va être corrigé, puis le PV de non-restitution vous sera renvoyé à signer.',
     );
+  });
+});
+
+describe('buildContestationResolutionMessage — « Non retenue » selon ce qui a été signé', () => {
+  const bon = activeBon() as unknown as NotificationBon;
+
+  it('lien expiré pendant la contestation : le document reste à signer, bouton pour demander un nouveau lien', () => {
+    const { vars } = buildContestationResolutionMessage(bon, 'rejected', 'Vérifié', null, null, {
+      signUrl: 'https://bons.test/signer/tok-1', documentType: 'pv_cloture', linkExpired: true, signed: true,
+    });
+    expect(vars.REJECTION_SENTENCE).toBe(
+      'le PV de non-restitution reste à signer. Son lien a expiré : le bouton ci-dessous vous permet d’en demander un nouveau.',
+    );
+    expect(vars.SIGN_BUTTON).toContain('https://bons.test/signer/tok-1');
+    expect(vars.SIGN_BUTTON).toContain('Demander un nouveau lien');
+  });
+
+  it('document encore à signer : il reste à signer, avec le bouton pour signer', () => {
+    const { vars } = buildContestationResolutionMessage(bon, 'rejected', 'Vérifié', null, null, {
+      signUrl: 'https://bons.test/signer/tok-1', documentType: 'restitution', signed: false,
+    });
+    expect(vars.REJECTION_SENTENCE).toBe('la restitution reste à signer.');
+    expect(vars.REJECTION_SENTENCE).not.toContain('tel qu');
+    expect(vars.SIGN_BUTTON).toContain('https://bons.test/signer/tok-1');
+    expect(vars.SIGN_BUTTON).toContain('Signer');
+  });
+
+  it('document déjà signé : le bon reste valable tel qu’il a été signé, sans bouton', () => {
+    const { vars } = buildContestationResolutionMessage(bon, 'rejected', undefined, null, null, { signUrl: null, documentType: null, signed: true });
+    expect(vars.REJECTION_SENTENCE).toBe('le bon reste valable tel qu’il a été signé.');
+    expect(vars.SIGN_BUTTON).toBe('');
+  });
+
+  it('rien de signé ni d’attendu (remise constatée sans signature) : jamais « tel qu’il a été signé »', () => {
+    const { vars } = buildContestationResolutionMessage(bon, 'rejected', undefined, null, null, { signUrl: null, documentType: null, signed: false });
+    expect(vars.REJECTION_SENTENCE).toBe('le bon reste valable tel qu’il a été établi.');
   });
 });

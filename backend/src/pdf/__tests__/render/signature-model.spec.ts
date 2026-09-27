@@ -82,8 +82,8 @@ describe('buildSignaturesModel — cases de signature d’un document', () => {
   });
 
   it('signature au guichet recueillie par un technicien : au nom du collaborateur, en présence du technicien', () => {
-    const proxy: PdfSignature = { ...collabRestitution, isInPerson: true, signedByProxy: true, signerEmail: 'julie.moreau@livio.fr' };
-    const model = buildSignaturesModel(input({ selection: { it: itRestitution, collab: proxy } }));
+    const witnessed: PdfSignature = { ...collabRestitution, isInPerson: true, signedByProxy: false, signerEmail: 'julie.moreau@livio.fr' };
+    const model = buildSignaturesModel(input({ selection: { it: itRestitution, collab: witnessed } }));
     expect(model.collab?.name).toBe('Mme Léa Martin');
     expect(model.collab?.detail).toBe('au guichet, en présence de Julie Moreau');
   });
@@ -133,13 +133,21 @@ describe('buildCertificateEntries — certificat du document', () => {
     expect(itEntry.luApprouve).toBe(false);
   });
 
-  it('signature au guichet par mandataire : signataire = collaborateur, technicien présent nommé', () => {
-    const proxy: PdfSignature = { ...collabRestitution, isInPerson: true, signedByProxy: true, signerEmail: 'julie.moreau@livio.fr' };
-    const [entry] = buildCertificateEntries(bon, { it: null, collab: proxy }, names);
+  it('signature au guichet devant un technicien : signataire = collaborateur, technicien présent nommé', () => {
+    const witnessed: PdfSignature = { ...collabRestitution, isInPerson: true, signedByProxy: false, signerEmail: 'julie.moreau@livio.fr' };
+    const [entry] = buildCertificateEntries(bon, { it: null, collab: witnessed }, names);
     expect(entry.badge).toBe('Signature au guichet');
     expect(entry.meta).toContainEqual(['Signataire', 'Léa Martin']);
     expect(entry.meta).toContainEqual(['En présence de', 'Julie Moreau']);
     expect(entry.meta).toContainEqual(['Compte utilisé', 'julie.moreau@livio.fr']);
+  });
+
+  it('signature au guichet par un mandataire : signataire = le mandataire, pour le compte du collaborateur', () => {
+    const proxy: PdfSignature = { ...collabRestitution, isInPerson: true, signedByProxy: true, signerEmail: 'julie.moreau@livio.fr' };
+    const [entry] = buildCertificateEntries(bon, { it: null, collab: proxy }, names);
+    expect(entry.badge).toBe('Signature au guichet — mandataire');
+    expect(entry.meta).toContainEqual(['Signataire', 'Julie Moreau']);
+    expect(entry.meta).toContainEqual(['Pour le compte de', 'Léa Martin']);
   });
 
   it('PV : libellé « PV de non-restitution »', () => {

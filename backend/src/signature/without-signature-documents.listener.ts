@@ -47,8 +47,8 @@ export class WithoutSignatureDocumentsListener {
     type: PdfSnapshotType,
   ): Promise<void> {
     try {
-      const existing = await this.prisma.pdfSnapshot.findUnique({
-        where: { bonId_type: { bonId: event.bonId, type } },
+      const existing = await this.prisma.pdfSnapshot.findFirst({
+        where: { bonId: event.bonId, type },
         select: { id: true },
       });
       if (existing) return;

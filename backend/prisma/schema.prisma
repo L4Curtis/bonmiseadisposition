@@ -342,6 +342,8 @@ enum SignatureInvalidationReason {
   in_person
   // Le bon a été modifié après l'envoi : un nouveau lien suivra.
   modified
+  // Le marquage d'une restitution a été annulé ou corrigé : un nouveau lien suivra.
+  return_corrected
   // Le bon a été annulé.
   cancelled
   // Le collaborateur a contesté le bon.
@@ -369,8 +371,9 @@ model Signature {
   signerUserAgent    String?                      @map("signer_user_agent")
   mentionLuApprouve  Boolean                      @default(false) @map("mention_lu_approuve")
   isInPerson         Boolean                      @default(false) @map("is_in_person")
-  // Présentiel : signerEmail est le compte (technicien) ayant recueilli la
-  // signature pour le compte du collaborateur titulaire → tracé comme mandataire
+  // Présentiel : signerEmail est le compte connecté sur l'appareil. Un compte
+  // IT est un témoin (le titulaire signe devant lui) ; seul un AUTRE compte,
+  // ni IT ni titulaire, signe pour le compte du collaborateur : mandataire.
   signedByProxy      Boolean                      @default(false) @map("signed_by_proxy")
   // Scellement probant : HMAC-SHA256 (clé serveur dérivée d'ENCRYPTION_KEY)
   // couvrant les champs probants de la signature → détecte toute altération
@@ -392,6 +395,8 @@ model Signature {
   invalidatedAt      DateTime?                    @map("invalidated_at")
   invalidatedReason  SignatureInvalidationReason? @map("invalidated_reason")
   createdAt          DateTime                     @default(now()) @map("created_at")
+  // Documents PDF dont cette signature est la preuve (un par document signé).
+  pdfSnapshots       PdfSnapshot[]
 
   @@index([bonId, type, signed])
   @@index([signed, tokenExpiresAt])
@@ -425,9 +430,9 @@ model Attachment {
 }
 
 // Archive probante APPEND-ONLY : une ligne par document de preuve généré,
-// jamais écrasée (contrairement à PdfSnapshot qui ne conserve que le « courant »
-// par type pour l'affichage). Garantit qu'aucune preuve co-signée — ex. une 1re
-// restitution partielle — ne peut disparaître.
+// jamais écrasée. Elle double PdfSnapshot (lui aussi un document par
+// signature, lu par la fiche et le portail) : aucune preuve co-signée — ex.
+// une 1re restitution partielle — ne peut disparaître.
 model ProofArchive {
   id        String   @id @default(uuid())
   bonId     String   @map("bon_id")
@@ -451,9 +456,20 @@ model PdfSnapshot {
   filename  String
   // SHA-256 hex du document — chaîne de preuve (intégrité vérifiable a posteriori)
   sha256    String?
+  // Signature dont ce document est la preuve : la signature du collaborateur
+  // s'il a signé ce document, sinon la signature IT. Null pour un geste sans
+  // signature et pour un document antérieur à cette colonne.
+  signatureId String?       @map("signature_id")
+  signature   Signature?    @relation(fields: [signatureId], references: [id], onDelete: SetNull)
   createdAt DateTime        @default(now()) @map("created_at")
 
-  @@unique([bonId, type])
+  // Historique complet : un document par signature et par contenu, jamais
+  // écrasé. Plusieurs documents d'un même type (deux restitutions, remise
+  // signée de nouveau après une modification, PV réémis) coexistent ; le plus
+  // récent est la version en vigueur. L'unicité (bon, type, signature,
+  // empreinte) n'écarte que le doublon exact : la génération est idempotente.
+  @@unique([bonId, type, signatureId, sha256])
+  @@index([bonId, type, createdAt])
   @@map("pdf_snapshots")
 }
 

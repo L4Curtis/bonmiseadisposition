@@ -1,6 +1,7 @@
 import type { BonForPdf } from '../pdf-types';
 import { PdfFontsConfig, PdfTemplateConfig, substituteVars } from '../pdf-template-config';
-import { PdfDocumentType, RenderFonts, drawSectionTitle } from './layout';
+import { PdfDocumentType, RenderFonts, drawSectionTitle, formatDate } from './layout';
+import type { RestitutionGroups } from './restitution-scope';
 
 // ─── TABLEAU DES ÉQUIPEMENTS ───────────────────────────────────────────────────
 // Filtrage par type de document, calcul des colonnes/largeurs, pagination et
@@ -106,10 +107,37 @@ export function drawAvenantNote(
   doc.y = noteY + 34;
 }
 
+/** Statut affiché dans la colonne « Statut » d'une ligne (pastille + libellé). */
+export interface RowStatus {
+  label: string;
+  color: string;
+}
+
+/** Tout ce que le dessin d'un tableau partage. */
+interface TableContext {
+  doc: PDFKit.PDFDocument;
+  config: PdfTemplateConfig;
+  fontNames: RenderFonts;
+  leftX: number;
+  pageWidth: number;
+  layout: TableColumnsLayout;
+}
+
+const RETURNED_COLOR = '#16a34a';
+const NOT_RETURNED_COLOR = '#dc2626';
+
+/** Statut d'un équipement hors restitution découpée (PV, remise, avenant). */
+function defaultStatus(eq: PdfEquipment, grayColor: string): RowStatus {
+  if (eq.returnedAt) return { label: 'Restitué', color: RETURNED_COLOR };
+  if (eq.notReturned) return { label: 'Non restitué', color: NOT_RETURNED_COLOR };
+  return { label: 'Reste chez le collaborateur', color: grayColor };
+}
+
 /**
- * Dessine le titre de section puis le tableau des équipements (en-tête,
- * lignes, pastille de statut, pagination). Avance `doc.y` jusqu'au bas de la
- * dernière ligne (ou du message « aucun équipement »).
+ * Dessine le titre de section puis le(s) tableau(x) des équipements. Un
+ * document de restitution est découpé (voir restitution-scope.ts) : rendus
+ * dans cette restitution, déjà rendus avant, et restés chez le collaborateur.
+ * Avance `doc.y` jusqu'au bas du dernier tableau.
  */
 export function drawEquipmentTable(
   doc: PDFKit.PDFDocument,
@@ -120,120 +148,137 @@ export function drawEquipmentTable(
   fontNames: RenderFonts,
   leftX: number,
   pageWidth: number,
+  restitution?: RestitutionGroups,
 ): void {
-  const { colors, fonts } = config;
-
+  const ctx: TableContext = {
+    doc, config, fontNames, leftX, pageWidth,
+    layout: computeTableColumns(documentType, pageWidth, config.table.showRowNumbers),
+  };
   doc.y += 8;
-  const tableSectionLabel = substituteVars(config.table.sectionTitle, templateVars);
-  drawSectionTitle(doc, leftX, tableSectionLabel, pageWidth, colors, fontNames);
+  drawSectionTitle(doc, leftX, substituteVars(config.table.sectionTitle, templateVars), pageWidth, config.colors, fontNames);
   doc.y += 4;
 
-  const allEquipments: PdfEquipment[] = bon.equipments || [];
-  const equipments = filterEquipmentsForDocumentType(allEquipments, documentType, bon._avenantEquipmentIds);
+  if (documentType === 'restitution' && restitution) {
+    drawRestitutionGroups(ctx, restitution);
+    return;
+  }
+  const equipments = filterEquipmentsForDocumentType(bon.equipments || [], documentType, bon._avenantEquipmentIds);
+  drawRows(ctx, equipments, (eq) => defaultStatus(eq, config.colors.lightGray), config.table.emptyMessage);
+}
 
-  const showRowNum = config.table.showRowNumbers;
-  const { hasStatutCol, colWidths, headers, numIdx, designationIdx, statutIdx, lastIdx } =
-    computeTableColumns(documentType, pageWidth, showRowNum);
+function drawRestitutionGroups(ctx: TableContext, groups: RestitutionGroups): void {
+  const { config } = ctx;
+  drawRows(ctx, groups.returnedNow, () => ({ label: 'Restitué', color: RETURNED_COLOR }), 'Aucun équipement rendu dans cette restitution');
+  if (groups.returnedBefore.length > 0) {
+    drawSubheading(ctx, 'DÉJÀ RESTITUÉS LORS D’UNE RESTITUTION PRÉCÉDENTE');
+    drawRows(ctx, groups.returnedBefore, (eq) => ({
+      label: `Restitué le ${formatDate(eq.returnedAt ?? null)}`,
+      color: config.colors.gray,
+    }), '');
+  }
+  if (groups.stillHeld.length > 0) {
+    drawSubheading(ctx, 'RESTENT CHEZ LE COLLABORATEUR');
+    drawRows(ctx, groups.stillHeld, (eq) => eq.notReturned
+      ? { label: 'Non restitué', color: NOT_RETURNED_COLOR }
+      : { label: 'Reste chez le collaborateur', color: config.colors.lightGray }, '');
+  }
+}
 
-  const drawTableHeaderRow = (y: number): void => {
-    doc.rect(leftX, y, pageWidth, 18).fill(colors.headerBg);
-    doc.font(fontNames.bold).fontSize(fonts.tableHeaderSize).fillColor('#ffffff');
-    let hColX = leftX + 4;
-    headers.forEach((h, hi) => {
-      doc.text(h.toUpperCase(), hColX, y + 5, { width: colWidths[hi] - 8 });
-      hColX += colWidths[hi];
-    });
-  };
+function drawSubheading(ctx: TableContext, label: string): void {
+  ctx.doc.y += 10;
+  drawSectionTitle(ctx.doc, ctx.leftX, label, ctx.pageWidth, ctx.config.colors, ctx.fontNames);
+  ctx.doc.y += 4;
+}
 
-  // Table header
-  const tableY = doc.y;
-  drawTableHeaderRow(tableY);
-  doc.y = tableY + 18;
+function drawHeaderRow(ctx: TableContext, y: number): void {
+  const { doc, config, fontNames, leftX, pageWidth, layout } = ctx;
+  doc.rect(leftX, y, pageWidth, 18).fill(config.colors.headerBg);
+  doc.font(fontNames.bold).fontSize(config.fonts.tableHeaderSize).fillColor('#ffffff');
+  layout.headers.reduce((x, h, hi) => {
+    doc.text(h.toUpperCase(), x, y + 5, { width: layout.colWidths[hi] - 8 });
+    return x + layout.colWidths[hi];
+  }, leftX + 4);
+}
 
-  // Table rows
-  const ROW_HEIGHT_MIN = 16;
-  const ROW_PADDING_V = 8; // haut + bas autour du texte (cohérent avec l'offset rowY+4 existant)
-  const PAGE_BOTTOM = doc.page.height - doc.page.margins.bottom;
+/** Valeurs d'une ligne ; la cellule « Statut » (pastille) vaut `null`. */
+function rowValues(eq: PdfEquipment, index: number, layout: TableColumnsLayout): (string | null)[] {
+  const label = eq.catalogItem ? `${eq.catalogItem.brand} ${eq.catalogItem.model}` : eq.customLabel || '—';
+  // Le motif de non-restitution rejoint la colonne Remarques (plus lisible).
+  const remarks = layout.hasStatutCol && eq.notReturned && eq.notReturnedReason
+    ? (eq.notes ? `${eq.notes} — ${eq.notReturnedReason}` : eq.notReturnedReason)
+    : (eq.notes || '');
+  return [
+    ...(layout.numIdx === 0 ? [`${index + 1}`] : []),
+    label, eq.serialNumber || '—', eq.inventoryNumber || '—',
+    ...(layout.hasStatutCol ? [null] : []),
+    remarks,
+  ];
+}
 
+/** Hauteur d'une ligne : une désignation, une remarque ou un statut long
+ *  (« Reste chez le collaborateur », « Restitué le … ») ne déborde jamais sur
+ *  la ligne suivante, avec un plancher pour les lignes courtes. */
+function rowHeightOf(ctx: TableContext, values: (string | null)[], status: RowStatus): number {
+  const { doc, config, fontNames, layout } = ctx;
+  return values.reduce<number>((height, val, ci) => {
+    const isStatus = ci === layout.statutIdx;
+    doc.font(isStatus || ci === layout.designationIdx ? fontNames.bold : fontNames.regular).fontSize(config.fonts.tableBodySize);
+    const text = isStatus ? status.label : val ?? '';
+    const width = layout.colWidths[ci] - (isStatus ? 13 : 8);
+    return Math.max(height, doc.heightOfString(text, { width }) + 8);
+  }, 16);
+}
+
+function drawRows(
+  ctx: TableContext,
+  equipments: readonly PdfEquipment[],
+  statusOf: (eq: PdfEquipment) => RowStatus,
+  emptyMessage: string,
+): void {
+  const { doc, config, fontNames, leftX, pageWidth } = ctx;
   if (equipments.length === 0) {
-    doc.font(fontNames.regular).fontSize(fonts.tableBodySize).fillColor(colors.lightGray);
-    doc.text(config.table.emptyMessage, leftX, doc.y + 6, { width: pageWidth, align: 'center' });
+    if (!emptyMessage) return;
+    doc.font(fontNames.regular).fontSize(config.fonts.tableBodySize).fillColor(config.colors.lightGray);
+    doc.text(emptyMessage, leftX, doc.y + 6, { width: pageWidth, align: 'center' });
     doc.y += 24;
     return;
   }
+  const headerY = doc.y;
+  drawHeaderRow(ctx, headerY);
+  doc.y = headerY + 18;
+  equipments.forEach((eq, i) => drawRow(ctx, eq, i, statusOf(eq)));
+}
 
-  equipments.forEach((eq, i) => {
-    const label = eq.catalogItem
-      ? `${eq.catalogItem.brand} ${eq.catalogItem.model}`
-      : eq.customLabel || '—';
-
-    // Statut (restitution/clôture) : pastille colorée + libellé propre
-    // (remplace les anciens placeholders ASCII V / X / ...).
-    const statut = hasStatutCol
-      ? (eq.returnedAt
-          ? { label: 'Restitué', color: '#16a34a' }
-          : eq.notReturned
-            ? { label: 'Non restitué', color: '#dc2626' }
-            : { label: 'En attente', color: colors.lightGray })
-      : null;
-    // Le motif de non-restitution rejoint la colonne Remarques (plus lisible)
-    const remarks = hasStatutCol && eq.notReturned && eq.notReturnedReason
-      ? (eq.notes ? `${eq.notes} — ${eq.notReturnedReason}` : eq.notReturnedReason)
-      : (eq.notes || '');
-
-    const rowValues: (string | null)[] = [];
-    if (showRowNum) rowValues.push(`${i + 1}`);
-    rowValues.push(label, eq.serialNumber || '—', eq.inventoryNumber || '—');
-    if (hasStatutCol) rowValues.push(null); // Statut : dessiné à part (pastille), pas de wrap à mesurer
-    rowValues.push(remarks);
-
-    // Hauteur de ligne nécessaire : une désignation ou une remarque longue
-    // ne doit plus déborder sur les colonnes voisines (N° série / inventaire) —
-    // on mesure chaque cellule à sa largeur réelle et on prend le maximum,
-    // avec un plancher pour ne pas resserrer les lignes courtes.
-    let rowHeight = ROW_HEIGHT_MIN;
-    rowValues.forEach((val, ci) => {
-      if (ci === statutIdx) return; // pastille : hauteur fixe, une ligne
-      const font = ci === designationIdx ? fontNames.bold : fontNames.regular;
-      doc.font(font).fontSize(fonts.tableBodySize);
-      const h = doc.heightOfString(val ?? '', { width: colWidths[ci] - 8 }) + ROW_PADDING_V;
-      if (h > rowHeight) rowHeight = h;
-    });
-
-    // Saut de page si la ligne (avec sa hauteur réelle) ne tient pas dans
-    // l'espace restant — réutilise la même marge de sécurité (40) que le
-    // reste du document pour laisser la place aux signatures/certificat.
-    if (doc.y + rowHeight > PAGE_BOTTOM - 40) {
-      doc.addPage();
-      const newHeaderY = doc.y;
-      drawTableHeaderRow(newHeaderY);
-      doc.y = newHeaderY + 18;
+function drawRow(ctx: TableContext, eq: PdfEquipment, index: number, status: RowStatus): void {
+  const { doc, config, fontNames, leftX, pageWidth, layout } = ctx;
+  const values = rowValues(eq, index, layout);
+  const rowHeight = rowHeightOf(ctx, values, status);
+  // Saut de page si la ligne ne tient pas : même marge de sécurité (40) que le
+  // reste du document, pour laisser la place aux signatures et au certificat.
+  if (doc.y + rowHeight > doc.page.height - doc.page.margins.bottom - 40) {
+    doc.addPage();
+    const headerY = doc.y;
+    drawHeaderRow(ctx, headerY);
+    doc.y = headerY + 18;
+  }
+  const rowY = doc.y;
+  if (index % 2 === 1) doc.rect(leftX, rowY, pageWidth, rowHeight).fill(config.colors.rowAlt);
+  values.reduce((colX, val, ci) => {
+    const width = layout.colWidths[ci];
+    if (ci === layout.statutIdx) {
+      // Pastille alignée sur la première ligne du libellé (jamais décalée
+      // sous le texte quand la ligne est haute).
+      doc.circle(colX + 3, rowY + 7.5, 2.2).fillColor(status.color).fill();
+      doc.font(fontNames.bold).fontSize(config.fonts.tableBodySize).fillColor(status.color);
+      doc.text(status.label, colX + 9, rowY + 4, { width: width - 13, lineBreak: true });
+    } else {
+      doc.font(ci === layout.designationIdx ? fontNames.bold : fontNames.regular).fontSize(config.fonts.tableBodySize);
+      doc.fillColor(ci === layout.numIdx || ci === layout.lastIdx ? config.colors.gray : config.colors.dark);
+      doc.text(val ?? '', colX, rowY + 4, { width: width - 8, lineBreak: true });
     }
-
-    const rowY = doc.y;
-
-    // Alternate row background
-    if (i % 2 === 1) {
-      doc.rect(leftX, rowY, pageWidth, rowHeight).fill(colors.rowAlt);
-    }
-
-    let colX = leftX + 4;
-    rowValues.forEach((val, ci) => {
-      if (ci === statutIdx && statut) {
-        doc.circle(colX + 3, rowY + rowHeight / 2, 2.2).fillColor(statut.color).fill();
-        doc.font(fontNames.bold).fontSize(fonts.tableBodySize).fillColor(statut.color);
-        doc.text(statut.label, colX + 9, rowY + 4, { width: colWidths[ci] - 13, lineBreak: true });
-      } else {
-        doc.font(ci === designationIdx ? fontNames.bold : fontNames.regular).fontSize(fonts.tableBodySize);
-        doc.fillColor(ci === numIdx || ci === lastIdx ? colors.gray : colors.dark);
-        doc.text(val ?? '', colX, rowY + 4, { width: colWidths[ci] - 8, lineBreak: true });
-      }
-      colX += colWidths[ci];
-    });
-
-    // Row bottom border
-    doc.moveTo(leftX, rowY + rowHeight).lineTo(leftX + pageWidth, rowY + rowHeight)
-      .lineWidth(0.5).strokeColor(colors.border).stroke();
-    doc.y = rowY + rowHeight;
-  });
+    return colX + width;
+  }, leftX + 4);
+  doc.moveTo(leftX, rowY + rowHeight).lineTo(leftX + pageWidth, rowY + rowHeight)
+    .lineWidth(0.5).strokeColor(config.colors.border).stroke();
+  doc.y = rowY + rowHeight;
 }

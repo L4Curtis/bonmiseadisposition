@@ -28,6 +28,15 @@ import {
 } from './defaults/contestation-defaults';
 import { defaultReminder, defaultRestitutionDueReminder } from './defaults/reminder-defaults';
 import { defaultDepartureAlert } from './defaults/departure-alert-defaults';
+import {
+  defaultBonCancelled,
+  defaultBonReplaced,
+  defaultClosedWithoutSignature,
+  defaultContestationOverdueAlert,
+  defaultEquipmentFound,
+  defaultHandoverWithoutSignature,
+  defaultLinkRequestAlert,
+} from './defaults/notice-defaults';
 
 export type { TemplateDefinition } from './template-catalog';
 
@@ -157,6 +166,13 @@ export class TemplatesService {
       case 'reminder':                      return defaultReminder();
       case 'restitution_due_reminder':      return defaultRestitutionDueReminder();
       case 'departure_alert':               return defaultDepartureAlert();
+      case 'bon_cancelled':                 return defaultBonCancelled();
+      case 'handover_without_signature':    return defaultHandoverWithoutSignature();
+      case 'closed_without_signature':      return defaultClosedWithoutSignature();
+      case 'bon_replaced':                  return defaultBonReplaced();
+      case 'equipment_found':               return defaultEquipmentFound();
+      case 'link_request_alert':            return defaultLinkRequestAlert();
+      case 'contestation_overdue_alert':    return defaultContestationOverdueAlert();
       default: throw new NotFoundException(`Template "${id}" introuvable`);
     }
   }

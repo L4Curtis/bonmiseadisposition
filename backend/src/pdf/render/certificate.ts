@@ -3,6 +3,7 @@ import type { DocumentSignatures } from '../document-signatures';
 import { PdfColorScheme, PdfFontsConfig } from '../pdf-template-config';
 import { RenderFonts, drawSectionTitle, formatDateTime, formatOptionalText } from './layout';
 import { SignerNames, signerName } from './signer-names';
+import { inPersonRole } from './in-person';
 
 // ─── CERTIFICAT DE SIGNATURE ÉLECTRONIQUE ─────────────────────────────────────
 // Pièce probante annexée au document : pour chaque signature DE CE DOCUMENT,
@@ -47,9 +48,10 @@ function signedTime(sig: PdfSignature): number {
 
 /**
  * Qui a signé. Au guichet, le compte connecté peut être celui du technicien
- * qui tient la tablette (mandataire) : le signataire reste le collaborateur,
- * le technicien est nommé comme présent (R-032). Une signature IT n'est
- * jamais « au guichet » : elle est apposée dans l'application.
+ * qui tient la tablette : le signataire reste le collaborateur, le technicien
+ * est nommé comme présent (R-032). Un mandataire, lui, signe pour le compte du
+ * collaborateur. Une signature IT n'est jamais « au guichet » : elle est
+ * apposée dans l'application.
  */
 function signerMeta(bon: BonForPdf, sig: PdfSignature, names: SignerNames): { badge: string | null; rows: [string, string][] } {
   const collabName = formatOptionalText(bon.collaborateur?.displayName);
@@ -58,14 +60,21 @@ function signerMeta(bon: BonForPdf, sig: PdfSignature, names: SignerNames): { ba
   if (sig.type === 'it_cachet') {
     return { badge: null, rows: [['Signataire', accountName ?? account], ['Compte', account]] };
   }
-  if (sig.signedByProxy) {
+  const role = inPersonRole(bon, sig);
+  if (role === 'witness') {
     return {
       badge: 'Signature au guichet',
       rows: [['Signataire', collabName], ['En présence de', accountName ?? account], ['Compte utilisé', account]],
     };
   }
+  if (role === 'proxy') {
+    return {
+      badge: 'Signature au guichet — mandataire',
+      rows: [['Signataire', accountName ?? account], ['Pour le compte de', collabName], ['Compte utilisé', account]],
+    };
+  }
   return {
-    badge: sig.isInPerson ? 'Signature au guichet' : null,
+    badge: role === 'holder' ? 'Signature au guichet' : null,
     rows: [['Signataire', accountName ?? collabName], ['Compte', account]],
   };
 }

@@ -1,3 +1,4 @@
+import { ctaButton } from './email-layout';
 export interface TemplateDefinition {
   id: string;
   name: string;
@@ -27,6 +28,8 @@ export const VARIABLE_DESCRIPTIONS: Record<string, string> = {
   USER_NAME: 'Nom du collaborateur contestant',
   CONTESTATION_MESSAGE: 'Message de contestation',
   RESOLUTION_MESSAGE: 'Message de l’équipe informatique au collaborateur',
+  REJECTION_SENTENCE: 'Ce qui reste valable : le document qui reste à signer (et, si son lien a expiré, comment en demander un nouveau), ou le bon tel qu’il a été signé (ou établi)',
+  SIGN_BUTTON: 'Bouton « Signer le document » (ou « Demander un nouveau lien » si le lien a expiré) quand un document attend encore la signature (vide sinon)',
   REPLACEMENT_SENTENCE: 'Ce qui va se passer : bon corrigé (avec sa référence) qui remplacera le bon contesté, ou, pour une restitution ou un PV, correction du bon puis nouvel envoi à signer',
   TYPE_LABEL: 'Type de document, sans « bon de » (mise à disposition / restitution / PV de non-restitution)',
   DOCUMENT_LABEL: 'Document concerné (bon de mise à disposition / bon de restitution / PV de non-restitution)',
@@ -39,6 +42,15 @@ export const VARIABLE_DESCRIPTIONS: Record<string, string> = {
   COUNT: 'Nombre de collaborateurs concernés',
   DEPART_LIST: 'Liste des collaborateurs concernés (balises <li>)',
   INVENTORY_URL: "Lien vers l'inventaire par collaborateur, filtré sur les comptes désactivés",
+  REASON: 'Motif saisi par l’équipe informatique',
+  ABANDONED_STEP: 'Ce que la clôture abandonne (« la restitution », « la restitution et le PV de non-restitution », « le bon »)',
+  REPLACEMENT_REFERENCE: 'Référence du bon corrigé qui remplace le bon contesté',
+  FOUND_LIST: 'Liste des équipements retrouvés (balises <li>)',
+  REQUESTER_EMAIL: 'Adresse du compte qui demande un nouveau lien',
+  EXPIRED_AT: 'Date d’expiration du lien (ex. 15 septembre 2026)',
+  AFTER_DAYS: 'Délai de la relance, en jours ouvrés',
+  OVERDUE_LEAD: 'Début de phrase selon le nombre (« Une contestation attend » / « 3 contestations attendent »)',
+  OVERDUE_LIST: 'Liste des contestations en attente, avec un lien vers chaque bon (balises <li>)',
 };
 
 const vars = (...names: string[]) =>
@@ -48,6 +60,75 @@ const vars = (...names: string[]) =>
 const CONFIRMATION_VARS = vars(
   'COLLAB_CIVILITE', 'COLLAB_NAME', 'FILIALE_NOM', 'REFERENCE', 'DOCUMENT_LABEL', 'TYPE_LABEL', 'EQUIP_LIST', 'PORTAIL_URL',
 );
+
+/** Emails d'information au collaborateur et alertes à l'équipe informatique
+ *  (variables construites par notification/messages/system-notice-emails.ts,
+ *  link-request-alert-message.ts et templates/contestation-overdue-alert.ts). */
+const NOTICE_TEMPLATES: TemplateDefinition[] = [
+  {
+    id: 'bon_cancelled',
+    name: 'Bon annulé',
+    description: 'Envoyé au collaborateur quand un bon qui lui avait été envoyé pour signature est annulé, avec le motif',
+    category: 'signature',
+    recipient: 'Collaborateur',
+    headerColor: BRAND_PASTILLE,
+    variables: vars('COLLAB_CIVILITE', 'COLLAB_NAME', 'FILIALE_NOM', 'REFERENCE', 'REASON'),
+  },
+  {
+    id: 'handover_without_signature',
+    name: 'Remise constatée sans signature',
+    description: 'Envoyé au collaborateur quand l’équipe informatique enregistre la remise sans sa signature : le bon est En cours',
+    category: 'signature',
+    recipient: 'Collaborateur',
+    headerColor: BRAND_PASTILLE,
+    variables: vars('COLLAB_CIVILITE', 'COLLAB_NAME', 'FILIALE_NOM', 'REFERENCE', 'REASON', 'EQUIP_LIST', 'PORTAIL_URL'),
+  },
+  {
+    id: 'closed_without_signature',
+    name: 'Bon clôturé sans signature',
+    description: 'Envoyé au collaborateur quand l’équipe informatique clôture le bon sans sa signature, avec le motif',
+    category: 'signature',
+    recipient: 'Collaborateur',
+    headerColor: BRAND_PASTILLE,
+    variables: vars('COLLAB_CIVILITE', 'COLLAB_NAME', 'FILIALE_NOM', 'REFERENCE', 'REASON', 'ABANDONED_STEP', 'PORTAIL_URL'),
+  },
+  {
+    id: 'bon_replaced',
+    name: 'Bon remplacé',
+    description: 'Envoyé au collaborateur quand il a signé le bon corrigé d’une contestation fondée : le bon contesté est clôturé',
+    category: 'contestation',
+    recipient: 'Collaborateur',
+    headerColor: BRAND_PASTILLE,
+    variables: vars('COLLAB_CIVILITE', 'COLLAB_NAME', 'FILIALE_NOM', 'REFERENCE', 'REPLACEMENT_REFERENCE', 'PORTAIL_URL'),
+  },
+  {
+    id: 'equipment_found',
+    name: 'Équipement retrouvé',
+    description: 'Envoyé au collaborateur quand un équipement déclaré non restitué est retrouvé',
+    category: 'signature',
+    recipient: 'Collaborateur',
+    headerColor: BRAND_PASTILLE,
+    variables: vars('COLLAB_CIVILITE', 'COLLAB_NAME', 'FILIALE_NOM', 'REFERENCE', 'FOUND_LIST'),
+  },
+  {
+    id: 'link_request_alert',
+    name: 'Alerte — Nouveau lien demandé',
+    description: "Envoyé à l'équipe informatique quand un collaborateur ouvre un lien expiré et demande un nouveau lien (une fois par lien)",
+    category: 'rappel',
+    recipient: 'Équipe informatique',
+    headerColor: BRAND_PASTILLE,
+    variables: vars('COLLAB_NAME', 'REQUESTER_EMAIL', 'DOCUMENT_LABEL', 'REFERENCE', 'FILIALE_NOM', 'EXPIRED_AT', 'BON_URL'),
+  },
+  {
+    id: 'contestation_overdue_alert',
+    name: 'Relance — Contestations à trancher',
+    description: "Envoyé à l'équipe informatique quand des contestations attendent une décision depuis plus de 7 jours ouvrés",
+    category: 'contestation',
+    recipient: 'Équipe informatique',
+    headerColor: BRAND_PASTILLE,
+    variables: vars('COUNT', 'AFTER_DAYS', 'OVERDUE_LEAD', 'OVERDUE_LIST', 'CONTESTATIONS_URL'),
+  },
+];
 
 /** Catalogue des templates d'email disponibles (métadonnées admin — le HTML
  *  par défaut de chacun vit dans ./defaults/*.ts). */
@@ -109,7 +190,7 @@ export const TEMPLATES: TemplateDefinition[] = [
   {
     id: 'contestation_resolved',
     name: 'Contestation fondée',
-    description: 'Envoyé au collaborateur quand sa contestation est jugée fondée : un bon corrigé lui est envoyé',
+    description: 'Envoyé au collaborateur quand sa contestation est jugée fondée : un bon corrigé va lui être envoyé (remise), ou le document est corrigé puis renvoyé à signer (restitution, PV)',
     category: 'contestation',
     recipient: 'Collaborateur',
     headerColor: BRAND_PASTILLE,
@@ -118,11 +199,11 @@ export const TEMPLATES: TemplateDefinition[] = [
   {
     id: 'contestation_rejected',
     name: 'Contestation non retenue',
-    description: "Envoyé au collaborateur quand sa contestation n'est pas retenue",
+    description: "Envoyé au collaborateur quand sa contestation n'est pas retenue, avec le lien pour signer si un document l'attend encore",
     category: 'contestation',
     recipient: 'Collaborateur',
     headerColor: BRAND_PASTILLE,
-    variables: vars('REFERENCE', 'FILIALE_NOM', 'RESOLUTION_MESSAGE'),
+    variables: vars('REFERENCE', 'FILIALE_NOM', 'RESOLUTION_MESSAGE', 'REJECTION_SENTENCE', 'SIGN_BUTTON'),
   },
   {
     id: 'reminder',
@@ -160,6 +241,7 @@ export const TEMPLATES: TemplateDefinition[] = [
     headerColor: BRAND_PASTILLE,
     variables: vars('COLLAB_CIVILITE', 'COLLAB_NAME', 'FILIALE_NOM', 'REFERENCE', 'DATE_RESTITUTION', 'EQUIP_LIST', 'PORTAIL_URL'),
   },
+  ...NOTICE_TEMPLATES,
 ];
 
 /** Templates dont le contenu doit obligatoirement porter un lien de signature.
@@ -188,6 +270,14 @@ const PREVIEW_NOT_RETURNED_LIST = [
   return `<li style="padding:8px 0;border-bottom:1px solid #fee2e2;font-size:14px;color:#4A463F;line-height:1.5;list-style:none">${label}<span style="color:#A79F94;font-size:12px;margin-left:6px">${serial}</span><span style="display:inline-block;margin-left:8px;font-size:11px;font-weight:600;color:#dc2626;background:#fef2f2;padding:1px 6px;border-radius:4px">${reason}</span></li>`;
 }).join('\n    ');
 
+const PREVIEW_OVERDUE_LIST = [
+  'BON-2026-0042|Jean Dupont|15/09/2026 (10 j)|Personne ne l’a prise en charge|L’écran n’est pas celui qui m’a été remis.',
+  'BON-2026-0045|Alice Martin|12/09/2026 (13 j)|Prise en charge par Théo Bernard|Le numéro de série du portable est faux.',
+].map((s) => {
+  const [ref, name, since, follow, message] = s.split('|');
+  return `<li style="padding:12px 0;border-bottom:1px solid #E2DFD9;font-size:14px;color:#4A463F;line-height:1.6;list-style:none"><strong style="font-family:monospace">${ref}</strong> <strong style="color:#1B1A18">${name}</strong> &middot; contestée le ${since}<br><span style="font-size:13px">${follow}</span><br><em style="color:#6B665E;font-size:13px">&ldquo;${message}&rdquo;</em></li>`;
+}).join('\n');
+
 export const PREVIEW_VARS: Record<string, string> = {
   COLLAB_CIVILITE: 'Monsieur',
   COLLAB_NAME: 'Jean Dupont',
@@ -207,7 +297,9 @@ export const PREVIEW_VARS: Record<string, string> = {
   RESOLUTION_MESSAGE: 'Après vérification, le bon a été corrigé avec le numéro de série correct. Le matériel référencé correspond bien à celui remis.',
   TYPE_LABEL: 'mise à disposition',
   DOCUMENT_LABEL: 'bon de mise à disposition',
-  REPLACEMENT_SENTENCE: 'Le bon corrigé BON-2026-0043 vous est envoyé pour signature : il remplacera le bon BON-2026-0042 dès que vous l’aurez signé.',
+  REPLACEMENT_SENTENCE: 'Le bon corrigé BON-2026-0043 va vous être envoyé pour signature : il remplacera le bon BON-2026-0042 dès que vous l’aurez signé.',
+  REJECTION_SENTENCE: 'la restitution reste à signer.',
+  SIGN_BUTTON: ctaButton('#', 'Signer le document'),
   BON_URL: '#',
   CONTESTATIONS_URL: '#',
   REMINDER_NUMBER: '2',
@@ -221,4 +313,13 @@ export const PREVIEW_VARS: Record<string, string> = {
     '<li style="padding:10px 0;border-bottom:1px solid #E2DFD9;font-size:14px;color:#4A463F;line-height:1.6;list-style:none"><strong style="color:#1B1A18">Alice Martin</strong> &middot; Groupe Livio — Filiale Demo<br><span style="color:#6B665E;font-size:13px">1 équipement &middot; prêt le plus ancien depuis 42 jours</span></li>',
   ].join('\n'),
   INVENTORY_URL: '#',
+  REASON: 'Le collaborateur a été reçu au guichet et a signé sur place.',
+  ABANDONED_STEP: 'la restitution',
+  REPLACEMENT_REFERENCE: 'BON-2026-0043',
+  FOUND_LIST: PREVIEW_EQUIP_LIST,
+  REQUESTER_EMAIL: 'jean.dupont@groupe-livio.fr',
+  EXPIRED_AT: '15 septembre 2026',
+  AFTER_DAYS: '7',
+  OVERDUE_LEAD: '2 contestations attendent',
+  OVERDUE_LIST: PREVIEW_OVERDUE_LIST,
 };

@@ -13,6 +13,9 @@ export interface SigImages {
 
 /** Une signature du bon, telle que lue en base (enregistrement complet). */
 export interface PdfSignature {
+  /** Identifiant de la signature : rattache le document enregistré à la
+   *  signature dont il est la preuve. */
+  id?: string;
   type: string;
   signed: boolean;
   signedAt?: Date | string | null;

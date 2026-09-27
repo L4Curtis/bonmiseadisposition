@@ -5,6 +5,8 @@ import { SIGNATURE_LINK_BON_STATUSES } from '../../bons/bon-status';
 import { Granularity } from '../kpi-types';
 import { parisBucketSql, parisPeriodSql } from '../../common/dates/paris';
 import { filialeFilter, toNumber } from '../kpi-sql';
+import { countSourceSql } from '../lists/kpi-list-sources';
+import { IT_ROLES } from '../../common/roles';
 
 /**
  * Requêtes SQL brutes de `GET /kpi/delais` (lot 2b). Chaque fonction isole un
@@ -34,7 +36,9 @@ interface VolumeAggregateRow {
   cancelled: bigint;
 }
 
-/** Compteurs de volumes (créés / envoyés / archivés / annulés) sur une période. */
+/** Compteurs de volumes (créés / envoyés / archivés / annulés) sur une
+ *  période : le nombre de lignes des listes qu'ouvrent ces cartes
+ *  (lists/kpi-list-sources.ts). */
 export async function queryVolumeAggregate(
   prisma: PrismaService,
   range: DelaisRange,
@@ -42,14 +46,10 @@ export async function queryVolumeAggregate(
 ): Promise<VolumeAggregate> {
   const rows = await prisma.$queryRaw<VolumeAggregateRow[]>(Prisma.sql`
     SELECT
-      (SELECT COUNT(*)::bigint FROM bons b
-        WHERE ${parisPeriodSql(Prisma.sql`b.created_at`, range)} ${filialeFilter('b', filialeId)}) AS created,
-      (SELECT COUNT(DISTINCT a.bon_id)::bigint FROM audit_logs a JOIN bons b ON b.id = a.bon_id
-        WHERE a.action = 'bon_sent' AND ${parisPeriodSql(Prisma.sql`a.created_at`, range)} ${filialeFilter('b', filialeId)}) AS sent,
-      (SELECT COUNT(*)::bigint FROM bons b
-        WHERE ${parisPeriodSql(Prisma.sql`b.archived_at`, range)} ${filialeFilter('b', filialeId)}) AS archived,
-      (SELECT COUNT(DISTINCT a.bon_id)::bigint FROM audit_logs a JOIN bons b ON b.id = a.bon_id
-        WHERE a.action = 'bon_cancelled' AND ${parisPeriodSql(Prisma.sql`a.created_at`, range)} ${filialeFilter('b', filialeId)}) AS cancelled
+      ${countSourceSql('bons_crees', range, filialeId)} AS created,
+      ${countSourceSql('bons_envoyes', range, filialeId)} AS sent,
+      ${countSourceSql('bons_clotures', range, filialeId)} AS archived,
+      ${countSourceSql('bons_annules', range, filialeId)} AS cancelled
   `);
   const row = rows[0];
   return {
@@ -185,7 +185,15 @@ export async function querySendToSignature(
 ): Promise<SendToSignatureRow[]> {
   return prisma.$queryRaw<SendToSignatureRow[]>(Prisma.sql`
     WITH signed AS (
-      SELECT s.bon_id, s.type::text AS type, s.signed_at, s.created_at, s.is_in_person, s.signed_by_proxy,
+      -- Mandataire : signature au guichet par un compte ni titulaire ni IT.
+      -- Un compte IT connecté sur l'appareil est un témoin (le titulaire
+      -- signe devant lui) : exclu, y compris pour les signatures enregistrées
+      -- avant cette règle, dont le sceau interdit de corriger la colonne.
+      SELECT s.bon_id, s.type::text AS type, s.signed_at, s.created_at, s.is_in_person,
+             (s.signed_by_proxy AND NOT EXISTS (
+               SELECT 1 FROM users u
+               WHERE lower(u.email) = lower(s.signer_email) AND u.role::text IN (${Prisma.join([...IT_ROLES])})
+             )) AS signed_by_proxy,
              LAG(s.signed_at) OVER (PARTITION BY s.bon_id, s.type ORDER BY s.signed_at) AS prev_signed_at
       FROM signatures s
       WHERE s.signed AND s.signed_at IS NOT NULL AND s.type::text IN (${Prisma.join(SEND_TO_SIGNATURE_TYPES)})

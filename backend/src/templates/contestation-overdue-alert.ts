@@ -1,4 +1,6 @@
-import { emailWrapper, card, brandHeader, metaStrip, body, footer, ctaButton, refBadge } from './email-layout';
+import { refBadge } from './email-layout';
+import { renderTemplateHtml } from './render';
+import { defaultContestationOverdueAlert } from './defaults/notice-defaults';
 import { escapeHtml } from '../notification/messages/escape-html';
 import { formatParisDate } from '../common/dates/paris';
 import { bonUrl, contestationsUrl } from '../notification/app-links';
@@ -9,10 +11,9 @@ import { bonUrl, contestationsUrl } from '../notification/app-links';
  * en page que les autres emails, un lien direct vers chaque bon et un lien
  * vers la liste à traiter.
  *
- * Usage (run-overdue-alerts.ts) : remplacer `buildOverdueAlertMessage(due,
- * appUrl, now)` par `buildContestationOverdueAlert(due, { appUrl, afterDays:
- * CONTESTATION_OVERDUE_AFTER_DAYS, now })` ; le résultat `{ subject, html }`
- * s'envoie tel quel.
+ * Modèle personnalisable `contestation_overdue_alert` : `renderContestationOverdueAlert`
+ * rend la version de l'administration ; `buildContestationOverdueAlert`, le
+ * modèle par défaut. Le résultat `{ subject, html }` s'envoie tel quel.
  */
 
 /** Une contestation en retard (forme de `OverdueContestation`, lot 2C). */
@@ -53,28 +54,57 @@ function item(entry: OverdueContestationItem, appUrl: string, now: Date): string
       </li>`;
 }
 
-export function buildContestationOverdueAlert(
+/** Variables + sujet + modèle (`contestation_overdue_alert`) de la relance. */
+export interface OverdueAlertMessage {
+  templateId: 'contestation_overdue_alert';
+  vars: Record<string, string>;
+  subject: string;
+}
+
+/** Ce qui sait rendre un modèle personnalisable (TemplatesService). */
+export interface TemplateRenderer {
+  renderTemplate(id: string, vars: Record<string, string>): Promise<string>;
+}
+
+export function buildContestationOverdueAlertMessage(
   items: readonly OverdueContestationItem[],
   options: ContestationOverdueAlertOptions,
-): { subject: string; html: string } {
+): OverdueAlertMessage {
   const now = options.now ?? new Date();
   const count = items.length;
   const subject =
     count === 1
       ? `[CONTESTATION] ${items[0].bonReference} attend une décision depuis plus de ${options.afterDays} jours ouvrés`
       : `[CONTESTATIONS] ${count} contestations attendent une décision depuis plus de ${options.afterDays} jours ouvrés`;
-  const lead = count === 1 ? 'Une contestation attend' : `${count} contestations attendent`;
-  const html = emailWrapper(card(
-    brandHeader('Contestations à trancher', 'Relance automatique', { text: 'Action requise', bg: 'rgba(255,255,255,0.18)' }),
-    metaStrip([`<strong style="color:#1B1A18">${count}</strong> en attente depuis plus de ${options.afterDays} jours ouvrés`]),
-    body(`
-      <p style="margin:0 0 20px;font-size:15px;color:#4A463F;line-height:1.75">
-        ${lead} une décision depuis plus de ${options.afterDays} jours ouvrés. Tant qu’elle n’est pas tranchée (« Fondée » ou « Non retenue »), le bon reste bloqué et le collaborateur attend une réponse.
-      </p>
-      <ul style="margin:0 0 8px;padding:0;list-style:none">${items.map((entry) => item(entry, options.appUrl, now)).join('\n')}</ul>
-      ${ctaButton(contestationsUrl(options.appUrl), 'Ouvrir les contestations à traiter')}
-      `),
-    footer(),
-  ));
-  return { subject, html };
+  return {
+    templateId: 'contestation_overdue_alert',
+    vars: {
+      COUNT: String(count),
+      AFTER_DAYS: String(options.afterDays),
+      OVERDUE_LEAD: count === 1 ? 'Une contestation attend' : `${count} contestations attendent`,
+      OVERDUE_LIST: items.map((entry) => item(entry, options.appUrl, now)).join('\n'),
+      CONTESTATIONS_URL: contestationsUrl(options.appUrl),
+    },
+    subject,
+  };
+}
+
+/** Email de la relance avec le modèle par défaut (sans personnalisation). */
+export function buildContestationOverdueAlert(
+  items: readonly OverdueContestationItem[],
+  options: ContestationOverdueAlertOptions,
+): { subject: string; html: string } {
+  const { vars, subject } = buildContestationOverdueAlertMessage(items, options);
+  return { subject, html: renderTemplateHtml(defaultContestationOverdueAlert(), vars) };
+}
+
+/** Email de la relance rendu avec le modèle personnalisable (version de
+ *  l'administration si elle existe, sinon le modèle par défaut). */
+export async function renderContestationOverdueAlert(
+  templates: TemplateRenderer,
+  items: readonly OverdueContestationItem[],
+  options: ContestationOverdueAlertOptions,
+): Promise<{ subject: string; html: string }> {
+  const { templateId, vars, subject } = buildContestationOverdueAlertMessage(items, options);
+  return { subject, html: await templates.renderTemplate(templateId, vars) };
 }

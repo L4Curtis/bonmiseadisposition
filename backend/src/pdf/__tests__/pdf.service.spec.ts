@@ -139,7 +139,6 @@ describe('PdfService', () => {
 
   describe('generateAndSave', () => {
     it('should generate PDF buffer and save snapshot', async () => {
-      asMock(prisma.pdfSnapshot.upsert).mockResolvedValue({});
       const bon = bonForPdf();
 
       const result = await service.generateAndSave(
@@ -153,7 +152,7 @@ describe('PdfService', () => {
       expect(result.length).toBeGreaterThan(0);
       // PDF magic bytes: %PDF
       expect(result.subarray(0, 4).toString()).toBe('%PDF');
-      expect(prisma.pdfSnapshot.upsert).toHaveBeenCalled();
+      expect(prisma.pdfSnapshot.create).toHaveBeenCalled();
     });
 
     it('should reject oversized PDFs (>10MB)', async () => {
@@ -175,37 +174,28 @@ describe('PdfService', () => {
       ).rejects.toThrow('PDF trop volumineux');
     });
 
-    it('should upsert snapshot in database', async () => {
-      asMock(prisma.pdfSnapshot.upsert).mockResolvedValue({});
-      const bon = bonForPdf();
+    it('ajoute un document (jamais une mise à jour), rattaché à la signature dont il est la preuve', async () => {
+      const bon = bonForPdf({
+        signatures: [{ id: 'sig-remise', type: 'mise_disposition', signed: true, signedAt: new Date('2026-09-01T09:00:00Z') }],
+      });
 
-      await service.generateAndSave(
-        bon,
-        'signature_collab_mise_disposition',
-        noSigImages,
-        'bon-test.pdf',
-      );
+      await service.generateAndSave(bon, 'signature_collab_mise_disposition', noSigImages, 'bon-test.pdf');
 
-      expect(prisma.pdfSnapshot.upsert).toHaveBeenCalledWith({
-        where: {
-          bonId_type: {
-            bonId: bon.id,
-            type: 'signature_collab_mise_disposition',
-          },
-        },
-        update: { data: expect.any(Buffer), filename: 'bon-test.pdf', sha256: expect.any(String) },
-        create: {
+      expect(prisma.pdfSnapshot.upsert).not.toHaveBeenCalled();
+      expect(prisma.pdfSnapshot.create).toHaveBeenCalledWith({
+        data: {
           bonId: bon.id,
           type: 'signature_collab_mise_disposition',
           data: expect.any(Buffer),
           filename: 'bon-test.pdf',
           sha256: expect.any(String),
+          signatureId: 'sig-remise',
         },
+        select: { id: true },
       });
     });
 
     it('should record the SHA-256 of the document in snapshot and audit', async () => {
-      asMock(prisma.pdfSnapshot.upsert).mockResolvedValue({});
       const bon = bonForPdf();
 
       const pdf = await service.generateAndSave(
@@ -216,10 +206,10 @@ describe('PdfService', () => {
       );
 
       const expectedHash = createHash('sha256').update(pdf).digest('hex');
-      const upsertArgs = asMock(prisma.pdfSnapshot.upsert).mock.calls[0][0] as {
-        create: { sha256: string };
+      const createArgs = asMock(prisma.pdfSnapshot.create).mock.calls[0][0] as {
+        data: { sha256: string };
       };
-      expect(upsertArgs.create.sha256).toBe(expectedHash);
+      expect(createArgs.data.sha256).toBe(expectedHash);
       expect(prisma.auditLog.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
@@ -230,32 +220,29 @@ describe('PdfService', () => {
       );
     });
 
-    it('should never overwrite an existing signed mise-à-disposition snapshot', async () => {
+    it('le même document (même signature, même empreinte) déjà enregistré est renvoyé tel quel, jamais refait', async () => {
       const existingData = Buffer.from('%PDF-existing-signed-document');
-      asMock(prisma.pdfSnapshot.findUnique).mockResolvedValue({ id: 'snap-001', data: existingData });
-      const bon = bonForPdf();
+      asMock(prisma.pdfSnapshot.findFirst).mockResolvedValue({ id: 'snap-001', data: existingData, filename: 'deja.pdf' });
+      const bon = bonForPdf({
+        signatures: [{ id: 'sig-remise', type: 'mise_disposition', signed: true, signedAt: new Date('2026-09-01T09:00:00Z') }],
+      });
 
-      const result = await service.generateAndSave(
-        bon,
-        'signature_collab_mise_disposition',
-        noSigImages,
-        'bon-test.pdf',
-      );
+      const saved = await service.saveDocument(bon, 'signature_collab_mise_disposition', 'bon-test.pdf');
 
-      // Le document DÉJÀ archivé est retourné tel quel (jamais un nouveau
-      // rendu) : la preuve légale ne doit jamais varier une fois signée.
-      expect(result).toBeInstanceOf(Buffer);
-      expect(result.equals(existingData)).toBe(true);
-      expect(prisma.pdfSnapshot.upsert).not.toHaveBeenCalled();
+      // La preuve légale ne varie jamais une fois signée.
+      expect(saved).toEqual({ pdf: existingData, filename: 'deja.pdf', created: false });
+      expect(prisma.pdfSnapshot.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+        where: { bonId: bon.id, type: 'signature_collab_mise_disposition', signatureId: 'sig-remise', sha256: expect.stringMatching(/^[0-9a-f]{64}$/) },
+      }));
+      expect(prisma.pdfSnapshot.create).not.toHaveBeenCalled();
     });
 
     // ─── Chaîne de preuve atomique (archive + snapshot + audit) ─────────────
 
     it('should write the proof archive, the snapshot and the audit log inside the same transaction, in order', async () => {
-      asMock(prisma.pdfSnapshot.upsert).mockResolvedValue({});
       const order: string[] = [];
       asMock(prisma.proofArchive.create).mockImplementation(async () => { order.push('proofArchive'); return {}; });
-      asMock(prisma.pdfSnapshot.upsert).mockImplementation(async () => { order.push('pdfSnapshot'); return {}; });
+      asMock(prisma.pdfSnapshot.create).mockImplementation(async () => { order.push('pdfSnapshot'); return { id: 'snap' }; });
       asMock(prisma.auditLog.create).mockImplementation(async () => { order.push('auditLog'); return {}; });
 
       await service.generateAndSave(bonForPdf(), 'signature_it_restitution', noSigImages, 'bon-test.pdf');
@@ -264,19 +251,18 @@ describe('PdfService', () => {
       expect(order).toEqual(['proofArchive', 'pdfSnapshot', 'auditLog']);
     });
 
-    it('should propagate a proof archive failure and NOT upsert the snapshot (atomicity)', async () => {
+    it('should propagate a proof archive failure and NOT save the snapshot (atomicity)', async () => {
       asMock(prisma.proofArchive.create).mockRejectedValue(new Error('DB down'));
 
       await expect(
         service.generateAndSave(bonForPdf(), 'signature_it_restitution', noSigImages, 'bon-test.pdf'),
       ).rejects.toThrow('DB down');
 
-      expect(prisma.pdfSnapshot.upsert).not.toHaveBeenCalled();
+      expect(prisma.pdfSnapshot.create).not.toHaveBeenCalled();
       expect(prisma.auditLog.create).not.toHaveBeenCalled();
     });
 
     it('should propagate an audit log failure (never swallowed)', async () => {
-      asMock(prisma.pdfSnapshot.upsert).mockResolvedValue({});
       asMock(prisma.auditLog.create).mockRejectedValue(new Error('audit write failed'));
 
       await expect(
@@ -476,7 +462,7 @@ describe('PdfService', () => {
 
     it('should skip a signature whose snapshot already exists', async () => {
       asMock(prisma.signature.findMany).mockResolvedValue([{ bonId: 'bon-1', type: 'mise_disposition' }]);
-      asMock(prisma.pdfSnapshot.findUnique).mockResolvedValue({ id: 'existing' });
+      asMock(prisma.pdfSnapshot.findFirst).mockResolvedValue({ id: 'existing' });
 
       const result = await service.regenerateMissingSnapshots();
 
@@ -486,7 +472,7 @@ describe('PdfService', () => {
 
     it('should regenerate a missing snapshot for a signed collaborateur signature', async () => {
       asMock(prisma.signature.findMany).mockResolvedValue([{ bonId: 'bon-1', type: 'restitution' }]);
-      asMock(prisma.pdfSnapshot.findUnique).mockResolvedValue(null);
+      asMock(prisma.pdfSnapshot.findFirst).mockResolvedValue(null);
       asMock(prisma.bon.findUnique).mockResolvedValue(minimalBon());
 
       const result = await service.regenerateMissingSnapshots();
@@ -496,7 +482,7 @@ describe('PdfService', () => {
         expect.objectContaining({ id: 'bon-1' }),
         'signature_collab_restitution',
         null,
-        expect.stringContaining('signature_collab_restitution'),
+        expect.stringMatching(/^BON-2026-0001_Jean-Dupont_Bon-de-restitution-signe_\d{4}-\d{2}-\d{2}_\d{2}h\d{2}m\d{2}\.pdf$/),
       );
     });
 
@@ -506,7 +492,7 @@ describe('PdfService', () => {
         { bonId: 'bon-1', type: 'it_cachet', pdfType: null },
         { bonId: 'bon-1', type: 'it_cachet', pdfType: null },
       ]);
-      asMock(prisma.pdfSnapshot.findUnique).mockResolvedValue(null);
+      asMock(prisma.pdfSnapshot.findFirst).mockResolvedValue(null);
       asMock(prisma.bon.findUnique).mockResolvedValue(minimalBon());
 
       const result = await service.regenerateMissingSnapshots();
@@ -523,7 +509,7 @@ describe('PdfService', () => {
       asMock(prisma.signature.findMany).mockResolvedValue([
         { bonId: 'bon-1', type: 'it_cachet', pdfType: 'restitution' },
       ]);
-      asMock(prisma.pdfSnapshot.findUnique).mockResolvedValue(null);
+      asMock(prisma.pdfSnapshot.findFirst).mockResolvedValue(null);
       asMock(prisma.bon.findUnique).mockResolvedValue(minimalBon());
 
       const result = await service.regenerateMissingSnapshots();
@@ -533,7 +519,7 @@ describe('PdfService', () => {
         expect.objectContaining({ id: 'bon-1' }),
         'signature_it_restitution',
         null,
-        expect.stringContaining('signature_it_restitution'),
+        expect.stringContaining('Bon-de-restitution_signature-IT'),
       );
     });
 
@@ -542,7 +528,7 @@ describe('PdfService', () => {
         { bonId: 'bon-1', type: 'it_cachet', pdfType: null }, // 1st, no pdfType -> heuristic: mise_disposition
         { bonId: 'bon-1', type: 'it_cachet', pdfType: 'mise_disposition' }, // 2nd, but pdfType overrides heuristic
       ]);
-      asMock(prisma.pdfSnapshot.findUnique).mockResolvedValue(null);
+      asMock(prisma.pdfSnapshot.findFirst).mockResolvedValue(null);
       asMock(prisma.bon.findUnique).mockResolvedValue(minimalBon());
 
       const result = await service.regenerateMissingSnapshots();
@@ -554,13 +540,32 @@ describe('PdfService', () => {
         expect.objectContaining({ id: 'bon-1' }),
         'signature_it_mise_disposition',
         null,
-        expect.stringContaining('signature_it_mise_disposition'),
+        expect.stringContaining('Bon-de-mise-a-disposition_signature-IT'),
       );
+    });
+
+    it('PV jamais émis (signature IT recueillie à la déclaration, équipements encore détenus) : aucun PV fabriqué', async () => {
+      asMock(prisma.signature.findMany).mockResolvedValue([
+        { bonId: 'bon-attente', type: 'it_cachet', pdfType: 'pv_cloture' },
+        { bonId: 'bon-emis', type: 'it_cachet', pdfType: 'pv_cloture' },
+      ]);
+      asMock(prisma.auditLog.findMany).mockResolvedValue([{ bonId: 'bon-emis' }]);
+      asMock(prisma.pdfSnapshot.findFirst).mockResolvedValue(null);
+      asMock(prisma.bon.findUnique).mockResolvedValue(minimalBon());
+
+      const result = await service.regenerateMissingSnapshots();
+
+      expect(result).toEqual({ regenerated: 1, failed: 0 });
+      expect(generateAndSaveSpy).toHaveBeenCalledTimes(1);
+      expect(prisma.bon.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'bon-emis' } }));
+      expect(prisma.auditLog.findMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({ action: 'pv_cloture_emitted' }),
+      }));
     });
 
     it('should count a failure without throwing when the bon cannot be reloaded', async () => {
       asMock(prisma.signature.findMany).mockResolvedValue([{ bonId: 'bon-missing', type: 'pv_cloture' }]);
-      asMock(prisma.pdfSnapshot.findUnique).mockResolvedValue(null);
+      asMock(prisma.pdfSnapshot.findFirst).mockResolvedValue(null);
       asMock(prisma.bon.findUnique).mockResolvedValue(null);
 
       const result = await service.regenerateMissingSnapshots();

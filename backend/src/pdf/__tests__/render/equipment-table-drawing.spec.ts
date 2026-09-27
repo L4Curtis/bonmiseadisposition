@@ -64,8 +64,32 @@ describe('tableau des équipements dans le PDF', () => {
       ]),
       'restitution',
     );
-    expect(texts).toEqual(expect.arrayContaining(['Restitué', 'Non restitué', 'En attente']));
+    expect(texts).toEqual(expect.arrayContaining(['Restitué', 'Non restitué', 'Reste chez le collaborateur']));
+    expect(texts).not.toContain('En attente');
     expect(texts).toContain('Housse incluse — Perdu en déplacement');
+  });
+
+  it('restitution découpée : un statut long (« Reste chez le collaborateur ») tient dans sa ligne', () => {
+    const page = newDocument();
+    const calls: { value: string; y: number; width: number }[] = [];
+    const spied = page.doc.text as unknown as { mock: { calls: unknown[][] } };
+    const config = structuredClone(DEFAULT_CONFIGS.restitution);
+    const held = [equipment(1), equipment(2), equipment(3)];
+    drawEquipmentTable(page.doc, bonWith(held), 'restitution', config, {}, FONTS, LEFT_X, page.pageWidth, {
+      returnedNow: [], returnedBefore: [], stillHeld: held,
+    });
+    for (const [value, , y, options] of spied.mock.calls) {
+      if (typeof value === 'string') calls.push({ value, y: y as number, width: (options as { width?: number })?.width ?? 0 });
+    }
+    const labels = calls.filter((c) => c.value === 'Reste chez le collaborateur');
+    const rows = calls.filter((c) => /^Portable \d$/.test(c.value));
+    expect(labels).toHaveLength(3);
+    page.doc.font(FONTS.bold).fontSize(config.fonts.tableBodySize);
+    labels.slice(0, -1).forEach((label, i) => {
+      const bottom = label.y + page.doc.heightOfString(label.value, { width: label.width });
+      // La ligne suivante commence 4 points au-dessus de son texte.
+      expect(bottom).toBeLessThanOrEqual(rows[i + 1].y - 4);
+    });
   });
 
   it('beaucoup de lignes : nouvelle page, avec l’en-tête du tableau répété', () => {

@@ -3,6 +3,7 @@ import type { DocumentSignatures } from '../document-signatures';
 import { PdfTemplateConfig } from '../pdf-template-config';
 import { PdfDocumentType, formatDate } from './layout';
 import { SignerNames, signerName } from './signer-names';
+import { inPersonRole } from './in-person';
 
 // ─── Contenu des cases de signature ───────────────────────────────────────────
 // Ce que chaque case affiche, calculé AVANT le dessin à partir des signatures
@@ -65,13 +66,16 @@ function buildItBox({ selection, images, names, config }: SignaturesModelInput):
   };
 }
 
-/** « au guichet », et le technicien présent quand il tenait la tablette. */
+/** « au guichet », avec le technicien présent quand il tenait la tablette,
+ *  ou le mandataire qui a signé pour le collaborateur. */
 function inPersonDetail(input: SignaturesModelInput): string | undefined {
   const collab = input.selection.collab;
-  if (!collab?.isInPerson) return undefined;
-  if (!collab.signedByProxy) return 'au guichet';
-  const witness = signerName(input.names, collab.signerEmail) ?? collab.signerEmail ?? 'un technicien';
-  return `au guichet, en présence de ${witness}`;
+  const role = collab ? inPersonRole(input.bon, collab) : null;
+  if (!collab || role === null) return undefined;
+  if (role === 'holder') return 'au guichet';
+  const account = signerName(input.names, collab.signerEmail) ?? collab.signerEmail;
+  if (role === 'proxy') return `au guichet, signé par ${account ?? 'un mandataire'} (mandataire)`;
+  return `au guichet, en présence de ${account ?? 'un technicien'}`;
 }
 
 function buildCollabBox(input: SignaturesModelInput): SignatureBoxModel {

@@ -63,7 +63,7 @@ describe('PdfService — vérité du document', () => {
       { email: 'Lea.Martin@livio.fr', displayName: 'Léa Martin' },
     ]);
     asMock(prisma.filiale.findUnique).mockResolvedValue({ stampPath: null });
-    asMock(prisma.pdfSnapshot.findUnique).mockResolvedValue(null);
+    asMock(prisma.pdfSnapshot.findFirst).mockResolvedValue(null);
     const module = await Test.createTestingModule({
       providers: [
         PdfService,
@@ -108,7 +108,7 @@ describe('PdfService — vérité du document', () => {
     await expect(service.generateAndSave(withoutRestitution, 'signature_collab_restitution', null, 'f.pdf')).rejects.toThrow(
       /n'a pas signé ce document/,
     );
-    expect(prisma.pdfSnapshot.upsert).not.toHaveBeenCalled();
+    expect(prisma.pdfSnapshot.create).not.toHaveBeenCalled();
   });
 
   it('remise sans signature : rangée sous remise_sans_signature, motif et technicien imprimés', async () => {
@@ -118,8 +118,8 @@ describe('PdfService — vérité du document', () => {
       _withoutSignature: { kind: 'handover', reason: 'Compagnon sans téléphone', actorName: 'Alice André', at: new Date('2026-09-02T10:00:00Z') },
     });
     await service.generateAndSave(handover, 'remise_sans_signature', null, 'f.pdf');
-    const upsert = asMock(prisma.pdfSnapshot.upsert).mock.calls[0][0] as { create: { type: string } };
-    expect(upsert.create.type).toBe('remise_sans_signature');
+    const saved = asMock(prisma.pdfSnapshot.create).mock.calls[0][0] as { data: { type: string } };
+    expect(saved.data.type).toBe('remise_sans_signature');
     expect(joined()).toContain('REMISE CONSTATÉE SANS SIGNATURE');
     expect(joined()).toContain('Motif : Compagnon sans téléphone\nConstaté par Alice André le 02/09/2026');
     expect(joined()).not.toContain('Lu et approuvé — Je reconnais avoir reçu');
@@ -128,25 +128,64 @@ describe('PdfService — vérité du document', () => {
   it('ancienne clôture (texte libre) demandée comme « signature collab » : rangée sous cloture_sans_signature', async () => {
     const legacy = bon({ signatures: cycle.slice(0, 3), _unilateralNote: 'Départ sans restitution' });
     await service.generateAndSave(legacy, 'signature_collab_restitution', null, 'f.pdf');
-    const upsert = asMock(prisma.pdfSnapshot.upsert).mock.calls[0][0] as { create: { type: string } };
-    expect(upsert.create.type).toBe('cloture_sans_signature');
+    const saved = asMock(prisma.pdfSnapshot.create).mock.calls[0][0] as { data: { type: string } };
+    expect(saved.data.type).toBe('cloture_sans_signature');
   });
 
   it('constat déjà rédigé demandé comme remise_sans_signature : reste une remise, texte imprimé tel quel', async () => {
     const note = 'REMISE CONSTATÉE SANS SIGNATURE — le 02/09/2026 par Alice André. Motif : absent';
     await service.generateAndSave(bon({ status: 'active', signatures: cycle.slice(0, 1), _unilateralNote: note }), 'remise_sans_signature', null, 'f.pdf');
-    const upsert = asMock(prisma.pdfSnapshot.upsert).mock.calls[0][0] as { create: { type: string } };
-    expect(upsert.create.type).toBe('remise_sans_signature');
+    const saved = asMock(prisma.pdfSnapshot.create).mock.calls[0][0] as { data: { type: string } };
+    expect(saved.data.type).toBe('remise_sans_signature');
     expect(texts).toContain(note);
     expect(joined()).toContain('BON DE MISE À DISPOSITION — REMISE CONSTATÉE SANS SIGNATURE');
   });
 
-  it('signature au guichet par un technicien : au nom du collaborateur, technicien présent', async () => {
-    const proxy: PdfSignature = { ...cycle[3], isInPerson: true, signedByProxy: true, signerEmail: 'theo.b@livio.fr' };
-    await service.generateAndSave(bon({ signatures: [...cycle.slice(0, 3), proxy] }), 'signature_collab_restitution', null, 'f.pdf');
+  it('signature au guichet sur le compte du technicien : au nom du collaborateur, technicien présent', async () => {
+    const witnessed: PdfSignature = { ...cycle[3], isInPerson: true, signedByProxy: false, signerEmail: 'theo.b@livio.fr' };
+    await service.generateAndSave(bon({ signatures: [...cycle.slice(0, 3), witnessed] }), 'signature_collab_restitution', null, 'f.pdf');
     expect(texts).toContain('Mme Léa Martin');
     expect(texts).toContain('Date : 04/09/2026 — au guichet, en présence de Théo Bernard');
     expect(texts).toContain('Signature au guichet');
+    expect(joined()).not.toMatch(/mandataire/i);
+  });
+
+  it('signature au guichet par le titulaire sur son compte : « au guichet », sans témoin', async () => {
+    const own: PdfSignature = { ...cycle[3], isInPerson: true, signedByProxy: false, signerEmail: 'lea.martin@livio.fr' };
+    await service.generateAndSave(bon({ signatures: [...cycle.slice(0, 3), own] }), 'signature_collab_restitution', null, 'f.pdf');
+    expect(texts).toContain('Date : 04/09/2026 — au guichet');
+  });
+
+  it('mandataire réel : signé par lui, pour le compte du collaborateur', async () => {
+    const proxy: PdfSignature = { ...cycle[3], isInPerson: true, signedByProxy: true, signerEmail: 'alice.a@livio.fr' };
+    await service.generateAndSave(bon({ signatures: [...cycle.slice(0, 3), proxy] }), 'signature_collab_restitution', null, 'f.pdf');
+    expect(texts).toContain('Date : 04/09/2026 — au guichet, signé par Alice André (mandataire)');
+    expect(texts).toContain('Signature au guichet — mandataire');
+    expect(joined()).toContain('Pour le compte de');
+  });
+
+  it('restitution partielle : seuls les rendus sous « restitués », les autres sous « Restent chez le collaborateur », jamais « En attente »', async () => {
+    const partial = bon({
+      status: 'partially_returned',
+      equipments: [
+        { id: 'eq-1', customLabel: 'Portable', serialNumber: 'SN1', returnedAt: new Date('2026-09-04T08:00:00Z') },
+        { id: 'eq-2', customLabel: 'Écran', serialNumber: 'SN2', returnedAt: null },
+      ],
+    });
+    await service.generateAndSave(partial, 'signature_collab_restitution', null, 'f.pdf');
+    const all = joined();
+    expect(all).toContain('RESTENT CHEZ LE COLLABORATEUR');
+    expect(texts).toContain('Reste chez le collaborateur');
+    expect(texts).not.toContain('En attente');
+    expect(all.indexOf('Portable')).toBeLessThan(all.indexOf('RESTENT CHEZ LE COLLABORATEUR'));
+    expect(all.indexOf('Écran')).toBeGreaterThan(all.indexOf('RESTENT CHEZ LE COLLABORATEUR'));
+  });
+
+  it('document de restitution daté de sa signature, pas de la remise', async () => {
+    await service.generateAndSave(bon(), 'signature_collab_restitution', null, 'f.pdf');
+    const header = texts.slice(0, 12).join(' ');
+    expect(header).toContain('04/09/2026');
+    expect(header).not.toContain('01/09/2026');
   });
 
   it('cachet de la filiale : lu par filialeId', async () => {

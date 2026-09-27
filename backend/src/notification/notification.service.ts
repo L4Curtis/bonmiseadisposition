@@ -22,7 +22,7 @@ import {
   truncateErrorMessage,
 } from './notification-log';
 import { logRefusedRecipient } from './collaborator-recipient';
-import { loadNotificationBon, loadSignedDocumentAttachment } from './notification-data';
+import { loadNotificationBon, loadRejectionContext, loadSignedDocumentAttachment } from './notification-data';
 import {
   buildMiseDispositionRequestMessage,
   buildRestitutionRequestMessage,
@@ -43,6 +43,7 @@ import {
   buildHandoverWithoutSignatureNotice,
   buildMarkFoundNotice,
   buildBonReplacedNotice,
+  TemplatedEmail,
 } from './messages/system-notice-emails';
 import {
   EmailAttachment,
@@ -175,9 +176,15 @@ export class NotificationService {
     });
   }
 
+  /** Email d'un modèle personnalisable (version de l'administration, sinon
+   *  le modèle par défaut), prêt à partir. */
+  private async renderNotice(message: TemplatedEmail): Promise<{ subject: string; html: string }> {
+    return { subject: message.subject, html: await this.templatesService.renderTemplate(message.templateId, message.vars) };
+  }
+
   /** Email « bon annulé » avec son motif (R-013). */
   async sendCancellationNotice(bon: NotificationBon, reason = ''): Promise<void> {
-    return sendCollaboratorEmail(this.senderDeps(), { bonId: bon.id, type: 'cancellation', build: () => buildCancellationNotice(bon, reason) });
+    return sendCollaboratorEmail(this.senderDeps(), { bonId: bon.id, type: 'cancellation', build: () => this.renderNotice(buildCancellationNotice(bon, reason)) });
   }
 
   /** Email « bon annulé » d'après l'événement : le bon est relu en base. */
@@ -192,7 +199,7 @@ export class NotificationService {
     if (!bon) return;
     const appUrl = await this.getAppUrl();
     return sendCollaboratorEmail(this.senderDeps(), {
-      bonId, type: 'handover_without_signature', build: () => buildHandoverWithoutSignatureNotice(bon, reason, portalUrl(appUrl)),
+      bonId, type: 'handover_without_signature', build: () => this.renderNotice(buildHandoverWithoutSignatureNotice(bon, reason, portalUrl(appUrl))),
     });
   }
 
@@ -202,7 +209,7 @@ export class NotificationService {
     if (!bon) return;
     const appUrl = await this.getAppUrl();
     return sendCollaboratorEmail(this.senderDeps(), {
-      bonId, type: 'unilateral_closure', build: () => buildClosedWithoutSignatureNotice(bon, reason, previousStatus, portalUrl(appUrl)),
+      bonId, type: 'unilateral_closure', build: () => this.renderNotice(buildClosedWithoutSignatureNotice(bon, reason, previousStatus, portalUrl(appUrl))),
     });
   }
 
@@ -225,12 +232,12 @@ export class NotificationService {
     if (!bon) return;
     const appUrl = await this.getAppUrl();
     return sendCollaboratorEmail(this.senderDeps(), {
-      bonId, type: 'contestation_resolution', build: () => buildBonReplacedNotice(bon, replacementReference, portalUrl(appUrl)),
+      bonId, type: 'contestation_resolution', build: () => this.renderNotice(buildBonReplacedNotice(bon, replacementReference, portalUrl(appUrl))),
     });
   }
 
   async sendMarkFoundNotice(bon: NotificationBon, equipmentIds: string[]): Promise<void> {
-    return sendCollaboratorEmail(this.senderDeps(), { bonId: bon.id, type: 'mark_found', build: () => buildMarkFoundNotice(bon, equipmentIds) });
+    return sendCollaboratorEmail(this.senderDeps(), { bonId: bon.id, type: 'mark_found', build: () => this.renderNotice(buildMarkFoundNotice(bon, equipmentIds)) });
   }
 
   // ─── Rappel avant restitution prévue ────────────────────────────────────────
@@ -280,8 +287,11 @@ export class NotificationService {
     replacement?: { reference: string } | null,
     reopenedDocument?: ReopenedDocument | null,
   ): Promise<void> {
+    // « Non retenue » : dire ce qui reste valable, et joindre le lien du
+    // document encore à signer (jamais « tel qu'il a été signé » à tort).
+    const rejection = action === 'rejected' ? await loadRejectionContext(this.prisma, bon.id, await this.getAppUrl()) : null;
     const { templateId, vars, subject } = buildContestationResolutionMessage(
-      bon, action, resolutionMessage, replacement, reopenedDocument,
+      bon, action, resolutionMessage, replacement, reopenedDocument, rejection,
     );
     return sendCollaboratorEmail(this.senderDeps(), {
       bonId: bon.id,
@@ -311,7 +321,7 @@ export class NotificationService {
   async sendLinkRequestAlert(alert: LinkRequestAlert): Promise<void> {
     const bon = await loadNotificationBon(this.prisma, alert.bonId);
     if (!bon) return;
-    const { subject, html } = buildLinkRequestAlert(bon, alert, await this.getAppUrl());
+    const { subject, html } = await this.renderNotice(buildLinkRequestAlert(bon, alert, await this.getAppUrl()));
     await sendItAlert(this.senderDeps(), { bonId: bon.id, bonReference: bon.reference, type: 'link_request_alert', subject, html });
   }
 

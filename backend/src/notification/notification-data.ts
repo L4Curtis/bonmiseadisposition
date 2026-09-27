@@ -1,7 +1,10 @@
 import type { PdfSnapshotType } from '@prisma/client';
+import { attachmentFilename } from '../pdf/snapshot-filename';
+import type { RejectionContext } from './messages/contestation-messages';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationBon } from '../common/types';
 import type { EmailAttachment } from './senders/notification-senders';
+import { INVALIDATED_TOKEN_SENTINEL } from '../common/bon-predicates';
 
 /**
  * Lectures en base propres aux emails : le bon tel qu'un email le montre, et
@@ -43,16 +46,57 @@ const SIGNED_SNAPSHOT_TYPES: Readonly<Record<'mise_disposition' | 'restitution' 
   pv_cloture: 'cloture_equipements_manquants',
 });
 
-/** Le PDF signé du document, s'il existe et reste d'une taille raisonnable. */
+/**
+ * Le PDF signé du document, s'il existe et reste d'une taille raisonnable :
+ * le plus récent de son type (celui que la confirmation annonce), sous un nom
+ * de pièce jointe lisible (« BON-2026-0074_Bon-de-restitution-signe_2026-09-27.pdf »).
+ */
 export async function loadSignedDocumentAttachment(
   prisma: PrismaService,
   bonId: string,
   documentType: keyof typeof SIGNED_SNAPSHOT_TYPES,
 ): Promise<EmailAttachment | null> {
-  const snapshot = await prisma.pdfSnapshot.findUnique({
-    where: { bonId_type: { bonId, type: SIGNED_SNAPSHOT_TYPES[documentType] } },
-    select: { data: true, filename: true },
+  const type = SIGNED_SNAPSHOT_TYPES[documentType];
+  const snapshot = await prisma.pdfSnapshot.findFirst({
+    where: { bonId, type },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    select: { data: true, createdAt: true, bon: { select: { reference: true } } },
   });
   if (!snapshot || snapshot.data.length > MAX_ATTACHMENT_BYTES) return null;
-  return { filename: snapshot.filename, content: Buffer.from(snapshot.data), contentType: 'application/pdf' };
+  return {
+    filename: attachmentFilename(snapshot.bon.reference, type, snapshot.createdAt),
+    content: Buffer.from(snapshot.data),
+    contentType: 'application/pdf',
+  };
+}
+
+/**
+ * Ce que le bon attend encore du collaborateur quand sa contestation n'est
+ * pas retenue : le lien du document en attente (jamais au guichet, jamais un
+ * lien remplacé ou invalidé), en disant s'il a expiré entre-temps, et s'il a
+ * déjà signé un document de ce bon.
+ */
+export async function loadRejectionContext(
+  prisma: PrismaService,
+  bonId: string,
+  appUrl: string,
+  now: Date = new Date(),
+): Promise<RejectionContext> {
+  const [pending, signedCount] = await Promise.all([
+    prisma.signature.findFirst({
+      where: {
+        bonId, signed: false, isInPerson: false, invalidatedAt: null,
+        type: { not: 'it_cachet' }, tokenExpiresAt: { gt: INVALIDATED_TOKEN_SENTINEL },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { token: true, type: true, tokenExpiresAt: true },
+    }),
+    prisma.signature.count({ where: { bonId, signed: true, type: { not: 'it_cachet' } } }),
+  ]);
+  return {
+    signUrl: pending ? `${appUrl}/signer/${pending.token}` : null,
+    documentType: pending ? (pending.type as NonNullable<RejectionContext['documentType']>) : null,
+    linkExpired: pending ? pending.tokenExpiresAt.getTime() <= now.getTime() : false,
+    signed: signedCount > 0,
+  };
 }

@@ -54,8 +54,9 @@ function signLegacy(
   signerIp: string,
   signerUserAgent: string,
   signerId?: string,
+  signerRole?: string,
 ) {
-  return service.sign(token, { signatureDataUrl, mentionLuApprouve, signerEmail, signerIp, signerUserAgent, signerId });
+  return service.sign(token, { signatureDataUrl, mentionLuApprouve, signerEmail, signerIp, signerUserAgent, signerId, signerRole });
 }
 
 // ─── Mock fs module ──────────────────────────────────────────────────────────
@@ -482,20 +483,50 @@ describe('SignatureService', () => {
       expect(publisher.publish).not.toHaveBeenCalled();
     });
 
-    it('signature au guichet par un autre compte : mandataire tracé, annoncé avec l’auteur', async () => {
+    it('signature au guichet sur le compte du technicien : le titulaire signe, ce n’est PAS un mandataire', async () => {
       const sig = buildSigWithBon({ isInPerson: true, type: 'pv_cloture' }, { status: 'partially_returned' });
       prisma.signature.findUnique.mockResolvedValueOnce(sig);
       prisma.signature.findUnique.mockResolvedValueOnce(freshSigMock('partially_returned'));
       prisma.bon.findUniqueOrThrow.mockResolvedValue({ ...sig.bon, status: 'archived' });
       prisma.auditLog.create.mockResolvedValue({});
 
-      await signLegacy(service, 'test-token-uuid', VALID_SIGNATURE_DATA_URL, true, 'julie.tech@groupelivio.fr', SIGNER_IP, SIGNER_UA, 'user-tech-002');
+      await signLegacy(service, 'test-token-uuid', VALID_SIGNATURE_DATA_URL, true, 'julie.tech@groupelivio.fr', SIGNER_IP, SIGNER_UA, 'user-tech-002', 'technician');
+
+      const update = prisma.signature.updateMany.mock.calls[0][0] as { data: Record<string, unknown> };
+      expect(update.data.signedByProxy).toBe(false);
+      expect(publisher.publish).toHaveBeenCalledWith(
+        'signature.signed',
+        expect.objectContaining({ documentType: 'pv_cloture', inPerson: true, signedByProxy: false, actorId: 'user-tech-002', newStatus: 'archived' }),
+      );
+    });
+
+    it('signature au guichet sur un compte admin : témoin, pas mandataire', async () => {
+      const sig = buildSigWithBon({ isInPerson: true });
+      prisma.signature.findUnique.mockResolvedValueOnce(sig);
+      prisma.signature.findUnique.mockResolvedValueOnce(freshSigMock());
+      prisma.bon.findUniqueOrThrow.mockResolvedValue({ ...sig.bon, status: 'active' });
+      prisma.auditLog.create.mockResolvedValue({});
+
+      await signLegacy(service, 'test-token-uuid', VALID_SIGNATURE_DATA_URL, true, 'nadia.admin@groupelivio.fr', SIGNER_IP, SIGNER_UA, 'user-admin-001', 'admin');
+
+      const update = prisma.signature.updateMany.mock.calls[0][0] as { data: Record<string, unknown> };
+      expect(update.data.signedByProxy).toBe(false);
+    });
+
+    it('signature au guichet par un tiers (ni IT ni titulaire) : mandataire tracé, annoncé avec l’auteur', async () => {
+      const sig = buildSigWithBon({ isInPerson: true, type: 'pv_cloture' }, { status: 'partially_returned' });
+      prisma.signature.findUnique.mockResolvedValueOnce(sig);
+      prisma.signature.findUnique.mockResolvedValueOnce(freshSigMock('partially_returned'));
+      prisma.bon.findUniqueOrThrow.mockResolvedValue({ ...sig.bon, status: 'archived' });
+      prisma.auditLog.create.mockResolvedValue({});
+
+      await signLegacy(service, 'test-token-uuid', VALID_SIGNATURE_DATA_URL, true, 'collegue@groupelivio.fr', SIGNER_IP, SIGNER_UA, 'user-collegue', 'collaborator');
 
       const update = prisma.signature.updateMany.mock.calls[0][0] as { data: Record<string, unknown> };
       expect(update.data.signedByProxy).toBe(true);
       expect(publisher.publish).toHaveBeenCalledWith(
         'signature.signed',
-        expect.objectContaining({ documentType: 'pv_cloture', inPerson: true, signedByProxy: true, actorId: 'user-tech-002', newStatus: 'archived' }),
+        expect.objectContaining({ documentType: 'pv_cloture', inPerson: true, signedByProxy: true, actorId: 'user-collegue' }),
       );
     });
 

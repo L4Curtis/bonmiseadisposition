@@ -26,7 +26,7 @@ describe('WithoutSignatureDocumentsListener', () => {
     prisma = createMockPrismaService();
     pdfService = createMockPdfService();
     smbService = createMockSmbService();
-    prisma.pdfSnapshot.findUnique.mockResolvedValue(null);
+    prisma.pdfSnapshot.findFirst.mockResolvedValue(null);
     prisma.bon.findUniqueOrThrow.mockResolvedValue(bonRow);
     prisma.user.findUnique.mockResolvedValue({ displayName: 'Marie Martin' });
     prisma.auditLog.create.mockResolvedValue({});
@@ -47,10 +47,10 @@ describe('WithoutSignatureDocumentsListener', () => {
   it('remise sans signature → document « remise_sans_signature » avec le motif et le technicien', async () => {
     await publisher.publish(DOMAIN_EVENTS.bonHandoverWithoutSignature, { ...base, reason: 'Collaborateur sur chantier' });
 
-    expect(pdfService.generateAndSave).toHaveBeenCalledTimes(1);
-    const [bon, type, , filename] = pdfService.generateAndSave.mock.calls[0];
+    expect(pdfService.saveDocument).toHaveBeenCalledTimes(1);
+    const [bon, type, filename] = pdfService.saveDocument.mock.calls[0];
     expect(type).toBe('remise_sans_signature');
-    expect(filename).toMatch(/^BON-2026-0001_Lea.Martin_remise_sans_signature\.pdf$/);
+    expect(filename).toMatch(/^BON-2026-0001_Lea-Martin_Remise-constatee-sans-signature_2026-09-\d{2}_\d{2}h\d{2}m\d{2}\.pdf$/);
     expect(bon._withoutSignature).toEqual({
       kind: 'handover',
       reason: 'Collaborateur sur chantier',
@@ -66,24 +66,24 @@ describe('WithoutSignatureDocumentsListener', () => {
     });
 
     expect(prisma.user.findUnique).not.toHaveBeenCalled();
-    const [bon, type] = pdfService.generateAndSave.mock.calls[0];
+    const [bon, type] = pdfService.saveDocument.mock.calls[0];
     expect(type).toBe('cloture_sans_signature');
     expect(bon._withoutSignature).toMatchObject({ kind: 'closure', actorName: "l'équipe informatique" });
   });
 
   it('événement rejoué : un document déjà produit n’est pas refait', async () => {
-    prisma.pdfSnapshot.findUnique.mockResolvedValue({ id: 'snap-1' });
+    prisma.pdfSnapshot.findFirst.mockResolvedValue({ id: 'snap-1' });
     await publisher.publish(DOMAIN_EVENTS.bonHandoverWithoutSignature, { ...base, reason: 'Collaborateur sur chantier' });
 
-    expect(prisma.pdfSnapshot.findUnique).toHaveBeenCalledWith({
-      where: { bonId_type: { bonId: 'bon-1', type: 'remise_sans_signature' } },
+    expect(prisma.pdfSnapshot.findFirst).toHaveBeenCalledWith({
+      where: { bonId: 'bon-1', type: 'remise_sans_signature' },
       select: { id: true },
     });
-    expect(pdfService.generateAndSave).not.toHaveBeenCalled();
+    expect(pdfService.saveDocument).not.toHaveBeenCalled();
   });
 
   it('échec de génération : tracé dans l’audit pour être régénéré, sans remonter à l’émetteur', async () => {
-    pdfService.generateAndSave.mockRejectedValue(new Error('disque plein'));
+    pdfService.saveDocument.mockRejectedValue(new Error('disque plein'));
     await expect(
       publisher.publish(DOMAIN_EVENTS.bonHandoverWithoutSignature, { ...base, reason: 'Collaborateur sur chantier' }),
     ).resolves.toBeUndefined();

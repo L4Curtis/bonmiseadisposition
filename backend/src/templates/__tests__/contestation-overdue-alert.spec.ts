@@ -1,4 +1,6 @@
-import { buildContestationOverdueAlert } from '../contestation-overdue-alert';
+import { buildContestationOverdueAlert, buildContestationOverdueAlertMessage } from '../contestation-overdue-alert';
+import { defaultContestationOverdueAlert } from '../defaults/notice-defaults';
+import { renderTemplateHtml } from '../render';
 
 describe('buildContestationOverdueAlert — relance des contestations à trancher', () => {
   const now = new Date('2026-09-25T10:00:00Z');
@@ -28,5 +30,20 @@ describe('buildContestationOverdueAlert — relance des contestations à tranche
     expect(buildContestationOverdueAlert(items.slice(0, 1), { appUrl: 'https://bons.test', afterDays: 7, now }).subject).toBe(
       '[CONTESTATION] BON-2026-0001 attend une décision depuis plus de 7 jours ouvrés',
     );
+  });
+
+  it('modèle personnalisable « contestation_overdue_alert » : variables + sujet, même rendu que l’email par défaut', () => {
+    const options = { appUrl: 'https://bons.test', afterDays: 7, now };
+    const message = buildContestationOverdueAlertMessage(items, options);
+    expect(message.templateId).toBe('contestation_overdue_alert');
+    expect(renderTemplateHtml(defaultContestationOverdueAlert(), message.vars)).toBe(buildContestationOverdueAlert(items, options).html);
+  });
+
+  it('rendu par le modèle personnalisé quand un moteur de modèles est fourni', async () => {
+    const { renderContestationOverdueAlert } = await import('../contestation-overdue-alert');
+    const templates = { renderTemplate: vi.fn().mockResolvedValue('<p>perso</p>') };
+    const result = await renderContestationOverdueAlert(templates, items, { appUrl: 'https://bons.test', afterDays: 7, now });
+    expect(templates.renderTemplate).toHaveBeenCalledWith('contestation_overdue_alert', expect.objectContaining({ AFTER_DAYS: '7' }));
+    expect(result).toEqual({ subject: expect.stringContaining('[CONTESTATIONS]'), html: '<p>perso</p>' });
   });
 });

@@ -63,7 +63,8 @@ export function drawHeader(
   }
   if (config.header.showDates) {
     doc.font(fonts.regular).fontSize(fontSizes.labelSize).fillColor(colors.gray);
-    doc.text(`Émis le : ${formatDate(bon.dateMiseDisposition)}`, leftX, rightY, { width: pageWidth, align: 'right' });
+    // Date d'émission du document (voir documentIssueDate dans pdf.service.ts).
+    doc.text(`Émis le : ${templateVars.DATE || formatDate(bon.dateMiseDisposition)}`, leftX, rightY, { width: pageWidth, align: 'right' });
     rightY += 9;
     if (bon.dateRestitution) {
       doc.text(`Restitution : ${formatDate(bon.dateRestitution)}`, leftX, rightY, { width: pageWidth, align: 'right' });

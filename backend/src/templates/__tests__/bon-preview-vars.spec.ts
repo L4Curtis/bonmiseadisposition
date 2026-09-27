@@ -122,4 +122,29 @@ describe('buildBonPreviewVars', () => {
     expect(vars.DOCUMENT_LABEL).toBe('PV de non-restitution');
     expect(vars.PORTAIL_URL).toBe(`${APP_URL}/mes-bons`);
   });
+  it('emails d’information : vraies données du bon, motif et bon corrigé en valeurs d’exemple', () => {
+    const cancelled = buildBonPreviewVars(template('bon_cancelled'), bon(), APP_URL);
+    expect(cancelled.vars.REFERENCE).toBe('BMD-2026-0107');
+    expect(cancelled.vars.COLLAB_NAME).toBe('Claire &lt;Martin&gt;');
+    expect(cancelled.sampleVariables).toEqual(['REASON']);
+
+    const handover = buildBonPreviewVars(template('handover_without_signature'), bon(), APP_URL);
+    expect(handover.vars.EQUIP_LIST).toContain('Lenovo T14');
+    expect(handover.vars.PORTAIL_URL).toBe(`${APP_URL}/mes-bons`);
+
+    const replaced = buildBonPreviewVars(template('bon_replaced'), bon(), APP_URL);
+    expect(replaced.sampleVariables).toEqual(['REPLACEMENT_REFERENCE']);
+
+    const found = buildBonPreviewVars(template('equipment_found'), bon({
+      equipments: [{ id: 'e1', order: 1, catalogItem: null, customLabel: 'Casque perdu', serialNumber: null, notReturned: true }],
+    }), APP_URL);
+    expect(found.vars.FOUND_LIST).toContain('Casque perdu');
+  });
+
+  it('alerte « nouveau lien demandé » : lien direct vers la fiche, date d’expiration en exemple', () => {
+    const { vars, sampleVariables } = buildBonPreviewVars(template('link_request_alert'), bon(), APP_URL);
+    expect(vars.BON_URL).toBe(`${APP_URL}/bons/bon-1`);
+    expect(vars.DOCUMENT_LABEL).toBe('bon de mise à disposition');
+    expect(sampleVariables).toEqual(['EXPIRED_AT']);
+  });
 });
