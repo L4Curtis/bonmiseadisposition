@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { DomainEventsModule } from './common/events';
 import { PrismaModule } from './prisma/prisma.module';
 import { ConfigModule } from './config/config.module';
 import { AuthModule } from './auth/auth.module';
@@ -32,6 +33,9 @@ import { HealthController } from './health.controller';
       ttl: 60000,  // 1 minute en ms
       limit: 60,
     }]),
+    // Événements du domaine (signature.signed, bon.*) : un module annonce, un
+    // autre réagit, sans dépendance entre eux (voir common/events).
+    DomainEventsModule,
     PrismaModule,
     ConfigModule,
     TemplatesModule,

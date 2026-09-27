@@ -23,6 +23,8 @@ export const ENUM_PARITY: readonly boolean[] = [
   assertSameUnion<Contract.SignatureType, Db.SignatureType>(true),
   assertSameUnion<Contract.PdfSnapshotType, Db.PdfSnapshotType>(true),
   assertSameUnion<Contract.ContestationStatus, Db.ContestationStatus>(true),
+  assertSameUnion<Contract.ContestationOutcome, Db.ContestationOutcome>(true),
+  assertSameUnion<Contract.SignatureInvalidationReason, Db.SignatureInvalidationReason>(true),
   assertSameUnion<Contract.NotificationType, Db.NotificationType>(true),
   assertSameUnion<Contract.NotificationStatus, Db.NotificationStatus>(true),
   assertSameUnion<Contract.SmbExportStatus, Db.SmbExportStatus>(true),

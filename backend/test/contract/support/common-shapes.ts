@@ -6,6 +6,7 @@
 import type {
   BonStatus,
   Civilite,
+  ContestationOutcome,
   ContestationStatus,
   CsrfErrorBody,
   EquipmentCategory,
@@ -15,6 +16,7 @@ import type {
   OkResponse,
   PdfSnapshotType,
   ScheduledJobStatus,
+  SignatureInvalidationReason,
   SignatureType,
   SmbExportStatus,
   UserRole,
@@ -69,6 +71,19 @@ export const pdfSnapshotType = enumOf<PdfSnapshotType>({
   signature_collab_restitution: true,
   cloture_equipements_manquants: true,
   avenant_equipement_retrouve: true,
+  remise_sans_signature: true,
+  cloture_sans_signature: true,
+});
+
+export const signatureInvalidationReason = enumOf<SignatureInvalidationReason>({
+  replaced: true,
+  in_person: true,
+  modified: true,
+  cancelled: true,
+  contested: true,
+  handover_without_signature: true,
+  closed_without_signature: true,
+  account_deactivated: true,
 });
 
 export const contestationStatus = enumOf<ContestationStatus>({
@@ -77,6 +92,8 @@ export const contestationStatus = enumOf<ContestationStatus>({
   resolved: true,
   rejected: true,
 });
+
+export const contestationOutcome = enumOf<ContestationOutcome>({ founded: true, not_retained: true });
 
 export const notificationType = enumOf<NotificationType>({
   mise_dispo_request: true,
@@ -90,9 +107,12 @@ export const notificationType = enumOf<NotificationType>({
   mark_found: true,
   unilateral_closure: true,
   restitution_due_reminder: true,
+  handover_without_signature: true,
+  contestation_overdue_alert: true,
+  link_request_alert: true,
 });
 
-export const notificationStatus = enumOf<NotificationStatus>({ sent: true, failed: true, bounced: true });
+export const notificationStatus = enumOf<NotificationStatus>({ sent: true, failed: true, bounced: true, skipped: true });
 
 export const smbExportStatus = enumOf<SmbExportStatus>({ pending: true, success: true, failed: true });
 

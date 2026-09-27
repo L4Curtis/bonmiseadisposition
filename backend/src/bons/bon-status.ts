@@ -1,4 +1,5 @@
-import { BonStatus } from '@prisma/client';
+import { BonStatus, Civilite, ContestationOutcome, SignatureInvalidationReason } from '@prisma/client';
+import type { BonSubStatus } from '../contracts/bons';
 
 /**
  * Statuts d'un bon : libellés et listes nommées, en un seul endroit.
@@ -102,3 +103,80 @@ export const NON_SIGNABLE_BON_STATUSES = statusList('archived', 'cancelled', 'co
 /** Bons absents de « Mes équipements » : un brouillon n'a encore rien été
  *  envoyé au collaborateur, un bon annulé ne le concerne plus. */
 export const COLLAB_HIDDEN_BON_STATUSES = statusList('draft', 'cancelled');
+
+// ─── Libellés de la vague 2 ──────────────────────────────────────────────────
+// Mêmes mots que frontend/src/domain/labels.ts (lexique des écrans) : changer
+// un mot, c'est changer les deux fichiers.
+
+/** Sous-états de « Restitution en cours », dans leur ordre de priorité : si
+ *  plusieurs s'appliquent, le premier l'emporte (définitions : BonSubStatus,
+ *  contracts/bons.ts). */
+export const BON_SUB_STATUSES: readonly BonSubStatus[] = Object.freeze([
+  'pv_to_sign', 'partial_restitution_to_sign', 'loss_declared', 'equipment_still_out',
+]);
+
+export const BON_SUB_STATUS_LABELS: Readonly<Record<BonSubStatus, string>> = Object.freeze({
+  pv_to_sign: 'PV de non-restitution à signer',
+  partial_restitution_to_sign: 'Restitution partielle à signer',
+  loss_declared: 'Perte déclarée',
+  equipment_still_out: 'Équipements encore chez le collaborateur',
+});
+
+/** Libellé d'un sous-état, ou la valeur brute si elle est inconnue. */
+export function bonSubStatusLabel(subStatus: string): string {
+  return Object.prototype.hasOwnProperty.call(BON_SUB_STATUS_LABELS, subStatus)
+    ? BON_SUB_STATUS_LABELS[subStatus as BonSubStatus]
+    : subStatus;
+}
+
+/** Issue d'une contestation tranchée (écrans, emails, indicateurs). */
+export const CONTESTATION_OUTCOME_LABELS: Readonly<Record<ContestationOutcome, string>> = Object.freeze({
+  founded: 'Fondée',
+  not_retained: 'Non retenue',
+});
+
+/** Les deux gestes « sans signature », distincts (R-014). Les clés sont
+ *  celles des événements, des motifs d'invalidation et des emails. */
+export type WithoutSignatureAction = 'handover_without_signature' | 'closed_without_signature';
+
+/** Nom du bouton. */
+export const WITHOUT_SIGNATURE_ACTION_LABELS: Readonly<Record<WithoutSignatureAction, string>> = Object.freeze({
+  handover_without_signature: 'Constater la remise sans signature',
+  closed_without_signature: 'Clôturer sans signature',
+});
+
+/** Ce qui s'est passé (historique, en-tête de fiche, document PDF). */
+export const WITHOUT_SIGNATURE_DONE_LABELS: Readonly<Record<WithoutSignatureAction, string>> = Object.freeze({
+  handover_without_signature: 'Remise constatée sans signature',
+  closed_without_signature: 'Clôturé sans signature',
+});
+
+/** Motif d'invalidation d'un lien, pour l'équipe informatique (fiche du bon). */
+export const LINK_INVALIDATION_LABELS: Readonly<Record<SignatureInvalidationReason, string>> = Object.freeze({
+  replaced: 'Remplacé par un nouveau lien',
+  in_person: 'Signature au guichet',
+  modified: 'Bon modifié',
+  cancelled: 'Bon annulé',
+  contested: 'Bon contesté',
+  handover_without_signature: 'Remise constatée sans signature',
+  closed_without_signature: 'Clôturé sans signature',
+  account_deactivated: 'Compte désactivé',
+});
+
+/** Message montré au collaborateur qui ouvre un lien invalidé (R-038). */
+export const LINK_INVALIDATION_MESSAGES: Readonly<Record<SignatureInvalidationReason, string>> = Object.freeze({
+  replaced: 'Ce lien a été remplacé : un nouveau lien vous a été envoyé par email.',
+  in_person: "Ce document se signe au guichet, avec l'équipe informatique.",
+  modified: 'Ce bon a été modifié : un nouveau lien vous sera envoyé.',
+  cancelled: "Ce bon a été annulé : il n'y a plus rien à signer.",
+  contested: "Votre contestation est en cours de traitement : il n'y a rien à signer pour l'instant.",
+  handover_without_signature: "La remise a été enregistrée sans votre signature : il n'y a plus rien à signer.",
+  closed_without_signature: "Ce bon a été clôturé : il n'y a plus rien à signer.",
+  account_deactivated: "Votre compte est désactivé : adressez-vous à l'équipe informatique.",
+});
+
+/** Civilité abrégée, devant le nom (bon, PDF, page de signature). */
+export const CIVILITE_LABELS: Readonly<Record<Civilite, string>> = Object.freeze({ mme: 'Mme', mr: 'M.' });
+
+/** Civilité en toutes lettres (formule d'appel des emails). */
+export const CIVILITE_LONG_LABELS: Readonly<Record<Civilite, string>> = Object.freeze({ mme: 'Madame', mr: 'Monsieur' });

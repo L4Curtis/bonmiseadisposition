@@ -1,4 +1,3 @@
-import { LOANED_BON_STATUSES } from '../../bons/bon-status';
 import {
   PARTIAL_PENDING_SIGNATURE_TYPES,
   COLLAB_SIGNATURE_TYPES,
@@ -7,8 +6,10 @@ import {
   overdueCutoff,
   buildOverdueSignatureWhere,
   overdueSignatureSql,
-  buildLoanedEquipmentWhere,
-  loanedEquipmentSql,
+  buildAwaitingSignatureWhere,
+  buildContestationToProcessWhere,
+  buildReturnOverdueEquipmentWhere,
+  returnOverdueEquipmentSql,
   SITUATION_ORDER,
   SITUATION_LABELS,
   SITUATION_BON_STATUSES,
@@ -51,11 +52,19 @@ describe('overdueCutoff', () => {
 });
 
 describe('buildOverdueSignatureWhere', () => {
-  it('construit le where Prisma attendu (updatedAt < cutoff, OR statuts / partiel)', () => {
+  it('combine « signature attendue » et awaitingSince antérieur au seuil (jamais updatedAt)', () => {
     const now = new Date('2026-09-16T00:00:00.000Z');
     const where = buildOverdueSignatureWhere(7, now);
 
-    expect(where.updatedAt).toEqual({ lt: new Date('2026-09-09T00:00:00.000Z') });
+    expect(where.AND).toEqual([
+      buildAwaitingSignatureWhere(),
+      { awaitingSince: { lt: new Date('2026-09-09T00:00:00.000Z') } },
+    ]);
+    expect(JSON.stringify(where)).not.toContain('updatedAt');
+  });
+
+  it('exclut les liens invalidés, par la sentinelle et par invalidatedAt', () => {
+    const where = buildAwaitingSignatureWhere();
     expect(where.OR).toEqual([
       { status: { in: ['sent_mise_dispo', 'sent_restitution'] } },
       {
@@ -64,58 +73,46 @@ describe('buildOverdueSignatureWhere', () => {
           some: {
             signed: false,
             type: { in: ['restitution', 'pv_cloture'] },
+            invalidatedAt: null,
             tokenExpiresAt: { gt: INVALIDATED_TOKEN_SENTINEL },
           },
         },
       },
     ]);
   });
-
-  it('un cutoff différent (10 j) déplace la borne updatedAt', () => {
-    const now = new Date('2026-09-16T00:00:00.000Z');
-    const where10 = buildOverdueSignatureWhere(10, now);
-    expect((where10.updatedAt as { lt: Date }).lt.toISOString()).toBe('2026-09-06T00:00:00.000Z');
-  });
 });
 
 describe('overdueSignatureSql', () => {
-  it('caste b.status en ::text et référence to_timestamp(1) (sentinelle)', () => {
-    const sql = overdueSignatureSql(7);
-    expect(typeof sql.sql).toBe('string');
+  it('caste les enums en ::text et compare awaiting_since à un instant UTC lié en paramètre', () => {
+    const now = new Date('2026-09-16T00:00:00.000Z');
+    const sql = overdueSignatureSql(7, now);
     expect(sql.sql).toContain('b.status::text IN (');
     expect(sql.sql).toContain('s.type::text IN (');
-    expect(sql.sql).toContain('to_timestamp(1)');
+    expect(sql.sql).toContain('b.awaiting_since <');
+    expect(sql.sql).not.toContain('updated_at');
     expect(sql.sql).not.toMatch(/b\.status IN \(/);
-  });
-
-  it('lie thresholdDays comme paramètre (pas de concaténation)', () => {
-    const sql = overdueSignatureSql(7);
-    expect(sql.values).toContain(7);
+    expect(sql.values).toContain('2026-09-09T00:00:00.000Z');
   });
 });
 
-describe('buildLoanedEquipmentWhere', () => {
-  it('inclut les 3 clauses de base sans filiale', () => {
-    const where = buildLoanedEquipmentWhere();
-    expect(where.AND).toEqual([
-      { returnedAt: null },
-      { notReturned: false },
-      { bon: { status: { in: ['active', 'sent_restitution', 'partially_returned'] } } },
-    ]);
+describe('buildContestationToProcessWhere', () => {
+  it('retient les contestations ouvertes ou prises en charge', () => {
+    expect(buildContestationToProcessWhere()).toEqual({ status: { in: ['open', 'in_review'] } });
   });
+});
 
-  it('ajoute le filtre filiale quand fourni', () => {
-    const where = buildLoanedEquipmentWhere({ filialeId: 'f-1' });
+describe('Retour en retard', () => {
+  it('ajoute au parc la date de restitution antérieure au jour de Paris', () => {
+    // 23 h 30 UTC le 16/09 : il est déjà le 17/09 à Paris.
+    const where = buildReturnOverdueEquipmentWhere({ filialeId: 'f-1' }, new Date('2026-09-16T23:30:00.000Z'));
+    expect(where.AND).toContainEqual({ bon: { dateRestitution: { lt: new Date('2026-09-17T00:00:00.000Z') } } });
     expect(where.AND).toContainEqual({ bon: { filialeId: 'f-1' } });
-    expect(where.AND).toHaveLength(4);
   });
-});
 
-describe('loanedEquipmentSql', () => {
-  it('caste b.status::text et référence les 3 statuts prêtés', () => {
-    const sql = loanedEquipmentSql();
-    expect(sql.sql).toContain('b.status::text IN (');
-    expect(sql.sql).not.toMatch(/b\.status IN \(/);
+  it('SQL : date_restitution comparée à la date du jour de Paris', () => {
+    const sql = returnOverdueEquipmentSql();
+    expect(sql.sql).toContain('b.date_restitution <');
+    expect(sql.sql).toContain('Europe/Paris');
   });
 });
 
@@ -127,8 +124,8 @@ describe('situations — définition élargie du parc en circulation (audit 2026
   it('SITUATION_LABELS fournit un libellé FR par situation', () => {
     expect(SITUATION_LABELS).toEqual({
       en_attente_signature: 'Remise à signer',
-      en_circulation: 'En circulation',
-      en_litige: 'En litige',
+      en_circulation: 'En cours',
+      en_litige: 'Contesté',
     });
   });
 
@@ -145,9 +142,6 @@ describe('situations — définition élargie du parc en circulation (audit 2026
       'sent_mise_dispo', 'active', 'sent_restitution', 'partially_returned', 'contested',
     ]);
     expect(new Set(PARC_BON_STATUSES).size).toBe(PARC_BON_STATUSES.length);
-    // Corrige l'audit : sent_mise_dispo et contested rejoignent la définition
-    // du parc en circulation, absents de l'ancien LOANED_BON_STATUSES.
-    expect(PARC_BON_STATUSES).toEqual(expect.arrayContaining([...LOANED_BON_STATUSES]));
     expect(PARC_BON_STATUSES).toContain('sent_mise_dispo');
     expect(PARC_BON_STATUSES).toContain('contested');
   });
@@ -213,8 +207,8 @@ describe('situations — définition élargie du parc en circulation (audit 2026
       const breakdown = buildSituationBreakdown([{ situation: 'en_circulation', count: 4 }]);
       expect(breakdown).toEqual([
         { situation: 'en_attente_signature', label: 'Remise à signer', count: 0 },
-        { situation: 'en_circulation', label: 'En circulation', count: 4 },
-        { situation: 'en_litige', label: 'En litige', count: 0 },
+        { situation: 'en_circulation', label: 'En cours', count: 4 },
+        { situation: 'en_litige', label: 'Contesté', count: 0 },
       ]);
     });
 
@@ -231,8 +225,8 @@ describe('situations — définition élargie du parc en circulation (audit 2026
     it('tableau vide → les 3 situations à 0', () => {
       expect(buildSituationBreakdown([])).toEqual([
         { situation: 'en_attente_signature', label: 'Remise à signer', count: 0 },
-        { situation: 'en_circulation', label: 'En circulation', count: 0 },
-        { situation: 'en_litige', label: 'En litige', count: 0 },
+        { situation: 'en_circulation', label: 'En cours', count: 0 },
+        { situation: 'en_litige', label: 'Contesté', count: 0 },
       ]);
     });
   });

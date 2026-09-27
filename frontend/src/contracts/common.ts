@@ -68,9 +68,25 @@ export type PdfSnapshotType =
   | 'signature_it_restitution'
   | 'signature_collab_restitution'
   | 'cloture_equipements_manquants'
-  | 'avenant_equipement_retrouve';
+  | 'avenant_equipement_retrouve'
+  | 'remise_sans_signature'
+  | 'cloture_sans_signature';
+
+/** Motif d'invalidation d'un lien de signature (colonne `Signature.invalidatedReason`). */
+export type SignatureInvalidationReason =
+  | 'replaced'
+  | 'in_person'
+  | 'modified'
+  | 'cancelled'
+  | 'contested'
+  | 'handover_without_signature'
+  | 'closed_without_signature'
+  | 'account_deactivated';
 
 export type ContestationStatus = 'open' | 'in_review' | 'resolved' | 'rejected';
+
+/** Issue d'une contestation tranchée : « Fondée » / « Non retenue ». */
+export type ContestationOutcome = 'founded' | 'not_retained';
 
 export type NotificationType =
   | 'mise_dispo_request'
@@ -83,9 +99,12 @@ export type NotificationType =
   | 'cancellation'
   | 'mark_found'
   | 'unilateral_closure'
-  | 'restitution_due_reminder';
+  | 'restitution_due_reminder'
+  | 'handover_without_signature'
+  | 'contestation_overdue_alert'
+  | 'link_request_alert';
 
-export type NotificationStatus = 'sent' | 'failed' | 'bounced';
+export type NotificationStatus = 'sent' | 'failed' | 'bounced' | 'skipped';
 
 export type SmbExportStatus = 'pending' | 'success' | 'failed';
 

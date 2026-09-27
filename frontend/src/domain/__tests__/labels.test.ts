@@ -1,20 +1,29 @@
 import { describe, it, expect } from 'vitest';
 import {
   BON_STATUS_LABELS,
+  BON_SUB_STATUS_LABELS,
   CATEGORY_LABELS,
+  CIVILITE_LABELS,
+  CIVILITE_LONG_LABELS,
+  CONTESTATION_OUTCOME_LABELS,
   CONTESTATION_STATUS_LABELS,
   CONTESTATION_STATUS_OPTIONS,
   DOCUMENT_LABELS,
   LATENESS_LABELS,
+  LINK_INVALIDATION_LABELS,
+  LINK_INVALIDATION_MESSAGES,
+  NOTIFICATION_STATUS_LABELS,
   NOTIFICATION_TYPE_LABELS,
   PDF_SNAPSHOT_LABELS,
   PDF_STAGE_LABELS,
-  RESTITUTION_STEP_LABELS,
   ROLE_LABELS,
   SCREEN_LABELS,
   SIGNATURE_TYPE_LABELS,
   TERMS,
+  WITHOUT_SIGNATURE_ACTION_LABELS,
+  WITHOUT_SIGNATURE_DONE_LABELS,
   bonStatusLabel,
+  bonSubStatusLabel,
   categoryLabel,
   labelOrKey,
   notificationTypeLabel,
@@ -42,7 +51,7 @@ const FORBIDDEN = [
 function allLabels(): string[] {
   return [
     ...Object.values(BON_STATUS_LABELS),
-    ...Object.values(RESTITUTION_STEP_LABELS),
+    ...Object.values(BON_SUB_STATUS_LABELS),
     ...Object.values(ROLE_LABELS),
     ...Object.values(CATEGORY_LABELS),
     ...Object.values(SIGNATURE_TYPE_LABELS),
@@ -50,6 +59,13 @@ function allLabels(): string[] {
     ...Object.values(PDF_SNAPSHOT_LABELS),
     ...Object.values(PDF_STAGE_LABELS),
     ...Object.values(CONTESTATION_STATUS_LABELS),
+    ...Object.values(CONTESTATION_OUTCOME_LABELS),
+    ...Object.values(WITHOUT_SIGNATURE_ACTION_LABELS),
+    ...Object.values(WITHOUT_SIGNATURE_DONE_LABELS),
+    ...Object.values(LINK_INVALIDATION_LABELS),
+    ...Object.values(LINK_INVALIDATION_MESSAGES),
+    ...Object.values(CIVILITE_LABELS),
+    ...Object.values(NOTIFICATION_STATUS_LABELS),
     ...Object.values(LATENESS_LABELS),
     ...Object.values(NOTIFICATION_TYPE_LABELS),
     ...Object.values(SCREEN_LABELS),
@@ -71,13 +87,74 @@ describe('lexique — vocabulaire du propriétaire', () => {
     });
   });
 
-  it('sous-états de « Restitution en cours »', () => {
-    expect(Object.values(RESTITUTION_STEP_LABELS)).toEqual([
-      'PV à signer',
-      'Restitution partielle à signer',
-      'Équipements encore chez le collaborateur',
-      'Perte déclarée',
+  // Les libellés de la vague 2 ci-dessous sont les MÊMES chaînes que celles
+  // vérifiées côté serveur par backend/src/bons/__tests__/bon-status-wave2-labels.spec.ts.
+  it('sous-états de « Restitution en cours », dans leur ordre de priorité', () => {
+    expect(BON_SUB_STATUS_LABELS).toEqual({
+      pv_to_sign: 'PV de non-restitution à signer',
+      partial_restitution_to_sign: 'Restitution partielle à signer',
+      loss_declared: 'Perte déclarée',
+      equipment_still_out: 'Équipements encore chez le collaborateur',
+    });
+    expect(Object.keys(BON_SUB_STATUS_LABELS)).toEqual([
+      'pv_to_sign', 'partial_restitution_to_sign', 'loss_declared', 'equipment_still_out',
     ]);
+    expect(bonSubStatusLabel('pv_to_sign')).toBe('PV de non-restitution à signer');
+    expect(bonSubStatusLabel('inconnu')).toBe('inconnu');
+  });
+
+  it('les deux gestes sans signature', () => {
+    expect(WITHOUT_SIGNATURE_ACTION_LABELS).toEqual({
+      handover_without_signature: 'Constater la remise sans signature',
+      closed_without_signature: 'Clôturer sans signature',
+    });
+    expect(WITHOUT_SIGNATURE_DONE_LABELS).toEqual({
+      handover_without_signature: 'Remise constatée sans signature',
+      closed_without_signature: 'Clôturé sans signature',
+    });
+  });
+
+  it('motifs d’invalidation d’un lien : libellé IT et message au collaborateur', () => {
+    expect(LINK_INVALIDATION_LABELS).toEqual({
+      replaced: 'Remplacé par un nouveau lien',
+      in_person: 'Signature au guichet',
+      modified: 'Bon modifié',
+      cancelled: 'Bon annulé',
+      contested: 'Bon contesté',
+      handover_without_signature: 'Remise constatée sans signature',
+      closed_without_signature: 'Clôturé sans signature',
+      account_deactivated: 'Compte désactivé',
+    });
+    expect(LINK_INVALIDATION_MESSAGES).toEqual({
+      replaced: 'Ce lien a été remplacé : un nouveau lien vous a été envoyé par email.',
+      in_person: "Ce document se signe au guichet, avec l'équipe informatique.",
+      modified: 'Ce bon a été modifié : un nouveau lien vous sera envoyé.',
+      cancelled: "Ce bon a été annulé : il n'y a plus rien à signer.",
+      contested: "Votre contestation est en cours de traitement : il n'y a rien à signer pour l'instant.",
+      handover_without_signature: "La remise a été enregistrée sans votre signature : il n'y a plus rien à signer.",
+      closed_without_signature: "Ce bon a été clôturé : il n'y a plus rien à signer.",
+      account_deactivated: "Votre compte est désactivé : adressez-vous à l'équipe informatique.",
+    });
+  });
+
+  it('civilités : abrégée et en toutes lettres', () => {
+    expect(CIVILITE_LABELS).toEqual({ mme: 'Mme', mr: 'M.' });
+    expect(CIVILITE_LONG_LABELS).toEqual({ mme: 'Madame', mr: 'Monsieur' });
+  });
+
+  it('journal des emails : statut d’envoi et nouveaux types', () => {
+    expect(NOTIFICATION_STATUS_LABELS).toEqual({
+      sent: 'Envoyé',
+      failed: "Échec de l'envoi",
+      bounced: 'Non distribué',
+      skipped: 'Non envoyé',
+    });
+    expect(NOTIFICATION_TYPE_LABELS.handover_without_signature).toBe('Remise constatée sans signature');
+    expect(NOTIFICATION_TYPE_LABELS.unilateral_closure).toBe('Clôture sans signature');
+    expect(NOTIFICATION_TYPE_LABELS.contestation_overdue_alert).toBe('Relance : contestation non traitée');
+    expect(NOTIFICATION_TYPE_LABELS.link_request_alert).toBe("Demande d'un nouveau lien");
+    expect(PDF_SNAPSHOT_LABELS.remise_sans_signature).toBe('Remise constatée sans signature');
+    expect(PDF_SNAPSHOT_LABELS.cloture_sans_signature).toBe('Clôture sans signature');
   });
 
   it('rôles', () => {
@@ -90,6 +167,7 @@ describe('lexique — vocabulaire du propriétaire', () => {
   });
 
   it('issues de contestation : Fondée / Non retenue', () => {
+    expect(CONTESTATION_OUTCOME_LABELS).toEqual({ founded: 'Fondée', not_retained: 'Non retenue' });
     expect(CONTESTATION_STATUS_LABELS.resolved).toBe('Fondée');
     expect(CONTESTATION_STATUS_LABELS.rejected).toBe('Non retenue');
     expect(CONTESTATION_STATUS_OPTIONS.map((o) => o.label)).toEqual([

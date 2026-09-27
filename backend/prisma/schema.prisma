@@ -92,6 +92,12 @@ model User {
   // passe).
   isManualAccount    Boolean   @default(false) @map("is_manual_account")
   mustChangePassword Boolean   @default(false) @map("must_change_password")
+  // Civilité retenue pour ce collaborateur (décision du 25/09, R-002) : vide
+  // tant qu'aucun technicien ne l'a choisie, jamais de valeur par défaut. Le
+  // formulaire de bon exige un choix explicite, puis la mémorise ici pour la
+  // proposer au bon suivant. Pas de reprise depuis les bons existants : leur
+  // civilité a longtemps été « M. » par défaut, elle n'est donc pas fiable.
+  civilite           Civilite?
   passwordChangedAt  DateTime? @map("password_changed_at")
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
@@ -100,6 +106,7 @@ model User {
   bonsCollaborateur     Bon[]          @relation("BonCollaborateur")
   contestations         Contestation[] @relation("ContestationUser")
   contestationsResolved Contestation[] @relation("ContestationResolvedBy")
+  contestationsReviewed Contestation[] @relation("ContestationReviewedBy")
   signaturesInitiated   Signature[]    @relation("SignatureInitiatedBy")
   configUpdates         AppConfig[]
   auditLogs             AuditLog[]
@@ -190,36 +197,62 @@ enum Civilite {
 }
 
 model Bon {
-  id                       String    @id @default(uuid())
-  reference                String    @unique
-  filialeId                String    @map("filiale_id")
-  filiale                  Filiale   @relation(fields: [filialeId], references: [id])
-  collaborateurId          String    @map("collaborateur_id")
-  collaborateur            User      @relation("BonCollaborateur", fields: [collaborateurId], references: [id])
+  id                             String    @id @default(uuid())
+  reference                      String    @unique
+  filialeId                      String    @map("filiale_id")
+  filiale                        Filiale   @relation(fields: [filialeId], references: [id])
+  collaborateurId                String    @map("collaborateur_id")
+  collaborateur                  User      @relation("BonCollaborateur", fields: [collaborateurId], references: [id])
   // Optionnel : un bon peut être établi au nom d'un collaborateur sans adresse
   // email (compagnon de chantier créé manuellement, cf. User.isManualAccount).
   // Un bon sans adresse ne peut être ni envoyé ni relancé par email — seule la
   // signature présentielle reste possible (voir common/email.ts).
-  collaborateurEmail       String?   @map("collaborateur_email")
-  createdById              String    @map("created_by_id")
-  createdBy                User      @relation("BonCreatedBy", fields: [createdById], references: [id])
-  civilite                 Civilite
-  status                   BonStatus @default(draft)
-  dateMiseDisposition      DateTime  @map("date_mise_disposition") @db.Date
-  dateRestitution          DateTime? @map("date_restitution") @db.Date
-  notes                    String?
-  pdfMiseDispoSnapshot     Bytes?    @map("pdf_mise_dispo_snapshot")
-  pdfMiseDispoSnapshotAt   DateTime? @map("pdf_mise_dispo_snapshot_at")
-  pdfRestitutionSnapshot   Bytes?    @map("pdf_restitution_snapshot")
-  pdfRestitutionSnapshotAt DateTime? @map("pdf_restitution_snapshot_at")
+  collaborateurEmail             String?   @map("collaborateur_email")
+  createdById                    String    @map("created_by_id")
+  createdBy                      User      @relation("BonCreatedBy", fields: [createdById], references: [id])
+  civilite                       Civilite
+  status                         BonStatus @default(draft)
+  dateMiseDisposition            DateTime  @map("date_mise_disposition") @db.Date
+  dateRestitution                DateTime? @map("date_restitution") @db.Date
+  // « Remarques sur le bon » : visibles par le collaborateur et imprimées
+  // sur le PDF.
+  notes                          String?
+  // « Note interne IT » (décision du 25/09, R-170) : jamais montrée au
+  // collaborateur, ni sur le PDF, ni dans un email, ni dans le portail.
+  internalNote                   String?   @map("internal_note")
+  pdfMiseDispoSnapshot           Bytes?    @map("pdf_mise_dispo_snapshot")
+  pdfMiseDispoSnapshotAt         DateTime? @map("pdf_mise_dispo_snapshot_at")
+  pdfRestitutionSnapshot         Bytes?    @map("pdf_restitution_snapshot")
+  pdfRestitutionSnapshotAt       DateTime? @map("pdf_restitution_snapshot_at")
   // RGPD : horodatage de l'anonymisation (PII purgées, preuves détruites) une
   // fois la durée de rétention dépassée. Null = bon actif / non anonymisé.
-  anonymizedAt             DateTime? @map("anonymized_at")
+  anonymizedAt                   DateTime? @map("anonymized_at")
   // Horodatage d'archivage (bascule vers le statut archived). Null tant que
   // le bon n'a jamais été archivé.
-  archivedAt               DateTime? @map("archived_at")
-  createdAt                DateTime  @default(now()) @map("created_at")
-  updatedAt                DateTime  @updatedAt @map("updated_at")
+  archivedAt                     DateTime? @map("archived_at")
+  // Début de l'attente de signature du document courant (remise, restitution,
+  // PV de non-restitution) : posé à chaque NOUVELLE demande (envoi, lancement
+  // d'une restitution, émission d'un PV, modification d'un bon envoyé), pas
+  // au simple renvoi du même lien ; remis à null quand plus rien n'attend la
+  // signature du collaborateur. Sert au retard « Signature en retard » et au
+  // compte des rappels, à la place d'updatedAt (horodatage technique).
+  awaitingSince                  DateTime? @map("awaiting_since")
+  // Annulation d'un bon envoyé : motif obligatoire (décision du 24/09).
+  cancelledAt                    DateTime? @map("cancelled_at")
+  cancellationReason             String?   @map("cancellation_reason")
+  // Les deux gestes « sans signature », distincts (R-014) : motif de chacun.
+  // « Constater la remise sans signature » : Remise à signer → En cours.
+  handoverWithoutSignatureReason String?   @map("handover_without_signature_reason")
+  // « Clôturer sans signature » : → Clôturé (la date est archivedAt).
+  closedWithoutSignatureReason   String?   @map("closed_without_signature_reason")
+  // Contestation « Fondée » (R-050) : le nouveau bon pointe vers celui qu'il
+  // remplace. L'original reste « En cours » jusqu'à la signature du nouveau,
+  // puis passe « Clôturé » ; `replacedBy` non nul dit alors « remplacé ».
+  replacesBonId                  String?   @unique @map("replaces_bon_id")
+  replacesBon                    Bon?      @relation("BonReplacement", fields: [replacesBonId], references: [id])
+  replacedBy                     Bon?      @relation("BonReplacement")
+  createdAt                      DateTime  @default(now()) @map("created_at")
+  updatedAt                      DateTime  @updatedAt @map("updated_at")
 
   equipments    BonEquipment[]
   signatures    Signature[]
@@ -236,6 +269,9 @@ model Bon {
   @@index([filialeId])
   @@index([createdAt])
   @@index([status, updatedAt])
+  // Signatures en retard et rappels : bons « à signer » par ancienneté de la
+  // demande.
+  @@index([status, awaitingSince])
   // KPI (tableau de bord) : archivage sur une période, retards de restitution.
   @@index([archivedAt])
   @@index([dateRestitution])
@@ -288,42 +324,74 @@ enum PdfSnapshotType {
   signature_collab_restitution
   cloture_equipements_manquants
   avenant_equipement_retrouve
+  // Documents des deux gestes « sans signature » (R-031) : jamais rangés sous
+  // un type « signature du collaborateur », puisqu'il n'a pas signé.
+  remise_sans_signature
+  cloture_sans_signature
+}
+
+// Pourquoi un lien de signature a été invalidé avant d'être utilisé (R-038) :
+// la page de signature dit le vrai motif au lieu de « un nouveau lien vous a
+// été envoyé ». Null pour un lien encore valide, expiré naturellement, ou
+// invalidé avant l'ajout de cette colonne (motif inconnu).
+enum SignatureInvalidationReason {
+  // Un nouveau lien pour le même document a été envoyé (renvoi, rappel,
+  // nouveau document qui prend la suite).
+  replaced
+  // Le document se signe désormais au guichet (signature présentielle).
+  in_person
+  // Le bon a été modifié après l'envoi : un nouveau lien suivra.
+  modified
+  // Le bon a été annulé.
+  cancelled
+  // Le collaborateur a contesté le bon.
+  contested
+  // La remise a été constatée sans signature.
+  handover_without_signature
+  // Le bon a été clôturé sans signature.
+  closed_without_signature
+  // Le compte du collaborateur a été désactivé (départ).
+  account_deactivated
 }
 
 model Signature {
-  id                 String        @id @default(uuid())
-  bonId              String        @map("bon_id")
-  bon                Bon           @relation(fields: [bonId], references: [id], onDelete: Cascade)
+  id                 String                       @id @default(uuid())
+  bonId              String                       @map("bon_id")
+  bon                Bon                          @relation(fields: [bonId], references: [id], onDelete: Cascade)
   type               SignatureType
-  token              String        @unique
-  tokenExpiresAt     DateTime      @map("token_expires_at")
-  signed             Boolean       @default(false)
-  signatureImagePath String?       @map("signature_image_path")
-  signedAt           DateTime?     @map("signed_at")
-  signerEmail        String?       @map("signer_email")
-  signerIp           String?       @map("signer_ip")
-  signerUserAgent    String?       @map("signer_user_agent")
-  mentionLuApprouve  Boolean       @default(false) @map("mention_lu_approuve")
-  isInPerson         Boolean       @default(false) @map("is_in_person")
+  token              String                       @unique
+  tokenExpiresAt     DateTime                     @map("token_expires_at")
+  signed             Boolean                      @default(false)
+  signatureImagePath String?                      @map("signature_image_path")
+  signedAt           DateTime?                    @map("signed_at")
+  signerEmail        String?                      @map("signer_email")
+  signerIp           String?                      @map("signer_ip")
+  signerUserAgent    String?                      @map("signer_user_agent")
+  mentionLuApprouve  Boolean                      @default(false) @map("mention_lu_approuve")
+  isInPerson         Boolean                      @default(false) @map("is_in_person")
   // Présentiel : signerEmail est le compte (technicien) ayant recueilli la
   // signature pour le compte du collaborateur titulaire → tracé comme mandataire
-  signedByProxy      Boolean       @default(false) @map("signed_by_proxy")
+  signedByProxy      Boolean                      @default(false) @map("signed_by_proxy")
   // Scellement probant : HMAC-SHA256 (clé serveur dérivée d'ENCRYPTION_KEY)
   // couvrant les champs probants de la signature → détecte toute altération
   // directe en base (email, horodatage…). sealedAt = moment du scellement.
-  seal               String?       @map("seal")
-  sealedAt           DateTime?     @map("sealed_at")
+  seal               String?                      @map("seal")
+  sealedAt           DateTime?                    @map("sealed_at")
   // Horodatage RFC 3161 OPTIONNEL (config 'timestamp') : jeton signé d'une
   // autorité de temps de confiance sur le sceau. Absent si non configuré.
-  tsToken            String?       @map("ts_token")
-  tsAuthority        String?       @map("ts_authority")
-  tsAt               DateTime?     @map("ts_at")
-  initiatedById      String?       @map("initiated_by_id")
-  initiatedBy        User?         @relation("SignatureInitiatedBy", fields: [initiatedById], references: [id])
+  tsToken            String?                      @map("ts_token")
+  tsAuthority        String?                      @map("ts_authority")
+  tsAt               DateTime?                    @map("ts_at")
+  initiatedById      String?                      @map("initiated_by_id")
+  initiatedBy        User?                        @relation("SignatureInitiatedBy", fields: [initiatedById], references: [id])
   // Type de document du cachet IT (mise_disposition | restitution) — écrit
   // par le flux de signature pour distinguer les cachets multi-documents.
-  pdfType            String?       @map("pdf_type")
-  createdAt          DateTime      @default(now()) @map("created_at")
+  pdfType            String?                      @map("pdf_type")
+  // Invalidation volontaire du lien (tokenExpiresAt ramené à l'epoch) : quand
+  // et pourquoi. Voir SignatureInvalidationReason.
+  invalidatedAt      DateTime?                    @map("invalidated_at")
+  invalidatedReason  SignatureInvalidationReason? @map("invalidated_reason")
+  createdAt          DateTime                     @default(now()) @map("created_at")
 
   @@index([bonId, type, signed])
   @@index([signed, tokenExpiresAt])
@@ -419,19 +487,42 @@ enum ContestationStatus {
   rejected
 }
 
+// Issue d'une contestation tranchée (décision du 24/09) : deux issues
+// seulement. `status` reste aligné (founded ↔ resolved, not_retained ↔
+// rejected) pour les listes et indicateurs existants.
+enum ContestationOutcome {
+  // Fondée : correction toujours (nouveau bon envoyé, l'original remplacé).
+  founded
+  // Non retenue : rien ne change, le bon reprend son statut.
+  not_retained
+}
+
 model Contestation {
-  id                String             @id @default(uuid())
-  bonId             String             @map("bon_id")
-  bon               Bon                @relation(fields: [bonId], references: [id])
-  userId            String             @map("user_id")
-  user              User               @relation("ContestationUser", fields: [userId], references: [id])
+  id                String               @id @default(uuid())
+  bonId             String               @map("bon_id")
+  bon               Bon                  @relation(fields: [bonId], references: [id])
+  userId            String               @map("user_id")
+  user              User                 @relation("ContestationUser", fields: [userId], references: [id])
   message           String
-  status            ContestationStatus @default(open)
-  resolvedById      String?            @map("resolved_by_id")
-  resolvedBy        User?              @relation("ContestationResolvedBy", fields: [resolvedById], references: [id])
-  resolutionMessage String?            @map("resolution_message")
-  createdAt         DateTime           @default(now()) @map("created_at")
-  updatedAt         DateTime           @updatedAt @map("updated_at")
+  status            ContestationStatus   @default(open)
+  // Statut du bon au moment de la contestation, rétabli si elle n'est pas
+  // retenue. Remplace la relecture du journal d'audit, purgeable (P2, R-007).
+  previousBonStatus BonStatus?           @map("previous_bon_status")
+  // Document contesté : remise, restitution ou PV de non-restitution (R-054).
+  contestedDocument SignatureType?       @map("contested_document")
+  // Issue, renseignée seulement quand la contestation est tranchée.
+  outcome           ContestationOutcome?
+  // « Pris en charge par » (R-055), distinct de « tranché par » (resolvedBy).
+  reviewedById      String?              @map("reviewed_by_id")
+  reviewedBy        User?                @relation("ContestationReviewedBy", fields: [reviewedById], references: [id])
+  reviewedAt        DateTime?            @map("reviewed_at")
+  // « Tranché par » : renseigné seulement quand l'issue est décidée.
+  resolvedById      String?              @map("resolved_by_id")
+  resolvedBy        User?                @relation("ContestationResolvedBy", fields: [resolvedById], references: [id])
+  resolvedAt        DateTime?            @map("resolved_at")
+  resolutionMessage String?              @map("resolution_message")
+  createdAt         DateTime             @default(now()) @map("created_at")
+  updatedAt         DateTime             @updatedAt @map("updated_at")
 
   @@index([bonId])
   // KPI (tableau de bord) : contestations ouvertes sur une période, délai de résolution.
@@ -450,14 +541,24 @@ enum NotificationType {
   contestation_resolution
   cancellation
   mark_found
+  // Email « bon clôturé sans signature » (geste « Clôturer sans signature »).
   unilateral_closure
   restitution_due_reminder
+  // Email « remise constatée sans signature » (R-014), distinct de la clôture.
+  handover_without_signature
+  // Relance de l'IT : contestation non traitée sous 7 jours.
+  contestation_overdue_alert
+  // Alerte de l'IT : le collaborateur demande un nouveau lien (R-058).
+  link_request_alert
 }
 
 enum NotificationStatus {
   sent
   failed
   bounced
+  // Non envoyé par choix, pas par panne (collaborateur sans adresse :
+  // présentiel uniquement, R-034) : exclu des « emails en échec ».
+  skipped
 }
 
 model NotificationLog {
@@ -470,6 +571,9 @@ model NotificationLog {
   status         NotificationStatus
   errorMessage   String?            @map("error_message")
   reminderNumber Int?               @map("reminder_number")
+  // Document concerné par une demande de signature ou un rappel : les rappels
+  // se comptent PAR DOCUMENT (3 au plus), depuis Bon.awaitingSince (R-033).
+  documentType   SignatureType?     @map("document_type")
 
   @@index([bonId, type])
   @@index([status, sentAt])

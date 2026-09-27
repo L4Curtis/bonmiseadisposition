@@ -1,4 +1,11 @@
 import type { BonStatus, UserRole } from '@/types';
+import type {
+  BonSubStatus,
+  Civilite,
+  ContestationOutcome,
+  NotificationStatus,
+  SignatureInvalidationReason,
+} from '@/contracts';
 
 /**
  * LEXIQUE de l'application : un objet = un mot, partout (menu, titres,
@@ -20,6 +27,7 @@ import type { BonStatus, UserRole } from '@/types';
  * | Document de perte               | PV de non-restitution   | PV de clôture, PV équipements…      |
  * | Deux retards                    | Signature / Retour en retard | En retard (seul)               |
  * | Issue de contestation           | Fondée / Non retenue    | Résolue / Rejetée                   |
+ * | Deux gestes sans signature      | Constater la remise / Clôturer sans signature | Clôture unilatérale |
  */
 
 // ─── Mots du métier (dans une phrase, en minuscules) ─────────────────────────
@@ -51,18 +59,38 @@ export const BON_STATUS_LABELS: Readonly<Record<BonStatus, string>> = {
 };
 
 /**
- * Sous-état d'un bon « Restitution en cours », calculé par le serveur.
- * Clés provisoires : le lot qui fait calculer ce sous-état au serveur les
- * confirme et les aligne sur sa réponse.
+ * Sous-état d'un bon « Restitution en cours », calculé par le serveur
+ * (champ `subStatus`, voir `BonSubStatus` dans contracts/bons.ts), dans son
+ * ordre de priorité : si plusieurs s'appliquent, le premier l'emporte.
  */
-export const RESTITUTION_STEP_LABELS = {
-  pv_to_sign: 'PV à signer',
+export const BON_SUB_STATUS_LABELS: Readonly<Record<BonSubStatus, string>> = {
+  pv_to_sign: 'PV de non-restitution à signer',
   partial_restitution_to_sign: 'Restitution partielle à signer',
-  equipment_still_out: 'Équipements encore chez le collaborateur',
   loss_declared: 'Perte déclarée',
-} as const;
+  equipment_still_out: 'Équipements encore chez le collaborateur',
+};
 
-export type RestitutionStep = keyof typeof RESTITUTION_STEP_LABELS;
+/** Les deux gestes « sans signature », distincts : l'un ouvre le prêt,
+ *  l'autre le termine. Clés partagées avec le serveur (événements, emails). */
+export type WithoutSignatureAction = 'handover_without_signature' | 'closed_without_signature';
+
+/** Nom du bouton. */
+export const WITHOUT_SIGNATURE_ACTION_LABELS: Readonly<Record<WithoutSignatureAction, string>> = {
+  handover_without_signature: 'Constater la remise sans signature',
+  closed_without_signature: 'Clôturer sans signature',
+};
+
+/** Ce qui s'est passé (historique, en-tête de fiche, document). */
+export const WITHOUT_SIGNATURE_DONE_LABELS: Readonly<Record<WithoutSignatureAction, string>> = {
+  handover_without_signature: 'Remise constatée sans signature',
+  closed_without_signature: 'Clôturé sans signature',
+};
+
+/** Civilité abrégée, devant le nom (formulaire, fiche, page de signature). */
+export const CIVILITE_LABELS: Readonly<Record<Civilite, string>> = { mme: 'Mme', mr: 'M.' };
+
+/** Civilité en toutes lettres. */
+export const CIVILITE_LONG_LABELS: Readonly<Record<Civilite, string>> = { mme: 'Madame', mr: 'Monsieur' };
 
 /** Les deux retards : toujours qualifiés, jamais « En retard » seul. */
 export const LATENESS_LABELS = {
@@ -140,6 +168,33 @@ export const PDF_SNAPSHOT_LABELS: Readonly<Record<string, string>> = {
   signature_collab_restitution: 'Signature du collaborateur — restitution',
   cloture_equipements_manquants: 'PV de non-restitution',
   avenant_equipement_retrouve: 'Avenant — équipement retrouvé',
+  remise_sans_signature: 'Remise constatée sans signature',
+  cloture_sans_signature: 'Clôture sans signature',
+};
+
+/** Pourquoi un lien de signature a été invalidé avant usage : libellé court
+ *  pour l'équipe informatique (fiche du bon). */
+export const LINK_INVALIDATION_LABELS: Readonly<Record<SignatureInvalidationReason, string>> = {
+  replaced: 'Remplacé par un nouveau lien',
+  in_person: 'Signature au guichet',
+  modified: 'Bon modifié',
+  cancelled: 'Bon annulé',
+  contested: 'Bon contesté',
+  handover_without_signature: 'Remise constatée sans signature',
+  closed_without_signature: 'Clôturé sans signature',
+  account_deactivated: 'Compte désactivé',
+};
+
+/** Même motif, en message au collaborateur qui ouvre le lien (page de signature). */
+export const LINK_INVALIDATION_MESSAGES: Readonly<Record<SignatureInvalidationReason, string>> = {
+  replaced: 'Ce lien a été remplacé : un nouveau lien vous a été envoyé par email.',
+  in_person: "Ce document se signe au guichet, avec l'équipe informatique.",
+  modified: 'Ce bon a été modifié : un nouveau lien vous sera envoyé.',
+  cancelled: "Ce bon a été annulé : il n'y a plus rien à signer.",
+  contested: "Votre contestation est en cours de traitement : il n'y a rien à signer pour l'instant.",
+  handover_without_signature: "La remise a été enregistrée sans votre signature : il n'y a plus rien à signer.",
+  closed_without_signature: "Ce bon a été clôturé : il n'y a plus rien à signer.",
+  account_deactivated: "Votre compte est désactivé : adressez-vous à l'équipe informatique.",
 };
 
 /** Étape d'un modèle PDF (paramètre `stage`). */
@@ -151,6 +206,12 @@ export const PDF_STAGE_LABELS: Readonly<Record<string, string>> = {
 };
 
 // ─── Contestations ───────────────────────────────────────────────────────────
+
+/** Issue d'une contestation tranchée (champ `outcome`). */
+export const CONTESTATION_OUTCOME_LABELS: Readonly<Record<ContestationOutcome, string>> = {
+  founded: 'Fondée',
+  not_retained: 'Non retenue',
+};
 
 export const CONTESTATION_STATUS_LABELS: Readonly<Record<string, string>> = {
   open: 'Ouverte',
@@ -180,6 +241,18 @@ export const NOTIFICATION_TYPE_LABELS: Readonly<Record<string, string>> = {
   cancellation: 'Annulation du bon',
   mark_found: 'Équipement retrouvé',
   unilateral_closure: 'Clôture sans signature',
+  handover_without_signature: 'Remise constatée sans signature',
+  contestation_overdue_alert: 'Relance : contestation non traitée',
+  link_request_alert: "Demande d'un nouveau lien",
+};
+
+/** Résultat d'un envoi (énumération serveur `NotificationStatus`). « Non
+ *  envoyé » est un choix (collaborateur sans adresse), pas une panne. */
+export const NOTIFICATION_STATUS_LABELS: Readonly<Record<NotificationStatus, string>> = {
+  sent: 'Envoyé',
+  failed: "Échec de l'envoi",
+  bounced: 'Non distribué',
+  skipped: 'Non envoyé',
 };
 
 // ─── Écrans (menu, titres de page, onglet du navigateur) ─────────────────────
@@ -219,6 +292,7 @@ export function labelOrKey(labels: Readonly<Record<string, string>>, key: string
 }
 
 export const bonStatusLabel = (status: string): string => labelOrKey(BON_STATUS_LABELS, status);
+export const bonSubStatusLabel = (subStatus: string): string => labelOrKey(BON_SUB_STATUS_LABELS, subStatus);
 export const roleLabel = (role: string): string => labelOrKey(ROLE_LABELS, role);
 export const categoryLabel = (category: string): string => labelOrKey(CATEGORY_LABELS, category);
 export const notificationTypeLabel = (type: string): string => labelOrKey(NOTIFICATION_TYPE_LABELS, type);

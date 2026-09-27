@@ -19,6 +19,25 @@ export const SIGNATURE_SAFE_SELECT = {
   tokenExpiresAt: true,
   createdAt: true,
   pdfType: true,
+  invalidatedAt: true,
+  invalidatedReason: true,
+} as const;
+
+/**
+ * Colonnes de la filiale renvoyées avec un bon : toutes, sauf le chemin du
+ * cachet (`stampPath`), réservé au serveur. Le PDF lit le cachet lui-même par
+ * `filialeId` (pdf/render-data.ts).
+ */
+export const BON_FILIALE_SELECT = {
+  id: true,
+  name: true,
+  displayName: true,
+  logoPath: true,
+  address: true,
+  siret: true,
+  active: true,
+  createdAt: true,
+  updatedAt: true,
 } as const;
 
 /**
@@ -41,7 +60,7 @@ export const BON_SELECT_SHAPE = {
     notes: true,
     createdAt: true,
     updatedAt: true,
-    filiale: true,
+    filiale: { select: BON_FILIALE_SELECT },
     collaborateur: {
       select: { id: true, displayName: true, email: true, department: true },
     },
@@ -73,6 +92,8 @@ export function toSafeSignature<T extends Record<string, unknown>>(sig: T) {
     tokenExpiresAt: sig.tokenExpiresAt,
     createdAt: sig.createdAt,
     pdfType: sig.pdfType,
+    invalidatedAt: sig.invalidatedAt ?? null,
+    invalidatedReason: sig.invalidatedReason ?? null,
   };
 }
 
