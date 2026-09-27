@@ -91,7 +91,8 @@ npm test
 # Mode surveillance (relance à chaque modification)
 npm run test:watch
 
-# Rapport de couverture avec seuils (HTML dans ./coverage/index.html)
+# Couverture de la suite unitaire seule (HTML dans ./coverage/index.html), sans
+# seuils : chiffre partiel, voir § 4 pour le chiffre complet
 npm run test:cov
 
 # Lancer les fichiers dont le chemin contient « bons »
@@ -221,8 +222,8 @@ Les services qui écrivent du SQL brut (`$queryRaw`) sont testés deux fois :
    `RUN_DB_TESTS=1`, ces suites sont ignorées.
 
 En CI, le job `backend` démarre un PostgreSQL 16 jetable (`TZ=UTC`), applique les migrations puis lance
-`RUN_DB_TESTS=1 npx vitest run real-db`. Une nouvelle suite dont le nom contient `real-db` y est prise
-automatiquement. Avec la base, les fichiers s'exécutent l'un après l'autre (`fileParallelism` dans
+`RUN_DB_TESTS=1 npm run test:cov:db` (les mêmes suites, couverture enregistrée pour le total du § 4). Une
+nouvelle suite dont le nom contient `real-db` y est prise automatiquement. Avec la base, les fichiers s'exécutent l'un après l'autre (`fileParallelism` dans
 `vitest.config.ts`).
 
 En local, utilisez une **base jetable** plutôt que la base de développement : certaines suites insèrent
@@ -308,16 +309,51 @@ en simulant `@/contexts/AuthContext`.
 
 | Cible | Règle |
 |-------|-------|
-| **Backend** | Seuils appliqués en CI par `npm run test:cov`, définis dans `backend/vitest.config.ts` pour les instructions, les branches, les fonctions et les lignes. Effet cliquet : chaque seuil suit la mesure réelle et ne redescend jamais. Cible à terme : 80 pour les quatre. |
+| **Backend** | Seuils définis dans `backend/vitest.config.ts` (`COVERAGE_THRESHOLDS`) pour les instructions, les branches, les fonctions et les lignes, appliqués en CI au **total fusionné** des trois suites. Effet cliquet : chaque seuil suit la mesure réelle et ne redescend jamais. Cible à terme : 80 pour les quatre. |
 | **Frontend** | Aucune mesure de couverture configurée. Chaque écran ou hook modifié reçoit ses tests. |
 
 Un seuil se relève quand la couverture progresse d'elle-même, jamais en ajoutant des tests sans valeur pour
 atteindre un chiffre.
 
+**Pourquoi un total fusionné.** Le backend est vérifié par trois suites, et chacune n'exerce qu'une partie
+du code :
+
+| Suite | Commande | Ce qu'elle couvre surtout |
+|---|---|---|
+| Unitaires | `npm run test:cov:unit` | règles pures, services avec doublures, gardes, rendu PDF, écouteurs |
+| Base réelle | `RUN_DB_TESTS=1 npm run test:cov:db` | SQL brut, indicateurs, rappels (§ 2.6) |
+| Contrat HTTP | `npm run test:cov:contract` | contrôleurs, cycle de vie complet des bons (`bons/workflow/*`), droits |
+
+Le cycle de vie des bons, par exemple, n'est vérifié que sur vraie base : mesurée seule, la suite unitaire
+le voit à 0 %. Chaque suite, lancée avec `--mode couverture-partielle`, enregistre donc sa couverture dans
+`backend/.vitest-reports/` (rapport « blob » de Vitest) **sans la juger** ; `npm run test:cov:merge` fusionne
+les trois et applique les seuils au total. C'est ce que fait le job `backend` de la CI, dans cet ordre, avec
+son PostgreSQL de service.
+
+**Chiffre complet en local** (base jetable, jamais la base de développement ni le port 5432) :
+
 ```bash
+# 1. Une base PostgreSQL jetable sur un port libre
+docker run -d --rm --name bmad-cov-db -e POSTGRES_DB=bons_disposition -e POSTGRES_USER=app   -e POSTGRES_PASSWORD=test -e TZ=UTC -p 127.0.0.1:5433:5432 postgres:16-alpine
+
 cd backend
-npm run test:cov    # rapport HTML dans backend/coverage/index.html
+# 2. Les trois suites, dans l'ordre de la CI
+npm run test:cov:reset                     # vide .vitest-reports/
+npm run test:cov:unit
+DATABASE_URL=postgresql://app:test@127.0.0.1:5433/bons_disposition npx prisma migrate deploy
+DATABASE_URL=postgresql://app:test@127.0.0.1:5433/bons_disposition RUN_DB_TESTS=1 npm run test:cov:db
+CONTRACT_DATABASE_URL=postgresql://app:test@127.0.0.1:5433/bons_contract npm run test:cov:contract
+
+# 3. Le total, jugé par les seuils (rapport HTML dans backend/coverage/index.html)
+npm run test:cov:merge
+
+# 4. Nettoyer
+docker stop bmad-cov-db
 ```
+
+`npm run test:cov` reste disponible sans base : il mesure la suite unitaire seule, sans seuils. Son chiffre
+est partiel (environ 74 % des lignes) et ne dit pas si la CI passera ; il sert à repérer ce qu'un test
+unitaire laisse de côté.
 
 ---
 

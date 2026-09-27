@@ -107,9 +107,16 @@ jobs:
             exit 1
           fi
 
-      - name: Tests backend avec couverture
+      - name: Tests backend (couverture partielle)
         working-directory: ./backend
-        run: npm run test:cov
+        # Chacune des trois suites (unitaires, « real-db », contrat HTTP)
+        # enregistre sa couverture dans .vitest-reports/ sans la juger : le
+        # cycle de vie des bons, par exemple, n'est exercé que sur vraie base.
+        # Les seuils de vitest.config.ts s'appliquent au total, à l'étape
+        # « Couverture fusionnée ». Voir docs/testing-guide.md § 4.
+        run: |
+          npm run test:cov:reset
+          npm run test:cov:unit
 
       - name: Tests SQL contre une vraie base (filet $queryRaw)
         working-directory: ./backend
@@ -120,7 +127,8 @@ jobs:
         # suite ajoutée ailleurs ne doit pas être oubliée silencieusement par la CI.
         # Vitest filtre les fichiers dont le chemin contient « real-db » et échoue
         # si aucun ne correspond (filtre cassé = CI rouge, pas verte à vide).
-        run: RUN_DB_TESTS=1 npx vitest run real-db
+        # Couverture enregistrée pour la fusion (voir plus haut).
+        run: RUN_DB_TESTS=1 npm run test:cov:db
 
       - name: Contrat HTTP
         working-directory: ./backend
@@ -132,7 +140,14 @@ jobs:
         # Postgres) : la suite la vide et la remplit à chaque fichier.
         env:
           CONTRACT_DATABASE_URL: postgresql://app:ci@localhost:5432/bons_contract
-        run: npm run test:contract
+        run: npm run test:cov:contract
+
+      - name: Couverture fusionnée (seuils)
+        working-directory: ./backend
+        # Fusionne les couvertures des trois suites ci-dessus et applique les
+        # seuils de backend/vitest.config.ts à ce total : c'est le chiffre qui
+        # compte, puisque c'est tout ce que la CI exécute réellement.
+        run: npm run test:cov:merge
 
       - name: Audit de sécurité (non bloquant)
         working-directory: ./backend

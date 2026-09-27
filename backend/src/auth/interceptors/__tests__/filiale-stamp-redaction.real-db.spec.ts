@@ -3,10 +3,9 @@
  *
  * Pourquoi : les tests unitaires de l'intercepteur fabriquent l'objet à la
  * main. Seule la base prouve que le bon chargé par `findBonOrThrow` (select
- * canonique BON_SELECT, celui de `GET /bons/:id` et de « Mes bons ») est bien
- * parcouru — un objet au prototype inattendu serait renvoyé tel quel, cachet
- * compris — et que l'objet d'origine garde son cachet, que la génération des
- * PDF lit juste avant la réponse.
+ * canonique, celui de `GET /bons/:id` et de « Mes bons ») ne porte plus le
+ * cachet — le PDF le lit lui-même par filialeId — et que l'intercepteur, gardé
+ * comme filet, expurge bien une vraie ligne Prisma de filiale complète.
  *
  * Tout est écrit dans une transaction annulée à la fin : rien ne reste en base.
  *   cd backend && RUN_DB_TESTS=1 npx vitest run src/auth/interceptors/__tests__/filiale-stamp-redaction.real-db.spec.ts
@@ -33,7 +32,7 @@ describeDb('Cachet de la filiale — bon réel chargé par findBonOrThrow (trans
     await prisma.$disconnect();
   });
 
-  it('retire stampPath de la copie renvoyée, sans toucher au bon lu par la génération des PDF', async () => {
+  it('le bon chargé ne porte plus le cachet, et une filiale complète est expurgée', async () => {
     const suffixe = randomUUID().slice(0, 8);
     const cachet = `uploads/test-cachet-${suffixe}.png`;
     let origine: Record<string, unknown> = {};
@@ -61,8 +60,11 @@ describeDb('Cachet de la filiale — bon réel chargé par findBonOrThrow (trans
           },
         });
         origine = await findBonOrThrow(tx as unknown as PrismaService, bon.id) as unknown as Record<string, unknown>;
+        // Filet : une réponse qui porterait encore la filiale complète (ligne
+        // Prisma brute, `filiale: true` ailleurs dans le code) doit être expurgée.
+        const filialeComplete = await tx.filiale.findUniqueOrThrow({ where: { id: filiale.id } });
         // Forme d'une liste (« Mes bons ») : tableau d'objets imbriqués.
-        expurge = (withoutFilialeStamp([origine]) as Array<Record<string, unknown>>)[0];
+        expurge = (withoutFilialeStamp([{ ...origine, filiale: filialeComplete }]) as Array<Record<string, unknown>>)[0];
         throw new Rollback();
       })
       .catch((err: unknown) => {
@@ -71,7 +73,9 @@ describeDb('Cachet de la filiale — bon réel chargé par findBonOrThrow (trans
 
     const filialeOrigine = origine.filiale as Record<string, unknown>;
     const filialeExpurgee = expurge.filiale as Record<string, unknown>;
-    expect(filialeOrigine.stampPath).toBe(cachet);
+    // À la source : le bon chargé ne contient plus le cachet (le PDF le lit
+    // lui-même à partir de filialeId).
+    expect(filialeOrigine).not.toHaveProperty('stampPath');
     expect(filialeExpurgee).not.toHaveProperty('stampPath');
     expect(filialeExpurgee.displayName).toBe(`Test cachet ${suffixe}`);
     expect(filialeExpurgee.logoPath).toBe('uploads/logo.png');

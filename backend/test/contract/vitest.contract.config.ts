@@ -1,6 +1,6 @@
 import { resolve } from 'node:path';
-import { defineConfig } from 'vitest/config';
-import baseConfig from '../../vitest.config';
+import { defineConfig, type ConfigEnv } from 'vitest/config';
+import { backendPlugins, coverageOptions } from '../../vitest.config';
 
 // Tests de contrat HTTP (`npm run test:contract`) : l'application Nest réelle,
 // interrogée par supertest, sur une base PostgreSQL jetable désignée par
@@ -10,8 +10,10 @@ import baseConfig from '../../vitest.config';
 // fichiers (suffixe `.contract.ts`, pas `.spec.ts`) et n'a donc besoin
 // d'aucune base. Les greffons (SWC, métadonnées de décorateurs) viennent de
 // la configuration principale, pour que Nest s'exécute ici comme là-bas.
-export default defineConfig({
-  ...baseConfig,
+// La couverture aussi : en CI, celle de cette suite s'ajoute à celle des
+// suites unitaires et « real-db » (voir coverageOptions dans vitest.config.ts).
+export default defineConfig(({ mode }: ConfigEnv) => ({
+  plugins: backendPlugins,
   root: resolve(__dirname, '..', '..'),
   test: {
     globals: false,
@@ -32,5 +34,6 @@ export default defineConfig({
     // secondes, davantage sur un poste ou un runner CI chargé.
     testTimeout: 30000,
     hookTimeout: 60000,
+    coverage: coverageOptions(mode),
   },
-});
+}));

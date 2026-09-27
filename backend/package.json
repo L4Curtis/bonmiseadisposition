@@ -13,7 +13,12 @@
     "prisma:studio": "prisma studio",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:cov": "vitest run --coverage",
+    "test:cov": "vitest run --coverage --mode couverture-partielle",
+    "test:cov:reset": "node -e \"require('node:fs').rmSync('.vitest-reports',{recursive:true,force:true})\"",
+    "test:cov:unit": "vitest run --coverage --mode couverture-partielle --reporter=default --reporter=blob --outputFile.blob=.vitest-reports/unit.json",
+    "test:cov:db": "vitest run real-db --coverage --mode couverture-partielle --reporter=default --reporter=blob --outputFile.blob=.vitest-reports/real-db.json",
+    "test:cov:contract": "vitest run --config test/contract/vitest.contract.config.ts --coverage --mode couverture-partielle --reporter=default --reporter=blob --outputFile.blob=.vitest-reports/contract.json",
+    "test:cov:merge": "vitest run --merge-reports --coverage",
     "test:contract": "vitest run --config test/contract/vitest.contract.config.ts",
     "sync-contracts": "node scripts/sync-contracts.mjs"
   },

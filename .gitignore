@@ -56,3 +56,6 @@ presentation-livio/
 
 # Prisma — les migrations doivent être committées (prisma migrate deploy au démarrage prod)
 # NE PAS ignorer prisma/migrations/
+
+# Rapports de couverture intermédiaires (fusionnés par test:cov:merge)
+backend/.vitest-reports/

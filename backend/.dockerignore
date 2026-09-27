@@ -6,3 +6,4 @@ data
 .env.*
 *.log
 .git
+.vitest-reports
