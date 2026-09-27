@@ -47,6 +47,21 @@ Historique des évolutions notables de l'application. Les entrées les plus réc
 - **Collaborateur** : signature au doigt en plein écran (tracé conservé à la rotation), connexion en un écran depuis
   l'email, portail rangé par ce qu'il y a à faire avec les numéros de série, PDF ouverts dans le navigateur.
 
+### Corrigé après la recette réelle de la vague 2
+- **Plus aucun document signé n'est écrasé** : deux restitutions donnent deux documents, chacun avec sa date ; chaque
+  empreinte du journal correspond à un fichier téléchargeable. Le collaborateur ne voit plus les versions signées par
+  l'équipe informatique seule.
+- Une signature au guichet devant le technicien n'est plus comptée « par une personne mandatée ».
+- PDF de restitution partielle en trois parties (restitués, déjà restitués, restent chez le collaborateur).
+- Fiche : filiale toujours affichée en modification, « Traiter la contestation », « Corriger le marquage » après une
+  contestation fondée, une seule action claire pendant une restitution, fenêtres qui tiennent en paysage sur téléphone.
+- Portail : messages justes après une contestation fondée (bon « en cours de correction », hors de « À signer »), bon
+  modifié et demande de nouveau lien affichés avec la vraie raison ; une seule page de connexion ; zone de signature
+  agrandie.
+- Tableau de bord : chaque chiffre ouvre la liste exacte qu'il compte, ou explique pourquoi il n'en a pas.
+- Emails : « Non retenue » avec lien, une seule alerte par demande de nouveau lien, 7 modèles de plus personnalisables.
+- Migrations additives `20260927100000` à `20260927100200` (historique des documents, motif « restitution corrigée »).
+
 ### Base de données (migrations `20260925100000` et `20260925100100`, additives)
 - Civilité, note interne, date d'attente de signature, motifs, lien entre un bon et son remplaçant, motif
   d'invalidation d'un lien, issue de contestation, document concerné par un rappel. Données existantes reprises.
