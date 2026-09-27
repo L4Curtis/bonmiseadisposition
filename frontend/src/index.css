@@ -285,3 +285,119 @@
   border-color: hsl(0 0% 100% / 0.15);
   transition: background-color 9999s ease-in-out 0s;
 }
+
+/* ─── Coque de l'application : téléphone et cibles tactiles ──────────────────
+   Règles hors @layer : elles passent après les utilitaires Tailwind.
+   Téléphone = moins de 768 px (point de rupture `md`). */
+
+html {
+  /* iOS grossit le texte en paysage : on garde les tailles choisies. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* Hauteur de l'écran réellement visible : 100dvh suit les barres du
+   navigateur mobile qui apparaissent et disparaissent (100vh en repli). */
+.app-shell {
+  height: 100vh;
+  height: 100dvh;
+}
+
+/* En-tête : 56 px, plus l'encoche éventuelle (safe-area-inset, non nulle
+   seulement avec viewport-fit=cover). */
+.app-header {
+  height: calc(3.5rem + env(safe-area-inset-top, 0px));
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+/* Tableau plus large que l'écran : il défile dans son propre cadre, jamais
+   la page. Une ombre au bord indique qu'il reste des colonnes à glisser :
+   les deux premiers fonds (couleur de la carte) suivent le contenu et
+   masquent l'ombre quand on est déjà au bout ; les deux suivants restent
+   collés aux bords du cadre. Seuls les cadres qui contiennent un tableau
+   sont visés : une barre d'onglets ou un groupe de boutons défilant garde
+   son propre fond (sans :has, pas d'ombre, rien de cassé). */
+.app-main .overflow-x-auto:has(> table),
+.app-main .scroll-frame {
+  background-image:
+    linear-gradient(to right, hsl(var(--card)), hsl(var(--card))),
+    linear-gradient(to right, hsl(var(--card)), hsl(var(--card))),
+    linear-gradient(to right, hsl(var(--foreground) / 0.16), hsl(var(--foreground) / 0)),
+    linear-gradient(to left, hsl(var(--foreground) / 0.16), hsl(var(--foreground) / 0));
+  background-position: left center, right center, left center, right center;
+  background-repeat: no-repeat;
+  background-size: 1.5rem 100%, 1.5rem 100%, 0.875rem 100%, 0.875rem 100%;
+  background-attachment: local, local, scroll, scroll;
+  -webkit-overflow-scrolling: touch;
+  /* Bloc de référence des éléments positionnés du tableau (textes réservés
+     aux lecteurs d'écran, cases) : sans lui, ils s'échappent du cadre et
+     élargissent la page. */
+  position: relative;
+}
+
+/* Coque « téléphone » : écran étroit, ou tactile et bas (téléphone couché).
+   Même requête que PHONE_SHELL_QUERY (components/layout/shell-media.ts). */
+@media (max-width: 767px), (pointer: coarse) and (max-height: 500px) {
+  /* Cadre de page : marges latérales de 16 px (au moins la zone sûre). */
+  .app-main {
+    padding-left: max(1rem, env(safe-area-inset-left, 0px));
+    padding-right: max(1rem, env(safe-area-inset-right, 0px));
+    padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+  }
+  .app-header {
+    padding-left: max(0.5rem, env(safe-area-inset-left, 0px));
+    padding-right: max(0.5rem, env(safe-area-inset-right, 0px));
+  }
+
+  /* Tableau posé sans cadre défilant : il devient son propre cadre. */
+  .app-main :not(.overflow-x-auto) > table {
+    display: block;
+    position: relative;
+    max-width: 100%;
+    overflow-x: auto;
+    /* Même indice de glissement que les cadres ci-dessus. */
+    background-image:
+      linear-gradient(to right, hsl(var(--card)), hsl(var(--card))),
+      linear-gradient(to right, hsl(var(--card)), hsl(var(--card))),
+      linear-gradient(to right, hsl(var(--foreground) / 0.16), hsl(var(--foreground) / 0)),
+      linear-gradient(to left, hsl(var(--foreground) / 0.16), hsl(var(--foreground) / 0));
+    background-position: left center, right center, left center, right center;
+    background-repeat: no-repeat;
+    background-size: 1.5rem 100%, 1.5rem 100%, 0.875rem 100%, 0.875rem 100%;
+    background-attachment: local, local, scroll, scroll;
+  }
+
+  /* Cibles tactiles de la coque : 44 × 44 px au moins. */
+  .touch-target {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+  .account-menu [role='menuitem'],
+  .account-menu [role='menuitemradio'] {
+    min-height: 2.75rem;
+  }
+
+  /* Champs en 16 px au moins : en dessous, iOS zoome sur le champ touché. */
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+/* Tiroir et recherche plein écran : zone sûre de l'encoche et du bas. */
+.mobile-drawer {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+}
+.mobile-fullscreen {
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-drawer,
+  [data-drawer-overlay] {
+    animation: none !important;
+  }
+}

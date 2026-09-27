@@ -1,295 +1,113 @@
-import * as React from 'react';
-import { NavLink, useLocation } from 'react-router';
-import { useAuth } from '@/contexts/AuthContext';
-import { useUiView, UI_VIEW_LABELS } from '@/contexts/UiViewContext';
+import { useState, type RefObject } from 'react';
+import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { useUiView } from '@/contexts/UiViewContext';
 import { useOpenContestationsCount } from '@/hooks/use-open-contestations-count';
 import { cn } from '@/lib/utils';
-import { SCREEN_LABELS } from '@/domain/labels';
-import {
-  LayoutDashboard,
-  FileText,
-  Settings,
-  Users,
-  Package,
-  Boxes,
-  Building2,
-  ScrollText,
-  MessageSquareWarning,
-  Server,
-  Mail,
-  PanelLeftClose,
-  PanelLeftOpen,
-} from 'lucide-react';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { navGroupsFor, type NavGroup } from './nav-config';
+import { NavSections } from './NavSections';
+import { MobileNavDrawer } from './MobileNavDrawer';
+import { BrandMark, UserBadge, useUserSummary } from './SidebarParts';
+import { readSidebarCollapsed, writeSidebarCollapsed } from './sidebar-preference';
 
-type NavItem = {
-  to: string;
-  icon: React.ElementType;
-  label: string;
-  badge?: number;
-};
-
-type NavGroup = {
-  title: string;
-  items: NavItem[];
-};
-
-const operationsGroup: NavGroup = {
-  title: 'Opérations',
-  items: [
-    { to: '/dashboard', icon: LayoutDashboard, label: 'Vue d\'ensemble' },
-    { to: '/bons', icon: FileText, label: SCREEN_LABELS.bons },
-    { to: '/admin/contestations', icon: MessageSquareWarning, label: SCREEN_LABELS.contestations },
-  ],
-};
-
-const catalogueItem: NavItem = { to: '/admin/catalogue', icon: Package, label: SCREEN_LABELS.catalogue };
-const inventaireItem: NavItem = { to: '/inventaire', icon: Boxes, label: SCREEN_LABELS.inventaire };
-
-// Le technicien voit et modifie le Catalogue, mais ne gère ni les comptes
-// (Utilisateurs) ni les Filiales : réservés à l'administrateur (décision du 24/09).
-const technicienNavGroups: NavGroup[] = [
-  operationsGroup,
-  { title: 'Référentiel', items: [catalogueItem, inventaireItem] },
-];
-
-const adminNavGroups: NavGroup[] = [
-  operationsGroup,
-  {
-    title: 'Référentiel',
-    items: [
-      { to: '/admin/utilisateurs', icon: Users, label: SCREEN_LABELS.utilisateurs },
-      { to: '/admin/filiales', icon: Building2, label: SCREEN_LABELS.filiales },
-      catalogueItem,
-      inventaireItem,
-    ],
-  },
-  {
-    title: 'Administration',
-    items: [
-      { to: '/admin/configuration', icon: Settings, label: 'Configuration' },
-      { to: '/admin/templates', icon: Mail, label: 'Modèles' },
-      { to: '/admin/ldap-sync', icon: Server, label: 'Active Directory' },
-      { to: '/admin/audit', icon: ScrollText, label: 'Journal d\'audit' },
-    ],
-  },
-];
-
-const collaboratorNavGroups: NavGroup[] = [
-  {
-    title: 'Opérations',
-    items: [
-      { to: '/mes-bons', icon: FileText, label: 'Mes bons' },
-    ],
-  },
-];
-
-const directionNavGroups: NavGroup[] = [
-  {
-    title: 'Pilotage',
-    items: [
-      { to: '/dashboard', icon: LayoutDashboard, label: 'Tableau de bord' },
-      { to: '/inventaire', icon: Boxes, label: 'Inventaire' },
-    ],
-  },
-];
-
-/** Injecte le badge de contestations ouvertes sur l'entrée correspondante,
- *  sans muter les groupes de base (immutabilité). */
-function withContestationsBadge(groups: NavGroup[], openCount: number | null): NavGroup[] {
-  if (openCount === null) return groups;
-  return groups.map((group) => ({
-    ...group,
-    items: group.items.map((item) =>
-      item.to === '/admin/contestations' ? { ...item, badge: openCount } : item,
-    ),
-  }));
+interface SidebarProps {
+  /** Tiroir du téléphone ouvert (piloté par le bouton ☰ de l'en-tête). */
+  readonly mobileOpen?: boolean;
+  readonly onMobileOpenChange?: (open: boolean) => void;
+  /** Bouton ☰ : il reprend le focus à la fermeture du tiroir. */
+  readonly menuButtonRef?: RefObject<HTMLButtonElement>;
 }
 
-const STORAGE_KEY = 'sidebar-collapsed';
-
-const SidebarNavLink = React.forwardRef<
-  HTMLAnchorElement,
-  { to: string; children: React.ReactNode; className?: string }
->(({ to, children, className: _className, ...props }, ref) => {
-  const location = useLocation();
-  const isActive = location.pathname === to || location.pathname.startsWith(to + '/');
-
+/** Bouton « Réduire / Agrandir » du menu latéral. */
+function CollapseToggle({ collapsed, onToggle }: { readonly collapsed: boolean; readonly onToggle: () => void }) {
   return (
-    <NavLink
-      ref={ref}
-      to={to}
-      className={cn(
-        'group relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium whitespace-nowrap transition-all duration-150',
-        isActive
-          ? 'nav-item-active text-[hsl(var(--sidebar-text-active))]'
-          : 'text-[hsl(var(--sidebar-text))] hover:bg-muted hover:text-foreground',
-      )}
-      {...props}
-    >
-      {/* Barre d'indicateur active (gauche) */}
-      <span
-        aria-hidden="true"
-        className={cn(
-          'absolute left-0 top-1/2 -translate-y-1/2 h-4 w-[3px] rounded-r-full bg-[hsl(var(--sidebar-accent))] transition-all duration-200',
-          isActive ? 'opacity-100 scale-y-100' : 'opacity-0 scale-y-50',
-        )}
-      />
-      {children}
-    </NavLink>
-  );
-});
-SidebarNavLink.displayName = 'SidebarNavLink';
-
-function SidebarSection({ group, isFirst, collapsed }: { group: NavGroup; isFirst: boolean; collapsed: boolean }) {
-  return (
-    <div className={cn('space-y-0.5', !isFirst && 'mt-4 border-t border-[hsl(var(--border))] pt-4')}>
-      <p className={cn(
-        'mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest select-none whitespace-nowrap transition-opacity duration-200',
-        collapsed ? 'opacity-0' : 'opacity-100 text-muted-foreground',
-      )}>
-        {group.title}
-      </p>
-      {group.items.map(({ to, icon: Icon, label, badge }) => (
-        <Tooltip key={to}>
-          <TooltipTrigger asChild>
-            <SidebarNavLink to={to}>
-              <Icon className="h-4 w-4 shrink-0" />
-              <span className="truncate flex-1">{label}</span>
-              {badge !== undefined && badge > 0 && (
-                <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground leading-none">
-                  {badge > 99 ? '99+' : badge}
-                </span>
-              )}
-            </SidebarNavLink>
-          </TooltipTrigger>
-          <TooltipContent side="right" className={collapsed ? '' : 'hidden'}>
-            {label}
-          </TooltipContent>
-        </Tooltip>
-      ))}
-    </div>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex w-full items-center gap-3 whitespace-nowrap rounded-lg px-3 py-2 text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground"
+          aria-label={collapsed ? 'Agrandir la barre latérale' : 'Réduire la barre latérale'}
+        >
+          {collapsed ? <PanelLeftOpen className="h-4 w-4 shrink-0" /> : <PanelLeftClose className="h-4 w-4 shrink-0" />}
+          <span className={cn('text-xs transition-opacity duration-200', collapsed ? 'opacity-0' : 'opacity-100')}>
+            Réduire
+          </span>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right" className={collapsed ? '' : 'hidden'}>
+        Agrandir
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
-export function Sidebar() {
-  const { user } = useAuth();
-  const { activeView } = useUiView();
-  const openContestationsCount = useOpenContestationsCount();
-  const [collapsed, setCollapsed] = React.useState(() => {
-    try {
-      return localStorage.getItem(STORAGE_KEY) === 'true';
-    } catch {
-      return false;
-    }
-  });
+/** Menu latéral de la tablette et de l'ordinateur (coque `shell:`, voir shell-media.ts), repliable. */
+function DesktopRail({ groups }: { readonly groups: readonly NavGroup[] }) {
+  const [collapsed, setCollapsed] = useState(readSidebarCollapsed);
+  const userSummary = useUserSummary();
 
   const toggle = () => {
     const next = !collapsed;
     setCollapsed(next);
-    try {
-      localStorage.setItem(STORAGE_KEY, String(next));
-    } catch {
-      // localStorage indisponible
-    }
+    writeSidebarCollapsed(next);
   };
 
-  const baseNavGroups =
-    activeView === 'administrateur' ? adminNavGroups
-    : activeView === 'technicien' ? technicienNavGroups
-    : activeView === 'direction' ? directionNavGroups
-    : collaboratorNavGroups;
+  return (
+    <aside
+      className={cn(
+        'sidebar-rail relative hidden shrink-0 flex-col overflow-hidden bg-[hsl(var(--sidebar-bg))] transition-[width] duration-200 ease-in-out shell:flex',
+        'border-r border-[hsl(var(--border))]',
+        collapsed ? 'w-[3.75rem]' : 'w-60',
+      )}
+    >
+      <div className="relative flex h-14 items-center gap-3 whitespace-nowrap border-b border-[hsl(var(--border))] px-3.5">
+        <BrandMark collapsed={collapsed} />
+      </div>
 
-  // Badge de contestations ouvertes : uniquement pertinent pour les vues IT
-  // (le hook n'appelle de toute façon l'API que pour un rôle admin/technician).
-  const navGroups = activeView === 'administrateur' || activeView === 'technicien'
-    ? withContestationsBadge(baseNavGroups, openContestationsCount)
-    : baseNavGroups;
+      <nav aria-label="Navigation principale" className="relative flex-1 overflow-y-auto overflow-x-hidden p-2.5 pt-3">
+        <NavSections groups={groups} variant="rail" collapsed={collapsed} />
+      </nav>
 
-  const viewLabel = UI_VIEW_LABELS[activeView];
+      <div className="relative border-t border-[hsl(var(--border))] p-2">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="rounded-lg transition-colors hover:bg-muted">
+              <UserBadge collapsed={collapsed} />
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="right" className={collapsed ? '' : 'hidden'}>
+            {userSummary}
+          </TooltipContent>
+        </Tooltip>
+        <CollapseToggle collapsed={collapsed} onToggle={toggle} />
+      </div>
+    </aside>
+  );
+}
+
+/**
+ * Menu principal. Sur tablette et ordinateur : colonne latérale repliable
+ * (préférence mémorisée). Sur téléphone (portrait ou paysage) : tiroir fermé par
+ * défaut, avec libellés, ouvert par le bouton ☰ de l'en-tête ; la préférence
+ * « replié » ne s'y applique jamais.
+ */
+export function Sidebar({ mobileOpen = false, onMobileOpenChange, menuButtonRef }: SidebarProps) {
+  const { activeView } = useUiView();
+  const openContestationsCount = useOpenContestationsCount();
+  const groups = navGroupsFor(activeView, openContestationsCount);
 
   return (
     <TooltipProvider delayDuration={300}>
-      <aside
-        className={cn(
-          'sidebar-rail relative flex shrink-0 flex-col bg-[hsl(var(--sidebar-bg))] overflow-hidden transition-[width] duration-200 ease-in-out',
-          'border-r border-[hsl(var(--border))]',
-          collapsed ? 'w-[3.75rem]' : 'w-60',
-        )}
-      >
-        {/* Logo */}
-        <div className="relative flex h-14 items-center gap-3 border-b border-[hsl(var(--border))] px-3.5 whitespace-nowrap">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl btn-gradient text-white text-xs font-bold tracking-tight ring-1 ring-white/20">
-            GL
-          </div>
-          <div className={cn(
-            'flex-1 min-w-0 transition-opacity duration-200',
-            collapsed ? 'opacity-0' : 'opacity-100',
-          )}>
-            <p className="text-sm font-semibold text-foreground leading-none tracking-tight">Bons IT</p>
-            <p className="text-[10px] text-muted-foreground mt-1 leading-none">Groupe Livio</p>
-          </div>
-        </div>
-
-        {/* Navigation */}
-        <nav aria-label="Navigation principale" className="relative flex-1 overflow-y-auto overflow-x-hidden p-2.5 pt-3">
-          {navGroups.map((group, index) => (
-            <SidebarSection key={group.title} group={group} isFirst={index === 0} collapsed={collapsed} />
-          ))}
-        </nav>
-
-        {/* User block + Toggle */}
-        <div className="relative border-t border-[hsl(var(--border))] p-2">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="flex items-center gap-2.5 rounded-lg px-2 py-2 hover:bg-muted transition-colors">
-                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full btn-gradient text-white text-[10px] font-bold ring-1 ring-white/20">
-                  {user?.displayName?.slice(0, 2).toUpperCase() || '??'}
-                </div>
-                <div className={cn(
-                  'min-w-0 whitespace-nowrap transition-opacity duration-200',
-                  collapsed ? 'opacity-0' : 'opacity-100',
-                )}>
-                  <p className="text-xs font-medium text-foreground truncate leading-none">{user?.displayName}</p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5 leading-none">{viewLabel}</p>
-                </div>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent side="right" className={collapsed ? '' : 'hidden'}>
-              {user?.displayName} — {viewLabel}
-            </TooltipContent>
-          </Tooltip>
-
-          {/* Toggle collapse */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={toggle}
-                className="flex items-center gap-3 w-full rounded-lg px-3 py-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors duration-150 whitespace-nowrap"
-                aria-label={collapsed ? 'Agrandir la barre latérale' : 'Réduire la barre latérale'}
-              >
-                {collapsed
-                  ? <PanelLeftOpen className="h-4 w-4 shrink-0" />
-                  : <PanelLeftClose className="h-4 w-4 shrink-0" />
-                }
-                <span className={cn(
-                  'text-xs transition-opacity duration-200',
-                  collapsed ? 'opacity-0' : 'opacity-100',
-                )}>Réduire</span>
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="right" className={collapsed ? '' : 'hidden'}>
-              Agrandir
-            </TooltipContent>
-          </Tooltip>
-        </div>
-      </aside>
+      <DesktopRail groups={groups} />
+      {onMobileOpenChange && (
+        <MobileNavDrawer
+          open={mobileOpen}
+          onOpenChange={onMobileOpenChange}
+          groups={groups}
+          returnFocusRef={menuButtonRef}
+        />
+      )}
     </TooltipProvider>
   );
 }

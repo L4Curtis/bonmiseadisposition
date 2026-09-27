@@ -1,64 +1,27 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { Search, WifiOff } from 'lucide-react';
-import { api } from '@/lib/api';
-import { BON_STATUS_LABELS, type BonStatus } from '@/types';
+import { Search } from 'lucide-react';
+import { SearchResultsList } from './SearchResultsList';
+import { useBonSearch } from './use-bon-search';
 
-/** Équipement d'un bon tel que renvoyé par GET /bons (BON_SELECT_SHAPE côté
- *  backend — voir backend/src/common/types.ts) : c'est ce qui permet, quand
- *  la recherche correspond à un n° de série OU un n° d'inventaire (lot L1,
- *  les deux comptent autant l'un que l'autre), d'afficher l'équipement visé. */
-interface SearchHitEquipment {
-  id: string;
-  serialNumber: string | null;
-  inventoryNumber: string | null;
-  customLabel: string | null;
-  catalogItem: { brand: string; model: string } | null;
-}
-
-interface SearchHit {
-  id: string;
-  reference: string;
-  status: BonStatus;
-  collaborateur: { displayName: string; email: string };
-  equipments?: SearchHitEquipment[];
-}
-
-function equipmentHitLabel(eq: SearchHitEquipment): string {
-  return eq.catalogItem ? `${eq.catalogItem.brand} ${eq.catalogItem.model}` : eq.customLabel || 'Équipement';
-}
-
-/** Équipement du bon dont le n° de série OU le n° d'inventaire correspond à
- *  la saisie — `undefined` si la correspondance vient de la référence ou du
- *  collaborateur. */
-function findMatchingEquipment(hit: SearchHit, query: string): SearchHitEquipment | undefined {
-  const q = query.toLowerCase();
-  return hit.equipments?.find(
-    (eq) => eq.serialNumber?.toLowerCase().includes(q) || eq.inventoryNumber?.toLowerCase().includes(q),
-  );
-}
-
-/** Le n° (série ou inventaire) qui a effectivement matché — affiché à côté du
- *  libellé de l'équipement, à ne pas confondre avec l'autre n°, non affiché. */
-function matchedReference(eq: SearchHitEquipment, query: string): string {
-  const q = query.toLowerCase();
-  return eq.serialNumber?.toLowerCase().includes(q) ? eq.serialNumber : (eq.inventoryNumber ?? '');
-}
-
-/** Recherche globale Ctrl+K : typeahead → saut direct à un bon, ou liste filtrée. */
+/**
+ * Recherche globale de l'ordinateur et de la tablette (Ctrl+K) : saut direct
+ * à un bon, ou liste filtrée. Sur téléphone, c'est la loupe de l'en-tête qui
+ * ouvre la même recherche en plein écran (`MobileSearch`).
+ */
 export function GlobalSearch() {
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const [value, setValue] = useState('');
-  const [results, setResults] = useState<SearchHit[]>([]);
-  const [open, setOpen] = useState(false);
+  // Panneau fermé à la main (Échap, clic à côté) : il se rouvre à la frappe suivante.
+  const [dismissed, setDismissed] = useState(false);
   const [active, setActive] = useState(0);
-  const [loading, setLoading] = useState(false);
-  // Distingue « aucun résultat » (recherche réussie, liste vide) d'une
-  // recherche qui a échoué (réseau/serveur) : les deux ne doivent pas
-  // afficher le même message, sous peine de masquer une vraie panne.
-  const [error, setError] = useState(false);
+  const search = useBonSearch(value);
+  const query = value.trim();
+  // Le panneau s'ouvre dès qu'une recherche aboutit, et reste ouvert (résultats
+  // précédents) pendant la recherche suivante.
+  const open = !dismissed && (search.settled || search.results.length > 0);
 
   // Raccourci ⌘K / Ctrl+K — standard des SaaS modernes
   useEffect(() => {
@@ -72,63 +35,36 @@ export function GlobalSearch() {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  // Recherche typeahead débattue (250 ms), à partir de 2 caractères
-  useEffect(() => {
-    const q = value.trim();
-    if (q.length < 2) { setResults([]); setError(false); setOpen(false); return; }
-    setLoading(true);
-    // Ignore une réponse arrivée après que la saisie ait changé entre-temps
-    // (la requête réseau, une fois lancée, ne peut pas être annulée par clearTimeout).
-    let ignore = false;
-    const t = setTimeout(() => {
-      api
-        .get<{ bons: SearchHit[] }>(`/bons?search=${encodeURIComponent(q)}&limit=6`)
-        .then((d) => {
-          if (ignore) return;
-          setResults(d.bons ?? []);
-          setError(false);
-          setActive(0);
-          setOpen(true);
-        })
-        .catch(() => {
-          if (ignore) return;
-          setResults([]);
-          setError(true);
-          setOpen(true);
-        })
-        .finally(() => { if (!ignore) setLoading(false); });
-    }, 250);
-    return () => { ignore = true; clearTimeout(t); };
-  }, [value]);
-
   // Fermeture au clic extérieur
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
-      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setDismissed(true);
     };
     window.addEventListener('mousedown', onDown);
     return () => window.removeEventListener('mousedown', onDown);
   }, []);
 
-  const reset = () => { setValue(''); setResults([]); setOpen(false); inputRef.current?.blur(); };
-  const goToList = () => { const q = value.trim(); if (!q) return; reset(); navigate(`/bons?search=${encodeURIComponent(q)}`); };
+  const onChange = (next: string) => { setValue(next); setDismissed(false); setActive(0); };
+  const reset = () => { setValue(''); inputRef.current?.blur(); };
+  const goToList = () => { if (!query) return; reset(); navigate(`/bons?search=${encodeURIComponent(query)}`); };
   const goToBon = (id: string) => { reset(); navigate(`/bons/${id}`); };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
+    const { results } = search;
     if (e.key === 'ArrowDown') { e.preventDefault(); setActive((a) => Math.min(a + 1, results.length - 1)); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((a) => Math.max(a - 1, 0)); }
     else if (e.key === 'Enter') { if (open && results[active]) goToBon(results[active].id); else goToList(); }
-    else if (e.key === 'Escape') { setOpen(false); inputRef.current?.blur(); }
+    else if (e.key === 'Escape') { setDismissed(true); inputRef.current?.blur(); }
   };
 
   return (
-    <div ref={boxRef} className="group relative hidden md:flex items-center">
+    <div ref={boxRef} className="group relative hidden shell:flex items-center">
       <Search className="pointer-events-none absolute left-3 h-3.5 w-3.5 text-muted-foreground/60 group-focus-within:text-primary transition-colors" />
       <input
         ref={inputRef}
         value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onFocus={() => { if (results.length) setOpen(true); }}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={() => setDismissed(false)}
         onKeyDown={onKeyDown}
         placeholder="Rechercher un bon, un collaborateur, un n° de série ou d'inventaire…"
         aria-label="Recherche globale"
@@ -140,48 +76,14 @@ export function GlobalSearch() {
 
       {open && (
         <div className="absolute left-0 top-10 z-50 w-[28rem] max-w-[90vw] overflow-hidden rounded-xl border border-border bg-card shadow-lg">
-          {loading && results.length === 0 ? (
-            <p className="px-3 py-3 text-xs text-muted-foreground">Recherche…</p>
-          ) : error ? (
-            <p role="alert" className="flex items-center gap-2 px-3 py-3 text-xs text-destructive">
-              <WifiOff className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              Recherche indisponible (erreur réseau). Réessayez.
-            </p>
-          ) : results.length === 0 ? (
-            <p className="px-3 py-3 text-xs text-muted-foreground">Aucun bon. Entrée pour la recherche complète.</p>
-          ) : (
-            <ul className="max-h-80 overflow-y-auto py-1">
-              {results.map((b, i) => {
-                const matchedEquipment = findMatchingEquipment(b, value.trim());
-                return (
-                  <li key={b.id}>
-                    <button
-                      type="button"
-                      onMouseEnter={() => setActive(i)}
-                      onClick={() => goToBon(b.id)}
-                      className={`flex w-full items-center gap-3 px-3 py-2 text-left ${i === active ? 'bg-primary/10' : 'hover:bg-muted/60'}`}
-                    >
-                      <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground/80">{b.reference}</span>
-                      <span className="min-w-0 flex-1 truncate text-sm text-foreground">
-                        {b.collaborateur.displayName}
-                        {matchedEquipment && (
-                          <span className="ml-2 truncate text-xs text-muted-foreground">
-                            · <span>{equipmentHitLabel(matchedEquipment)}</span> — <span className="font-mono">{matchedReference(matchedEquipment, value.trim())}</span>
-                          </span>
-                        )}
-                      </span>
-                      <span className="shrink-0 text-[10px] text-muted-foreground">{BON_STATUS_LABELS[b.status]}</span>
-                    </button>
-                  </li>
-                );
-              })}
-              <li className="border-t border-border">
-                <button type="button" onClick={goToList} className="w-full px-3 py-2 text-left text-xs text-primary hover:bg-muted/60">
-                  Voir tous les résultats pour « {value.trim()} »
-                </button>
-              </li>
-            </ul>
-          )}
+          <SearchResultsList
+            query={query}
+            search={search}
+            active={active}
+            onHover={setActive}
+            onSelect={goToBon}
+            onSeeAll={goToList}
+          />
         </div>
       )}
     </div>

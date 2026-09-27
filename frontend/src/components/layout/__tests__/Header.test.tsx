@@ -92,4 +92,24 @@ describe('Header', () => {
     expect(screen.getByText('Test User')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Activer le mode (clair|sombre)/i })).toBeInTheDocument();
   });
+
+  it('téléphone : titre de la page et bouton ☰ libellé, qui ouvre le menu', async () => {
+    const onOpenMenu = vi.fn();
+    const { user } = renderWithProviders(<Header onOpenMenu={onOpenMenu} />, { route: '/inventaire' });
+
+    expect(screen.getByText('Inventaire')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Ouvrir le menu' }));
+    expect(onOpenMenu).toHaveBeenCalledTimes(1);
+  });
+
+  it('loupe de recherche pour les vues IT seulement', () => {
+    mockView = 'technicien';
+    const { unmount } = renderWithProviders(<Header />);
+    expect(screen.getByRole('button', { name: 'Rechercher' })).toBeInTheDocument();
+    unmount();
+
+    mockView = 'direction';
+    renderWithProviders(<Header />);
+    expect(screen.queryByRole('button', { name: 'Rechercher' })).not.toBeInTheDocument();
+  });
 });

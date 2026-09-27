@@ -94,7 +94,6 @@ function AppRoutes() {
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
       <Route path="/change-password" element={<ChangePasswordPage />} />
       <Route path="/setup" element={<Navigate to="/login" replace />} />
-      <Route path="/unauthorized" element={<UnauthorizedPage />} />
 
       <Route
         path="/"
@@ -224,6 +223,10 @@ function AppRoutes() {
           <Route path="email-templates" element={<Navigate to="/admin/templates/email" replace />} />
           <Route path="pdf-templates" element={<Navigate to="/admin/templates/pdf" replace />} />
         </Route>
+
+        {/* Écran réservé à d'autres profils : le refus s'affiche dans la
+            coque, menu compris. */}
+        <Route path="unauthorized" element={<UnauthorizedPage />} />
 
         {/* Adresse inconnue : le dire plutôt que renvoyer en silence à
             l'accueil (lien ancien ou mal copié). */}

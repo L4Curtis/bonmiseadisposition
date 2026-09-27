@@ -2,7 +2,10 @@ import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useUiView, UI_VIEW_LABELS, UI_VIEW_ICON_MAP, type UiView } from '@/contexts/UiViewContext';
 import type { User } from '@/types';
-import { LogOut, KeyRound } from 'lucide-react';
+import { LogOut, KeyRound, Moon, Sun } from 'lucide-react';
+import { useTheme } from '@/contexts/ThemeContext';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { PHONE_SHELL_QUERY } from '../shell-media';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
   DropdownMenu,
@@ -27,9 +30,23 @@ function getInitials(name?: string): string {
     .toUpperCase();
 }
 
+/** Bascule clair / sombre, dans le menu du compte sur téléphone (l'en-tête
+ *  n'y garde que ☰, le titre, la loupe et le compte). */
+function ThemeMenuItem() {
+  const { theme, toggleTheme } = useTheme();
+  const Icon = theme === 'dark' ? Sun : Moon;
+  return (
+    <DropdownMenuItem onClick={toggleTheme}>
+      <Icon className="mr-2 h-4 w-4" />
+      {theme === 'dark' ? 'Activer le mode clair' : 'Activer le mode sombre'}
+    </DropdownMenuItem>
+  );
+}
+
 /** Avatar + menu déroulant : sélecteur de vue, changement de mot de passe, déconnexion. */
 export function UserMenu() {
   const { user, logout } = useAuth();
+  const isMobile = useMediaQuery(PHONE_SHELL_QUERY);
   const { activeView, setActiveView, availableViews } = useUiView();
   const [showChangePwd, setShowChangePwd] = useState(false);
   const isLocal = !!(user as User & { isLocalAccount?: boolean })?.isLocalAccount;
@@ -40,7 +57,7 @@ export function UserMenu() {
         <DropdownMenuTrigger asChild>
           <button
             aria-label="Menu utilisateur"
-            className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
+            className="touch-target flex items-center justify-center gap-2 rounded-lg px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
           >
             <Avatar className="h-6 w-6">
               <AvatarFallback className="bg-primary/10 text-primary text-[10px] font-semibold">
@@ -54,11 +71,11 @@ export function UserMenu() {
               </span>
             )}
             {isLocal && (
-              <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">local</span>
+              <span className="hidden sm:inline rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">local</span>
             )}
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuContent align="end" className="account-menu w-56">
           <DropdownMenuLabel className="font-normal">
             <div className="flex flex-col space-y-1">
               <p className="text-sm font-medium">{user?.displayName}</p>
@@ -90,6 +107,7 @@ export function UserMenu() {
           )}
 
           <DropdownMenuSeparator />
+          {isMobile && <ThemeMenuItem />}
           {isLocal && (
             <DropdownMenuItem onClick={() => setShowChangePwd(true)}>
               <KeyRound className="mr-2 h-4 w-4" />

@@ -1,5 +1,7 @@
 import type { Config } from 'tailwindcss';
 import tailwindAnimate from 'tailwindcss-animate';
+import plugin from 'tailwindcss/plugin';
+import { DESKTOP_SHELL_QUERY } from './src/components/layout/shell-media';
 
 const config: Config = {
   darkMode: ['class'],
@@ -93,7 +95,14 @@ const config: Config = {
       },
     },
   },
-  plugins: [tailwindAnimate],
+  plugins: [
+    tailwindAnimate,
+    // `shell:` : coque « tablette et ordinateur » (menu latéral). Plus juste
+    // que `md:` pour la coque : un téléphone couché, large de plus de 768 px,
+    // garde le tiroir (voir src/components/layout/shell-media.ts). Variante
+    // plutôt qu'écran `screens` : un écran brut désactiverait `max-sm:`.
+    plugin(({ addVariant }) => addVariant('shell', `@media ${DESKTOP_SHELL_QUERY}`)),
+  ],
 };
 
 export default config;
