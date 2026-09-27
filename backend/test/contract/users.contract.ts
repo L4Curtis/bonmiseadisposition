@@ -78,6 +78,16 @@ describe('Lecture de l’annuaire', () => {
     expect(res.status).toBe(200);
     expectShape(res.body, arrayOf(user, { minLength: 1 }));
   });
+
+  it('GET /users/search?q= : la civilité retenue sur le compte, pour préremplir le bon suivant', async () => {
+    await ctx.prisma.user.update({ where: { id: ctx.data.people.collaborator.id }, data: { civilite: 'mme' } });
+    const res = await ctx.http.get('/users/search?q=cam', 'technician');
+    expect(res.status).toBe(200);
+    const found = (res.body as { id: string; civilite: string | null }[]).find(
+      (u) => u.id === ctx.data.people.collaborator.id,
+    );
+    expect(found?.civilite).toBe('mme');
+  });
 });
 
 describe('Comptes créés à la main', () => {

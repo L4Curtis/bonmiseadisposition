@@ -1,53 +1,71 @@
-import { AlertOctagon, ChevronLeft, ChevronRight } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { useContestations } from './contestations/useContestations';
+import { AlertOctagon } from 'lucide-react';
+import { Pagination } from '@/components/list';
+import { cn } from '@/lib/utils';
+import { CONTESTATIONS_PAGE_SIZE, useContestations } from './contestations/useContestations';
 import { ContestationsTable } from './contestations/ContestationsTable';
 import { ResolveDialog } from './contestations/ResolveDialog';
-import { STATUS_OPTIONS } from './contestations/statusMeta';
+import { CONTESTATION_FILTERS } from './contestations/contestation-meta';
+
+/** Compteurs de l'en-tête : les mêmes pour toutes les listes (ils ignorent le
+ *  filtre), « nouvelles » étant le chiffre de la pastille du menu. */
+function Counters({ openCount, pendingCount, overdueCount, overdueAfterDays }: {
+  openCount: number;
+  pendingCount: number;
+  overdueCount: number;
+  overdueAfterDays: number;
+}) {
+  return (
+    <p className="text-sm text-muted-foreground">
+      {pendingCount === 0 ? (
+        'Aucune contestation à traiter.'
+      ) : (
+        <>
+          <strong className="text-foreground">{pendingCount} à traiter</strong>, dont {openCount} nouvelle{openCount > 1 ? 's' : ''}
+          {overdueCount > 0 && (
+            <span className="text-destructive font-medium">
+              {' '}et {overdueCount} en attente depuis plus de {overdueAfterDays} jours ouvrés
+            </span>
+          )}
+          .
+        </>
+      )}
+    </p>
+  );
+}
 
 export function ContestationsPage() {
-  const {
-    data,
-    loading,
-    loadError,
-    load,
-    page,
-    setPage,
-    statusFilter,
-    setStatusFilter,
-    resolving,
-    setResolving,
-    handleReview,
-    totalPages,
-    openCount,
-  } = useContestations();
+  const list = useContestations();
+  const { data } = list;
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <AlertOctagon className="h-5 w-5 text-destructive" />
-        <h1 className="text-xl font-bold text-foreground">Contestations</h1>
-        {data && data.total > 0 && (
-          <span className="text-sm text-muted-foreground/70">({data.total} au total)</span>
-        )}
-        {openCount > 0 && (
-          <span className="inline-flex rounded-full bg-destructive/10 text-destructive px-2 py-0.5 text-xs font-semibold">
-            {openCount} ouvertes
-          </span>
+      <div className="space-y-1">
+        <h1 className="flex items-center gap-2 text-xl font-bold text-foreground">
+          <AlertOctagon className="h-5 w-5 text-destructive" /> Contestations
+        </h1>
+        {data && (
+          <Counters
+            openCount={data.openCount}
+            pendingCount={data.pendingCount}
+            overdueCount={data.overdueCount}
+            overdueAfterDays={data.overdueAfterDays}
+          />
         )}
       </div>
 
-      {/* Filtres */}
-      <div className="flex gap-2 items-center">
-        {STATUS_OPTIONS.map((opt) => (
+      <div role="group" aria-label="Filtrer les contestations" className="flex flex-wrap gap-2">
+        {CONTESTATION_FILTERS.map((opt) => (
           <button
             key={opt.value}
-            onClick={() => setStatusFilter(opt.value)}
-            className={`rounded-full px-3 py-1 text-xs font-medium border transition-colors ${
-              statusFilter === opt.value
+            type="button"
+            aria-pressed={list.filter === opt.value}
+            onClick={() => list.setFilter(opt.value)}
+            className={cn(
+              'min-h-11 sm:min-h-8 rounded-full px-4 text-sm font-medium border transition-colors',
+              list.filter === opt.value
                 ? 'bg-primary text-primary-foreground border-primary'
-                : 'bg-card text-muted-foreground border-border hover:bg-muted/40'
-            }`}
+                : 'bg-card text-muted-foreground border-border hover:bg-muted/40',
+            )}
           >
             {opt.label}
           </button>
@@ -56,34 +74,32 @@ export function ContestationsPage() {
 
       <ContestationsTable
         contestations={data?.contestations}
-        loading={loading}
-        loadError={loadError}
-        onRetry={load}
-        onReview={handleReview}
-        onResolve={setResolving}
+        overdueSince={data?.overdueSince ?? null}
+        loading={list.loading}
+        loadError={list.loadError}
+        onRetry={list.load}
+        reviewingId={list.reviewingId}
+        onReview={list.handleReview}
+        onDecide={list.setDeciding}
       />
 
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>{data?.total} contestation(s)</span>
-          <div className="flex items-center gap-1">
-            <Button variant="outline" size="icon" disabled={page === 1} onClick={() => setPage((p) => p - 1)} aria-label="Page précédente">
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <span className="px-3">Page {page} / {totalPages}</span>
-            <Button variant="outline" size="icon" disabled={page === totalPages} onClick={() => setPage((p) => p + 1)} aria-label="Page suivante">
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
+      {data && (
+        <Pagination
+          page={list.page}
+          pageSize={CONTESTATIONS_PAGE_SIZE}
+          total={data.total}
+          onPageChange={list.setPage}
+          itemLabel={{ singular: 'contestation', plural: 'contestations' }}
+        />
       )}
 
       <ResolveDialog
-        contestation={resolving}
-        open={!!resolving}
-        onOpenChange={(open) => { if (!open) setResolving(null); }}
-        onSuccess={load}
+        contestation={list.deciding}
+        open={!!list.deciding}
+        onOpenChange={(open) => {
+          if (!open) list.setDeciding(null);
+        }}
+        onSuccess={list.load}
       />
     </div>
   );

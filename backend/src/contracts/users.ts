@@ -7,7 +7,7 @@
  * bon), GET /users/it-staff (filtre « Créé par ») et GET /users/:id.
  */
 
-import type { IsoDateTime, UserRole } from './common';
+import type { Civilite, IsoDateTime, UserRole } from './common';
 import type { FilialeSummary } from './filiales';
 
 /**
@@ -24,6 +24,10 @@ export interface User {
   department: string | null;
   company: string | null;
   title: string | null;
+  /** Civilité retenue sur le compte : choisie par le technicien à la création
+   *  d'un bon, reproposée aux bons suivants. `null` tant qu'aucun bon ne l'a
+   *  fixée. */
+  civilite: Civilite | null;
   filialeId: string | null;
   filiale: FilialeSummary | null;
   isItStaff: boolean;

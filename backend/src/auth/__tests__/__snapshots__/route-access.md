@@ -67,9 +67,12 @@ Généré par `backend/src/auth/__tests__/route-access.spec.ts` : ne pas modifie
 | GET | /api/bons/:id | tous les rôles connectés | BonsController.findOne |
 | PUT | /api/bons/:id | admin, technician | BonsController.update |
 | DELETE | /api/bons/:id | admin, technician | BonsController.cancel |
+| POST | /api/bons/:id/cancel | admin, technician | BonsController.cancelWithReason |
 | POST | /api/bons/:id/close-unilateral | admin, technician | BonsController.closeUnilateral |
-| POST | /api/bons/:id/contestation | tous les rôles connectés | BonsController.createContestation |
+| POST | /api/bons/:id/close-without-signature | admin, technician | BonsController.closeWithoutSignature |
+| POST | /api/bons/:id/contestation | tous les rôles connectés | ContestationController.create |
 | POST | /api/bons/:id/declare-not-returned | admin, technician | BonsController.declareNotReturned |
+| POST | /api/bons/:id/handover-without-signature | admin, technician | BonsController.handoverWithoutSignature |
 | POST | /api/bons/:id/initiate-inperson | admin, technician | BonsController.initiateInPerson |
 | POST | /api/bons/:id/initiate-restitution | admin, technician | BonsController.initiateRestitution |
 | GET | /api/bons/:id/integrity | tous les rôles connectés | BonsController.getIntegrity |
@@ -80,7 +83,9 @@ Généré par `backend/src/auth/__tests__/route-access.spec.ts` : ne pas modifie
 | GET | /api/bons/:id/pdf-snapshots/missing | admin, technician | BonsController.getMissingPdfSnapshots |
 | POST | /api/bons/:id/resend | admin, technician | BonsController.resend |
 | POST | /api/bons/:id/send | admin, technician | BonsController.send |
+| GET | /api/bons/:id/send-check | admin, technician | BonsController.sendCheck |
 | POST | /api/bons/:id/sign-it | admin, technician | BonsController.signIt |
+| POST | /api/bons/:id/undo-return | admin, technician | BonsController.undoReturn |
 | GET | /api/bons/export | admin, technician | BonsController.exportCsv |
 | GET | /api/bons/mes-bons | tous les rôles connectés | BonsController.getMyBons |
 | GET | /api/bons/recent | admin, technician | BonsController.getRecent |
@@ -89,6 +94,7 @@ Généré par `backend/src/auth/__tests__/route-access.spec.ts` : ne pas modifie
 | GET | /api/contestations | admin, technician | ContestationController.findAll |
 | PATCH | /api/contestations/:id/resolve | admin, technician | ContestationController.resolve |
 | PATCH | /api/contestations/:id/review | admin, technician | ContestationController.markInReview |
+| GET | /api/contestations/mine | tous les rôles connectés | ContestationController.findMine |
 | GET | /api/equipment/catalog | admin, technician | EquipmentController.findAllCatalog |
 | POST | /api/equipment/catalog | admin, technician | EquipmentController.createCatalogItem |
 | GET | /api/equipment/catalog/:id | admin, technician | EquipmentController.findOneCatalog |
@@ -120,6 +126,7 @@ Généré par `backend/src/auth/__tests__/route-access.spec.ts` : ne pas modifie
 | GET | /api/filiales/import/template | admin | FilialesController.importTemplate |
 | GET | /api/health | public (sans session) | HealthController.check |
 | GET | /api/health/ready | public (sans session) | HealthController.ready |
+| GET | /api/kpi/aujourdhui | admin, technician | KpiController.getToday |
 | GET | /api/kpi/delais | admin, technician, direction | KpiController.getDelais |
 | GET | /api/kpi/incidents | admin, technician, direction | KpiController.getIncidents |
 | GET | /api/kpi/parc | admin, technician, direction | KpiController.getParc |
@@ -129,6 +136,7 @@ Généré par `backend/src/auth/__tests__/route-access.spec.ts` : ne pas modifie
 | GET | /api/reporting/inventory/summary | admin, technician, direction | InventoryController.getSummary |
 | GET | /api/signature/:token | tous les rôles connectés | SignatureController.getBonInfo |
 | GET | /api/signature/:token/preview | tous les rôles connectés | SignatureController.preview |
+| POST | /api/signature/:token/request-new-link | tous les rôles connectés | SignatureController.requestNewLink |
 | POST | /api/signature/:token/sign | tous les rôles connectés | SignatureController.sign |
 | GET | /api/users | admin | UsersController.findAll |
 | GET | /api/users/:id | admin, technician | UsersController.findOne |

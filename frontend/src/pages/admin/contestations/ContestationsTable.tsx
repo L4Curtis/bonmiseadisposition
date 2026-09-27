@@ -1,140 +1,124 @@
-import { useNavigate } from 'react-router';
-import { CheckCircle, Eye, XCircle, AlertOctagon } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/skeleton';
-import { formatDateTime } from '@/lib/dates';
-import { STATUS_COLORS, STATUS_LABELS } from './statusMeta';
-import type { Contestation } from './types';
+import { Link } from 'react-router';
+import { CheckCircle, Eye, Loader2 } from 'lucide-react';
+import type { ContestationListItem } from '@/contracts/contestations';
+import { ListColumn, ListState, ResponsiveList } from '@/components/list';
+import { formatDate } from '@/lib/dates';
+import { cn } from '@/lib/utils';
+import {
+  contestationAgeDays,
+  contestationFollowUpForIt,
+  contestedDocumentLabel,
+  isOverdue,
+  isPending,
+} from './contestation-meta';
 
 interface ContestationsTableProps {
-  contestations: Contestation[] | undefined;
+  contestations: readonly ContestationListItem[] | undefined;
+  /** Seuil de retard calculé par le serveur (7 jours ouvrés). */
+  overdueSince: string | null;
   loading: boolean;
   loadError: string | null;
   onRetry: () => void;
-  onReview: (id: string) => void;
-  onResolve: (contestation: Contestation) => void;
+  reviewingId: string | null;
+  onReview: (contestation: ContestationListItem) => void;
+  onDecide: (contestation: ContestationListItem) => void;
 }
 
-function TableSkeleton() {
+const ACTION = 'w-full sm:w-auto min-h-11 sm:min-h-8 inline-flex items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-medium transition-colors';
+
+function Received({ c, overdueSince }: { c: ContestationListItem; overdueSince: string | null }) {
+  const days = contestationAgeDays(c.createdAt);
+  const late = isOverdue(c, overdueSince);
   return (
-    <div className="divide-y divide-border">
-      {Array.from({ length: 5 }).map((_, i) => (
-        <div key={i} className="flex items-center gap-4 px-4 py-3">
-          <Skeleton className="h-4 w-24" />
-          <Skeleton className="h-4 w-20" />
-          <div className="flex-1 space-y-1"><Skeleton className="h-4 w-32" /><Skeleton className="h-3 w-40" /></div>
-          <Skeleton className="h-4 w-48" />
-          <Skeleton className="h-5 w-16 rounded-full" />
-          <Skeleton className="h-6 w-24" />
-        </div>
-      ))}
+    <span className="whitespace-nowrap">
+      {formatDate(c.createdAt)}
+      {isPending(c) && (
+        <span className={cn('ml-2 rounded-full px-2 py-0.5 text-xs font-semibold', late ? 'bg-destructive/10 text-destructive' : 'bg-muted text-muted-foreground')}>
+          {days} j{late ? ' — en retard' : ''}
+        </span>
+      )}
+    </span>
+  );
+}
+
+function Actions({ c, reviewingId, onReview, onDecide }: { c: ContestationListItem } & Pick<ContestationsTableProps, 'reviewingId' | 'onReview' | 'onDecide'>) {
+  if (!isPending(c)) {
+    return c.resolutionMessage ? (
+      <p className="text-xs text-muted-foreground italic [overflow-wrap:anywhere]">« {c.resolutionMessage} »</p>
+    ) : null;
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      {c.status === 'open' && (
+        <button type="button" onClick={() => onReview(c)} disabled={reviewingId === c.id} className={cn(ACTION, 'bg-warning/10 text-warning hover:bg-warning/20')}>
+          {reviewingId === c.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />} Prendre en charge
+        </button>
+      )}
+      <button type="button" onClick={() => onDecide(c)} className={cn(ACTION, 'bg-primary/10 text-primary hover:bg-primary/20')}>
+        <CheckCircle className="h-4 w-4" /> Trancher
+      </button>
     </div>
   );
 }
 
-/** Table des contestations : gère elle-même le chargement, l'erreur et l'état vide. */
-export function ContestationsTable({
-  contestations,
-  loading,
-  loadError,
-  onRetry,
-  onReview,
-  onResolve,
-}: ContestationsTableProps) {
-  const navigate = useNavigate();
+function columns(props: ContestationsTableProps): ListColumn<ContestationListItem>[] {
+  return [
+    {
+      key: 'bon',
+      header: 'Bon',
+      card: 'title',
+      className: 'whitespace-nowrap',
+      cell: (c) => (
+        <Link to={`/bons/${c.bon.id}`} className="inline-flex min-h-11 items-center font-mono font-semibold text-primary hover:underline sm:min-h-0">
+          {c.bon.reference}
+        </Link>
+      ),
+    },
+    { key: 'received', header: 'Reçue le', cell: (c) => <Received c={c} overdueSince={props.overdueSince} /> },
+    {
+      key: 'who',
+      header: 'Collaborateur et document',
+      cell: (c) => (
+        <span>
+          {c.user.displayName}
+          <span className="block text-xs text-muted-foreground">
+            {contestedDocumentLabel(c)} · {c.bon.filiale.displayName}
+          </span>
+        </span>
+      ),
+    },
+    {
+      key: 'message',
+      header: 'Motif',
+      className: 'min-w-[14rem]',
+      cell: (c) => <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{c.message}</p>,
+    },
+    { key: 'follow', header: 'Suivi', className: 'min-w-[11rem]', cell: (c) => <span className="text-sm">{contestationFollowUpForIt(c)}</span> },
+    {
+      key: 'actions',
+      header: 'Actions',
+      card: 'actions',
+      className: 'w-44',
+      cell: (c) => <Actions c={c} reviewingId={props.reviewingId} onReview={props.onReview} onDecide={props.onDecide} />,
+    },
+  ];
+}
 
+/** Liste des contestations : un tableau sur ordinateur, des cartes sur
+ *  téléphone. Le motif est affiché en entier : c'est lui qu'on tranche. */
+export function ContestationsTable(props: ContestationsTableProps) {
+  const items = props.contestations ?? [];
   return (
     <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
-      {loading ? (
-        <TableSkeleton />
-      ) : loadError ? (
-        <div className="py-12 text-center text-sm" role="alert">
-          <XCircle className="h-8 w-8 mx-auto mb-2 text-destructive/70" />
-          <p className="text-destructive">{loadError}</p>
-          <Button size="sm" variant="outline" className="mt-3" onClick={onRetry}>
-            Réessayer
-          </Button>
-        </div>
-      ) : !contestations?.length ? (
-        <div className="py-12 text-center text-sm text-muted-foreground/70">
-          <AlertOctagon className="h-8 w-8 mx-auto mb-2 opacity-30" />
-          <p>Aucune contestation trouvée</p>
-        </div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm" aria-label="Liste des contestations">
-            <thead className="border-b bg-muted/40">
-              <tr>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Date</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Bon</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Collaborateur</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Motif</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Statut</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {contestations.map((c) => (
-                <tr key={c.id} className="border-b last:border-0 hover:bg-muted/40">
-                  <td className="px-4 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
-                    {formatDateTime(c.createdAt)}
-                  </td>
-                  <td className="px-4 py-2.5 text-xs">
-                    <button
-                      className="font-mono font-semibold text-primary hover:underline"
-                      onClick={() => navigate(`/bons/${c.bon.id}`)}
-                    >
-                      {c.bon.reference}
-                    </button>
-                    <p className="text-muted-foreground/70">{c.bon.filiale.displayName}</p>
-                  </td>
-                  <td className="px-4 py-2.5 text-xs">
-                    <div className="font-medium text-foreground/80">{c.user.displayName}</div>
-                    <div className="text-muted-foreground/70">{c.user.email}</div>
-                  </td>
-                  <td className="px-4 py-2.5 text-xs text-muted-foreground max-w-xs">
-                    <p className="truncate" title={c.message}>{c.message}</p>
-                    {c.resolvedBy && (
-                      <p className="text-muted-foreground/70 mt-0.5">Traité par {c.resolvedBy.displayName}</p>
-                    )}
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_COLORS[c.status]}`}>
-                      {STATUS_LABELS[c.status]}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <div className="flex items-center gap-1.5">
-                      {c.status === 'open' && (
-                        <button
-                          onClick={() => onReview(c.id)}
-                          className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium bg-warning/10 text-warning hover:bg-warning/20 transition-colors"
-                          title="Prendre en charge"
-                        >
-                          <Eye className="h-3 w-3" /> Prendre en charge
-                        </button>
-                      )}
-                      {['open', 'in_review'].includes(c.status) && (
-                        <button
-                          onClick={() => onResolve(c)}
-                          className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-                        >
-                          <CheckCircle className="h-3 w-3" /> Traiter
-                        </button>
-                      )}
-                      {c.resolutionMessage && (
-                        <span className="text-xs text-muted-foreground/70 italic truncate max-w-[120px]" title={c.resolutionMessage}>
-                          {c.resolutionMessage}
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <ListState
+        loading={props.loading}
+        error={props.loadError}
+        isEmpty={items.length === 0}
+        onRetry={props.onRetry}
+        emptyMessage="Aucune contestation dans cette liste."
+      >
+        <ResponsiveList items={items} columns={columns(props)} getKey={(c) => c.id} caption="Liste des contestations" />
+      </ListState>
     </div>
   );
 }

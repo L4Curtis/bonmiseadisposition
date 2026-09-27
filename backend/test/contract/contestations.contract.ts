@@ -1,14 +1,28 @@
 /**
- * Contrat des contestations (`/api/contestations`) : liste de l'écran IT et
- * compteur du menu, droits de la création par le collaborateur. La prise en
- * charge et la clôture sont vérifiées par bon-workflow.contract.ts.
+ * Contrat des contestations : liste de l'écran IT et ses compteurs, suivi par
+ * le collaborateur, contestation de la remise, de la restitution et du PV,
+ * décision Fondée / Non retenue (remise Fondée : bon remplaçant ; restitution
+ * ou PV Fondé : bon d'origine rouvert pour correction), relance à 7 jours
+ * ouvrés. Le parcours complet d'un
+ * bon jusqu'à sa contestation est aussi joué par bon-workflow.contract.ts.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { AccessRule, describeRule, expectAccessRule, IT, rule } from './support/access';
+import { ContestationOverdueService } from '../../src/contestation/overdue/contestation-overdue.service';
+import { AccessRule, describeRule, EVERY_ROLE, expectAccessRule, IT, rule } from './support/access';
 import { nestError } from './support/common-shapes';
 import { ContractContext, startContractContext } from './support/context';
+import { PENDING_RESTITUTION_TOKEN } from './support/fixtures';
 import { expectShape } from './support/shape';
-import { contestationList, resolveContestation } from './shapes/workflow';
+import {
+  contestationList,
+  createContestation,
+  myContestations,
+  resolveContestation,
+  reviewContestation,
+  signatureBonClosed,
+  signaturePending,
+  signatureReplaced,
+} from './shapes/workflow';
 
 let ctx: ContractContext;
 
@@ -20,15 +34,14 @@ afterAll(async () => {
   await ctx?.close();
 });
 
-async function openContestationId(): Promise<string> {
-  const contestation = await ctx.prisma.contestation.findFirstOrThrow({ where: { status: 'open' } });
-  return contestation.id;
-}
+const DAY_MS = 24 * 60 * 60 * 1000;
+const UNKNOWN_ID = '00000000-0000-4000-8000-000000000000';
 
 const ACCESS: readonly AccessRule[] = [
   rule('GET /contestations', IT),
-  rule('PATCH /contestations/:id/review', IT, () => '/contestations/00000000-0000-4000-8000-000000000000/review'),
-  rule('PATCH /contestations/:id/resolve', IT, () => '/contestations/00000000-0000-4000-8000-000000000000/resolve'),
+  rule('GET /contestations/mine', EVERY_ROLE),
+  rule('PATCH /contestations/:id/review', IT, () => `/contestations/${UNKNOWN_ID}/review`),
+  rule('PATCH /contestations/:id/resolve', IT, () => `/contestations/${UNKNOWN_ID}/resolve`),
 ];
 
 describe('Droits d’accès', () => {
@@ -37,29 +50,53 @@ describe('Droits d’accès', () => {
   });
 });
 
-describe('Liste', () => {
-  it('GET /contestations : { contestations, total, page, limit, openCount }', async () => {
+describe('Liste de l’équipe informatique', () => {
+  it('GET /contestations : la liste et ses compteurs globaux', async () => {
     const res = await ctx.http.get('/contestations?page=1&limit=20', 'technician');
     expect(res.status).toBe(200);
     expectShape(res.body, contestationList);
+    expect(res.body.overdueAfterDays).toBe(7);
+    expect(res.body.pendingCount).toBeGreaterThanOrEqual(res.body.openCount);
   });
 
-  it('GET /contestations?status=open&limit=1 (compteur du menu) : même forme', async () => {
-    const res = await ctx.http.get('/contestations?status=open&limit=1', 'admin');
+  it('GET /contestations?status=open,in_review (« À traiter ») : seulement les non tranchées', async () => {
+    const res = await ctx.http.get('/contestations?status=open,in_review', 'admin');
     expect(res.status).toBe(200);
     expectShape(res.body, contestationList);
-    expect(res.body.openCount).toBeGreaterThanOrEqual(1);
+    const statuses = (res.body.contestations as { status: string }[]).map((c) => c.status);
+    expect(statuses.every((s) => s === 'open' || s === 'in_review')).toBe(true);
+    expect(res.body.total).toBe(res.body.pendingCount);
+  });
+
+  it('GET /contestations?aTraiter=1 : autant de lignes que la tuile « Contestations à traiter » de l’accueil', async () => {
+    const [list, today] = await Promise.all([
+      ctx.http.get('/contestations?aTraiter=1&limit=100', 'technician'),
+      ctx.http.get('/kpi/aujourdhui', 'technician'),
+    ]);
+    expect(list.status).toBe(200);
+    expectShape(list.body, contestationList);
+    const tile = (today.body as { toDo: { contestations: { total: number } } }).toDo.contestations.total;
+    expect(tile).toBeGreaterThan(0);
+    expect(list.body.total).toBe(tile);
+    expect(list.body.contestations).toHaveLength(tile);
+    const statuses = (list.body.contestations as { status: string }[]).map((c) => c.status);
+    expect(statuses.every((s) => s === 'open' || s === 'in_review')).toBe(true);
+  });
+
+  it('GET /contestations?status=inconnu : 400', async () => {
+    const res = await ctx.http.get('/contestations?status=open,inconnu', 'admin');
+    expect(res.status).toBe(400);
+    expectShape(res.body, nestError);
   });
 });
 
 describe('Création par le collaborateur', () => {
-  it('POST /bons/:id/contestation sans session : 401', async () => {
+  it('sans session : 401', async () => {
     const res = await ctx.http.post(`/bons/${ctx.data.bons.active.id}/contestation`, 'anonymous', { message: 'x' });
     expect(res.status).toBe(401);
-    expectShape(res.body, nestError);
   });
 
-  it('POST /bons/:id/contestation sur le bon d’un autre : 403', async () => {
+  it('sur le bon d’un autre : 403', async () => {
     const res = await ctx.http.post(`/bons/${ctx.data.bons.active.id}/contestation`, 'otherCollaborator', {
       message: 'Ce bon n’est pas le mien.',
     });
@@ -67,23 +104,316 @@ describe('Création par le collaborateur', () => {
     expectShape(res.body, nestError);
   });
 
-  it('POST /bons/:id/contestation sur un bon qui n’est plus contestable : refusé au format NestJS', async () => {
+  it('par un technicien, même sur un bon qu’il voit : 403', async () => {
+    const res = await ctx.http.post(`/bons/${ctx.data.bons.active.id}/contestation`, 'technician', {
+      message: 'Je ne suis pas le titulaire.',
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('sur un bon clôturé : 400 avec un message pour le collaborateur', async () => {
     const res = await ctx.http.post(`/bons/${ctx.data.bons.archived.id}/contestation`, 'collaborator', {
       message: 'Trop tard.',
     });
-    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.status).toBe(400);
     expectShape(res.body, nestError);
+  });
+
+  it('sur une remise pas encore signée : 400 « ne le signez pas »', async () => {
+    const res = await ctx.http.post(`/bons/${ctx.data.bons.sentMiseDispo.id}/contestation`, 'collaborator', {
+      message: 'Il manque un câble.',
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/ne le signez pas/);
+  });
+
+  it('motif fait d’espaces : 400', async () => {
+    const res = await ctx.http.post(`/bons/${ctx.data.bons.active.id}/contestation`, 'collaborator', {
+      message: '   ',
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('document annoncé qui n’est pas le bon : 409', async () => {
+    const res = await ctx.http.post(`/bons/${ctx.data.bons.active.id}/contestation`, 'collaborator', {
+      message: 'Restitution fausse.',
+      document: 'restitution',
+    });
+    expect(res.status).toBe(409);
   });
 });
 
-describe('Clôture directe d’une contestation ouverte', () => {
-  it('PATCH /contestations/:id/resolve (acceptation sans correction) : correctedBon à null', async () => {
-    const res = await ctx.http.patch(`/contestations/${await openContestationId()}/resolve`, 'admin', {
-      action: 'resolved',
-      resolutionMessage: 'Écran remplacé.',
+describe('Restitution contestée puis Non retenue : rien ne change', () => {
+  let contestationId = '';
+
+  it('POST /bons/:id/contestation au moment de signer la restitution : document « restitution »', async () => {
+    const res = await ctx.http.post(`/bons/${ctx.data.bons.sentRestitution.id}/contestation`, 'collaborator', {
+      message: 'J’ai rendu aussi la sacoche.',
+      document: 'restitution',
+    });
+    expect(res.status).toBe(201);
+    expectShape(res.body, createContestation);
+    expect(res.body.contestedDocument).toBe('restitution');
+    expect(res.body.previousBonStatus).toBe('sent_restitution');
+    contestationId = res.body.id;
+  });
+
+  it('le lien de restitution annonce la contestation, sans avoir été invalidé', async () => {
+    const res = await ctx.http.get(`/signature/${PENDING_RESTITUTION_TOKEN}`, 'collaborator');
+    expect(res.status).toBe(200);
+    expectShape(res.body, signatureBonClosed);
+    expect(res.body.status).toBe('contested');
+  });
+
+  it('une seconde contestation du même bon : 409', async () => {
+    const res = await ctx.http.post(`/bons/${ctx.data.bons.sentRestitution.id}/contestation`, 'collaborator', {
+      message: 'Encore.',
+    });
+    expect(res.status).toBe(409);
+  });
+
+  it('GET /contestations/mine : le collaborateur revoit son motif, « envoyée »', async () => {
+    const res = await ctx.http.get('/contestations/mine', 'collaborator');
+    expect(res.status).toBe(200);
+    expectShape(res.body, myContestations);
+    const mine = (res.body as { id: string; message: string; status: string }[]).find((c) => c.id === contestationId);
+    expect(mine?.message).toBe('J’ai rendu aussi la sacoche.');
+    expect(mine?.status).toBe('open');
+    expect(JSON.stringify(res.body)).not.toContain(ctx.data.people.technician.displayName);
+  });
+
+  it('GET /contestations/mine d’un autre collaborateur : pas cette contestation', async () => {
+    const res = await ctx.http.get('/contestations/mine', 'otherCollaborator');
+    expect(res.status).toBe(200);
+    expect((res.body as { id: string }[]).some((c) => c.id === contestationId)).toBe(false);
+  });
+
+  it('PATCH /contestations/:id/review : « pris en charge par » renseigné, « tranché par » vide', async () => {
+    const res = await ctx.http.patch(`/contestations/${contestationId}/review`, 'technician');
+    expect(res.status).toBe(200);
+    expectShape(res.body, reviewContestation);
+    expect(res.body.reviewedBy.id).toBe(ctx.data.people.technician.id);
+    expect(res.body.resolvedBy).toBeNull();
+  });
+
+  it('une seconde prise en charge : 409', async () => {
+    const res = await ctx.http.patch(`/contestations/${contestationId}/review`, 'admin');
+    expect(res.status).toBe(409);
+  });
+
+  it('Non retenue sans réponse au collaborateur : 400', async () => {
+    const res = await ctx.http.patch(`/contestations/${contestationId}/resolve`, 'admin', {
+      outcome: 'not_retained',
+      resolutionMessage: '  ',
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('Non retenue : le bon reprend « Restitution à signer », « tranché par » l’admin', async () => {
+    const res = await ctx.http.patch(`/contestations/${contestationId}/resolve`, 'admin', {
+      outcome: 'not_retained',
+      resolutionMessage: 'La sacoche n’est pas arrivée au stock.',
     });
     expect(res.status).toBe(200);
     expectShape(res.body, resolveContestation);
-    expect(res.body.correctedBon).toBeNull();
+    expect(res.body.outcome).toBe('not_retained');
+    expect(res.body.status).toBe('rejected');
+    expect(res.body.bon.status).toBe('sent_restitution');
+    expect(res.body.reviewedBy?.id).toBe(ctx.data.people.technician.id);
+    expect(res.body.resolvedBy.id).toBe(ctx.data.people.admin.id);
+    expect(res.body.replacementBon).toBeNull();
+  });
+
+  it('le même lien de restitution se signe de nouveau', async () => {
+    const res = await ctx.http.get(`/signature/${PENDING_RESTITUTION_TOKEN}`, 'collaborator');
+    expect(res.status).toBe(200);
+    expectShape(res.body, signaturePending);
+  });
+
+  it('une seconde décision : 409', async () => {
+    const res = await ctx.http.patch(`/contestations/${contestationId}/resolve`, 'admin', { outcome: 'founded' });
+    expect(res.status).toBe(409);
+  });
+
+  it('outcome inconnu (ancienne API « action ») : 400', async () => {
+    const res = await ctx.http.patch(`/contestations/${contestationId}/resolve`, 'admin', { action: 'rejected' });
+    expect(res.status).toBe(400);
+  });
+});
+
+describe('Restitution contestée puis Fondée : le bon d’origine est corrigé, sans nouveau bon', () => {
+  let contestationId = '';
+  const bonId = () => ctx.data.bons.sentRestitution.id;
+
+  it('le titulaire conteste de nouveau la restitution, une fois la première non retenue', async () => {
+    const res = await ctx.http.post(`/bons/${bonId()}/contestation`, 'collaborator', {
+      message: 'La sacoche a bien été rendue, voici le bon de dépôt.',
+      document: 'restitution',
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.contestedDocument).toBe('restitution');
+    contestationId = res.body.id;
+  });
+
+  it('Fondée : le bon reprend « Restitution à signer », rouvert pour correction, aucun remplaçant', async () => {
+    const bonsBefore = await ctx.prisma.bon.count();
+    const res = await ctx.http.patch(`/contestations/${contestationId}/resolve`, 'technician', {
+      outcome: 'founded',
+      resolutionMessage: 'Vous avez raison, nous corrigeons la restitution.',
+    });
+    expect(res.status).toBe(200);
+    expectShape(res.body, resolveContestation);
+    expect(res.body.outcome).toBe('founded');
+    expect(res.body.bon.status).toBe('sent_restitution');
+    expect(res.body.replacementBon).toBeNull();
+    expect(res.body.reopenedDocument).toBe('restitution');
+    expect(await ctx.prisma.bon.count()).toBe(bonsBefore);
+    expect(await ctx.prisma.bon.count({ where: { replacesBonId: bonId() } })).toBe(0);
+  });
+
+  it('le lien de restitution ne se signe plus : invalidé, motif « contestation fondée »', async () => {
+    const link = await ctx.prisma.signature.findFirstOrThrow({ where: { token: PENDING_RESTITUTION_TOKEN } });
+    expect(link.invalidatedReason).toBe('contested');
+    expect(link.signed).toBe(false);
+    const res = await ctx.http.get(`/signature/${PENDING_RESTITUTION_TOKEN}`, 'collaborator');
+    expect(res.status).toBe(200);
+    expectShape(res.body, signatureReplaced);
+    expect(res.body.invalidatedReason).toBe('contested');
+  });
+
+  it('le journal du bon trace la réouverture pour correction', async () => {
+    const audit = await ctx.prisma.auditLog.findFirst({
+      where: { bonId: bonId(), action: 'bon_reopened_for_correction' },
+    });
+    expect(audit?.details).toEqual({ document: 'restitution' });
+  });
+});
+
+describe('PV contesté au moment de le signer, puis Fondé', () => {
+  let contestationId = '';
+  const bonId = () => ctx.data.bons.partiallyReturned.id;
+  const pvToken = `jeton-contrat-pv-conteste-${Date.now()}`;
+
+  it('POST /bons/:id/contestation sur un PV à signer : document « pv_cloture »', async () => {
+    // Situation réelle d'un PV à signer : l'équipement rendu est couvert par
+    // la restitution signée, celui encore sorti est déclaré non restitué,
+    // puis le PV part.
+    await ctx.prisma.bonEquipment.updateMany({
+      where: { bonId: bonId(), returnedAt: { not: null } },
+      data: { returnedAt: new Date(Date.now() - 30 * DAY_MS) },
+    });
+    await ctx.prisma.bonEquipment.updateMany({
+      where: { bonId: bonId(), returnedAt: null },
+      data: { notReturned: true, notReturnedReason: 'Déclaré perdu' },
+    });
+    await ctx.prisma.signature.create({
+      data: { bonId: bonId(), type: 'pv_cloture', token: pvToken, tokenExpiresAt: new Date(Date.now() + 7 * DAY_MS) },
+    });
+    const res = await ctx.http.post(`/bons/${bonId()}/contestation`, 'collaborator', {
+      message: 'L’écran déclaré perdu a été rendu au guichet.',
+      document: 'pv_cloture',
+    });
+    expect(res.status).toBe(201);
+    expectShape(res.body, createContestation);
+    expect(res.body.contestedDocument).toBe('pv_cloture');
+    expect(res.body.previousBonStatus).toBe('partially_returned');
+    contestationId = res.body.id;
+  });
+
+  it('Fondée : le bon reprend « Restitution en cours », le lien du PV est invalidé, aucun remplaçant', async () => {
+    const res = await ctx.http.patch(`/contestations/${contestationId}/resolve`, 'admin', { outcome: 'founded' });
+    expect(res.status).toBe(200);
+    expectShape(res.body, resolveContestation);
+    expect(res.body.bon.status).toBe('partially_returned');
+    expect(res.body.replacementBon).toBeNull();
+    expect(res.body.reopenedDocument).toBe('pv_cloture');
+    const link = await ctx.prisma.signature.findFirstOrThrow({ where: { token: pvToken } });
+    expect(link.invalidatedReason).toBe('contested');
+    expect(await ctx.prisma.bon.count({ where: { replacesBonId: bonId() } })).toBe(0);
+  });
+});
+
+describe('Remise contestée puis Fondée : correction par un bon remplaçant', () => {
+  let contestationId = '';
+  const bonId = () => ctx.data.bons.otherCollaboratorActive.id;
+
+  it('le titulaire conteste la remise de son bon « En cours »', async () => {
+    const res = await ctx.http.post(`/bons/${bonId()}/contestation`, 'otherCollaborator', {
+      message: 'Le numéro de série du portable est faux.',
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.contestedDocument).toBe('mise_disposition');
+    contestationId = res.body.id;
+  });
+
+  it('Fondée (sans prise en charge préalable) : l’original reste « En cours », un remplaçant est créé', async () => {
+    const res = await ctx.http.patch(`/contestations/${contestationId}/resolve`, 'technician', {
+      outcome: 'founded',
+      resolutionMessage: 'Numéro corrigé sur un nouveau bon.',
+    });
+    expect(res.status).toBe(200);
+    expectShape(res.body, resolveContestation);
+    expect(res.body.outcome).toBe('founded');
+    expect(res.body.status).toBe('resolved');
+    expect(res.body.bon.status).toBe('active');
+    expect(res.body.reviewedBy).toBeNull();
+    expect(res.body.replacementBon).not.toBeNull();
+    expect(res.body.reopenedDocument).toBeNull();
+
+    const replacementId = res.body.replacementBon?.id ?? '';
+    const replacement = await ctx.prisma.bon.findUniqueOrThrow({ where: { id: replacementId } });
+    expect(replacement.replacesBonId).toBe(bonId());
+    expect(replacement.collaborateurId).toBe(ctx.data.people.otherCollaborator.id);
+  });
+
+  it('le collaborateur voit l’issue, la réponse et le bon remplaçant', async () => {
+    const res = await ctx.http.get('/contestations/mine', 'otherCollaborator');
+    expect(res.status).toBe(200);
+    expectShape(res.body, myContestations);
+    const mine = (res.body as { id: string; outcome: string; replacementBon: unknown }[]).find(
+      (c) => c.id === contestationId,
+    );
+    expect(mine?.outcome).toBe('founded');
+    expect(mine?.replacementBon).not.toBeNull();
+  });
+});
+
+describe('Relance de l’équipe informatique à 7 jours ouvrés', () => {
+  it('seules les contestations non tranchées depuis plus de 7 jours ouvrés sont relancées, une fois par période', async () => {
+    const overdueBonId = ctx.data.bons.departedActive.id;
+    await ctx.prisma.contestation.create({
+      data: {
+        bonId: overdueBonId,
+        userId: ctx.data.people.departed.id,
+        message: 'Contestation oubliée.',
+        // 15 jours de calendrier : plus de 7 jours ouvrés quel que soit le jour.
+        createdAt: new Date(Date.now() - 15 * DAY_MS),
+      },
+    });
+    const overdue = ctx.app.get(ContestationOverdueService);
+
+    const first = await overdue.run();
+    expect(first.overdue).toBeGreaterThanOrEqual(1);
+    const logs = await ctx.prisma.notificationLog.findMany({ where: { type: 'contestation_overdue_alert' } });
+    expect(logs.map((l) => l.bonId)).toContain(overdueBonId);
+    // La contestation récente du jeu de données n'est pas relancée.
+    expect(logs.map((l) => l.bonId)).not.toContain(ctx.data.bons.contested.id);
+
+    // Relance réussie il y a peu : pas de nouvel email pour ce bon.
+    await ctx.prisma.notificationLog.create({
+      data: { bonId: overdueBonId, recipientEmail: 'it@example.test', type: 'contestation_overdue_alert', status: 'sent' },
+    });
+    const before = await ctx.prisma.notificationLog.count({ where: { bonId: overdueBonId, type: 'contestation_overdue_alert' } });
+    await overdue.run();
+    const after = await ctx.prisma.notificationLog.count({ where: { bonId: overdueBonId, type: 'contestation_overdue_alert' } });
+    expect(after).toBe(before);
+  });
+
+  it('la liste IT compte la contestation en retard', async () => {
+    const res = await ctx.http.get('/contestations', 'technician');
+    expect(res.status).toBe(200);
+    expect(res.body.overdueCount).toBeGreaterThanOrEqual(1);
+    // Seuil de retard calculé par le serveur (jours ouvrés), repris tel quel par l'écran.
+    expect(new Date(res.body.overdueSince).getTime()).toBeLessThan(Date.now() - 7 * DAY_MS + 1000);
   });
 });

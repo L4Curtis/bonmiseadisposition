@@ -56,7 +56,8 @@ export type ScheduledJobKey =
   | 'signature-reminders'
   | 'restitution-reminder'
   | 'retention'
-  | 'smb-retry';
+  | 'smb-retry'
+  | 'contestation-overdue';
 
 /** Dernier passage d'une tâche planifiée. Les champs de passage sont `null`
  *  tant que la tâche n'a jamais tourné. */

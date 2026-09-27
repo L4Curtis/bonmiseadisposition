@@ -123,10 +123,12 @@ describe('Décisions d’accès du propriétaire (24/09)', () => {
     ['GET /api/signature/:token', TOUS],
     ['GET /api/signature/:token/preview', TOUS],
     ['POST /api/signature/:token/sign', TOUS],
+    ['POST /api/signature/:token/request-new-link', TOUS],
     ['GET /api/bons/mes-bons', TOUS],
     ['GET /api/bons/:id', TOUS],
     ['GET /api/bons/:id/pdf', TOUS],
     ['POST /api/bons/:id/contestation', TOUS],
+    ['GET /api/contestations/mine', TOUS],
     // Utilisateurs : la gestion est réservée à l'admin…
     ['GET /api/users', ADMIN],
     ['POST /api/users/manual', ADMIN],
@@ -207,6 +209,7 @@ describe('Décisions d’accès du propriétaire (24/09)', () => {
     'GET /api/bons/:id/pdf',
     'GET /api/bons/:id/pdf-snapshots',
     'POST /api/bons/:id/contestation',
+    'GET /api/contestations/mine',
     'GET /api/bons/:bonId/attachments',
     'POST /api/bons/:bonId/attachments',
     'GET /api/bons/:bonId/attachments/:attachmentId',
@@ -214,6 +217,8 @@ describe('Décisions d’accès du propriétaire (24/09)', () => {
     'GET /api/signature/:token',
     'GET /api/signature/:token/preview',
     'POST /api/signature/:token/sign',
+    // Contrôle du destinataire du jeton (signature/link-request.ts).
+    'POST /api/signature/:token/request-new-link',
   ];
 
   it('seules les routes « propriétaire » recensées sont ouvertes à tout rôle connecté', () => {

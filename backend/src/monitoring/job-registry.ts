@@ -11,6 +11,7 @@ export const JOB_KEYS = {
   RESTITUTION_REMINDER: 'restitution-reminder',
   RETENTION: 'retention',
   SMB_RETRY: 'smb-retry',
+  CONTESTATION_OVERDUE: 'contestation-overdue',
 } as const;
 
 export type JobKey = (typeof JOB_KEYS)[keyof typeof JOB_KEYS];
@@ -49,4 +50,12 @@ export const JOB_REGISTRY: JobDefinition[] = [
   { job: JOB_KEYS.RETENTION, label: 'Rétention RGPD', schedule: 'le dimanche à 3 h', alertAfterHours: 24 * 14 },
   // 2 × l'intervalle nominal (6 h).
   { job: JOB_KEYS.SMB_RETRY, label: 'Relance des exports SMB', schedule: 'toutes les 6 h', alertAfterHours: 12 },
+  // Jours ouvrés à 9 h, comme les rappels de signature : même seuil (un
+  // week-end complet + 2 h de marge).
+  {
+    job: JOB_KEYS.CONTESTATION_OVERDUE,
+    label: 'Relance des contestations non traitées',
+    schedule: 'les jours ouvrés à 9 h',
+    alertAfterHours: 74,
+  },
 ];

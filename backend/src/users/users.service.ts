@@ -31,6 +31,9 @@ export class UsersService {
     department: true,
     company: true,
     title: true,
+    // Civilité retenue sur le compte (choisie par le technicien au premier
+    // bon) : le formulaire de bon la repropose pour les bons suivants.
+    civilite: true,
     filialeId: true,
     filiale: { select: { id: true, name: true, displayName: true, active: true } },
     isItStaff: true,

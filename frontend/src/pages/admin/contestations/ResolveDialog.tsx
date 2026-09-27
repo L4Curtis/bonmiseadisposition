@@ -1,70 +1,103 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
-import { CheckCircle, XCircle } from 'lucide-react';
+import { CheckCircle, Loader2, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import type { ContestationOutcome } from '@/contracts/common';
+import type { ContestationListItem, ResolveContestationResponse } from '@/contracts/contestations';
+import { CONTESTATION_OUTCOME_LABELS } from '@/domain/labels';
 import { api } from '@/lib/api';
+import { errorMessage } from '@/lib/errors';
+import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
-import type { Contestation } from './types';
+import { contestedDocumentLabel, foundedEffect, foundedOutcomeMessage } from './contestation-meta';
 
-export function ResolveDialog({
-  contestation,
-  open,
-  onOpenChange,
-  onSuccess,
-}: {
-  contestation: Contestation | null;
+interface ResolveDialogProps {
+  contestation: ContestationListItem | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess: () => void;
-}) {
-  const [action, setAction] = useState<'resolved' | 'rejected'>('resolved');
-  const [resolutionMessage, setResolutionMessage] = useState('');
-  const [correct, setCorrect] = useState(false);
+}
+
+interface OutcomeOption {
+  value: ContestationOutcome;
+  icon: typeof CheckCircle;
+  effect: string;
+  tone: string;
+}
+
+/** Les deux issues, avec ce que chacune entraîne pour CE document. */
+function outcomeOptions(contestation: ContestationListItem | null): readonly OutcomeOption[] {
+  return [
+    {
+      value: 'founded',
+      icon: CheckCircle,
+      effect: foundedEffect({ contestedDocument: contestation?.contestedDocument ?? null }),
+      tone: 'border-success/50 bg-success/10 text-success',
+    },
+    {
+      value: 'not_retained',
+      icon: XCircle,
+      effect: 'Rien ne change : le bon reprend son état d’avant la contestation. Expliquez pourquoi au collaborateur.',
+      tone: 'border-destructive/50 bg-destructive/10 text-destructive',
+    },
+  ];
+}
+
+/** Après une décision Fondée : ouvrir le bon à corriger — le remplaçant (à
+ *  compléter puis envoyer s'il est encore en brouillon), ou le bon d'origine
+ *  rouvert pour correction. */
+function correctionPath(result: ResolveContestationResponse): string | null {
+  const replacement = result.replacementBon;
+  if (replacement) return replacement.status === 'draft' ? `/bons/${replacement.id}/edit` : `/bons/${replacement.id}`;
+  return result.reopenedDocument ? `/bons/${result.bon.id}` : null;
+}
+
+/** « Trancher la contestation » : deux issues seulement, Fondée ou Non
+ *  retenue (décision du 24/09), le motif du collaborateur sous les yeux. */
+export function ResolveDialog({ contestation, open, onOpenChange, onSuccess }: ResolveDialogProps) {
+  const [outcome, setOutcome] = useState<ContestationOutcome | null>(null);
+  const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const navigate = useNavigate();
 
+  const messageRequired = outcome === 'not_retained';
+  const canSubmit = !!outcome && (!messageRequired || message.trim().length > 0) && !loading;
+
   const handleClose = (v: boolean) => {
-    if (!v) { setResolutionMessage(''); setError(''); setAction('resolved'); setCorrect(false); }
+    if (!v) {
+      setOutcome(null);
+      setMessage('');
+      setError('');
+    }
     onOpenChange(v);
   };
 
   const handleSubmit = async () => {
-    if (!contestation) return;
+    if (!contestation || !outcome) return;
     setLoading(true);
     setError('');
     try {
-      const result = await api.patch<{ correctedBon?: { id: string; reference: string } | null }>(
-        `/contestations/${contestation.id}/resolve`,
-        {
-          action,
-          resolutionMessage: resolutionMessage.trim() || undefined,
-          correct: action === 'resolved' ? correct : undefined,
-        },
-      );
+      const result = await api.patch<ResolveContestationResponse>(`/contestations/${contestation.id}/resolve`, {
+        outcome,
+        resolutionMessage: message.trim() || undefined,
+      });
       handleClose(false);
       toast({
-        title: action === 'resolved' ? 'Contestation acceptée' : 'Contestation rejetée',
-        description: result.correctedBon
-          ? `Bon annulé — brouillon corrigé ${result.correctedBon.reference} créé.`
-          : `La contestation de ${contestation.user.displayName} a été traitée.`,
-        variant: action === 'resolved' ? 'success' : 'default',
+        title: `Contestation ${CONTESTATION_OUTCOME_LABELS[outcome].toLowerCase()}`,
+        description:
+          outcome === 'founded'
+            ? foundedOutcomeMessage(contestation.bon.reference, contestation.user.displayName, result)
+            : `${contestation.bon.reference} reprend son état. ${contestation.user.displayName} reçoit votre réponse.`,
+        variant: 'success',
       });
       onSuccess();
-      // Ouvrir directement le brouillon corrigé pour édition puis re-signature
-      if (result.correctedBon) {
-        navigate(`/bons/${result.correctedBon.id}/edit`);
-      }
+      const path = outcome === 'founded' ? correctionPath(result) : null;
+      if (path) navigate(path);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Erreur lors du traitement');
+      setError(errorMessage(e, 'Erreur lors de la décision'));
     } finally {
       setLoading(false);
     }
@@ -72,80 +105,81 @@ export function ResolveDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-lg max-h-[100dvh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Traiter la contestation</DialogTitle>
+          <DialogTitle>Trancher la contestation</DialogTitle>
+          <DialogDescription>
+            {contestation?.bon.reference} — {contestation ? contestedDocumentLabel(contestation) : ''}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="rounded-lg bg-muted/40 border p-3 text-sm">
-            <p className="text-muted-foreground text-xs mb-1">Motif du collaborateur ({contestation?.user.displayName})</p>
-            <p className="text-foreground/80">{contestation?.message}</p>
+            <p className="text-muted-foreground text-xs mb-1">Motif de {contestation?.user.displayName}</p>
+            <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{contestation?.message}</p>
           </div>
 
-          <div className="space-y-2">
-            <Label>Décision</Label>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setAction('resolved')}
-                className={`flex-1 flex items-center justify-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors ${action === 'resolved' ? 'border-success/40 bg-success/10 text-success' : 'border-border text-muted-foreground hover:bg-muted/40'}`}
+          <fieldset className="space-y-2">
+            <legend className="text-sm font-medium mb-2">Décision</legend>
+            {outcomeOptions(contestation).map(({ value, icon: Icon, effect, tone }) => (
+              <label
+                key={value}
+                htmlFor={`outcome-${value}`}
+                aria-label={CONTESTATION_OUTCOME_LABELS[value]}
+                className={cn(
+                  'flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors',
+                  outcome === value ? tone : 'border-border hover:bg-muted/40',
+                )}
               >
-                <CheckCircle className="h-4 w-4" /> Accepter
-              </button>
-              <button
-                onClick={() => setAction('rejected')}
-                className={`flex-1 flex items-center justify-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors ${action === 'rejected' ? 'border-destructive/40 bg-destructive/10 text-destructive' : 'border-border text-muted-foreground hover:bg-muted/40'}`}
-              >
-                <XCircle className="h-4 w-4" /> Rejeter
-              </button>
-            </div>
-          </div>
-
-          {action === 'resolved' && (
-            <label className="flex items-start gap-3 cursor-pointer rounded-lg border border-warning/30 bg-warning/5 p-3">
-              <input
-                type="checkbox"
-                checked={correct}
-                onChange={(e) => setCorrect(e.target.checked)}
-                className="mt-0.5 h-4 w-4 rounded border-input accent-warning focus:ring-ring"
-              />
-              <span className="text-sm text-foreground/80">
-                <strong>Corriger et re-signer</strong> — le bon contesté sera annulé et un
-                brouillon pré-rempli sera créé pour correction puis nouvelle signature.
-                Sans cette option, le bon revient simplement à son état antérieur.
-              </span>
-            </label>
-          )}
+                <input
+                  id={`outcome-${value}`}
+                  type="radio"
+                  name="outcome"
+                  value={value}
+                  checked={outcome === value}
+                  onChange={() => setOutcome(value)}
+                  aria-describedby={`outcome-${value}-effet`}
+                  className="mt-1 h-4 w-4 accent-primary"
+                />
+                <span>
+                  <span className="flex items-center gap-1.5 font-semibold">
+                    <Icon className="h-4 w-4" /> {CONTESTATION_OUTCOME_LABELS[value]}
+                  </span>
+                  <span id={`outcome-${value}-effet`} className="block text-sm text-foreground/80">{effect}</span>
+                </span>
+              </label>
+            ))}
+          </fieldset>
 
           <div className="space-y-2">
-            <Label htmlFor="resolution-msg">Réponse au collaborateur (optionnel)</Label>
+            <Label htmlFor="resolution-msg">
+              Réponse au collaborateur {messageRequired ? '(obligatoire)' : '(facultative)'}
+            </Label>
             <textarea
               id="resolution-msg"
-              className="w-full rounded-lg border bg-background text-foreground px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring resize-none"
+              className="w-full rounded-lg border bg-background text-foreground px-3 py-2 text-base sm:text-sm outline-none focus:ring-2 focus:ring-ring resize-none"
               rows={3}
-              placeholder="Expliquez votre décision..."
-              value={resolutionMessage}
-              onChange={(e) => setResolutionMessage(e.target.value)}
-              maxLength={500}
+              placeholder="Expliquez votre décision…"
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              maxLength={2000}
             />
           </div>
 
           {error && (
-            <div role="alert" className="rounded-md bg-destructive/10 border border-destructive/20 p-3">
-              <p className="text-sm text-destructive">{error}</p>
-            </div>
+            <p role="alert" className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive">
+              {error}
+            </p>
           )}
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" size="sm" onClick={() => handleClose(false)}>Annuler</Button>
-          <Button
-            size="sm"
-            className={action === 'resolved' ? 'bg-success hover:bg-success/90 text-success-foreground' : 'bg-destructive hover:bg-destructive/90 text-destructive-foreground'}
-            onClick={handleSubmit}
-            disabled={loading}
-          >
-            {loading ? 'Envoi...' : action === 'resolved' ? 'Accepter la contestation' : 'Rejeter la contestation'}
+        <DialogFooter className="flex-col-reverse gap-2 sm:flex-row">
+          <Button variant="outline" className="min-h-11 sm:min-h-9" onClick={() => handleClose(false)}>
+            Annuler
+          </Button>
+          <Button className="min-h-11 sm:min-h-9" onClick={handleSubmit} disabled={!canSubmit}>
+            {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Enregistrer la décision
           </Button>
         </DialogFooter>
       </DialogContent>
