@@ -1,3 +1,4 @@
+import { buildAwaitingSignatureWhere, buildExpiredLinkWhere, buildOverdueSignatureWhere } from '../../../common/bon-predicates';
 import { NotFoundException } from '@nestjs/common';
 import { createMockPrismaService } from '../../../common/__tests__/helpers/mock-prisma';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -42,14 +43,14 @@ describe('buildBonWhere', () => {
     expect(where.OR).toHaveLength(5);
   });
 
-  it('wraps buildOverdueSignatureWhere in AND when overdue is requested', () => {
-    const where = buildBonWhere({ overdue: true }, 10) as {
-      AND?: Array<{ updatedAt?: { lt: Date }; OR?: unknown[] }>;
-    };
-
-    expect(where.AND).toHaveLength(1);
-    expect(where.AND?.[0].OR).toHaveLength(2);
-    expect(where.AND?.[0].updatedAt?.lt).toBeInstanceOf(Date);
+  it('reprend tel quel le prédicat partagé « Signature en retard » quand overdue est demandé', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-25T08:00:00Z'));
+    try {
+      expect(buildBonWhere({ overdue: true }, 10).AND).toEqual([buildOverdueSignatureWhere(10)]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('does not set AND when overdue is not requested', () => {
@@ -112,5 +113,24 @@ describe('findBonOrThrow', () => {
     prisma.bon.findUnique.mockResolvedValue(null);
 
     await expect(findBonOrThrow(prisma as unknown as PrismaService, 'missing-id')).rejects.toThrow(NotFoundException);
+  });
+});
+
+describe('buildBonWhere — prédicats des tuiles de l’accueil (tuile = liste)', () => {
+  it('awaitingSignature reprend buildAwaitingSignatureWhere', () => {
+    expect(buildBonWhere({ awaitingSignature: true }).AND).toEqual([buildAwaitingSignatureWhere()]);
+  });
+
+  it('linkExpired reprend buildExpiredLinkWhere, cumulable avec les autres', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-25T08:00:00Z'));
+    try {
+      expect(buildBonWhere({ linkExpired: true, awaitingSignature: true }).AND).toEqual([
+        buildAwaitingSignatureWhere(),
+        buildExpiredLinkWhere(),
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

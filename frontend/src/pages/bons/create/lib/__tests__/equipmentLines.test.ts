@@ -5,6 +5,7 @@ import {
   distributeSerialsFromLine,
   findDuplicateSerialIds,
   isNonEmptyLine,
+  placeCatalogItem,
   splitPastedSerials,
   MIN_CATALOG_QUANTITY,
   MAX_CATALOG_QUANTITY,
@@ -162,5 +163,29 @@ describe('findDuplicateSerialIds', () => {
   it('ne signale rien quand tous les numéros de série sont uniques', () => {
     const lines: EquipmentLine[] = [newLine({ serialNumber: 'SN-1' }), newLine({ serialNumber: 'SN-2' })];
     expect(findDuplicateSerialIds(lines).size).toBe(0);
+  });
+});
+
+describe('placeCatalogItem', () => {
+  const article = { catalogItemId: 'cat-1', catalogItemLabel: 'Dell Latitude 5440' };
+
+  it('remplit la première ligne sans article (la ligne vide de départ) au lieu d’en ajouter une', () => {
+    const lines = placeCatalogItem([newLine()], article);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject(article);
+  });
+
+  it('garde le numéro de série déjà saisi sur cette ligne', () => {
+    const lines = placeCatalogItem([newLine({ serialNumber: 'SN-1' })], article);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ ...article, serialNumber: 'SN-1' });
+  });
+
+  it('ajoute une ligne quand toutes ont déjà un article ou un libellé', () => {
+    const first = newLine({ customLabel: 'Souris' });
+    const lines = placeCatalogItem([first], article);
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toBe(first);
+    expect(lines[1]).toMatchObject(article);
   });
 });

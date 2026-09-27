@@ -2,13 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { toast } from '@/hooks/use-toast';
 import { errorMessage, showActionError } from '@/lib/errors';
-import type { BonDetailData, NotificationLog, PdfSnapshotInfo } from '../types';
+import type { BonFiche, NotificationLog, PdfSnapshotInfo } from '../types';
 
 /** Chargement du bon, de ses snapshots PDF et de ses journaux de
  *  notification. Isolé de useBonActions pour séparer le fetch/rafraîchissement
  *  des actions métier proprement dites (envoi, restitution, clôture...). */
 export function useBonLoadState(id: string | undefined, isItStaff: boolean) {
-  const [bon, setBon] = useState<BonDetailData | null>(null);
+  const [bon, setBon] = useState<BonFiche | null>(null);
   const [loading, setLoading] = useState(true);
   // Rafraîchissement après une action (distinct du chargement initial) : ne
   // vide jamais la page ni les modales ouvertes (ex. présentiel) le temps du
@@ -83,7 +83,7 @@ export function useBonLoadState(id: string | undefined, isItStaff: boolean) {
     setLoadError(null);
     // Annuler un éventuel retry en cours
     if (snapshotRetryRef.current) clearTimeout(snapshotRetryRef.current);
-    return api.get<BonDetailData>(`/bons/${id}`)
+    return api.get<BonFiche>(`/bons/${id}`)
       .then((b) => {
         setBon(b);
         loadSnapshots(b.id);

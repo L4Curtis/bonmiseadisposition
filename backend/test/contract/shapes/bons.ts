@@ -1,5 +1,7 @@
 /** Formes vérifiées des contrats de src/contracts/bons.ts. */
 import type {
+  BonActionName,
+  BonAvailableAction,
   BonCatalogItemSummary,
   BonCollaborateur,
   BonCreatedBy,
@@ -9,16 +11,25 @@ import type {
   BonFiliale,
   BonForSignatureEquipment,
   BonIntegrityResponse,
+  BonLateness,
   BonListEquipment,
   BonListItem,
   BonListPendingSignature,
   BonListResponse,
   BonNotificationLog,
+  BonRef,
   BonStatsFiliale,
+  BonSubStatus,
   BonStatsResponse,
+  EquipmentReturnState,
   InitiateInPersonResponse,
   ItCachetSignature,
+  LinkRefusal,
+  LinkRefusalReason,
   MissingPdfSnapshotsResponse,
+  MissingSerialLine,
+  MissingSerialsErrorBody,
+  PendingSignature,
   PdfSnapshotInfo,
   PortalBon,
   PortalSignature,
@@ -28,6 +39,7 @@ import type {
   ResendBatchSkipped,
   ResendLinkResponse,
   SafeSignature,
+  SendChecksResponse,
   SendSerialConflict,
   SerialConflictsErrorBody,
   SignatureIntegrity,
@@ -37,10 +49,12 @@ import type {
 import {
   bonStatus,
   civilite,
+  enumOf,
   equipmentCategory,
   notificationStatus,
   notificationType,
   pdfSnapshotType,
+  signatureInvalidationReason,
   signatureType,
 } from '../support/common-shapes';
 import {
@@ -60,6 +74,84 @@ import { catalogItem } from './equipment';
 
 export const signaturePdfType = literal('mise_disposition', 'restitution', 'pv_cloture');
 
+// ─── Champs de la vague 2 (facultatifs le temps de la vague, voir le contrat) ─
+
+const bonSubStatus = enumOf<BonSubStatus>({
+  pv_to_sign: true,
+  partial_restitution_to_sign: true,
+  loss_declared: true,
+  equipment_still_out: true,
+});
+
+const pendingSignature = object<PendingSignature>({
+  type: signaturePdfType,
+  expired: bool,
+  inPerson: bool,
+  itSigned: bool,
+  sentAt: nullable(isoDate),
+  expiresAt: nullable(isoDate),
+});
+
+const bonLateness = object<BonLateness>({ signatureDays: nullable(int), returnDays: nullable(int) });
+
+const bonActionName = enumOf<BonActionName>({
+  edit: true,
+  send: true,
+  send_in_person: true,
+  resend: true,
+  show_in_person_link: true,
+  start_restitution: true,
+  restitution_in_person: true,
+  undo_return: true,
+  declare_not_returned: true,
+  mark_found: true,
+  handover_without_signature: true,
+  close_without_signature: true,
+  cancel: true,
+});
+
+const availableAction = object<BonAvailableAction>({
+  action: bonActionName,
+  primary: bool,
+  blockedReason: nullable(str),
+});
+
+const equipmentReturnState = enumOf<EquipmentReturnState>({
+  out: true,
+  returned_to_sign: true,
+  returned: true,
+  not_returned: true,
+});
+
+const linkRefusal = object<LinkRefusal>({
+  reason: enumOf<LinkRefusalReason>({ inactive_account: true, no_email: true, undeliverable_email: true }),
+  message: str,
+});
+
+const bonRef = object<BonRef>({ id: uuid, reference: str });
+
+/** Champs de la fiche ajoutés par la vague 2, visibles du titulaire. */
+const wave2BonFields = {
+  subStatus: optional(nullable(bonSubStatus)),
+  pendingSignature: optional(nullable(pendingSignature)),
+  awaitingSince: optional(nullable(isoDate)),
+  cancellationReason: optional(nullable(str)),
+  handoverWithoutSignatureReason: optional(nullable(str)),
+  closedWithoutSignatureReason: optional(nullable(str)),
+  replaces: optional(nullable(bonRef)),
+  replacedBy: optional(nullable(bonRef)),
+  lateness: optional(bonLateness),
+  collaborateurActive: optional(bool),
+};
+
+/** Champs réservés à l'IT (`BonItOnlyField`) : absents du portail et de la
+ *  page de signature, que les formes de ces routes refusent. */
+const itOnlyBonFields = {
+  internalNote: optional(nullable(str)),
+  linkRefusal: optional(nullable(linkRefusal)),
+  availableActions: optional(arrayOf(availableAction)),
+};
+
 /** Filiale complète ; `stampPath` n'est renvoyé qu'à l'IT (voir le contrat). */
 const bonFiliale = object<BonFiliale>({
   id: uuid,
@@ -74,7 +166,13 @@ const bonFiliale = object<BonFiliale>({
   updatedAt: isoDate,
 });
 
-const collaborateur = object<BonCollaborateur>({ id: uuid, displayName: str, email: nullable(str), department: nullable(str) });
+const collaborateur = object<BonCollaborateur>({
+  id: uuid,
+  displayName: str,
+  email: nullable(str),
+  department: nullable(str),
+  civilite: optional(nullable(civilite)),
+});
 const createdBy = object<BonCreatedBy>({ id: uuid, displayName: str, email: nullable(str) });
 
 /** Colonnes d'une ligne d'équipement, communes à la fiche et aux routes de signature. */
@@ -95,6 +193,7 @@ export const equipmentColumns = {
 
 const bonEquipment = object<BonEquipment>({
   ...equipmentColumns,
+  returnState: optional(equipmentReturnState),
   catalogItem: nullable(
     object<BonCatalogItemSummary>({ id: uuid, brand: str, model: str, category: equipmentCategory }),
   ),
@@ -111,6 +210,9 @@ export const safeSignatureFields = {
   tokenExpiresAt: isoDate,
   createdAt: isoDate,
   pdfType: nullable(signaturePdfType),
+  invalidatedAt: optional(nullable(isoDate)),
+  invalidatedReason: optional(nullable(signatureInvalidationReason)),
+  signedByProxy: optional(bool),
 };
 
 export const safeSignature = object<SafeSignature>(safeSignatureFields);
@@ -133,10 +235,12 @@ export const bonDetailBaseFields = {
   filiale: bonFiliale,
   collaborateur,
   createdBy,
+  ...wave2BonFields,
 };
 
 export const bonDetail = object<BonDetail>({
   ...bonDetailBaseFields,
+  ...itOnlyBonFields,
   equipments: arrayOf(bonEquipment, { minLength: 1 }),
   signatures: arrayOf(safeSignature),
 });
@@ -171,6 +275,10 @@ const bonListItem = object<BonListItem>({
     }),
   ),
   signatures: arrayOf(object<BonListPendingSignature>({ type: signatureType, signed: literal(false), createdAt: isoDate })),
+  subStatus: optional(nullable(bonSubStatus)),
+  pendingSignature: optional(nullable(pendingSignature)),
+  lateness: optional(bonLateness),
+  canSendLink: optional(bool),
 });
 
 export const bonList = object<BonListResponse>({
@@ -214,6 +322,7 @@ export const bonNotifications = arrayOf(
     status: notificationStatus,
     errorMessage: nullable(str),
     reminderNumber: nullable(int),
+    documentType: nullable(signaturePdfType),
   }),
   { minLength: 1 },
 );
@@ -285,3 +394,15 @@ export const serialConflictsError = object<SerialConflictsErrorBody>({
 });
 
 export const tokenRecentError = object<TokenRecentErrorBody>({ code: literal('token_recent'), sentAt: isoDate });
+
+const missingSerialLine = object<MissingSerialLine>({ equipmentId: uuid, position: int, label: str });
+
+export const missingSerialsError = object<MissingSerialsErrorBody>({
+  code: literal('missing_serials'),
+  lines: arrayOf(missingSerialLine, { minLength: 1 }),
+});
+
+export const sendChecks = object<SendChecksResponse>({
+  missingSerials: arrayOf(missingSerialLine),
+  serialConflicts: arrayOf(object<SendSerialConflict>({ serialNumber: str, bonReference: str })),
+});

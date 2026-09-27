@@ -1,4 +1,4 @@
-import { ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { verifyCollaboratorAccess } from '../bons-access';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
 import { AuthUser } from '../../auth/auth-user.interface';
@@ -18,6 +18,16 @@ describe('verifyCollaboratorAccess', () => {
   it('autorise un collaborateur propriétaire du bon (cas nominal)', async () => {
     (prisma.bon.findUnique as Mock).mockResolvedValue({ collaborateurId: 'user-1' });
     await expect(verifyCollaboratorAccess(prisma as never, 'bon-1', user())).resolves.toBeUndefined();
+  });
+
+  it('brouillon : 404 pour le titulaire, comme un bon qui n’existe pas', async () => {
+    (prisma.bon.findUnique as Mock).mockResolvedValue({ collaborateurId: 'user-1', status: 'draft' });
+    await expect(verifyCollaboratorAccess(prisma as never, 'bon-1', user())).rejects.toThrow(NotFoundException);
+  });
+
+  it('brouillon d’un autre : 404 aussi (rien ne révèle son existence)', async () => {
+    (prisma.bon.findUnique as Mock).mockResolvedValue({ collaborateurId: 'someone-else', status: 'draft' });
+    await expect(verifyCollaboratorAccess(prisma as never, 'bon-1', user())).rejects.toThrow(NotFoundException);
   });
 
   it('refuse un collaborateur qui ne possède pas le bon', async () => {

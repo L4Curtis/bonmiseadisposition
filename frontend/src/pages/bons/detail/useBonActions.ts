@@ -1,112 +1,92 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
+import { useNavigate } from 'react-router';
+import type { BonActionName } from '@/contracts';
 import { useBonLoadState } from './actions/useBonLoadState';
 import { usePdfDownloads } from './actions/usePdfDownloads';
-import { useBonModalsState } from './actions/useBonModalsState';
-import { useSendActions } from './actions/useSendActions';
-import { useRestitutionActions } from './actions/useRestitutionActions';
-import { useClosureActions } from './actions/useClosureActions';
-import { useItSignActions } from './actions/useItSignActions';
+import type { BonDialog, Channel } from './actions/bon-dialog';
+import { useLinkFlows } from './actions/useLinkFlows';
+import { useRestitutionFlows } from './actions/useRestitutionFlows';
+import { useGestureFlows } from './actions/useGestureFlows';
 
 export interface UseBonActionsOptions {
-  /** Autorise l'appel à GET /bons/:id/pdf-snapshots/missing (réservé IT — le
-   *  portail collaborateur n'a pas besoin de savoir quels documents manquent
-   *  et ne doit donc pas déclencher cet appel). Défaut : false. */
+  /** Autorise l'appel à GET /bons/:id/pdf-snapshots/missing (réservé IT). */
   isItStaff?: boolean;
 }
 
-/** Façade qui recompose l'état et les actions de la fiche bon depuis les
- *  hooks dédiés (chargement, téléchargement PDF, état des modales, familles
- *  d'actions send/restitution/clôture/cachet IT) — la forme de retour reste
- *  strictement identique à l'ancienne implémentation monolithique. */
+/** Canal proposé par défaut pour une restitution : email si un lien peut
+ *  partir, guichet sinon (compte désactivé, pas d'adresse). */
+function defaultChannel(bon: { availableActions?: { action: BonActionName; blockedReason: string | null }[] } | null): Channel {
+  const byEmail = bon?.availableActions?.find((a) => a.action === 'start_restitution');
+  return byEmail && !byEmail.blockedReason ? 'email' : 'in_person';
+}
+
+/**
+ * État et actions de la fiche d'un bon. Les actions proposées viennent du
+ * serveur (`availableActions`, machine à états) : `run(action)` lance le
+ * parcours correspondant — contrôles, signature IT, lien, fenêtres — sans
+ * rien recalculer du statut.
+ */
 export function useBonActions(id: string | undefined, options?: UseBonActionsOptions) {
   const isItStaff = options?.isItStaff ?? false;
-
+  const navigate = useNavigate();
   const loadState = useBonLoadState(id, isItStaff);
   const pdf = usePdfDownloads(id, loadState.bon);
-  const modals = useBonModalsState();
+  const [dialog, setDialog] = useState<BonDialog | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
-  const send = useSendActions({
-    id,
-    reload: loadState.reload,
-    setActionLoading,
-    setSendSerialConflicts: modals.setSendSerialConflicts,
-  });
+  const deps = { id, bon: loadState.bon, reload: loadState.reload, setDialog, setActionLoading };
+  const links = useLinkFlows(deps);
+  const restitution = useRestitutionFlows(deps, links);
+  const gestures = useGestureFlows(deps);
 
-  const restitution = useRestitutionActions({
-    id,
-    reload: loadState.reload,
-    setActionLoading,
-    setShowRestitutionModal: modals.setShowRestitutionModal,
-    setShowNotReturnedModal: modals.setShowNotReturnedModal,
-    setShowMarkFoundModal: modals.setShowMarkFoundModal,
-  });
+  const edit = () => {
+    if (loadState.bon?.status === 'sent_mise_dispo') setDialog({ kind: 'edit-sent' });
+    else navigate(`/bons/${id}/edit`);
+  };
 
-  const closure = useClosureActions({
-    id,
-    reload: loadState.reload,
-    setActionLoading,
-    setConfirmCancel: modals.setConfirmCancel,
-    setShowCloseUnilateralModal: modals.setShowCloseUnilateralModal,
-    setResendConfirmSentAt: modals.setResendConfirmSentAt,
-    setInPersonModal: modals.setInPersonModal,
-  });
+  const run = (action: BonActionName) => {
+    switch (action) {
+      case 'edit': return edit();
+      case 'send': return void links.startHandover('email');
+      case 'send_in_person': return void links.startHandover('in_person');
+      case 'resend': return links.resendPending();
+      case 'show_in_person_link': return links.showInPersonLink();
+      case 'start_restitution': return setDialog({ kind: 'restitution', channel: 'email' });
+      case 'restitution_in_person': return setDialog({ kind: 'restitution', channel: 'in_person' });
+      case 'undo_return': return setDialog({ kind: 'undo-return' });
+      case 'declare_not_returned': return setDialog({ kind: 'not-returned' });
+      case 'mark_found': return setDialog({ kind: 'mark-found' });
+      case 'handover_without_signature':
+      case 'close_without_signature':
+      case 'cancel':
+        return setDialog({ kind: 'reason', action });
+    }
+  };
 
-  const itSign = useItSignActions({
-    setPendingItAction: modals.setPendingItAction,
-    failedItAction: modals.failedItAction,
-    setFailedItAction: modals.setFailedItAction,
-    setRetryingFailedItAction: modals.setRetryingFailedItAction,
-  });
+  /** Lien profond de l'inventaire (`?action=restitution`) : fenêtre de
+   *  restitution sur le canal possible. */
+  const setShowRestitutionModal = useCallback(
+    (open: boolean) => setDialog(open ? { kind: 'restitution', channel: defaultChannel(loadState.bon) } : null),
+    [loadState.bon],
+  );
 
   return {
-    bon: loadState.bon,
-    loading: loadState.loading,
-    refreshing: loadState.refreshing,
-    loadError: loadState.loadError,
+    ...loadState,
+    ...pdf,
+    dialog,
+    setDialog,
     actionLoading,
-    pdfLoading: pdf.pdfLoading,
-    pdfSnapshots: loadState.pdfSnapshots,
-    missingSnapshots: loadState.missingSnapshots,
-    regeneratingSnapshots: loadState.regeneratingSnapshots,
-    notifLogs: loadState.notifLogs,
-    confirmCancel: modals.confirmCancel,
-    pendingItAction: modals.pendingItAction,
-    failedItAction: modals.failedItAction,
-    retryingFailedItAction: modals.retryingFailedItAction,
-    inPersonModal: modals.inPersonModal,
-    showRestitutionModal: modals.showRestitutionModal,
-    showNotReturnedModal: modals.showNotReturnedModal,
-    showMarkFoundModal: modals.showMarkFoundModal,
-    showCloseUnilateralModal: modals.showCloseUnilateralModal,
-    resendConfirmSentAt: modals.resendConfirmSentAt,
-    sendSerialConflicts: modals.sendSerialConflicts,
-    load: loadState.load,
-    reload: loadState.reload,
-    doSend: send.doSend,
-    doCancel: closure.doCancel,
-    doRestitution: restitution.doRestitution,
-    doDeclareNotReturned: restitution.doDeclareNotReturned,
-    doMarkFound: restitution.doMarkFound,
-    doInPerson: closure.doInPerson,
-    doCloseUnilateral: closure.doCloseUnilateral,
-    doResend: closure.doResend,
-    downloadPdf: pdf.downloadPdf,
-    downloadPdfSnapshot: pdf.downloadPdfSnapshot,
-    regenerateMissingSnapshots: loadState.regenerateMissingSnapshots,
-    headerPdfType: pdf.headerPdfType,
-    triggerWithItSign: itSign.triggerWithItSign,
-    retryFailedItAction: itSign.retryFailedItAction,
-    confirmSendDespiteConflicts: send.confirmSendDespiteConflicts,
-    setConfirmCancel: modals.setConfirmCancel,
-    setPendingItAction: modals.setPendingItAction,
-    setFailedItAction: modals.setFailedItAction,
-    setInPersonModal: modals.setInPersonModal,
-    setShowRestitutionModal: modals.setShowRestitutionModal,
-    setShowNotReturnedModal: modals.setShowNotReturnedModal,
-    setShowMarkFoundModal: modals.setShowMarkFoundModal,
-    setShowCloseUnilateralModal: modals.setShowCloseUnilateralModal,
-    setResendConfirmSentAt: modals.setResendConfirmSentAt,
-    setSendSerialConflicts: modals.setSendSerialConflicts,
+    run,
+    setShowRestitutionModal,
+    proceedHandover: links.proceedHandover,
+    resend: links.resend,
+    confirmRestitution: restitution.confirmRestitution,
+    undoReturn: restitution.undoReturn,
+    declareNotReturned: restitution.declareNotReturned,
+    markFound: restitution.markFound,
+    confirmReason: gestures.confirmReason,
+    goToEdit: () => navigate(`/bons/${id}/edit`),
   };
 }
+
+export type BonActions = ReturnType<typeof useBonActions>;

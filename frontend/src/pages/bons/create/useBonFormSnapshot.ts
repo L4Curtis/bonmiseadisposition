@@ -5,7 +5,7 @@ import type { EquipmentLine, UserResult } from './types';
 export interface BonFormSnapshotInput {
   collaborateur: UserResult | null;
   filialeId: string;
-  civilite: 'mme' | 'mr';
+  civilite: 'mme' | 'mr' | '';
   dateMiseDisposition: string;
   dateRestitution: string;
   notes: string;

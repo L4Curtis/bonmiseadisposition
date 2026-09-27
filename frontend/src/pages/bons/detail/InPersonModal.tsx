@@ -11,21 +11,30 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { toast } from '@/hooks/use-toast';
+import type { LinkSignatureType } from '@/contracts';
+import { PHONE_FULLSCREEN_DIALOG, TOUCH_BUTTON, TOUCH_FOOTER } from './dialog-layout';
 
 /** Taille de l'image générée (px) : assez grande pour un affichage plein écran net. */
 const QR_IMAGE_SIZE = 1024;
 /** Marge blanche autour du code, en modules (valeur normalisée ISO 18004). */
 const QR_QUIET_ZONE = 4;
 
+/** Document à signer, dans une phrase (« pour qu'il signe la restitution »). */
+const DOCUMENT_TO_SIGN: Readonly<Record<LinkSignatureType, string>> = {
+  mise_disposition: 'la remise',
+  restitution: 'la restitution',
+  pv_cloture: 'le PV de non-restitution',
+};
+
 interface InPersonModalProps {
-  type: 'mise_disposition' | 'restitution';
+  type: LinkSignatureType;
   token: string;
   onClose: () => void;
 }
 
 export function InPersonModal({ type, token, onClose }: InPersonModalProps) {
   const signerUrl = `${window.location.origin}/signer/${token}`;
-  const typLabel = type === 'restitution' ? 'restitution' : 'mise à disposition';
+  const typLabel = DOCUMENT_TO_SIGN[type];
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [enlarged, setEnlarged] = useState(false);
 
@@ -54,15 +63,15 @@ export function InPersonModal({ type, token, onClose }: InPersonModalProps) {
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="sm:max-w-sm">
+      <DialogContent className={`sm:max-w-sm ${PHONE_FULLSCREEN_DIALOG}`}>
         <DialogHeader>
           <div className="flex items-center gap-2">
             <Smartphone className="h-5 w-5 text-primary" />
-            <DialogTitle>Signature présentielle</DialogTitle>
+            <DialogTitle>Signature au guichet</DialogTitle>
           </div>
           <DialogDescription>
-            Demandez au collaborateur de scanner ce QR code ou ouvrez le lien sur votre écran
-            pour qu&apos;il signe la {typLabel}. Le lien reste récupérable depuis la fiche du bon.
+            Le collaborateur scanne ce QR code, ou vous ouvrez le lien sur votre écran, pour qu&apos;il signe
+            {' '}{typLabel}. Le lien est valable 2 heures ; « Faire signer sur place » le réaffiche depuis la fiche.
           </DialogDescription>
         </DialogHeader>
 
@@ -72,7 +81,7 @@ export function InPersonModal({ type, token, onClose }: InPersonModalProps) {
             <div className="rounded-2xl bg-white p-1 ring-1 ring-border shadow-card">
               <img
                 src={qrDataUrl}
-                alt={`QR code du lien de signature ${typLabel}`}
+                alt={`QR code pour signer ${typLabel}`}
                 className="h-56 w-56"
               />
             </div>
@@ -82,6 +91,7 @@ export function InPersonModal({ type, token, onClose }: InPersonModalProps) {
           <Button
             variant="outline"
             size="sm"
+            className={TOUCH_BUTTON}
             onClick={() => setEnlarged(true)}
             disabled={!qrDataUrl}
           >
@@ -93,16 +103,16 @@ export function InPersonModal({ type, token, onClose }: InPersonModalProps) {
           {signerUrl}
         </div>
 
-        <DialogFooter className="flex-row gap-2 sm:flex-row">
-          <Button variant="outline" size="sm" className="flex-1" onClick={handleCopyLink}>
+        <DialogFooter className={`flex-row gap-2 sm:flex-row ${TOUCH_FOOTER}`}>
+          <Button variant="outline" size="sm" className={`flex-1 ${TOUCH_BUTTON}`} onClick={handleCopyLink}>
             Copier le lien
           </Button>
-          <Button size="sm" className="flex-1" onClick={() => window.open(signerUrl, '_blank')}>
+          <Button size="sm" className={`flex-1 ${TOUCH_BUTTON}`} onClick={() => window.open(signerUrl, '_blank')}>
             Ouvrir
           </Button>
         </DialogFooter>
 
-        <Button variant="ghost" size="sm" className="w-full" onClick={onClose}>
+        <Button variant="ghost" size="sm" className={`w-full ${TOUCH_BUTTON}`} onClick={onClose}>
           Fermer
         </Button>
 
@@ -129,14 +139,14 @@ function EnlargedQrDialog({ qrDataUrl, typLabel, onClose }: EnlargedQrDialogProp
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="max-w-none w-[min(96vw,calc(96vh-4rem))] justify-items-center gap-3 border-none bg-white p-4 text-neutral-900 sm:p-6">
         <DialogHeader className="text-center sm:text-center">
-          <DialogTitle className="text-neutral-900">Scannez pour signer la {typLabel}</DialogTitle>
+          <DialogTitle className="text-neutral-900">Scannez pour signer {typLabel}</DialogTitle>
           <DialogDescription className="text-neutral-600">
             Ouvrez l&apos;appareil photo du téléphone et visez ce code.
           </DialogDescription>
         </DialogHeader>
         <img
           src={qrDataUrl}
-          alt={`QR code du lien de signature ${typLabel}, en grand`}
+          alt={`QR code pour signer ${typLabel}, en grand`}
           className="aspect-square w-full max-h-[calc(96vh-12rem)] object-contain [image-rendering:pixelated]"
         />
         <Button variant="outline" onClick={onClose} className="border-neutral-300 bg-white text-neutral-900 hover:bg-neutral-100">

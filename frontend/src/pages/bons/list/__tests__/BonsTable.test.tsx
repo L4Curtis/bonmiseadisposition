@@ -20,6 +20,11 @@ function bon(overrides: Partial<Bon> = {}): Bon {
     createdBy: { id: 'u1', displayName: 'Tech' },
     equipments: [{ id: 'e1' }, { id: 'e2' }],
     signatures: [{ type: 'mise_disposition', signed: false, createdAt: '2026-09-01T09:00:00.000Z' }],
+    pendingSignature: {
+      type: 'mise_disposition', expired: false, inPerson: false, itSigned: true,
+      sentAt: '2026-09-01T09:00:00.000Z', expiresAt: '2026-09-08T09:00:00.000Z',
+    },
+    canSendLink: true,
     ...overrides,
   };
 }
@@ -41,7 +46,7 @@ function renderTable(props: Partial<BonsTableProps> = {}) {
   const all: BonsTableProps = {
     loading: false,
     loadError: null,
-    bons: [bon(), bon({ id: 'bon-2', reference: 'BMD-2026-0002', status: 'active', signatures: [] })],
+    bons: [bon(), bon({ id: 'bon-2', reference: 'BMD-2026-0002', status: 'active', signatures: [], pendingSignature: null })],
     hasActiveFilters: false,
     onRetry: vi.fn(),
     onCreateNew: vi.fn(),
@@ -91,7 +96,7 @@ describe('BonsTable', () => {
   });
 
   it('ne propose pas la relance à un collaborateur sans adresse email', () => {
-    renderTable({ bons: [bon({ collaborateurEmail: null, collaborateur: { id: 'c', displayName: 'Sans mail', email: null } })] });
+    renderTable({ bons: [bon({ collaborateurEmail: null, canSendLink: false, collaborateur: { id: 'c', displayName: 'Sans mail', email: null } })] });
     expect(screen.queryByRole('button', { name: /Relancer/ })).not.toBeInTheDocument();
     expect(screen.getByText('Sans adresse email')).toBeInTheDocument();
   });

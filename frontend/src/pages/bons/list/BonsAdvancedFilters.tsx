@@ -1,7 +1,8 @@
+import { BON_SUB_STATUS_LABELS } from '@/domain/labels';
 import type { BonsListQuery } from './bonsListQuery';
 import type { BonCreator } from './useBonCreators';
 
-type AdvancedPatch = Partial<Pick<BonsListQuery, 'dateFrom' | 'dateTo' | 'overdue' | 'noReturnDate' | 'createdById'>>;
+type AdvancedPatch = Partial<Pick<BonsListQuery, 'dateFrom' | 'dateTo' | 'overdue' | 'awaitingSignature' | 'linkExpired' | 'noReturnDate' | 'createdById' | 'subStatus'>>;
 
 export interface BonsAdvancedFiltersProps {
   readonly query: BonsListQuery;
@@ -13,7 +14,8 @@ export interface BonsAdvancedFiltersProps {
 const CHECKBOX_CLASS = 'h-4 w-4 rounded border-border accent-[hsl(var(--primary))] cursor-pointer';
 
 /** Deuxième ligne de filtres : période de mise à disposition, créateur du bon,
- *  « en retard » et « sans date de restitution prévue ». */
+ *  étape d'une « Restitution en cours » (lien de l'accueil), « en retard » et
+ *  « sans date de restitution prévue ». */
 export function BonsAdvancedFilters({ query, onChange, currentUserId, creators }: BonsAdvancedFiltersProps) {
   // Le créateur filtré peut ne plus figurer parmi les comptes actifs (compte
   // désactivé, lien partagé) : on garde alors une option pour ne pas afficher
@@ -62,6 +64,18 @@ export function BonsAdvancedFilters({ query, onChange, currentUserId, creators }
           ))}
       </select>
 
+      <select
+        className="field-modern h-9 px-3 cursor-pointer"
+        value={query.subStatus}
+        onChange={(e) => onChange({ subStatus: e.target.value })}
+        aria-label="Filtrer par étape de la restitution en cours"
+      >
+        <option value="">Toutes les étapes de restitution</option>
+        {Object.entries(BON_SUB_STATUS_LABELS).map(([value, label]) => (
+          <option key={value} value={value}>{label}</option>
+        ))}
+      </select>
+
       <label className="inline-flex items-center gap-2 cursor-pointer text-foreground/80">
         <input
           type="checkbox"
@@ -69,7 +83,27 @@ export function BonsAdvancedFilters({ query, onChange, currentUserId, creators }
           checked={query.overdue}
           onChange={(e) => onChange({ overdue: e.target.checked })}
         />
-        En retard de signature
+        Signature en retard
+      </label>
+
+      <label className="inline-flex items-center gap-2 cursor-pointer text-foreground/80">
+        <input
+          type="checkbox"
+          className={CHECKBOX_CLASS}
+          checked={query.awaitingSignature}
+          onChange={(e) => onChange({ awaitingSignature: e.target.checked })}
+        />
+        Signature attendue
+      </label>
+
+      <label className="inline-flex items-center gap-2 cursor-pointer text-foreground/80">
+        <input
+          type="checkbox"
+          className={CHECKBOX_CLASS}
+          checked={query.linkExpired}
+          onChange={(e) => onChange({ linkExpired: e.target.checked })}
+        />
+        Lien expiré
       </label>
 
       <label className="inline-flex items-center gap-2 cursor-pointer text-foreground/80">

@@ -7,6 +7,7 @@ import {
   ValidateIf,
   IsInt,
   IsUUID,
+  MaxLength,
   Min,
   Matches,
   Validate,
@@ -63,10 +64,14 @@ export class BonEquipmentDto {
 export class CreateBonDto {
   @IsUUID('4', { message: 'filialeId doit être un UUID valide' }) filialeId!: string;
   @IsUUID('4', { message: 'collaborateurId doit être un UUID valide' }) collaborateurId!: string;
-  @IsEnum(['mme', 'mr']) civilite!: string;
+  // Civilité : choix explicite obligatoire, jamais de valeur par défaut (R-002).
+  @IsEnum(['mme', 'mr'], { message: 'Choisissez la civilité du collaborateur (Madame ou Monsieur)' }) civilite!: string;
   @Matches(DATE_ONLY, { message: DATE_ONLY_MESSAGE }) dateMiseDisposition!: string;
   @IsOptional() @Matches(DATE_ONLY, { message: DATE_ONLY_MESSAGE }) dateRestitution?: string;
-  @IsOptional() @IsString() notes?: string;
+  /** « Remarques sur le bon » : visibles par le collaborateur et sur le PDF. */
+  @IsOptional() @IsString() @MaxLength(2000) notes?: string;
+  /** « Note interne IT » : jamais montrée au collaborateur. */
+  @IsOptional() @IsString() @MaxLength(2000) internalNote?: string;
   // Pas de @ArrayMinSize(1) : un brouillon vide (0 équipement, ex. créé avant
   // même de choisir le matériel) est autorisé aujourd'hui — bonEquipment est
   // rempli plus tard via update(). La règle « au moins un équipement » n'est
@@ -92,7 +97,8 @@ export class UpdateBonDto {
   @ValidateIf((o) => o.dateRestitution !== null)
   @Matches(DATE_ONLY, { message: DATE_ONLY_MESSAGE })
   dateRestitution?: string | null;
-  @IsOptional() @IsString() notes?: string;
+  @IsOptional() @IsString() @MaxLength(2000) notes?: string;
+  @IsOptional() @IsString() @MaxLength(2000) internalNote?: string;
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })

@@ -1,74 +1,119 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import type { MyBonsResponse, PdfSnapshotInfo, PdfSnapshotsResponse } from '@/contracts/bons';
+import type { MyContestation, MyContestationsResponse } from '@/contracts/contestations';
 import { api } from '@/lib/api';
 import { errorMessage } from '@/lib/errors';
 import { toast } from '@/hooks/use-toast';
-import type { BonDetailData, PdfSnapshotInfo } from '../../detail/types';
+import { classifyPortal, DocumentToSign } from '@/pages/portail/lib/portal-classification';
+import { latestContestationByBon } from '@/pages/portail/lib/contestation-follow-up';
+import { loadBlobIntoTab, POPUP_BLOCKED_MESSAGE } from '@/pages/signature/lib/documentBlob';
+import type { CollaboratorBon } from '../lib/collaborator-view';
 
 export interface UseBonDetailCollaborateurReturn {
-  bon: BonDetailData | null;
+  bon: CollaboratorBon | null;
   loading: boolean;
   loadError: string | null;
   pdfSnapshots: PdfSnapshotInfo[];
+  /** Document qui attend la signature du collaborateur, avec son lien. */
+  toSign: DocumentToSign | null;
+  /** Sa contestation la plus récente sur ce bon. */
+  contestation: MyContestation | null;
   pdfLoading: string | null;
   showContestation: boolean;
   setShowContestation: (show: boolean) => void;
-  downloadPdf: (type: string, stage?: string) => Promise<void>;
+  /** Ouvre le document de cette étape dans le navigateur. */
+  openPdf: (stage: string) => Promise<void>;
   handleContestationSuccess: () => void;
 }
 
-/** Charge le bon (et ses snapshots PDF) consulté par un collaborateur, et
- *  porte les actions de téléchargement / contestation de la page. */
+interface DetailData {
+  bon: CollaboratorBon;
+  toSign: DocumentToSign | null;
+  contestation: MyContestation | null;
+}
+
+/** Le bon (GET /bons/:id : c'est lui qui refuse le bon d'un autre), sa version
+ *  du portail (liens signables) et le suivi de sa contestation. */
+async function loadDetail(id: string): Promise<DetailData> {
+  const [bon, myBons, mine] = await Promise.all([
+    api.get<CollaboratorBon>(`/bons/${id}`),
+    api.get<MyBonsResponse>('/bons/mes-bons').catch(() => []),
+    api.get<MyContestationsResponse>('/contestations/mine').catch(() => []),
+  ]);
+  const portalBon = myBons.find((b) => b.id === id);
+  const toSign = portalBon ? (classifyPortal([portalBon]).toSign[0] ?? null) : null;
+  return { bon, toSign, contestation: latestContestationByBon(mine).get(id) ?? null };
+}
+
+/** Charge le bon consulté par son titulaire, ses documents et sa contestation,
+ *  et porte l'ouverture des documents et la contestation. */
 export function useBonDetailCollaborateur(id: string | undefined): UseBonDetailCollaborateurReturn {
-  const [bon, setBon] = useState<BonDetailData | null>(null);
+  const [data, setData] = useState<DetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pdfSnapshots, setPdfSnapshots] = useState<PdfSnapshotInfo[]>([]);
   const [pdfLoading, setPdfLoading] = useState<string | null>(null);
   const [showContestation, setShowContestation] = useState(false);
 
-  const load = () => {
+  const load = useCallback(() => {
+    if (!id) return;
     setLoading(true);
     setLoadError(null);
-    api.get<BonDetailData>(`/bons/${id}`)
-      .then((b) => {
-        setBon(b);
-        api.get<PdfSnapshotInfo[]>(`/bons/${b.id}/pdf-snapshots`)
+    loadDetail(id)
+      .then((detail) => {
+        setData(detail);
+        api
+          .get<PdfSnapshotsResponse>(`/bons/${id}/pdf-snapshots`)
           .then(setPdfSnapshots)
           .catch(() => setPdfSnapshots([]));
       })
-      .catch((e: unknown) => setLoadError(e instanceof Error ? e.message : 'Erreur lors du chargement du bon'))
+      .catch((e: unknown) => setLoadError(errorMessage(e, 'Erreur lors du chargement du bon')))
       .finally(() => setLoading(false));
-  };
+  }, [id]);
 
-  useEffect(() => { load(); }, [id]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
-  const downloadPdf = async (type: string, stage?: string) => {
+  // Le PDF s'ouvre dans le navigateur (lecteur intégré du téléphone) plutôt
+  // que d'être téléchargé. L'onglet est ouvert AVANT toute attente : ouvert
+  // après un `await`, Safari iOS le bloquerait (voir loadBlobIntoTab).
+  const openPdf = async (stage: string) => {
+    const bon = data?.bon;
     if (!bon) return;
-    const key = stage ?? type;
-    setPdfLoading(key);
-    try {
-      const params = new URLSearchParams({ type });
-      if (stage) params.set('stage', stage);
-      // api.getBlob rafraîchit la session sur 401 et réessaie — un fetch brut
-      // renvoyait un 401 JSON silencieux après expiration du cookie d'accès (15 min).
-      const blob = await api.getBlob(`/bons/${bon.id}/pdf?${params}`);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `bon-${bon.reference}.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (e: unknown) {
-      toast({ title: 'Erreur', description: errorMessage(e, 'Impossible de télécharger le PDF'), variant: 'destructive' });
-    } finally {
-      setPdfLoading(null);
+    const win = window.open('', '_blank');
+    if (!win) {
+      toast({ title: 'Document non ouvert', description: POPUP_BLOCKED_MESSAGE, variant: 'destructive' });
+      return;
     }
+    win.opener = null;
+    setPdfLoading(stage);
+    const params = new URLSearchParams({ type: 'mise_disposition', stage });
+    const error = await loadBlobIntoTab(win, () => api.getBlob(`/bons/${bon.id}/pdf?${params}`));
+    setPdfLoading(null);
+    if (error) toast({ title: 'Document non ouvert', description: error, variant: 'destructive' });
   };
 
   const handleContestationSuccess = () => {
-    toast({ title: 'Contestation envoyée', description: 'Le service IT va traiter votre demande.', variant: 'success' });
+    toast({
+      title: 'Contestation envoyée',
+      description: "L'équipe informatique est prévenue. Vous suivez sa réponse sur cette page.",
+      variant: 'success',
+    });
     load();
   };
 
-  return { bon, loading, loadError, pdfSnapshots, pdfLoading, showContestation, setShowContestation, downloadPdf, handleContestationSuccess };
+  return {
+    bon: data?.bon ?? null,
+    loading,
+    loadError,
+    pdfSnapshots,
+    toSign: data?.toSign ?? null,
+    contestation: data?.contestation ?? null,
+    pdfLoading,
+    showContestation,
+    setShowContestation,
+    openPdf,
+    handleContestationSuccess,
+  };
 }

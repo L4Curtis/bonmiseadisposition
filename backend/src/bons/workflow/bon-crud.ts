@@ -1,9 +1,9 @@
-import { NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { CreateBonDto, UpdateBonDto } from '../dto/bon.dto';
+import { CreateBonDto } from '../dto/bon.dto';
 import { Civilite } from '../../common/types';
 import { generateBonReference, BON_REFERENCE_TX_OPTIONS } from '../../common/bon-reference';
-import { BON_SELECT, findBonOrThrow } from '../queries/bon-where';
+import { BON_SELECT } from '../queries/bon-where';
 import {
   assertFilialeUsable,
   assertCatalogItemsUsable,
@@ -11,7 +11,6 @@ import {
   normalizeEquipmentInput,
 } from '../validation/bon-validators';
 import { BonsWorkflowContext } from './bon-context';
-import { CANCELLABLE_BON_STATUSES, isBonStatusIn } from '../bon-status';
 
 export async function createBon(ctx: BonsWorkflowContext, dto: CreateBonDto, userId: string) {
   const { prisma } = ctx;
@@ -84,128 +83,34 @@ export async function createBon(ctx: BonsWorkflowContext, dto: CreateBonDto, use
           ? new Date(dto.dateRestitution)
           : null,
         notes: dto.notes,
+        internalNote: blankToNull(dto.internalNote),
         equipments: { create: equipments },
       },
-      ...BON_SELECT,
+      select: { id: true },
     });
   }, BON_REFERENCE_TX_OPTIONS);
+  await rememberCivilite(ctx, dto.collaborateurId, dto.civilite as Civilite);
   await prisma.auditLog.create({
     data: { bonId: bon.id, userId, action: 'bon_created' },
   });
-  return bon;
+  return bon.id;
 }
 
-export async function updateBon(ctx: BonsWorkflowContext, id: string, dto: UpdateBonDto) {
-  const { prisma } = ctx;
-  const bon = await findBonOrThrow(prisma, id);
-  if (bon.status !== 'draft')
-    throw new BadRequestException(
-      'Seuls les brouillons peuvent être modifiés',
-    );
-
-  const effectiveMiseDispo =
-    dto.dateMiseDisposition ?? new Date(bon.dateMiseDisposition).toISOString().slice(0, 10);
-  const effectiveRestitution =
-    dto.dateRestitution !== undefined
-      ? dto.dateRestitution
-      : bon.dateRestitution
-        ? new Date(bon.dateRestitution).toISOString().slice(0, 10)
-        : null;
-  if (effectiveRestitution && effectiveRestitution < effectiveMiseDispo) {
-    throw new BadRequestException(
-      'La date de restitution ne peut pas précéder la date de mise à disposition',
-    );
-  }
-
-  const data: Prisma.BonUncheckedUpdateInput = {};
-  if (dto.filialeId) {
-    await assertFilialeUsable(prisma, dto.filialeId);
-    data.filialeId = dto.filialeId;
-  }
-  if (dto.collaborateurId) {
-    const collab = await prisma.user.findUnique({
-      where: { id: dto.collaborateurId },
-    });
-    if (!collab) throw new NotFoundException('Collaborateur introuvable');
-    if (!collab.active) throw new BadRequestException('Le collaborateur est désactivé');
-    data.collaborateurId = dto.collaborateurId;
-    data.collaborateurEmail = collab.email;
-  }
-  if (dto.civilite) data.civilite = dto.civilite as Civilite;
-  if (dto.dateMiseDisposition)
-    data.dateMiseDisposition = new Date(dto.dateMiseDisposition);
-  if (dto.dateRestitution !== undefined)
-    data.dateRestitution = dto.dateRestitution
-      ? new Date(dto.dateRestitution)
-      : null;
-  if (dto.notes !== undefined) {
-    // '' efface la note (persistée comme null) ; undefined = inchangé (cf. ci-dessus).
-    data.notes = dto.notes.trim() === '' ? null : dto.notes;
-  }
-
-  if (dto.equipments !== undefined) {
-    const normalizedEquipments = dto.equipments.map((e, idx) => normalizeEquipmentInput(e, idx));
-    const catalogIds = normalizedEquipments.map((e) => e.catalogItemId).filter((cid): cid is string => !!cid);
-    await assertCatalogItemsUsable(prisma, catalogIds);
-    assertNoDuplicateSerials(normalizedEquipments);
-    data.equipments = { create: normalizedEquipments };
-  }
-
-  // Atomicité : (1) claim conditionnel du statut DANS la transaction (comme
-  // partout ailleurs dans ce module) — un send() concurrent entre le
-  // findBonOrThrow ci-dessus et l'écriture perd alors la course au lieu de
-  // voir un bon déjà envoyé silencieusement réécrit ; (2) delete + recreate
-  // des équipements rollbackés ensemble si l'update échoue (FK invalide, erreur DB).
-  // L'écriture neutre `status: 'draft'` est indispensable : avec `data: {}`,
-  // Prisma n'envoie aucun UPDATE, compte 0 ligne et tout brouillon serait
-  // refusé en 409. Ici l'UPDATE conditionnel pose le verrou de ligne jusqu'à
-  // la fin de la transaction.
-  return prisma.$transaction(async (tx) => {
-    const claimed = await tx.bon.updateMany({ where: { id, status: 'draft' }, data: { status: 'draft' } });
-    if (claimed.count === 0) {
-      throw new ConflictException('Ce bon n\'est plus un brouillon — il a été envoyé entre-temps');
-    }
-    if (dto.equipments !== undefined) {
-      await tx.bonEquipment.deleteMany({ where: { bonId: id } });
-    }
-    return tx.bon.update({ where: { id }, data, ...BON_SELECT });
-  });
+/** Texte facultatif : '' efface (null), undefined laisse tel quel. */
+export function blankToNull(value: string | undefined): string | null | undefined {
+  if (value === undefined) return undefined;
+  return value.trim() === '' ? null : value;
 }
 
-export async function cancelBon(ctx: BonsWorkflowContext, id: string, userId?: string) {
-  const { prisma, signatureService, notificationService, logger } = ctx;
-  const bon = await findBonOrThrow(prisma, id);
-  // Seuls les brouillons et les bons en attente de signature mise-à-disposition
-  // peuvent être annulés. Dès qu'une signature a eu lieu (statut active ou
-  // ultérieur), l'annulation est bloquée au profit de la restitution ou de
-  // la clôture unilatérale.
-  if (!isBonStatusIn(bon.status, CANCELLABLE_BON_STATUSES)) {
-    throw new BadRequestException('Ce bon ne peut plus être annulé une fois signé');
-  }
-
-  // Transition conditionnelle D'ABORD : si une signature s'est committée
-  // entre le findBonOrThrow et ici (course), elle a fait avancer le statut
-  // hors de {draft, sent_mise_dispo} — on ne l'écrase pas avec 'cancelled'.
-  const transition = await prisma.bon.updateMany({
-    where: { id, status: { in: [...CANCELLABLE_BON_STATUSES] } },
-    data: { status: 'cancelled' },
+/** La civilité choisie pour un bon est retenue sur le compte du collaborateur
+ *  et proposée au bon suivant (R-002, décision du 25/09). */
+export async function rememberCivilite(ctx: BonsWorkflowContext, collaborateurId: string, civilite: Civilite | undefined) {
+  if (!civilite) return;
+  // `civilite IS NULL` à part : en SQL, NOT (NULL = 'mr') n'est pas vrai.
+  await ctx.prisma.user.updateMany({
+    where: { id: collaborateurId, OR: [{ civilite: null }, { civilite: { not: civilite } }] },
+    data: { civilite },
   });
-  if (transition.count === 0) {
-    throw new ConflictException('Le statut du bon a changé entre-temps — rechargez la page');
-  }
-  // Invalidation ENSUITE, seulement si la transition a gagné la course
-  // (cohérent avec closeUnilaterally).
-  await signatureService.invalidateUnsignedTokens(id);
-
-  const updated = await prisma.bon.findUniqueOrThrow({ where: { id }, ...BON_SELECT });
-  await prisma.auditLog.create({
-    data: { bonId: id, userId: userId ?? null, action: 'bon_cancelled' },
-  });
-  // Notify the collaborator if a signature request had already been sent
-  if (bon.status === 'sent_mise_dispo') {
-    notificationService.sendCancellationNotice(updated).catch((err: unknown) => logger.error(`Email fire-and-forget: ${err}`));
-  }
-  return updated;
 }
 
 /**

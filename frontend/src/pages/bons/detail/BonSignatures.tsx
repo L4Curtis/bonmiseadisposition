@@ -1,95 +1,76 @@
+import { CheckCircle2, Clock, Stamp } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  CheckCircle2,
-  Clock,
-  User,
-  Stamp,
-  AlertTriangle,
-} from 'lucide-react';
-import { formatDateLong, formatDateTime } from '@/lib/utils';
-import type { SignatureInfo } from './types';
-import { sigTypeLabel } from './types';
+import { formatDateTime } from '@/lib/utils';
+import { LINK_INVALIDATION_LABELS, labelOrKey } from '@/domain/labels';
+import { sigTypeLabel, type FicheSignature } from './types';
 
 export interface BonSignaturesProps {
-  readonly signatures: SignatureInfo[];
+  readonly signatures: readonly FicheSignature[];
+  /** Nom du collaborateur titulaire : c'est lui qui signe, même au guichet. */
+  readonly collaborateurName: string;
 }
 
-export function BonSignatures({ signatures }: BonSignaturesProps) {
-  const visibleSignatures = signatures.filter(
-    (sig) => sig.signed || new Date(sig.tokenExpiresAt).getTime() > 1000,
+const time = (value: string | null | undefined) => (value ? new Date(value).getTime() : 0);
+
+/** Signature IT : document concerné et technicien qui a réellement signé. */
+function itTitle(sig: FicheSignature): string {
+  if (sig.pdfType === 'restitution') return 'Signature IT — restitution';
+  if (sig.pdfType === 'mise_disposition') return 'Signature IT — remise';
+  if (sig.pdfType === 'pv_cloture') return 'Signature IT — PV de non-restitution';
+  return 'Signature IT';
+}
+
+/** « Signé par Léa Martin, au guichet, en présence de julie.moreau@… » (R-032). */
+function signedBy(sig: FicheSignature, collaborateurName: string): string {
+  if (sig.type === 'it_cachet') return `par ${sig.signerEmail ?? 'l’équipe informatique'}`;
+  if (!sig.isInPerson) return `par ${collaborateurName} (${sig.signerEmail ?? 'lien email'})`;
+  return sig.signedByProxy && sig.signerEmail
+    ? `par ${collaborateurName}, au guichet, en présence de ${sig.signerEmail}`
+    : `par ${collaborateurName}, au guichet`;
+}
+
+/**
+ * Signatures du bon, dans l'ordre où elles ont eu lieu. Un lien encore en
+ * attente n'apparaît pas ici : son état est dans le panneau « À faire
+ * maintenant ». Un lien invalidé y figure avec son motif.
+ */
+export function BonSignatures({ signatures, collaborateurName }: BonSignaturesProps) {
+  const signed = signatures.filter((s) => s.signed);
+  const invalidated = signatures.filter((s) => !s.signed && s.invalidatedReason && s.type !== 'it_cachet');
+  const entries = [...signed, ...invalidated].sort(
+    (a, b) => time(a.signedAt ?? a.invalidatedAt ?? a.createdAt) - time(b.signedAt ?? b.invalidatedAt ?? b.createdAt),
   );
-
-  if (visibleSignatures.length === 0) return null;
-
-  // Build step labels for it_cachet signatures : préférer `pdfType` (exposé
-  // par le backend) quand il est présent, sinon replier sur la déduction par
-  // ordre chronologique (mise à dispo = premier cachet, restitution = suivant).
-  const itCachetSteps = new Map<string, string>();
-  let itCachetIndex = 0;
-  for (const sig of visibleSignatures) {
-    if (sig.type === 'it_cachet') {
-      const stepLabel = sig.pdfType
-        ? (sig.pdfType === 'restitution' ? 'Restitution' : 'Mise à disposition')
-        : (itCachetIndex === 0 ? 'Mise à disposition' : 'Restitution');
-      itCachetSteps.set(sig.id, stepLabel);
-      itCachetIndex++;
-    }
-  }
+  if (entries.length === 0) return null;
 
   return (
     <Card>
       <CardHeader><CardTitle className="text-sm">Signatures</CardTitle></CardHeader>
       <CardContent className="space-y-3">
-        {visibleSignatures.map((sig) => {
-          const itStepLabel = itCachetSteps.get(sig.id);
-          const displayLabel = sig.type === 'it_cachet' && itStepLabel
-            ? `Cachet IT — ${itStepLabel}`
-            : sigTypeLabel(sig.type);
-
-          return (
-          <div
-            key={sig.id}
-            className={`flex items-start gap-3 rounded-lg p-3 ${sig.signed ? 'bg-success/10 border border-success/20' : 'bg-warning/10 border border-warning/20'}`}
-          >
-            {sig.signed
-              ? <CheckCircle2 className="h-4 w-4 text-success mt-0.5 shrink-0" />
-              : <Clock className="h-4 w-4 text-warning mt-0.5 shrink-0" />}
-            <div className="flex-1 text-sm">
-              <div className="flex items-center gap-2">
-                <span className="font-medium text-foreground">{displayLabel}</span>
-                {sig.isInPerson && (
-                  <span className="text-xs bg-warning/10 text-warning px-1.5 py-0.5 rounded">Présentiel</span>
-                )}
-                {sig.type === 'it_cachet' && (
-                  <span className="text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded flex items-center gap-1">
-                    <Stamp className="h-3 w-3" /> IT
-                  </span>
-                )}
-                {sig.type === 'pv_cloture' && (
-                  <span className="text-xs bg-destructive/10 text-destructive px-1.5 py-0.5 rounded flex items-center gap-1">
-                    <AlertTriangle className="h-3 w-3" /> PV
-                  </span>
-                )}
-              </div>
-              {sig.signed ? (
-                <div className="text-muted-foreground text-xs mt-0.5 space-y-0.5">
-                  <div className="flex items-center gap-1.5">
-                    <User className="h-3 w-3" />
-                    <span>{sig.signerEmail}</span>
-                  </div>
-                  <div>Signé le {formatDateTime(sig.signedAt)}</div>
-                  {sig.mentionLuApprouve && <div className="text-success">✓ Lu et approuvé</div>}
-                </div>
-              ) : (
-                <p className="text-warning text-xs mt-0.5">
-                  En attente · Expire le {formatDateLong(sig.tokenExpiresAt)}
-                </p>
-              )}
+        {entries.map((sig) => sig.signed ? (
+          <div key={sig.id} className="flex items-start gap-3 rounded-lg border border-success/20 bg-success/10 p-3">
+            {sig.type === 'it_cachet'
+              ? <Stamp className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden="true" />
+              : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden="true" />}
+            <div className="min-w-0 flex-1 text-sm">
+              <p className="font-medium text-foreground">{sig.type === 'it_cachet' ? itTitle(sig) : sigTypeLabel(sig.type)}</p>
+              <p className="break-words text-xs text-muted-foreground">
+                Signé le {formatDateTime(sig.signedAt)} {signedBy(sig, collaborateurName)}
+                {sig.invalidatedAt && sig.type === 'it_cachet' && ' — remplacée depuis (bon modifié)'}
+              </p>
+              {sig.type !== 'it_cachet' && sig.mentionLuApprouve && <p className="text-xs text-success">Lu et approuvé</p>}
             </div>
-
           </div>
-          );
-        })}
+        ) : (
+          <div key={sig.id} className="flex items-start gap-3 rounded-lg border border-border bg-muted/30 p-3">
+            <Clock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <div className="min-w-0 flex-1 text-sm">
+              <p className="font-medium text-muted-foreground">Lien de signature ({sigTypeLabel(sig.type)}) invalidé</p>
+              <p className="text-xs text-muted-foreground">
+                Le {formatDateTime(sig.invalidatedAt)} — {labelOrKey(LINK_INVALIDATION_LABELS, sig.invalidatedReason ?? '')}
+              </p>
+            </div>
+          </div>
+        ))}
       </CardContent>
     </Card>
   );

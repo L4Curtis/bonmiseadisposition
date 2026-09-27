@@ -25,6 +25,18 @@ describe('runBonValidation', () => {
     }
   });
 
+  it('refuse une ligne qui a un numéro mais ni article ni libellé : il serait perdu sans le dire', () => {
+    const result = runBonValidation({
+      ...baseValues,
+      equipments: [newLine({ customLabel: 'Laptop A' }), newLine({ serialNumber: 'SN-ORPHELIN' })],
+    });
+
+    expect(result).toEqual({
+      success: false,
+      error: 'Ligne 2 : choisissez un article du catalogue ou saisissez un libellé (un numéro est saisi).',
+    });
+  });
+
   it('rejette un formulaire sans collaborateur sélectionné', () => {
     const result = runBonValidation({ ...baseValues, collaborateurId: '' });
 

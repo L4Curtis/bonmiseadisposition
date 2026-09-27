@@ -1,18 +1,18 @@
-import { hasPendingSignature, isWaitingStatus } from '@/lib/bon-helpers';
 import type { Bon } from './types';
 
-/** Le lien de signature de ce bon peut-il être relancé depuis la liste ?
- *  Même condition que le bouton « Renvoyer le lien » de la fiche : un bon en
- *  attente de signature du collaborateur (ou une restitution partielle avec
- *  une signature en attente), et une adresse email où l'envoyer. Le serveur
- *  revérifie tout (POST /bons/:id/resend, /bons/resend-batch). */
-export function canResendLink(bon: Pick<Bon, 'status' | 'signatures' | 'collaborateurEmail'>): boolean {
-  if (!bon.collaborateurEmail) return false;
-  return isWaitingStatus(bon.status) || hasPendingSignature(bon);
+/**
+ * Le lien de ce bon peut-il être renvoyé depuis la liste ? Tout vient du
+ * serveur (machine à états) : un document attend la signature du
+ * collaborateur, un email peut lui parvenir (compte actif, adresse
+ * délivrable), et la signature IT du document est posée — sans elle, c'est
+ * depuis la fiche qu'on signe puis qu'on envoie. Le serveur revérifie tout.
+ */
+export function canResendLink(bon: Pick<Bon, 'pendingSignature' | 'canSendLink'>): boolean {
+  const pending = bon.pendingSignature;
+  return !!pending && pending.itSigned && bon.canSendLink === true;
 }
 
-/** Date d'envoi du dernier lien en attente, s'il y en a un. */
-export function lastLinkSentAt(bon: Pick<Bon, 'signatures'>): string | null {
-  const dates = bon.signatures.filter((s) => !s.signed).map((s) => s.createdAt).sort();
-  return dates.length ? dates[dates.length - 1] : null;
+/** Date d'envoi du dernier lien du document en attente, s'il y en a un. */
+export function lastLinkSentAt(bon: Pick<Bon, 'pendingSignature'>): string | null {
+  return bon.pendingSignature?.sentAt ?? null;
 }

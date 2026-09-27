@@ -10,11 +10,11 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useSignatureCanvas } from '@/hooks/use-signature-canvas';
-import type { EquipmentItem } from './types';
-import { equipmentLabel } from './types';
+import { equipmentLabel, type FicheEquipment } from './types';
+import { PHONE_FULLSCREEN_DIALOG, TOUCH_BUTTON, TOUCH_FOOTER } from './dialog-layout';
 
 interface DeclareNotReturnedModalProps {
-  equipments: EquipmentItem[];
+  equipments: readonly FicheEquipment[];
   onConfirm: (equipmentIds: string[], reason: string, signatureDataUrl: string) => void;
   onCancel: () => void;
   loading: boolean;
@@ -55,7 +55,7 @@ export function DeclareNotReturnedModal({
     }
     const dataUrl = getDataUrl();
     if (!dataUrl) {
-      setError('Le cachet IT est obligatoire pour certifier ce procès-verbal.');
+      setError('Votre signature IT est obligatoire pour certifier le PV de non-restitution.');
       return;
     }
     onConfirm(Array.from(selected), reason, dataUrl);
@@ -63,23 +63,23 @@ export function DeclareNotReturnedModal({
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !loading) onCancel(); }}>
-      <DialogContent className="sm:max-w-lg p-0 overflow-hidden">
+      <DialogContent className={`sm:max-w-lg p-0 overflow-hidden ${PHONE_FULLSCREEN_DIALOG}`}>
         {/* Destructive header */}
         <div className="bg-destructive px-5 py-4">
           <DialogHeader className="p-0 text-left">
             <DialogTitle className="text-destructive-foreground text-sm flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4" /> Déclarer des équipements non rendus
+              <AlertTriangle className="h-4 w-4" /> Déclarer des équipements non restitués
             </DialogTitle>
             <DialogDescription className="text-destructive-foreground/80 text-xs mt-1">
-              Un procès-verbal sera généré et certifié par votre cachet IT.
+              Un PV de non-restitution sera établi, certifié par votre signature IT. Il sera à signer par le collaborateur dès que plus rien d’autre n’est en attente.
             </DialogDescription>
           </DialogHeader>
         </div>
 
-        <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
+        <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto max-sm:max-h-none">
           {unresolvedEquipments.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-4">
-              Tous les équipements ont été traités.
+              Aucun équipement n’est encore chez le collaborateur.
             </p>
           ) : (
             <>
@@ -88,7 +88,7 @@ export function DeclareNotReturnedModal({
                 {unresolvedEquipments.map((eq) => (
                   <label
                     key={eq.id}
-                    className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                    className={`flex min-h-11 items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
                       selected.has(eq.id)
                         ? 'bg-primary/10 border-primary/40'
                         : 'hover:bg-muted/40 border-border'
@@ -96,7 +96,7 @@ export function DeclareNotReturnedModal({
                   >
                     <input
                       type="checkbox"
-                      className="h-4 w-4 rounded border-input accent-primary focus:ring-ring"
+                      className="h-5 w-5 shrink-0 rounded border-input accent-primary focus:ring-ring"
                       checked={selected.has(eq.id)}
                       onChange={() => toggle(eq.id)}
                     />
@@ -129,16 +129,16 @@ export function DeclareNotReturnedModal({
                 <div className="flex items-center justify-between mb-2">
                   <div>
                     <p className="text-xs font-medium text-foreground/80 uppercase tracking-wider flex items-center gap-1.5">
-                      <Stamp className="h-3.5 w-3.5" /> Cachet du service informatique *
+                      <Stamp className="h-3.5 w-3.5" /> Signature IT *
                     </p>
                     <p className="text-xs text-muted-foreground/70 mt-0.5">
-                      Apposez votre cachet pour certifier ce PV
+                      Elle certifie le PV de non-restitution
                     </p>
                   </div>
                   <button
                     type="button"
                     onClick={clear}
-                    className="flex items-center gap-1 text-xs text-muted-foreground/70 hover:text-muted-foreground"
+                    className="flex min-h-11 items-center gap-1 px-2 text-xs text-muted-foreground/70 hover:text-muted-foreground sm:min-h-0"
                   >
                     <Trash2 className="h-3 w-3" /> Effacer
                   </button>
@@ -174,13 +174,13 @@ export function DeclareNotReturnedModal({
           )}
         </div>
 
-        <DialogFooter className="px-5 pb-5 pt-0">
-          <Button variant="outline" size="sm" className="flex-1" onClick={onCancel} disabled={loading}>
+        <DialogFooter className={`px-5 pb-5 pt-0 ${TOUCH_FOOTER}`}>
+          <Button variant="outline" size="sm" className={`flex-1 ${TOUCH_BUTTON}`} onClick={onCancel} disabled={loading}>
             Annuler
           </Button>
           <Button
             size="sm"
-            className="flex-1 bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+            className={`flex-1 ${TOUCH_BUTTON} bg-destructive hover:bg-destructive/90 text-destructive-foreground`}
             onClick={handleSubmit}
             disabled={loading || unresolvedEquipments.length === 0}
           >

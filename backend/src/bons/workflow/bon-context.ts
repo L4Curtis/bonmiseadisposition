@@ -1,10 +1,11 @@
-import { ConflictException, Logger } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SignatureService } from '../../signature/signature.service';
 import { NotificationService } from '../../notification/notification.service';
 import { PdfService } from '../../pdf/pdf.service';
 import { SmbService } from '../../smb/smb.service';
 import { AppConfigService } from '../../config/config.service';
+import { DomainEventsPublisher } from '../../common/events';
 
 /**
  * Dépendances explicites partagées par les étapes du cycle de vie d'un bon
@@ -18,6 +19,9 @@ export interface BonsWorkflowContext {
   pdfService: PdfService;
   smbService: SmbService;
   configService: AppConfigService;
+  /** Publication des événements du domaine (emails des gestes du cycle de
+   *  vie, remplacement d'un bon), toujours APRÈS la transaction. */
+  events: DomainEventsPublisher;
   logger: Logger;
 }
 
@@ -64,21 +68,4 @@ export async function getPvTokenValidityDays(ctx: BonsWorkflowContext): Promise<
   const parsed = raw === null ? NaN : parseInt(raw, 10);
   if (!Number.isFinite(parsed)) return DEFAULT_DAYS;
   return Math.min(30, Math.max(1, parsed));
-}
-
-/**
- * Empêche de modifier les équipements (déclarer non-rendu, marquer retrouvé)
- * pendant qu'une signature de restitution est en vol chez le collaborateur :
- * invalidateUnsignedTokens détruirait ce lien et la restitution déjà
- * effectuée par le collaborateur ne serait jamais co-signée.
- */
-export async function assertNoPendingRestitutionSignature(ctx: BonsWorkflowContext, bonId: string): Promise<void> {
-  const pendingRestitutionSig = await ctx.prisma.signature.findFirst({
-    where: { bonId, type: 'restitution', signed: false, tokenExpiresAt: { gt: new Date() } },
-  });
-  if (pendingRestitutionSig) {
-    throw new ConflictException(
-      'Une signature de restitution est en attente du collaborateur. Attendez-la ou renvoyez le lien avant de modifier les équipements.',
-    );
-  }
 }

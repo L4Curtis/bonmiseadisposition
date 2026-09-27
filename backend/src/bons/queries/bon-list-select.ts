@@ -20,10 +20,11 @@ import { Prisma } from '@prisma/client';
  * - « Repartir d'un bon existant » (bons/create/DuplicateBonButton) : article
  *   du catalogue (id, marque, modèle) ou libellé libre de chaque équipement.
  *
- * Signatures : seules les NON signées sont renvoyées. Le badge de statut
- * (`hasPendingSignature`) ne regarde que celles-là, et la relance a besoin de
- * la date d'envoi du dernier lien ; l'historique des signatures reste sur la
- * fiche du bon.
+ * Pour calculer le sous-état, le document en attente et les retards (machine
+ * à états, voir bon-list-view.ts), la requête lit aussi l'état de restitution
+ * des équipements, le compte du collaborateur (actif, adresse) et toutes les
+ * signatures utiles ; la réponse n'en garde que les signatures NON signées
+ * (date d'envoi du dernier lien, pour la relance), comme avant.
  */
 export const BON_LIST_SELECT = {
   id: true,
@@ -34,8 +35,9 @@ export const BON_LIST_SELECT = {
   dateRestitution: true,
   createdAt: true,
   updatedAt: true,
+  awaitingSince: true,
   filiale: { select: { id: true, displayName: true } },
-  collaborateur: { select: { id: true, displayName: true, email: true } },
+  collaborateur: { select: { id: true, displayName: true, email: true, active: true } },
   createdBy: { select: { id: true, displayName: true } },
   equipments: {
     orderBy: { order: 'asc' },
@@ -44,12 +46,22 @@ export const BON_LIST_SELECT = {
       customLabel: true,
       serialNumber: true,
       inventoryNumber: true,
+      returnedAt: true,
+      notReturned: true,
       catalogItem: { select: { id: true, brand: true, model: true } },
     },
   },
   signatures: {
-    where: { signed: false },
     orderBy: { createdAt: 'desc' },
-    select: { type: true, signed: true, createdAt: true },
+    select: {
+      type: true,
+      signed: true,
+      signedAt: true,
+      createdAt: true,
+      tokenExpiresAt: true,
+      isInPerson: true,
+      pdfType: true,
+      invalidatedAt: true,
+    },
   },
 } satisfies Prisma.BonSelect;

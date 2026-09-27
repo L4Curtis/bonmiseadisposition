@@ -8,14 +8,14 @@ import { useLiveSerialConflicts } from './useLiveSerialConflicts';
 import { runBonValidation } from './lib/validation';
 import { buildBonPayload } from './lib/payload';
 import {
-  duplicateLine, distributeSerialsFromLine, findDuplicateSerialIds, isNonEmptyLine, splitPastedSerials,
+  duplicateLine, distributeSerialsFromLine, findDuplicateSerialIds, isNonEmptyLine, placeCatalogItem, splitPastedSerials,
 } from './lib/equipmentLines';
 import { mapDuplicableEquipments } from './lib/duplicateBon';
 import { clearDraft, isMeaningfulDraft, readDraft, writeDraft } from './lib/draftStorage';
 import { newLine } from './types';
 import type { BonDraftData } from './lib/draftStorage';
 import type { DuplicableBon } from './lib/duplicateBon';
-import type { CatalogItem, EditableBon, EquipmentLine, Pack, SerialConflict, SerialConflictsResponse, UserResult } from './types';
+import type { CatalogItem, CiviliteChoice, EditableBon, EquipmentLine, Pack, SerialConflict, SerialConflictsResponse, UserResult } from './types';
 
 /** État du formulaire de création/édition d'un bon, sa validation et sa
  *  soumission. Regroupe aussi le chargement des données de référence, le
@@ -49,9 +49,20 @@ export function useBonCreateForm() {
   const [filialeIdState, setFilialeIdState] = useState(
     () => (restoredFromDraft && initialDraft ? initialDraft.filialeId : ''),
   );
-  const [civilite, setCivilite] = useState<'mme' | 'mr'>(
-    () => (restoredFromDraft && initialDraft ? initialDraft.civilite : 'mr'),
+  // Civilité : aucune par défaut (R-002). Celle retenue sur le compte du
+  // collaborateur est proposée à sa sélection, tant que l'IT n'a pas choisi.
+  const [civilite, setCiviliteState] = useState<CiviliteChoice>(
+    () => (restoredFromDraft && initialDraft ? initialDraft.civilite : ''),
   );
+  const [civiliteFromAccount, setCiviliteFromAccount] = useState(false);
+  const civiliteTouchedRef = useRef(restoredFromDraft && !!initialDraft?.civilite);
+  const setCivilite = (value: 'mme' | 'mr') => {
+    civiliteTouchedRef.current = true;
+    setCiviliteFromAccount(false);
+    setCiviliteState(value);
+  };
+  const [internalNote, setInternalNote] = useState('');
+  const [editStatus, setEditStatus] = useState<string | null>(null);
   const [dateMiseDisposition, setDateMiseDisposition] = useState(() => {
     if (restoredFromDraft && initialDraft?.dateMiseDisposition) return initialDraft.dateMiseDisposition;
     return isEditing ? '' : todayInParis();
@@ -83,6 +94,10 @@ export function useBonCreateForm() {
     setCollaborateurState(user);
     if (user?.filialeId && !filialeTouchedRef.current) {
       setFilialeIdState(user.filialeId);
+    }
+    if (!civiliteTouchedRef.current) {
+      setCiviliteState(user?.civilite ?? '');
+      setCiviliteFromAccount(!!user?.civilite);
     }
   };
 
@@ -135,7 +150,10 @@ export function useBonCreateForm() {
     filialeTouchedRef.current = false;
     setCollaborateurState(null);
     setFilialeIdState('');
-    setCivilite('mr');
+    civiliteTouchedRef.current = false;
+    setCiviliteState('');
+    setCiviliteFromAccount(false);
+    setInternalNote('');
     setDateMiseDisposition(todayInParis());
     setDateRestitution('');
     setNotes('');
@@ -148,14 +166,18 @@ export function useBonCreateForm() {
     if (!editBonId) return;
     api.get<EditableBon>(`/bons/${editBonId}`)
       .then((bon) => {
-        if (bon.status !== 'draft') {
+        // Modifiables : un brouillon, ou un bon envoyé pas encore signé (R-012).
+        if (bon.status !== 'draft' && bon.status !== 'sent_mise_dispo') {
           navigate(`/bons/${editBonId}`, { replace: true });
           return;
         }
         setEditReference(bon.reference);
+        setEditStatus(bon.status);
         setCollaborateurState(bon.collaborateur);
         setFilialeIdState(bon.filialeId);
-        setCivilite(bon.civilite);
+        civiliteTouchedRef.current = true;
+        setCiviliteState(bon.civilite);
+        setInternalNote(bon.internalNote ?? '');
         setDateMiseDisposition(String(bon.dateMiseDisposition).slice(0, 10));
         setDateRestitution(bon.dateRestitution ? String(bon.dateRestitution).slice(0, 10) : '');
         setNotes(bon.notes ?? '');
@@ -181,10 +203,7 @@ export function useBonCreateForm() {
   }, [editBonId, navigate]);
 
   const addFromCatalog = (item: CatalogItem) => {
-    setEquipments((prev) => [
-      ...prev,
-      newLine({ catalogItemId: item.id, catalogItemLabel: `${item.brand} ${item.model}` }),
-    ]);
+    setEquipments((prev) => placeCatalogItem(prev, { catalogItemId: item.id, catalogItemLabel: `${item.brand} ${item.model}` }));
   };
 
   const addEmptyLine = () => setEquipments((prev) => [...prev, newLine()]);
@@ -296,16 +315,20 @@ export function useBonCreateForm() {
       const payload = buildBonPayload({
         filialeId: filialeIdState,
         collaborateurId: collaborateurState.id,
-        civilite,
+        // Validée juste au-dessus : jamais vide ici.
+        civilite: civilite as 'mme' | 'mr',
         dateMiseDisposition,
         dateRestitution,
         notes,
+        internalNote,
         validEquipments,
         isEditing,
       });
       if (isEditing) {
         await api.put(`/bons/${editBonId}`, payload);
-        navigate(`/bons/${editBonId}`);
+        // Bon déjà envoyé : son lien ne vaut plus ; la fiche enchaîne tout de
+        // suite la signature IT puis le nouveau lien (action principale).
+        navigate(editStatus === 'sent_mise_dispo' ? `/bons/${editBonId}?action=suite` : `/bons/${editBonId}`);
       } else {
         const bon = await api.post<{ id: string }>('/bons', payload);
         // Le bon est créé : le brouillon local n'a plus lieu d'être.
@@ -391,6 +414,10 @@ export function useBonCreateForm() {
     setFilialeId,
     civilite,
     setCivilite,
+    civiliteFromAccount,
+    internalNote,
+    setInternalNote,
+    editStatus,
     dateMiseDisposition,
     setDateMiseDisposition,
     dateRestitution,

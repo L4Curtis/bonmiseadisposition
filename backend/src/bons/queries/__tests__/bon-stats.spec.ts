@@ -41,9 +41,12 @@ describe('getBonStats', () => {
 
     const overdueCountCall = prisma.bon.count.mock.calls.find(
       (call) => (call[0] as { where?: { AND?: unknown[] } })?.where?.AND !== undefined,
-    ) as [{ where: { AND: Array<{ updatedAt: { lt: Date } }> } }] | undefined;
+    );
     expect(overdueCountCall).toBeDefined();
-    expect(overdueCountCall?.[0].where.AND[0].updatedAt.lt).toBeInstanceOf(Date);
+    // Retard mesuré sur la demande de signature (awaitingSince), jamais updatedAt.
+    const where = JSON.stringify(overdueCountCall?.[0]);
+    expect(where).toContain('awaitingSince');
+    expect(where).not.toContain('updatedAt');
   });
 
   /** Borne basse du compteur « clôturés ce mois-ci » pour une horloge figée. */

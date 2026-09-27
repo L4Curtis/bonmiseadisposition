@@ -1,5 +1,6 @@
 import { type BonStatus } from '@/types';
 import { type SignatureSummary } from '@/lib/bon-helpers';
+import type { BonLateness, BonSubStatus, PendingSignature as PendingDocument } from '@/contracts';
 
 /** Signature NON signée d'un bon, telle que renvoyée par la liste (l'historique
  *  complet des signatures reste sur la fiche, GET /bons/:id). */
@@ -27,4 +28,12 @@ export interface Bon {
   createdBy: { id: string; displayName: string };
   equipments: { id: string }[];
   signatures: PendingSignature[];
+  /** Sous-état de « Restitution en cours », calculé par le serveur. */
+  subStatus?: BonSubStatus | null;
+  /** Document qui attend la signature du collaborateur (machine à états). */
+  pendingSignature?: PendingDocument | null;
+  /** Retards calculés par le serveur. */
+  lateness?: BonLateness;
+  /** Un lien peut partir par email vers le compte du collaborateur. */
+  canSendLink?: boolean;
 }

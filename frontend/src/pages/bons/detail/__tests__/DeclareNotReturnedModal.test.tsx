@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DeclareNotReturnedModal } from '../DeclareNotReturnedModal';
-import type { EquipmentItem } from '../types';
+import { equipment } from './fixtures';
 
 // jsdom n'implémente pas CanvasRenderingContext2D / toDataURL — mêmes stubs
 // minimaux que hooks/__tests__/use-signature-canvas.test.ts.
@@ -28,9 +28,9 @@ beforeEach(() => {
   })) as unknown as typeof HTMLCanvasElement.prototype.getBoundingClientRect;
 });
 
-const equipments: EquipmentItem[] = [
-  { id: 'e1', customLabel: 'Souris sans fil', serialNumber: 'SN-1', order: 0 },
-  { id: 'e2', customLabel: 'Clavier', serialNumber: 'SN-2', order: 1 },
+const equipments = [
+  equipment({ id: 'e1', customLabel: 'Souris sans fil', serialNumber: 'SN-1', order: 0 }),
+  equipment({ id: 'e2', customLabel: 'Clavier', serialNumber: 'SN-2', order: 1 }),
 ];
 
 function sign() {
@@ -64,7 +64,7 @@ describe('DeclareNotReturnedModal', () => {
     expect(onConfirm).not.toHaveBeenCalled();
   });
 
-  it('refuse la soumission sans signature (cachet IT obligatoire)', async () => {
+  it('refuse la soumission sans signature IT', async () => {
     const user = userEvent.setup();
     const onConfirm = vi.fn();
     render(<DeclareNotReturnedModal equipments={equipments} onConfirm={onConfirm} onCancel={vi.fn()} loading={false} />);
@@ -73,7 +73,7 @@ describe('DeclareNotReturnedModal', () => {
     await user.type(screen.getByPlaceholderText(/Perte, vol, casse/i), 'Perdu');
     await user.click(screen.getByRole('button', { name: /Certifier et déclarer/i }));
 
-    expect(await screen.findByText(/cachet IT est obligatoire/i)).toBeInTheDocument();
+    expect(await screen.findByText(/signature IT est obligatoire/i)).toBeInTheDocument();
     expect(onConfirm).not.toHaveBeenCalled();
   });
 

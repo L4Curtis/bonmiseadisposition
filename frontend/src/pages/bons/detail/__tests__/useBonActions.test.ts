@@ -1,23 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
+import { createElement, type ReactNode } from 'react';
+import { MemoryRouter } from 'react-router';
 import { ApiError } from '@/lib/api';
 import { useBonActions } from '../useBonActions';
-import type { BonDetailData } from '../types';
+import { bonFiche } from './fixtures';
 
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>();
   return {
     ...actual,
-    api: {
-      get: vi.fn(),
-      post: vi.fn(),
-      put: vi.fn(),
-      patch: vi.fn(),
-      delete: vi.fn(),
-      getBlob: vi.fn(),
-      postForm: vi.fn(),
-      patchForm: vi.fn(),
-    },
+    api: { get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn(), delete: vi.fn(), getBlob: vi.fn(), postForm: vi.fn(), patchForm: vi.fn() },
   };
 });
 vi.mock('@/hooks/use-toast', () => ({ toast: vi.fn() }));
@@ -25,119 +18,95 @@ vi.mock('@/hooks/use-toast', () => ({ toast: vi.fn() }));
 import { api } from '@/lib/api';
 import { toast } from '@/hooks/use-toast';
 
-const bonFixture: BonDetailData = {
-  id: 'b1',
-  reference: 'BDM-2026-001',
-  status: 'active',
-  civilite: 'mr',
-  dateMiseDisposition: '2026-01-01',
-  createdAt: '2026-01-01T00:00:00.000Z',
-  collaborateur: { id: 'c1', displayName: 'Jean Dupont', email: 'jean@livio.fr' },
-  collaborateurEmail: 'jean@livio.fr',
-  filiale: { id: 'f1', name: 'siege', displayName: 'Siège' },
-  createdBy: { id: 'u1', displayName: 'Admin', email: 'admin@livio.fr' },
-  equipments: [],
-  signatures: [],
-};
+const wrapper = ({ children }: { children: ReactNode }) => createElement(MemoryRouter, null, children);
+
+function mockBon(bon = bonFiche()) {
+  vi.mocked(api.get).mockImplementation((path: string) => {
+    if (path === '/bons/b1') return Promise.resolve(bon);
+    return Promise.resolve([]);
+  });
+}
+
+async function loaded(bon = bonFiche()) {
+  mockBon(bon);
+  const hook = renderHook(() => useBonActions('b1'), { wrapper });
+  await act(async () => { await hook.result.current.load(); });
+  return hook;
+}
 
 beforeEach(() => {
   vi.resetAllMocks();
-  // Défaut permissif pour tous les GET annexes (snapshots, notifications) —
-  // chaque test surcharge /bons/:id explicitement via mockImplementationOnce.
-  vi.mocked(api.get).mockResolvedValue([]);
 });
 
-describe('useBonActions', () => {
-  it('load() fetches the bon, its PDF snapshots and its notification logs', async () => {
-    vi.mocked(api.get).mockImplementation((path: string) => {
-      if (path === '/bons/b1') return Promise.resolve(bonFixture);
-      if (path === '/bons/b1/pdf-snapshots') {
-        return Promise.resolve([{ type: 'signature_it_mise_disposition', filename: 'a.pdf', createdAt: '2026-01-01' }]);
-      }
-      if (path === '/bons/b1/notifications') {
-        return Promise.resolve([{ id: 'n1', type: 'send', status: 'sent', recipientEmail: 'jean@livio.fr', sentAt: '2026-01-01' }]);
-      }
-      return Promise.reject(new Error(`unexpected GET ${path}`));
-    });
-
-    const { result } = renderHook(() => useBonActions('b1'));
-    await act(async () => {
-      await result.current.load();
-    });
-
-    expect(result.current.bon).toEqual(bonFixture);
+describe('useBonActions — parcours pilotés par le serveur', () => {
+  it('charge la fiche, ses documents et ses emails', async () => {
+    const { result } = await loaded();
+    expect(result.current.bon?.reference).toBe('BON-2026-0001');
     expect(result.current.loading).toBe(false);
-    await waitFor(() => expect(result.current.pdfSnapshots).toHaveLength(1));
-    await waitFor(() => expect(result.current.notifLogs).toHaveLength(1));
   });
 
-  it('doSend on a 409 serial_conflicts response fills sendSerialConflicts and shows no error toast', async () => {
-    const conflicts = [{ serialNumber: 'SN-1', bonReference: 'BDM-9' }];
-    vi.mocked(api.post).mockRejectedValueOnce(
-      new ApiError(409, 'Conflit', { code: 'serial_conflicts', conflicts }),
-    );
+  it('envoyer : contrôles des numéros AVANT la signature IT ; un doute ouvre la fenêtre de contrôle', async () => {
+    const draft = bonFiche({ status: 'draft' });
+    const { result } = await loaded(draft);
+    const checks = { missingSerials: [{ equipmentId: 'e1', position: 1, label: 'Écran' }], serialConflicts: [] };
+    vi.mocked(api.get).mockResolvedValueOnce(checks);
 
-    const { result } = renderHook(() => useBonActions('b1'));
-    let ok: boolean | undefined;
-    await act(async () => {
-      ok = await result.current.doSend();
-    });
+    await act(async () => { result.current.run('send'); });
 
-    expect(ok).toBe(false);
-    expect(result.current.sendSerialConflicts).toEqual(conflicts);
-    expect(toast).not.toHaveBeenCalled();
+    await waitFor(() => expect(result.current.dialog).toEqual({ kind: 'send-checks', checks, channel: 'email' }));
+    expect(api.post).not.toHaveBeenCalled();
   });
 
-  it('doSend on success reloads via "refreshing" without ever flipping "loading" back to true', async () => {
-    vi.mocked(api.get).mockImplementationOnce(() => Promise.resolve(bonFixture));
-    const { result } = renderHook(() => useBonActions('b1'));
-    await act(async () => {
-      await result.current.load();
-    });
-    expect(result.current.loading).toBe(false);
+  it('envoyer sans doute : la signature IT est demandée, puis l’envoi part avec les confirmations', async () => {
+    const { result } = await loaded(bonFiche({ status: 'draft' }));
+    vi.mocked(api.get).mockResolvedValueOnce({ missingSerials: [], serialConflicts: [] });
+    await act(async () => { result.current.run('send'); });
+    await waitFor(() => expect(result.current.dialog?.kind).toBe('it-sign'));
 
-    vi.mocked(api.post).mockResolvedValueOnce(undefined);
-    vi.mocked(api.get).mockImplementationOnce(() => Promise.resolve({ ...bonFixture, status: 'sent_mise_dispo' }));
-
-    let ok: boolean | undefined;
-    await act(async () => {
-      ok = await result.current.doSend();
-    });
-
-    expect(ok).toBe(true);
-    // reload() passe par `refreshing`, jamais par `loading` : si la
-    // régression réintroduisait setLoading(true) ici, cette assertion serait
-    // encore vraie par coïncidence — la garantie vient surtout du fait que le
-    // rechargement (vérifié ci-dessous) se fait bien sans jamais activer
-    // `loading` entre-temps, seul `refreshing` en portant la charge.
-    expect(result.current.loading).toBe(false);
-    await waitFor(() => expect(result.current.bon?.status).toBe('sent_mise_dispo'));
-    await waitFor(() => expect(result.current.refreshing).toBe(false));
+    const dialog = result.current.dialog;
+    if (dialog?.kind !== 'it-sign') throw new Error('signature IT attendue');
+    expect(dialog.action.pdfType).toBe('mise_disposition');
+    vi.mocked(api.post).mockResolvedValueOnce(bonFiche({ status: 'sent_mise_dispo' }));
+    await act(async () => { await dialog.action.onSigned(); });
+    expect(api.post).toHaveBeenCalledWith('/bons/b1/send', {});
   });
 
-  it('doResend on a 409 token_recent response sets resendConfirmSentAt', async () => {
+  it('renvoyer un document dont la signature IT manque : signature IT d’abord', async () => {
+    const pending = { type: 'restitution' as const, expired: true, inPerson: false, itSigned: false, sentAt: null, expiresAt: null };
+    const { result } = await loaded(bonFiche({ status: 'partially_returned', pendingSignature: pending }));
+    act(() => { result.current.run('resend'); });
+    expect(result.current.dialog).toMatchObject({ kind: 'it-sign', action: { pdfType: 'restitution' } });
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it('renvoi refusé car un lien valide est récent : demande de confirmation, sans toast d’erreur', async () => {
     const sentAt = '2026-01-01T10:00:00.000Z';
+    const { result } = await loaded();
     vi.mocked(api.post).mockRejectedValueOnce(new ApiError(409, 'Trop récent', { code: 'token_recent', sentAt }));
-
-    const { result } = renderHook(() => useBonActions('b1'));
-    await act(async () => {
-      await result.current.doResend();
-    });
-
-    expect(result.current.resendConfirmSentAt).toBe(sentAt);
+    await act(async () => { await result.current.resend(false); });
+    expect(result.current.dialog).toEqual({ kind: 'resend-confirm', sentAt });
     expect(toast).not.toHaveBeenCalled();
   });
 
-  it('a generic error surfaces as a destructive toast via showActionError', async () => {
-    vi.mocked(api.delete).mockRejectedValueOnce(new Error('boom'));
+  it('restitution au guichet : marquage des équipements cochés, puis signature IT (rien d’autre ne part)', async () => {
+    const { result } = await loaded();
+    vi.mocked(api.post).mockResolvedValueOnce(bonFiche({ status: 'partially_returned' }));
+    await act(async () => { await result.current.confirmRestitution(['e1'], 'in_person'); });
+    expect(api.post).toHaveBeenCalledWith('/bons/b1/initiate-restitution', { returnedEquipmentIds: ['e1'], inPerson: true });
+    expect(result.current.dialog).toMatchObject({ kind: 'it-sign', action: { pdfType: 'restitution' } });
+  });
 
-    const { result } = renderHook(() => useBonActions('b1'));
-    await act(async () => {
-      await result.current.doCancel();
-    });
+  it('annuler le bon passe le motif ; une erreur s’affiche en toast', async () => {
+    const { result } = await loaded(bonFiche({ status: 'sent_mise_dispo' }));
+    vi.mocked(api.post).mockRejectedValueOnce(new Error('boom'));
+    await act(async () => { await result.current.confirmReason('cancel', 'Recrutement annulé'); });
+    expect(api.post).toHaveBeenCalledWith('/bons/b1/cancel', { reason: 'Recrutement annulé' });
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({ variant: 'destructive', description: 'boom' }));
+  });
 
-    expect(toast).toHaveBeenCalledWith(
-      expect.objectContaining({ variant: 'destructive', description: 'boom' }),
-    );
+  it('modifier un bon envoyé demande d’abord confirmation', async () => {
+    const { result } = await loaded(bonFiche({ status: 'sent_mise_dispo' }));
+    act(() => { result.current.run('edit'); });
+    expect(result.current.dialog).toEqual({ kind: 'edit-sent' });
   });
 });

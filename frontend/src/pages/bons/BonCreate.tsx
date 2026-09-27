@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ChevronLeft, X } from 'lucide-react';
@@ -12,6 +13,7 @@ export { UserAutocomplete } from './create/UserAutocomplete';
 export { CatalogSearch } from './create/CatalogSearch';
 
 export function BonCreatePage() {
+  const errorRef = useRef<HTMLDivElement>(null);
   const {
     navigate,
     editBonId,
@@ -26,6 +28,10 @@ export function BonCreatePage() {
     filialeId,
     setFilialeId,
     civilite,
+    civiliteFromAccount,
+    internalNote,
+    setInternalNote,
+    editStatus,
     setCivilite,
     dateMiseDisposition,
     setDateMiseDisposition,
@@ -59,6 +65,12 @@ export function BonCreatePage() {
     dismissRestoredNotice,
   } = useBonCreateForm();
 
+  // Le bouton « Créer » est en bas du formulaire, le message d'erreur en haut :
+  // on l'amène sous les yeux, sinon le refus passe inaperçu.
+  useEffect(() => {
+    if (error) errorRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+  }, [error]);
+
   const goBack = () => { if (confirmLeave()) navigate(isEditing ? `/bons/${editBonId}` : '/bons'); };
 
   return (
@@ -68,9 +80,18 @@ export function BonCreatePage() {
           <ChevronLeft className="h-5 w-5" />
         </button>
         <h1 className="text-xl font-bold text-foreground">
-          {isEditing ? `Modifier le brouillon ${editReference || ''}` : 'Nouveau bon de mise à disposition'}
+          {isEditing
+            ? `${editStatus === 'sent_mise_dispo' ? 'Modifier le bon' : 'Modifier le brouillon'} ${editReference || ''}`
+            : 'Nouveau bon de mise à disposition'}
         </h1>
       </div>
+      {editStatus === 'sent_mise_dispo' && (
+        <div role="status" className="rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
+          Ce bon a déjà été envoyé au collaborateur. En enregistrant, le lien envoyé ne fonctionnera plus : votre
+          signature IT sera redemandée, puis un nouveau lien partira. La modification est tracée. Modifier seulement
+          la note interne IT ne change rien pour le collaborateur : son lien reste valable.
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-4">
         {restoredFromDraft && (
@@ -107,7 +128,7 @@ export function BonCreatePage() {
           </div>
         )}
         {error && (
-          <div className="rounded-lg bg-destructive/10 border border-destructive/20 px-4 py-3 text-sm text-destructive" role="alert">
+          <div ref={errorRef} className="rounded-lg bg-destructive/10 border border-destructive/20 px-4 py-3 text-sm text-destructive" role="alert">
             {error}
           </div>
         )}
@@ -142,6 +163,7 @@ export function BonCreatePage() {
 
         <CollaborateurSection
           civilite={civilite}
+          civiliteFromAccount={civiliteFromAccount}
           onCiviliteChange={setCivilite}
           filialeId={filialeId}
           onFilialeIdChange={setFilialeId}
@@ -174,19 +196,49 @@ export function BonCreatePage() {
           onImportDuplicatedEquipments={importDuplicatedEquipments}
         />
 
-        {/* Notes */}
-        <Card>
-          <CardHeader><CardTitle className="text-base">Remarques <span className="text-muted-foreground/70 text-xs font-normal">(optionnel)</span></CardTitle></CardHeader>
-          <CardContent>
-            <textarea
-              className="w-full rounded-md border bg-transparent text-foreground px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none"
-              rows={3}
-              placeholder="Informations complémentaires..."
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-            />
-          </CardContent>
-        </Card>
+        {/* Deux textes distincts (R-170) : ce que voit le collaborateur, et ce qui reste à l'IT. */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">
+                <label htmlFor="bon-notes">Remarques sur le bon</label>{' '}
+                <span className="text-muted-foreground/70 text-xs font-normal">(facultatif)</span>
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">Visibles par le collaborateur et imprimées sur le PDF.</p>
+            </CardHeader>
+            <CardContent>
+              <textarea
+                id="bon-notes"
+                className="w-full rounded-md border bg-transparent text-foreground px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+                rows={3}
+                maxLength={2000}
+                placeholder="Ex. : chargeur fourni, sacoche prêtée jusqu’à la fin du chantier."
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+              />
+            </CardContent>
+          </Card>
+          <Card className="border-dashed">
+            <CardHeader>
+              <CardTitle className="text-base">
+                <label htmlFor="bon-internal-note">Note interne IT</label>{' '}
+                <span className="text-muted-foreground/70 text-xs font-normal">(facultatif)</span>
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">Jamais montrée au collaborateur, ni sur le PDF, ni dans un email.</p>
+            </CardHeader>
+            <CardContent>
+              <textarea
+                id="bon-internal-note"
+                className="w-full rounded-md border bg-transparent text-foreground px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+                rows={3}
+                maxLength={2000}
+                placeholder="Ex. : ticket GLPI 4521, écran à récupérer au siège."
+                value={internalNote}
+                onChange={(e) => setInternalNote(e.target.value)}
+              />
+            </CardContent>
+          </Card>
+        </div>
 
         <div className="flex gap-2 justify-end">
           <Button type="button" variant="outline" onClick={goBack}>

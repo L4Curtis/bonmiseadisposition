@@ -77,6 +77,40 @@ describe.each([
   });
 });
 
+/**
+ * Un brouillon n'existe pas encore pour le collaborateur : ses routes
+ * « propriétaire » répondent 404, exactement comme pour un bon inconnu ;
+ * l'IT, elle, le voit.
+ */
+describe.each([
+  ['GET /bons/:id', (id: string) => `/bons/${id}`],
+  ['GET /bons/:id/integrity', (id: string) => `/bons/${id}/integrity`],
+  ['GET /bons/:id/pdf-snapshots', (id: string) => `/bons/${id}/pdf-snapshots`],
+  ['GET /bons/:id/pdf', (id: string) => `/bons/${id}/pdf`],
+  ['GET /bons/:bonId/attachments', (id: string) => `/bons/${id}/attachments`],
+])('%s — brouillon invisible pour le collaborateur', (_route, pathOf) => {
+  it.each(['collaborator', 'otherCollaborator', 'direction'] as const)('%s → 404', async (caller) => {
+    const res = await ctx.http.get(pathOf(ctx.data.bons.draft.id), caller);
+    expect(res.status).toBe(404);
+    expectShape(res.body, nestError);
+  });
+
+  it('technicien → 200', async () => {
+    const res = await ctx.http.get(pathOf(ctx.data.bons.draft.id), 'technician');
+    expect(res.status).toBe(200);
+  });
+});
+
+describe('GET /bons/:id — brouillon et bon inconnu, même réponse pour le titulaire', () => {
+  it('même statut et même message', async () => {
+    const draft = await ctx.http.get(`/bons/${ctx.data.bons.draft.id}`, 'collaborator');
+    const unknown = await ctx.http.get('/bons/00000000-0000-4000-8000-000000000000', 'collaborator');
+    expect(unknown.status).toBe(404);
+    expect(draft.status).toBe(unknown.status);
+    expect(draft.body.message).toBe(unknown.body.message);
+  });
+});
+
 describe('Liste et tableau de bord', () => {
   it('GET /bons : enveloppe { bons, total, page, limit }', async () => {
     const res = await ctx.http.get('/bons?page=1&limit=5', 'technician');
@@ -133,9 +167,10 @@ describe('Fiche d’un bon', () => {
     expect(res.body.signatures.map((s: { type: string }) => s.type).sort()).toEqual(['it_cachet', 'mise_disposition']);
   });
 
-  it('GET /bons/:id : `stampPath` de la filiale renvoyé à l’IT, retiré pour le titulaire', async () => {
+  it('GET /bons/:id : jamais le `stampPath` de la filiale (le PDF lit le cachet par `filialeId`)', async () => {
     const forIt = await ctx.http.get(`/bons/${ctx.data.bons.active.id}`, 'technician');
-    expect(forIt.body.filiale).toHaveProperty('stampPath');
+    expect(forIt.body.filiale.id).toEqual(expect.any(String));
+    expect(forIt.body.filiale).not.toHaveProperty('stampPath');
     const forOwner = await ctx.http.get(`/bons/${ctx.data.bons.active.id}`, 'collaborator');
     expect(forOwner.status).toBe(200);
     expectShape(forOwner.body, bonDetail);

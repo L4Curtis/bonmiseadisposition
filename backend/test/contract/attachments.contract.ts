@@ -26,10 +26,10 @@ const PNG_1PX = Buffer.from(
   'base64',
 );
 
-function upload(bonId: string, caller: Caller) {
+function upload(bonId: string, caller: Caller, stage = 'mise_disposition') {
   return ctx.http
     .send('post', `/bons/${bonId}/attachments`, caller)
-    .field('stage', 'mise_disposition')
+    .field('stage', stage)
     .field('label', 'Photo de l’état du matériel')
     .attach('file', PNG_1PX, { filename: 'etat.png', contentType: 'image/png' });
 }
@@ -79,5 +79,37 @@ describe('Cycle d’une pièce jointe', () => {
     const res = await upload(ctx.data.bons.archived.id, 'collaborator');
     expect(res.status).toBe(403);
     expectShape(res.body, nestError);
+  });
+});
+
+/**
+ * Étape d'une pièce jointe : pour le collaborateur, le serveur la déduit du
+ * document qui attend sa signature et ignore celle envoyée ; l'IT choisit.
+ */
+describe('Étape de la pièce jointe', () => {
+  it.each([
+    ['sentMiseDispo', 'mise_disposition'],
+    ['sentRestitution', 'restitution'],
+  ] as const)('titulaire sur le bon %s : étape « %s », quelle que soit celle envoyée', async (key, expected) => {
+    const res = await upload(ctx.data.bons[key].id, 'collaborator', 'pv_cloture');
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expectShape(res.body, attachment);
+    expect(res.body.stage).toBe(expected);
+    const stored = await ctx.prisma.attachment.findUniqueOrThrow({ where: { id: res.body.id } });
+    expect(stored.stage).toBe(expected);
+  });
+
+  it('IT : l’étape envoyée est gardée', async () => {
+    const res = await upload(ctx.data.bons.sentMiseDispo.id, 'technician', 'general');
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body.stage).toBe('general');
+  });
+
+  it('titulaire, bon passé hors période de signature : 403 et aucune pièce enregistrée', async () => {
+    const before = await ctx.prisma.attachment.count({ where: { bonId: ctx.data.bons.active.id } });
+    const res = await upload(ctx.data.bons.active.id, 'collaborator');
+    expect(res.status).toBe(403);
+    expectShape(res.body, nestError);
+    expect(await ctx.prisma.attachment.count({ where: { bonId: ctx.data.bons.active.id } })).toBe(before);
   });
 });

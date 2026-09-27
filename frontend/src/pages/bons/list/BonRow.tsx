@@ -1,6 +1,6 @@
 import { Link } from 'react-router';
 import { Loader2, Send } from 'lucide-react';
-import { StatusBadge } from '@/components/StatusBadge';
+import { BonStateBadges } from '../components/BonStateBadges';
 import { formatDate, formatDateTime } from '@/lib/utils';
 import type { Bon } from './types';
 import { formatTimeAgo } from './relativeTime';
@@ -24,7 +24,7 @@ function resendTitle(bon: Bon): string {
   const sentAt = lastLinkSentAt(bon);
   return sentAt
     ? `Renvoyer le lien de signature (dernier envoi ${formatTimeAgo(sentAt)})`
-    : 'Renvoyer le lien de signature';
+    : 'Envoyer un nouveau lien de signature';
 }
 
 /** Ligne de la liste des bons. Toute la ligne ouvre le bon : le lien de la
@@ -76,7 +76,12 @@ export function BonRow({ bon, selected, onToggleSelected, onResend, resendLoadin
       </td>
 
       <td className="px-4 py-3.5">
-        <StatusBadge status={bon.status} signatures={bon.signatures} size="md" />
+        <BonStateBadges
+          status={bon.status}
+          subStatus={bon.subStatus}
+          lateness={bon.lateness}
+          awaitingSignature={!!bon.pendingSignature}
+        />
       </td>
 
       <td className="px-4 py-3.5 text-sm text-muted-foreground hidden md:table-cell whitespace-nowrap">

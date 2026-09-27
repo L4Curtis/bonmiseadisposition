@@ -1,7 +1,7 @@
 import { PrismaService } from '../../prisma/prisma.service';
-import { PARTIAL_PENDING_SIGNATURE_TYPES, INVALIDATED_TOKEN_SENTINEL } from '../../common/bon-predicates';
+import { buildAwaitingSignatureWhere } from '../../common/bon-predicates';
 import { parisMonthStartUtc } from '../../common/dates/paris';
-import { CLOSED_BON_STATUSES, TO_SIGN_BON_STATUSES } from '../bon-status';
+import { CLOSED_BON_STATUSES } from '../bon-status';
 import { buildBonWhere } from './bon-where';
 
 export interface BonStats {
@@ -28,27 +28,9 @@ export async function getBonStats(prisma: PrismaService, overdueThresholdDays: n
   const closedStatuses = [...CLOSED_BON_STATUSES];
 
   const [waitingSignature, active, overdue, total, archivedThisMonth, partiallyReturned, filialesRaw] = await Promise.all([
-    prisma.bon.count({
-      where: {
-        OR: [
-          { status: { in: [...TO_SIGN_BON_STATUSES] } },
-          {
-            status: 'partially_returned',
-            // tokenExpiresAt > sentinelle (epoch + 1s) exclut uniquement les
-            // tokens invalidés VOLONTAIREMENT (resend, contestation, clôture) —
-            // un token simplement expiré naturellement reste « en attente »,
-            // aligné sur le cron de rappels (common/bon-predicates).
-            signatures: {
-              some: {
-                signed: false,
-                type: { in: [...PARTIAL_PENDING_SIGNATURE_TYPES] },
-                tokenExpiresAt: { gt: INVALIDATED_TOKEN_SENTINEL },
-              },
-            },
-          },
-        ],
-      },
-    }),
+    // « Signatures attendues » : même prédicat que la tuile de l'accueil
+    // (/kpi/aujourdhui) et que la liste GET /bons?awaitingSignature=1.
+    prisma.bon.count({ where: buildAwaitingSignatureWhere() }),
     prisma.bon.count({ where: { status: 'active' } }),
     // Même définition que le filtre GET /bons?overdue=1 (buildBonWhere) : le
     // chiffre du tableau de bord doit correspondre à la liste obtenue après

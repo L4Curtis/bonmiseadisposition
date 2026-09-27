@@ -10,12 +10,14 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useSignatureCanvas } from '@/hooks/use-signature-canvas';
-import type { EquipmentItem } from './types';
-import { equipmentLabel } from './types';
+import { equipmentLabel, type FicheEquipment } from './types';
+import { PHONE_FULLSCREEN_DIALOG, TOUCH_BUTTON, TOUCH_FOOTER } from './dialog-layout';
 
 interface MarkFoundModalProps {
-  equipments: EquipmentItem[];
-  onConfirm: (equipmentIds: string[], signatureDataUrl: string) => void;
+  equipments: readonly FicheEquipment[];
+  /** La signature IT n'est demandée que pour l'avenant d'un bon clôturé ;
+   *  sinon la restitution de ces équipements suit le parcours habituel. */
+  onConfirm: (equipmentIds: string[], signatureDataUrl?: string) => void;
   onCancel: () => void;
   loading: boolean;
   isArchived?: boolean;
@@ -50,9 +52,13 @@ export function MarkFoundModal({
       setError('Sélectionnez au moins un équipement retrouvé.');
       return;
     }
+    if (!isArchived) {
+      onConfirm(Array.from(selected));
+      return;
+    }
     const dataUrl = getDataUrl();
     if (!dataUrl) {
-      setError('Le cachet IT est obligatoire pour mettre à jour le PV.');
+      setError('Votre signature IT est obligatoire pour certifier l’avenant.');
       return;
     }
     onConfirm(Array.from(selected), dataUrl);
@@ -60,7 +66,7 @@ export function MarkFoundModal({
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !loading) onCancel(); }}>
-      <DialogContent className="sm:max-w-lg p-0 overflow-hidden">
+      <DialogContent className={`sm:max-w-lg p-0 overflow-hidden ${PHONE_FULLSCREEN_DIALOG}`}>
         {/* Success header */}
         <div className="bg-success px-5 py-4">
           <DialogHeader className="p-0 text-left">
@@ -69,16 +75,16 @@ export function MarkFoundModal({
             </DialogTitle>
             <DialogDescription className="text-success-foreground/80 text-xs mt-1">
               {isArchived
-                ? "Un avenant IT sera généré. Le collaborateur n'aura pas à re-signer."
-                : 'Le PV sera mis à jour et renvoyé au collaborateur pour signature.'}
+                ? "Un avenant signé par l'équipe informatique sera ajouté au bon. Le collaborateur n'a rien à signer."
+                : 'Les équipements retrouvés passent « rendus » : faites ensuite signer leur restitution. Le PV en attente est remplacé.'}
             </DialogDescription>
           </DialogHeader>
         </div>
 
-        <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
+        <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto max-sm:max-h-none">
           {notReturnedEquipments.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-4">
-              Aucun équipement non rendu.
+              Aucun équipement déclaré non restitué.
             </p>
           ) : (
             <>
@@ -89,7 +95,7 @@ export function MarkFoundModal({
                 {notReturnedEquipments.map((eq) => (
                   <label
                     key={eq.id}
-                    className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                    className={`flex min-h-11 items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
                       selected.has(eq.id)
                         ? 'bg-primary/10 border-primary/40'
                         : 'hover:bg-muted/40 border-border'
@@ -97,7 +103,7 @@ export function MarkFoundModal({
                   >
                     <input
                       type="checkbox"
-                      className="h-4 w-4 rounded border-input accent-primary focus:ring-ring"
+                      className="h-5 w-5 shrink-0 rounded border-input accent-primary focus:ring-ring"
                       checked={selected.has(eq.id)}
                       onChange={() => toggle(eq.id)}
                     />
@@ -119,23 +125,21 @@ export function MarkFoundModal({
                 ))}
               </div>
 
-              {/* IT stamp */}
+              {isArchived && (
               <div className="border-t pt-4">
                 <div className="flex items-center justify-between mb-2">
                   <div>
                     <p className="text-xs font-medium text-foreground/80 uppercase tracking-wider flex items-center gap-1.5">
-                      <Stamp className="h-3.5 w-3.5" /> Cachet du service informatique *
+                      <Stamp className="h-3.5 w-3.5" /> Signature IT *
                     </p>
                     <p className="text-xs text-muted-foreground/70 mt-0.5">
-                      {isArchived
-                        ? 'Apposez votre cachet pour certifier cet avenant'
-                        : 'Apposez votre cachet pour valider la mise à jour du PV'}
+                      Elle certifie l’avenant « équipement retrouvé »
                     </p>
                   </div>
                   <button
                     type="button"
                     onClick={clear}
-                    className="flex items-center gap-1 text-xs text-muted-foreground/70 hover:text-muted-foreground"
+                    className="flex min-h-11 items-center gap-1 px-2 text-xs text-muted-foreground/70 hover:text-muted-foreground sm:min-h-0"
                   >
                     <Trash2 className="h-3 w-3" /> Effacer
                   </button>
@@ -160,6 +164,7 @@ export function MarkFoundModal({
                   )}
                 </div>
               </div>
+              )}
             </>
           )}
 
@@ -171,13 +176,13 @@ export function MarkFoundModal({
           )}
         </div>
 
-        <DialogFooter className="px-5 pb-5 pt-0">
-          <Button variant="outline" size="sm" className="flex-1" onClick={onCancel} disabled={loading}>
+        <DialogFooter className={`px-5 pb-5 pt-0 ${TOUCH_FOOTER}`}>
+          <Button variant="outline" size="sm" className={`flex-1 ${TOUCH_BUTTON}`} onClick={onCancel} disabled={loading}>
             Annuler
           </Button>
           <Button
             size="sm"
-            className="flex-1 bg-success hover:bg-success/90 text-success-foreground"
+            className={`flex-1 ${TOUCH_BUTTON} bg-success hover:bg-success/90 text-success-foreground`}
             onClick={handleSubmit}
             disabled={loading || notReturnedEquipments.length === 0}
           >
@@ -186,7 +191,7 @@ export function MarkFoundModal({
             ) : isArchived ? (
               <><PackageCheck className="h-3.5 w-3.5" /> Générer l&apos;avenant ({selected.size})</>
             ) : (
-              <><PackageCheck className="h-3.5 w-3.5" /> Mettre à jour le PV ({selected.size})</>
+              <><PackageCheck className="h-3.5 w-3.5" /> Marquer retrouvé ({selected.size})</>
             )}
           </Button>
         </DialogFooter>

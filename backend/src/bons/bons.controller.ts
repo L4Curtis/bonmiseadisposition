@@ -17,18 +17,20 @@ import { Response, Request } from 'express';
 import { BonsService } from './bons.service';
 import { PdfService } from '../pdf/pdf.service';
 import { SignatureService } from '../signature/signature.service';
-import { ContestationService } from '../contestation/contestation.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateBonDto, UpdateBonDto } from './dto/bon.dto';
 import { QueryBonsDto, toBonListQuery } from './dto/query-bons.dto';
 import {
-  CreateContestationDto,
   InitiateRestitutionDto,
   InitiateInPersonDto,
   DeclareNotReturnedDto,
   MarkFoundDto,
   CloseUnilateralDto,
   ResendBatchDto,
+  SendConfirmationsDto,
+  ReasonDto,
+  CancelBonDto,
+  UndoReturnDto,
 } from './dto/actions.dto';
 import { SignItDto } from '../signature/dto/sign.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -37,12 +39,21 @@ import { Roles, ALL_ROLES } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth-user.interface';
 import { verifyCollaboratorAccess as verifyCollaboratorAccessImpl } from './bons-access';
+import { isItRole } from '../common/roles';
+import { clientIp } from '../common/http/client-ip';
+import type { ClientTrace } from './workflow/bon-it-signature';
+
+/** Poste du technicien (adresse IP selon la règle unique, navigateur) :
+ *  certificat de preuve des signatures IT. */
+function clientTrace(req: Request): ClientTrace {
+  return { ip: clientIp(req), userAgent: req.headers['user-agent'] ?? 'unknown' };
+}
 import { assertValidPdfQuery, resolveBonPdf } from './bons-pdf-lookup';
 import { computeMissingPdfSnapshotTypes } from './bons-missing-snapshots';
 
 /**
  * Bons : réservés à l'IT (admin, technicien), sauf les routes « propriétaire »
- * — ses propres bons, leurs PDF, la contestation — ouvertes à tout rôle
+ * — ses propres bons, leurs PDF — ouvertes à tout rôle
  * connecté, car chacun peut recevoir du matériel. Sur ces routes-là,
  * verifyCollaboratorAccess limite un compte non IT à SES bons.
  */
@@ -54,7 +65,6 @@ export class BonsController {
     private readonly bonsService: BonsService,
     private readonly pdfService: PdfService,
     private readonly signatureService: SignatureService,
-    private readonly contestationService: ContestationService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -64,19 +74,6 @@ export class BonsController {
   @Roles(...ALL_ROLES)
   getMyBons(@CurrentUser() user: AuthUser) {
     return this.bonsService.findByCollaborateur(user.id);
-  }
-
-  /** POST /bons/:id/contestation — le destinataire conteste son bon (le
-   *  service refuse tout autre compte, IT compris). */
-  @Post(':id/contestation')
-  @Roles(...ALL_ROLES)
-  async createContestation(
-    @Param('id') id: string,
-    @Body() dto: CreateContestationDto,
-    @CurrentUser() user: AuthUser,
-  ) {
-    await this.verifyCollaboratorAccess(id, user);
-    return this.contestationService.create(id, user.id, dto.message);
   }
 
   /** POST /bons/:id/resend — IT renvoie le lien de signature
@@ -133,11 +130,21 @@ export class BonsController {
     });
   }
 
+  /** GET /bons/:id — fiche : l'IT voit tout ; le collaborateur titulaire ne
+   *  reçoit ni la « Note interne IT », ni le refus d'envoi, ni les actions,
+   *  et un brouillon lui répond 404 comme un bon inconnu. */
   @Get(':id')
   @Roles(...ALL_ROLES)
   async findOne(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     await this.verifyCollaboratorAccess(id, user);
-    return this.bonsService.findOne(id);
+    return this.bonsService.detail(id, isItRole(user.role) ? 'it' : 'holder');
+  }
+
+  /** GET /bons/:id/send-check — contrôles avant la remise (R-003), à montrer
+   *  avant la signature IT. */
+  @Get(':id/send-check')
+  sendCheck(@Param('id') id: string) {
+    return this.bonsService.sendChecks(id);
   }
 
   @Get(':id/notifications')
@@ -150,32 +157,45 @@ export class BonsController {
     return this.bonsService.create(dto, user.id);
   }
 
+  /** PUT /bons/:id — brouillon, ou bon envoyé pas encore signé (le lien est
+   *  alors invalidé : nouvelle signature IT puis nouveau lien). */
   @Put(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateBonDto) {
-    return this.bonsService.update(id, dto);
+  update(@Param('id') id: string, @Body() dto: UpdateBonDto, @CurrentUser() user: AuthUser) {
+    return this.bonsService.update(id, dto, user.id);
   }
 
+  /** POST /bons/:id/cancel — annulation, motif obligatoire pour un bon envoyé. */
+  @Post(':id/cancel')
+  cancelWithReason(@Param('id') id: string, @Body() dto: CancelBonDto, @CurrentUser() user: AuthUser) {
+    return this.bonsService.cancel(id, user.id, dto.reason);
+  }
+
+  /** DELETE /bons/:id — ancienne forme de l'annulation (motif dans le corps). */
   @Delete(':id')
-  cancel(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    return this.bonsService.cancel(id, user?.id);
+  cancel(@Param('id') id: string, @Body() dto: CancelBonDto, @CurrentUser() user: AuthUser) {
+    return this.bonsService.cancel(id, user.id, dto?.reason);
   }
 
   @Post(':id/send')
-  send(
-    @Param('id') id: string,
-    @Body() body: { confirmSerialConflicts?: boolean },
-    @CurrentUser() user: AuthUser,
-  ) {
-    return this.bonsService.send(id, user?.id, body?.confirmSerialConflicts === true);
+  send(@Param('id') id: string, @Body() dto: SendConfirmationsDto, @CurrentUser() user: AuthUser) {
+    return this.bonsService.send(id, user.id, dto ?? {});
   }
 
+  /** POST /bons/:id/initiate-restitution — marque les équipements rendus
+   *  (aucun lien ne part : signature IT d'abord). */
   @Post(':id/initiate-restitution')
   initiateRestitution(
     @Param('id') id: string,
     @Body() dto: InitiateRestitutionDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.bonsService.initiateRestitution(id, user?.id, dto.returnedEquipmentIds);
+    return this.bonsService.initiateRestitution(id, user.id, dto.returnedEquipmentIds, dto.inPerson === true);
+  }
+
+  /** POST /bons/:id/undo-return — annule le marquage « rendu » avant signature. */
+  @Post(':id/undo-return')
+  undoReturn(@Param('id') id: string, @Body() dto: UndoReturnDto, @CurrentUser() user: AuthUser) {
+    return this.bonsService.undoReturn(id, user.id, dto.equipmentIds);
   }
 
   @Post(':id/initiate-inperson')
@@ -184,7 +204,20 @@ export class BonsController {
     @Body() dto: InitiateInPersonDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.bonsService.initiateInPersonSignature(id, dto.type, user.id);
+    const { type, confirmSerialConflicts, confirmMissingSerials } = dto;
+    return this.bonsService.initiateInPersonSignature(id, type, user.id, { confirmSerialConflicts, confirmMissingSerials });
+  }
+
+  /** POST /bons/:id/handover-without-signature — « Constater la remise sans signature ». */
+  @Post(':id/handover-without-signature')
+  handoverWithoutSignature(@Param('id') id: string, @Body() dto: ReasonDto, @CurrentUser() user: AuthUser) {
+    return this.bonsService.handoverWithoutSignature(id, user.id, dto.reason);
+  }
+
+  /** POST /bons/:id/close-without-signature — « Clôturer sans signature ». */
+  @Post(':id/close-without-signature')
+  closeWithoutSignature(@Param('id') id: string, @Body() dto: ReasonDto, @CurrentUser() user: AuthUser) {
+    return this.bonsService.closeWithoutSignature(id, user.id, dto.reason);
   }
 
   @Post(':id/declare-not-returned')
@@ -192,8 +225,11 @@ export class BonsController {
     @Param('id') id: string,
     @Body() dto: DeclareNotReturnedDto,
     @CurrentUser() user: AuthUser,
+    @Req() req: Request,
   ) {
-    return this.bonsService.declareNotReturned(id, dto.equipmentIds, dto.reason, user.id, dto.signatureDataUrl);
+    return this.bonsService.declareNotReturned(
+      id, dto.equipmentIds, dto.reason, user.id, dto.signatureDataUrl, clientTrace(req),
+    );
   }
 
   @Post(':id/mark-found')
@@ -201,8 +237,9 @@ export class BonsController {
     @Param('id') id: string,
     @Body() dto: MarkFoundDto,
     @CurrentUser() user: AuthUser,
+    @Req() req: Request,
   ) {
-    return this.bonsService.markFound(id, dto.equipmentIds, user.id, dto.signatureDataUrl);
+    return this.bonsService.markFound(id, dto.equipmentIds, user.id, dto.signatureDataUrl, clientTrace(req));
   }
 
   /** GET /bons/:id/integrity — vérifie les sceaux HMAC des signatures (preuve
@@ -273,10 +310,9 @@ export class BonsController {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="bon-${bon.reference}.pdf"`);
     const fullSignatures = await this.prisma.signature.findMany({ where: { bonId: bon.id } });
-    const sigImages = await this.signatureService.getSignatureImagesForBon(fullSignatures);
     // Passer les signatures COMPLÈTES (email/IP/UA) pour que le certificat de
     // preuve soit identique à celui du snapshot stocké (même rendu, même hash).
-    const pdf = await this.pdfService.generateBonPdf({ ...bon, signatures: fullSignatures }, sigImages, type);
+    const pdf = await this.pdfService.generateBonPdf({ ...bon, signatures: fullSignatures }, null, type);
     res.send(pdf);
   }
 
@@ -288,8 +324,9 @@ export class BonsController {
     return verifyCollaboratorAccessImpl(this.prisma, bonId, user);
   }
 
-  /** POST /bons/:id/close-unilateral — clôture sans signature du collaborateur
-   *  (motif obligatoire, mention sur le PDF, traçage audit). */
+  /** POST /bons/:id/close-unilateral — ancien nom des deux gestes sans
+   *  signature, gardé pour compatibilité : « Constater la remise » depuis
+   *  « Remise à signer », « Clôturer » sinon. */
   @Post(':id/close-unilateral')
   closeUnilateral(
     @Param('id') id: string,
@@ -307,12 +344,7 @@ export class BonsController {
     @CurrentUser() user: AuthUser,
     @Req() req: Request,
   ) {
-    // Use X-Real-IP (set by nginx to $remote_addr) — cannot be spoofed by clients
-    const ip =
-      (req.headers['x-real-ip'] as string)?.trim() ??
-      req.socket?.remoteAddress ??
-      'unknown';
-    const userAgent = req.headers['user-agent'] ?? 'unknown';
+    const { ip, userAgent } = clientTrace(req);
     return this.signatureService.signItCachet(
       id,
       body.signatureDataUrl,

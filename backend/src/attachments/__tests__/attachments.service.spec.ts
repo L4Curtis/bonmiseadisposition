@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { AttachmentsService, UploadedFile } from '../attachments.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
 import { createMockEncryptionService } from '../../common/__tests__/helpers/mock-services';
@@ -71,6 +71,23 @@ describe('AttachmentsService', () => {
       await service.create('b1', pngFile(), 'n_importe_quoi', undefined, user);
       const created = (prisma.attachment.create as Mock).mock.calls[0][0].data;
       expect(created.stage).toBe('general');
+    });
+  });
+
+  describe('createForHolder', () => {
+    beforeEach(() => {
+      (prisma.$transaction as Mock).mockImplementation((fn: (tx: unknown) => unknown) => fn(prisma));
+    });
+
+    it('bon hors période de signature (relu sous verrou) : 403, rien d’écrit, fichier retiré', async () => {
+      (prisma.$queryRaw as Mock).mockResolvedValue([{ status: 'archived' }]);
+      const fsp = fsPromisesModule as unknown as { unlink: Mock };
+      fsp.unlink.mockClear();
+
+      await expect(service.createForHolder('b1', pngFile(), undefined, user)).rejects.toThrow(ForbiddenException);
+
+      expect(prisma.attachment.create).not.toHaveBeenCalled();
+      expect(fsp.unlink).toHaveBeenCalledTimes(1);
     });
   });
 

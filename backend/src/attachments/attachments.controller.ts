@@ -22,22 +22,17 @@ import { Roles, ALL_ROLES } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth-user.interface';
 import { isItRole } from '../common/roles';
+import { verifyCollaboratorAccess } from '../bons/bons-access';
+import { COLLAB_ATTACHMENT_WINDOW_STATUSES, HOLDER_UPLOAD_REFUSED_MESSAGE } from './holder-upload';
 
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 
 /**
- * Statuts pendant lesquels un collaborateur peut encore ajouter/supprimer des
- * pièces jointes — la « période de signature ». Hors de cette fenêtre (bon
- * brouillon, archivé, contesté…) le bon est figé côté collaborateur : ajouter
- * une PJ après coup modifierait un dossier déjà clos/probant.
- */
-const COLLAB_ATTACHMENT_WINDOW_STATUSES = ['sent_mise_dispo', 'sent_restitution', 'partially_returned'];
-
-/**
  * Pièces jointes d'un bon. Ouvert à tout rôle connecté comme les autres routes
  * « propriétaire » des bons : un compte non IT n'accède qu'aux pièces de SES
- * bons (verifyAccess), et n'en ajoute ou n'en retire que pendant la période de
- * signature.
+ * bons, jamais à celles d'un brouillon (verifyAccess), et n'en ajoute ou
+ * n'en retire que pendant la période de signature (holder-upload.ts) ; l'étape
+ * de ses pièces est décidée par le serveur.
  */
 @Controller('bons/:bonId/attachments')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -64,19 +59,17 @@ export class AttachmentsController {
     @CurrentUser() user: AuthUser,
   ) {
     await this.verifyAccess(bonId, user);
-    await this.verifyCollaboratorWriteWindow(
-      bonId,
-      user,
-      'Vous ne pouvez ajouter des pièces jointes que pendant la période de signature',
-    );
+    // Refus rapide, avant d'écrire le fichier ; le contrôle qui fait foi est
+    // refait sous verrou au moment d'enregistrer la pièce.
+    await this.verifyCollaboratorWriteWindow(bonId, user, HOLDER_UPLOAD_REFUSED_MESSAGE);
     if (!file) throw new BadRequestException('Aucun fichier reçu (champ "file" attendu)');
-    return this.attachments.create(
-      bonId,
-      { buffer: file.buffer, originalname: file.originalname, mimetype: file.mimetype, size: file.size },
-      stage,
-      label,
-      { id: user.id, email: user.email },
-    );
+    const upload = { buffer: file.buffer, originalname: file.originalname, mimetype: file.mimetype, size: file.size };
+    const author = { id: user.id, email: user.email };
+    // L'IT choisit l'étape ; pour le collaborateur, le serveur la déduit du
+    // document en attente et vérifie la période de signature au moment
+    // d'écrire (AttachmentsService.createForHolder).
+    if (isItRole(user.role)) return this.attachments.create(bonId, upload, stage, label, author);
+    return this.attachments.createForHolder(bonId, upload, label, author);
   }
 
   @Get(':attachmentId')
@@ -117,18 +110,10 @@ export class AttachmentsController {
     return this.attachments.remove(bonId, attachmentId, { id: user.id, email: user.email });
   }
 
-  /** Collaborateurs : accès limité à leurs propres bons (cf. BonsController). */
-  private async verifyAccess(bonId: string, user: AuthUser): Promise<void> {
-    if (!user) throw new ForbiddenException('Accès refusé');
-    if (isItRole(user.role)) return;
-    const bon = await this.prisma.bon.findUnique({
-      where: { id: bonId },
-      select: { collaborateurId: true },
-    });
-    if (!bon) return; // 404 produit par le service
-    if (bon.collaborateurId !== user.id) {
-      throw new ForbiddenException('Accès refusé à ce bon');
-    }
+  /** Même règle que les autres routes « propriétaire » des bons : ses
+   *  propres bons seulement, jamais un brouillon (404). */
+  private verifyAccess(bonId: string, user: AuthUser): Promise<void> {
+    return verifyCollaboratorAccess(this.prisma, bonId, user);
   }
 
   /**

@@ -58,6 +58,11 @@ const ACCESS: readonly AccessRule[] = [
   rule('POST /bons/:id/declare-not-returned', IT, (d) => `/bons/${d.bons.partiallyReturned.id}/declare-not-returned`),
   rule('POST /bons/:id/mark-found', IT, (d) => `/bons/${d.bons.archived.id}/mark-found`),
   rule('POST /bons/:id/close-unilateral', IT, (d) => `/bons/${d.bons.sentMiseDispo.id}/close-unilateral`),
+  rule('POST /bons/:id/cancel', IT, (d) => `/bons/${d.bons.draft.id}/cancel`),
+  rule('POST /bons/:id/handover-without-signature', IT, (d) => `/bons/${d.bons.sentMiseDispo.id}/handover-without-signature`),
+  rule('POST /bons/:id/close-without-signature', IT, (d) => `/bons/${d.bons.sentRestitution.id}/close-without-signature`),
+  rule('POST /bons/:id/undo-return', IT, (d) => `/bons/${d.bons.partiallyReturned.id}/undo-return`),
+  rule('GET /bons/:id/send-check', IT, (d) => `/bons/${d.bons.draft.id}/send-check`),
 ];
 
 describe('Droits d’accès', () => {
@@ -99,7 +104,7 @@ describe('Parcours d’un bon, de la création à la contestation', () => {
       notes: 'Livraison au siège',
       equipments: [
         { catalogItemId: ctx.data.catalog.laptopId, serialNumber: DUPLICATE_SERIAL },
-        { catalogItemId: ctx.data.catalog.screenId },
+        { catalogItemId: ctx.data.catalog.screenId, serialNumber: 'SN-CONTRAT-PARCOURS-ECRAN' },
       ],
     });
     expect(res.status).toBe(200);
@@ -109,7 +114,7 @@ describe('Parcours d’un bon, de la création à la contestation', () => {
     expect(res.body.equipments).toHaveLength(2);
   });
 
-  it('PUT /bons/:id sur un bon qui n’est plus un brouillon : 400', async () => {
+  it('PUT /bons/:id sur un bon déjà signé : 400', async () => {
     const res = await ctx.http.put(`/bons/${ctx.data.bons.active.id}`, 'technician', { notes: 'Refusé' });
     expect(res.status).toBe(400);
     expectShape(res.body, nestError);
@@ -190,7 +195,7 @@ describe('Parcours d’un bon, de la création à la contestation', () => {
 
   it('PATCH /contestations/:id/resolve (rejet) : contestation close, bon rétabli', async () => {
     const res = await ctx.http.patch(`/contestations/${contestationId}/resolve`, 'technician', {
-      action: 'rejected',
+      outcome: 'not_retained',
       resolutionMessage: 'Numéro vérifié sur le matériel.',
     });
     expect(res.status).toBe(200);
@@ -199,10 +204,19 @@ describe('Parcours d’un bon, de la création à la contestation', () => {
 });
 
 describe('Actions sur les bons du jeu de données', () => {
-  it('POST /bons/:id/initiate-inperson : 201 { bon, token }', async () => {
-    const res = await ctx.http.post(`/bons/${ctx.data.bons.otherCollaboratorActive.id}/initiate-inperson`, 'technician', {
-      type: 'restitution',
+  it('POST /bons/:id/initiate-inperson (restitution au guichet : marquage, signature IT, lien) : 201 { bon, token }', async () => {
+    const { otherCollaboratorActive: bon } = ctx.data.bons;
+    const marked = await ctx.http.post(`/bons/${bon.id}/initiate-restitution`, 'technician', {
+      returnedEquipmentIds: bon.equipmentIds,
+      inPerson: true,
     });
+    expect(marked.status).toBe(201);
+    const signed = await ctx.http.post(`/bons/${bon.id}/sign-it`, 'technician', {
+      signatureDataUrl: SIGNATURE_PNG,
+      pdfType: 'restitution',
+    });
+    expect(signed.status).toBe(201);
+    const res = await ctx.http.post(`/bons/${bon.id}/initiate-inperson`, 'technician', { type: 'restitution' });
     expect(res.status).toBe(201);
     expectShape(res.body, initiateInPerson);
   });
@@ -237,7 +251,7 @@ describe('Actions sur les bons du jeu de données', () => {
     expectShape(res.body, bonDetail);
   });
 
-  it('POST /bons/:id/close-unilateral : 201 et la fiche', async () => {
+  it('POST /bons/:id/close-unilateral (ancien nom, remise constatée) : 201 et la fiche', async () => {
     const res = await ctx.http.post(`/bons/${ctx.data.bons.sentMiseDispo.id}/close-unilateral`, 'technician', {
       reason: 'Remise constatée au guichet, collaborateur injoignable.',
     });

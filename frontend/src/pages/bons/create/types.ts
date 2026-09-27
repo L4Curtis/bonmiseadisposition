@@ -1,3 +1,7 @@
+/** Civilité du collaborateur ; '' tant qu'aucune n'est choisie (jamais de
+ *  valeur par défaut, décision du 25/09, R-002). */
+export type CiviliteChoice = 'mme' | 'mr' | '';
+
 export interface UserResult {
   id: string;
   displayName: string;
@@ -8,6 +12,8 @@ export interface UserResult {
   /** Filiale connue de l'annuaire (ou choisie à la création manuelle) — sert
    *  à pré-remplir la filiale du bon quand elle n'a pas déjà été choisie. */
   filialeId?: string | null;
+  /** Civilité retenue sur le compte (bon précédent), proposée d'office. */
+  civilite?: 'mme' | 'mr' | null;
 }
 
 export interface CatalogItem {
@@ -60,6 +66,7 @@ export interface EditableBon {
   dateMiseDisposition: string;
   dateRestitution?: string | null;
   notes?: string | null;
+  internalNote?: string | null;
   collaborateur: UserResult;
   equipments: Array<{
     catalogItem?: { id: string; brand: string; model: string } | null;

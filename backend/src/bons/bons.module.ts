@@ -1,23 +1,24 @@
-import { forwardRef, Module } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { BonsService } from './bons.service';
-import { BONS_SERVICE } from './bons.tokens';
 import { BonsController } from './bons.controller';
+import { BonSignatureListener } from './bon-signature.listener';
 import { SignatureModule } from '../signature/signature.module';
 import { NotificationModule } from '../notification/notification.module';
 import { PdfModule } from '../pdf/pdf.module';
-import { ContestationModule } from '../contestation/contestation.module';
 import { SmbModule } from '../smb/smb.module';
 
+/**
+ * Module du cycle de vie des bons. Les suites d'une signature arrivent par
+ * l'événement `signature.signed` (BonSignatureListener) : SignatureModule ne
+ * dépend pas de ce module.
+ *
+ * Bons ne dépend pas de Contestation : `POST /bons/:id/contestation` est
+ * servie par ContestationController, qui importe ce module (bon remplaçant).
+ */
 @Module({
-  // SignatureModule est importé normalement (pas de forwardRef) : le besoin
-  // inverse (SignatureService → BonsService.emitPvClotureIfDue, lot B) est
-  // résolu via ModuleRef paresseux côté SignatureService, pas par un import de
-  // module — ça évite de former un cycle avec SignatureModule.
-  imports: [SignatureModule, NotificationModule, PdfModule, forwardRef(() => ContestationModule), SmbModule],
+  imports: [SignatureModule, NotificationModule, PdfModule, SmbModule],
   controllers: [BonsController],
-  // Alias par jeton : permet à SignatureService de résoudre BonsService sans
-  // importer la classe (cycle de fichiers, cf. bons.tokens.ts).
-  providers: [BonsService, { provide: BONS_SERVICE, useExisting: BonsService }],
-  exports: [BonsService, BONS_SERVICE],
+  providers: [BonsService, BonSignatureListener],
+  exports: [BonsService],
 })
 export class BonsModule {}

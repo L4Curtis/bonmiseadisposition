@@ -4,6 +4,7 @@ import {
   type BonsListQuery,
 } from './bonsListQuery';
 import { IN_PROGRESS_EXCLUDE, WAITING_ALL_STATUS } from './statusFilterOptions';
+import { LATENESS_LABELS } from '@/domain/labels';
 
 /** Vue rapide : un jeu de filtres et un tri prêts à l'emploi, qui REMPLACE les
  *  filtres en cours (pas de cumul, pour que le résultat soit prévisible). */
@@ -33,14 +34,14 @@ export function buildQuickViews(currentUserId: string | undefined): QuickView[] 
   views.push(
     {
       id: 'overdue',
-      label: 'En retard',
-      description: 'Signatures en attente depuis plus longtemps que le seuil de retard',
+      label: LATENESS_LABELS.signature,
+      description: 'Documents à signer dont la demande dépasse le seuil de retard',
       query: view({ overdue: true, sort: 'updatedAt', order: 'asc' }),
     },
     {
       id: 'to-remind',
       label: 'À relancer',
-      description: 'Bons en attente de signature, dernière activité la plus ancienne d’abord',
+      description: 'Bons dont un document attend la signature du collaborateur, les plus anciens d’abord',
       query: view({ status: WAITING_ALL_STATUS, sort: 'updatedAt', order: 'asc' }),
     },
     {

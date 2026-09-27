@@ -2,7 +2,14 @@ import { NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BonStatus, BON_SELECT_SHAPE } from '../../common/types';
-import { buildOverdueSignatureWhere, DEFAULT_SIGNATURE_OVERDUE_DAYS } from '../../common/bon-predicates';
+import {
+  buildAwaitingSignatureWhere,
+  buildExpiredLinkWhere,
+  buildOverdueSignatureWhere,
+  DEFAULT_SIGNATURE_OVERDUE_DAYS,
+} from '../../common/bon-predicates';
+import { BON_DETAIL_SELECT, BonDetailRow } from '../bon-view';
+import type { BonSubStatus } from '../../contracts/bons';
 
 // Canonical select shape: no Bytes columns, signatures restricted to API-safe
 // fields (no token / signerIp / signerUserAgent / signatureImagePath).
@@ -15,6 +22,10 @@ export interface BonListFilters {
   filialeId?: string;
   search?: string;
   overdue?: boolean;
+  /** « Signature attendue » (tuile de l'accueil). */
+  awaitingSignature?: boolean;
+  /** « Lien expiré » (tuile de l'accueil). */
+  linkExpired?: boolean;
   /** Période sur la date de mise à disposition, bornes incluses (AAAA-MM-JJ). */
   dateFrom?: string;
   dateTo?: string;
@@ -24,6 +35,12 @@ export interface BonListFilters {
   createdById?: string;
   /** Sélection explicite (export de la sélection de la liste). */
   ids?: string[];
+  /** Sous-état de « Restitution en cours » (même règle que la fiche) ;
+   *  résolu en identifiants par le service (voir bon-substatus-filter.ts). */
+  subStatus?: BonSubStatus;
+  /** Identifiants retenus par le filtre de sous-état : une liste vide ne
+   *  renvoie aucun bon (contrairement à `ids` vide, qui ne filtre rien). */
+  restrictToIds?: readonly string[];
 }
 
 /** Une date AAAA-MM-JJ en minuit UTC : la colonne date_mise_disposition est un
@@ -54,7 +71,10 @@ export function buildBonWhere(
   filters: BonListFilters,
   overdueDays: number = DEFAULT_SIGNATURE_OVERDUE_DAYS,
 ): Prisma.BonWhereInput {
-  const { status, excludeStatus, filialeId, search, overdue, dateFrom, dateTo, noReturnDate, createdById, ids } = filters;
+  const {
+    status, excludeStatus, filialeId, search, overdue, awaitingSignature, linkExpired,
+    dateFrom, dateTo, noReturnDate, createdById, ids, restrictToIds,
+  } = filters;
   const where: Prisma.BonWhereInput = {};
 
   // status and excludeStatus combine (AND) instead of one silently overriding the other
@@ -66,7 +86,8 @@ export function buildBonWhere(
   }
   if (filialeId) where.filialeId = filialeId;
   if (createdById) where.createdById = createdById;
-  if (ids?.length) where.id = { in: ids };
+  if (restrictToIds) where.id = { in: [...restrictToIds] };
+  else if (ids?.length) where.id = { in: ids };
   if (dateFrom || dateTo) {
     where.dateMiseDisposition = {
       ...(dateFrom ? { gte: utcDay(dateFrom) } : {}),
@@ -77,9 +98,14 @@ export function buildBonWhere(
   if (search) {
     where.OR = buildSearchClauses(search);
   }
-  if (overdue) {
-    where.AND = [buildOverdueSignatureWhere(overdueDays)];
-  }
+  // Mêmes prédicats que les tuiles de l'accueil (common/bon-predicates) :
+  // le chiffre de la tuile est celui de la liste.
+  const predicates: Prisma.BonWhereInput[] = [
+    ...(overdue ? [buildOverdueSignatureWhere(overdueDays)] : []),
+    ...(awaitingSignature ? [buildAwaitingSignatureWhere()] : []),
+    ...(linkExpired ? [buildExpiredLinkWhere()] : []),
+  ];
+  if (predicates.length > 0) where.AND = predicates;
   return where;
 }
 
@@ -89,6 +115,15 @@ export async function findBonOrThrow(prisma: PrismaService, id: string) {
     where: { id },
     ...BON_SELECT,
   });
+  if (!bon) throw new NotFoundException('Bon introuvable');
+  return bon;
+}
+
+/** Charge un bon avec le select de la fiche (`BON_DETAIL_SELECT` : colonnes de
+ *  la vague 2, compte du collaborateur, signatures avec leur invalidation),
+ *  ce que lisent la machine à états et les émetteurs de lien — 404 si absent. */
+export async function findBonDetailOrThrow(prisma: Pick<Prisma.TransactionClient, 'bon'>, id: string): Promise<BonDetailRow> {
+  const bon = await prisma.bon.findUnique({ where: { id }, ...BON_DETAIL_SELECT });
   if (!bon) throw new NotFoundException('Bon introuvable');
   return bon;
 }

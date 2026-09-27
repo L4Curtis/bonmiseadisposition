@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { BonStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateBonDto, UpdateBonDto } from './dto/bon.dto';
 import { SignatureService } from '../signature/signature.service';
@@ -7,21 +7,31 @@ import { NotificationService } from '../notification/notification.service';
 import { PdfService } from '../pdf/pdf.service';
 import { SmbService } from '../smb/smb.service';
 import { AppConfigService } from '../config/config.service';
-import { SIGNATURE_SAFE_SELECT } from '../common/types';
+import { DomainEventsPublisher, SignatureSignedEvent } from '../common/events';
 
-import { BON_SELECT, buildBonWhere, findBonOrThrow, BonListFilters } from './queries/bon-where';
+import { BON_SELECT, buildBonWhere, findBonDetailOrThrow, findBonOrThrow, BonListFilters } from './queries/bon-where';
 import { getBonStats } from './queries/bon-stats';
 import { BON_LIST_SELECT } from './queries/bon-list-select';
+import { findBonIdsBySubStatus, intersectIds } from './queries/bon-substatus-filter';
 import { buildBonOrderBy, BonSortField, SortOrder } from './queries/bon-order';
 import { getExportData as buildExportData } from './export/bon-csv';
 import { mapCollaborateurBons } from './bon-mappers';
+import { BON_DETAIL_SELECT, BON_SIGNATURE_SELECT, BonViewer, presentBonDetail } from './bon-view';
+import { presentBonListItem } from './bon-list-view';
 import { BonsWorkflowContext } from './workflow/bon-context';
 import * as bonCrud from './workflow/bon-crud';
+import { updateBon } from './workflow/bon-update';
+import { cancelBon } from './workflow/bon-cancel';
 import * as bonSend from './workflow/bon-send';
 import * as bonRestitution from './workflow/bon-restitution';
 import { markFound as markFoundWorkflow } from './workflow/bon-mark-found';
-import * as bonCloture from './workflow/bon-cloture';
+import * as withoutSignature from './workflow/bon-without-signature';
 import { resendSignatureLink as resendSignatureLinkWorkflow } from './workflow/bon-resend';
+import { computeSendChecks, SendConfirmations } from './workflow/bon-send-checks';
+import { closeReplacedOriginal, createReplacementBon } from './workflow/bon-replacement';
+import { CorrectableDocument, reopenForCorrection } from './workflow/bon-reopen';
+import type { ClientTrace } from './workflow/bon-it-signature';
+import { afterCollaboratorSignature } from './workflow/bon-after-signature';
 import { COLLAB_HIDDEN_BON_STATUSES } from './bon-status';
 
 /** Compte rendu d'un bon dans une relance groupée. */
@@ -44,14 +54,13 @@ export interface ResendBatchResult {
 }
 
 /**
- * Façade du domaine « bons » : conserve le nom de classe / constructeur /
- * méthodes publiques attendus par bons.module.ts (jeton BONS_SERVICE) et par
- * SignatureService (résolution via ModuleRef — voir bons.tokens.ts). Le
- * détail des requêtes, de l'export CSV, des validations et des étapes du
- * cycle de vie (envoi, restitution, PV de clôture, clôture unilatérale…) vit
- * dans les modules purs sous `bons/queries`, `bons/export`, `bons/validation`
- * et `bons/workflow`, qui reçoivent un contexte explicite plutôt qu'un accès
- * implicite via `this`.
+ * Façade du domaine « bons ». Les étapes du cycle de vie vivent dans
+ * `bons/workflow/*` (fonctions qui reçoivent un contexte explicite) et
+ * passent toutes par la machine à états (`workflow/state-machine.ts`) ; les
+ * réponses sont mises en forme par `bon-view.ts` (fiche) et
+ * `bon-list-view.ts` (liste), qui y ajoutent l'état calculé.
+ *
+ * Chaque action renvoie la fiche À JOUR, vue par l'équipe informatique.
  */
 @Injectable()
 export class BonsService {
@@ -60,29 +69,30 @@ export class BonsService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly signatureService: SignatureService,
-    private readonly notificationService: NotificationService,
-    private readonly pdfService: PdfService,
-    private readonly smbService: SmbService,
+    signatureService: SignatureService,
+    notificationService: NotificationService,
+    pdfService: PdfService,
+    smbService: SmbService,
     private readonly configService: AppConfigService,
+    events: DomainEventsPublisher,
   ) {
     this.ctx = {
-      prisma: this.prisma,
-      signatureService: this.signatureService,
-      notificationService: this.notificationService,
-      pdfService: this.pdfService,
-      smbService: this.smbService,
-      configService: this.configService,
+      prisma,
+      signatureService,
+      notificationService,
+      pdfService,
+      smbService,
+      configService,
+      events,
       logger: this.logger,
     };
   }
 
+  // ─── Lectures ──────────────────────────────────────────────────────────────
+
   async getNotificationLogs(bonId: string) {
-    await this.findOne(bonId); // throws 404 if not found
-    return this.prisma.notificationLog.findMany({
-      where: { bonId },
-      orderBy: { sentAt: 'desc' },
-    });
+    await findBonOrThrow(this.prisma, bonId);
+    return this.prisma.notificationLog.findMany({ where: { bonId }, orderBy: { sentAt: 'desc' } });
   }
 
   async getStats() {
@@ -90,23 +100,24 @@ export class BonsService {
     return getBonStats(this.prisma, overdueThresholdDays);
   }
 
-  getExportData(
-    filters: BonListFilters & { sort?: BonSortField; order?: SortOrder },
-  ): Promise<{ csv: string; truncated: boolean }> {
-    return buildExportData(this.prisma, this.configService, filters);
+  async getExportData(filters: BonListFilters & { sort?: BonSortField; order?: SortOrder }) {
+    return buildExportData(this.prisma, this.configService, await this.resolveSubStatus(filters));
   }
 
-  /** Liste paginée. Projection allégée (BON_LIST_SELECT, pas BON_SELECT : la
-   *  fiche complète reste sur GET /bons/:id) et tri stable (départage par id,
-   *  voir buildBonOrderBy). */
-  async findAll(
-    filters: BonListFilters & { page?: number; limit?: number; sort?: BonSortField; order?: SortOrder },
-  ) {
-    const { page = 1, limit = 20 } = filters;
-    const overdueThresholdDays = await this.configService.getSignatureOverdueDays();
-    const where = buildBonWhere(filters, overdueThresholdDays);
+  /** Filtre de sous-état : traduit en identifiants par la règle de la fiche. */
+  private async resolveSubStatus<F extends BonListFilters>(filters: F): Promise<F> {
+    if (!filters.subStatus) return filters;
+    const found = await findBonIdsBySubStatus(this.prisma, filters.subStatus);
+    return { ...filters, restrictToIds: intersectIds(filters.ids, found) };
+  }
 
-    const [bons, total] = await Promise.all([
+  /** Liste paginée : projection allégée, tri stable (départage par id), et
+   *  pour chaque ligne l'état calculé par la machine à états. */
+  async findAll(filters: BonListFilters & { page?: number; limit?: number; sort?: BonSortField; order?: SortOrder }) {
+    const { page = 1, limit = 20 } = filters;
+    const overdueDays = await this.configService.getSignatureOverdueDays();
+    const where = buildBonWhere(await this.resolveSubStatus(filters), overdueDays);
+    const [rows, total] = await Promise.all([
       this.prisma.bon.findMany({
         where,
         select: BON_LIST_SELECT,
@@ -116,86 +127,134 @@ export class BonsService {
       }),
       this.prisma.bon.count({ where }),
     ]);
-
-    return { bons, total, page, limit };
+    const now = new Date();
+    return { bons: rows.map((row) => presentBonListItem(row, overdueDays, now)), total, page, limit };
   }
 
+  /** Fiche d'un bon, pour l'IT ou pour le collaborateur titulaire (sans les
+   *  champs réservés à l'IT). */
+  async detail(id: string, viewer: BonViewer = 'it') {
+    const [bon, signatureOverdueDays] = await Promise.all([
+      findBonDetailOrThrow(this.prisma, id),
+      this.configService.getSignatureOverdueDays(),
+    ]);
+    return presentBonDetail(bon, { viewer, signatureOverdueDays });
+  }
+
+  /** Bon brut (select canonique), pour le rendu PDF à la demande. */
   findOne(id: string) {
     return findBonOrThrow(this.prisma, id);
   }
 
-  create(dto: CreateBonDto, userId: string) {
-    return bonCrud.createBon(this.ctx, dto, userId);
-  }
-
-  update(id: string, dto: UpdateBonDto) {
-    return bonCrud.updateBon(this.ctx, id, dto);
-  }
-
-  cancel(id: string, userId?: string) {
-    return bonCrud.cancelBon(this.ctx, id, userId);
-  }
-
-  send(id: string, initiatedById?: string, confirmSerialConflicts = false) {
-    return bonSend.sendBon(this.ctx, id, initiatedById, confirmSerialConflicts);
-  }
-
-  initiateRestitution(id: string, initiatedById?: string, returnedEquipmentIds?: string[]) {
-    return bonRestitution.initiateRestitution(this.ctx, id, initiatedById, returnedEquipmentIds);
-  }
-
-  declareNotReturned(id: string, equipmentIds: string[], reason: string, userId: string, signatureDataUrl?: string) {
-    return bonRestitution.declareNotReturned(this.ctx, id, equipmentIds, reason, userId, signatureDataUrl);
-  }
-
-  markFound(id: string, equipmentIds: string[], userId: string, signatureDataUrl?: string) {
-    return markFoundWorkflow(this.ctx, id, equipmentIds, userId, signatureDataUrl);
+  async getRecentBons(limit = 10) {
+    const [rows, signatureOverdueDays] = await Promise.all([
+      this.prisma.bon.findMany({ ...BON_DETAIL_SELECT, orderBy: { createdAt: 'desc' }, take: limit }),
+      this.configService.getSignatureOverdueDays(),
+    ]);
+    return rows.map((bon) => presentBonDetail(bon, { viewer: 'it', signatureOverdueDays }));
   }
 
   /**
-   * Émet le procès-verbal de clôture (équipements non rendus) si — et
-   * seulement si — le bon est réellement dans cet état. Contrat public
-   * réutilisé par declareNotReturned/markFound (bons/workflow) et par
-   * signature.service après une signature de restitution (LOT B, via
-   * ModuleRef) : NE PAS renommer / changer la signature sans coordination.
-   * Détail de l'implémentation dans `bons/workflow/bon-cloture.ts`.
+   * « Mes équipements » : bons du collaborateur (hors brouillons et annulés),
+   * vus comme par le titulaire — état calculé compris (sous-état, document
+   * en attente, remplacement, état de chaque équipement) — avec les seuls
+   * jetons utiles au portail (voir mapCollaborateurBons).
    */
-  emitPvClotureIfDue(bonId: string, itSignatureDataUrl?: string, actorId?: string): Promise<boolean> {
-    return bonCloture.emitPvClotureIfDue(this.ctx, bonId, itSignatureDataUrl, actorId);
-  }
-
-  initiateInPersonSignature(id: string, type: 'mise_disposition' | 'restitution', initiatedById: string) {
-    return bonSend.initiateInPersonSignature(this.ctx, id, type, initiatedById);
-  }
-
-  async getRecentBons(limit = 10) {
-    return this.prisma.bon.findMany({
-      ...BON_SELECT,
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-    });
-  }
-
   async findByCollaborateur(userId: string) {
-    const bons = await this.prisma.bon.findMany({
-      where: {
-        collaborateurId: userId,
-        // Un brouillon n'a encore rien été envoyé au collaborateur — rien à
-        // afficher/signer côté portail.
-        status: { notIn: [...COLLAB_HIDDEN_BON_STATUSES] },
-      },
-      select: {
-        ...BON_SELECT.select,
-        // Le portail a besoin du token du lien EN ATTENTE pour « Signer
-        // maintenant ». On récupère le token de toutes les signatures puis on
-        // ne CONSERVE que celui du lien réellement signable (bon-mappers).
-        signatures: { select: { ...SIGNATURE_SAFE_SELECT, token: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 100,
-    });
+    const [rows, signatureOverdueDays] = await Promise.all([
+      this.prisma.bon.findMany({
+        where: { collaborateurId: userId, status: { notIn: [...COLLAB_HIDDEN_BON_STATUSES] } },
+        select: {
+          ...BON_DETAIL_SELECT.select,
+          signatures: { select: { ...BON_SIGNATURE_SELECT, token: true }, orderBy: { createdAt: 'asc' } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+      }),
+      this.configService.getSignatureOverdueDays(),
+    ]);
+    const now = new Date();
+    return mapCollaborateurBons(rows.map((bon) => presentBonDetail(bon, { viewer: 'holder', signatureOverdueDays, now })));
+  }
 
-    return mapCollaborateurBons(bons);
+  /** Contrôles avant la remise (lignes sans numéro, séries en circulation). */
+  async sendChecks(id: string) {
+    const bon = await findBonDetailOrThrow(this.prisma, id);
+    return computeSendChecks(this.prisma, bon);
+  }
+
+  // ─── Actions du cycle de vie ───────────────────────────────────────────────
+
+  async create(dto: CreateBonDto, userId: string) {
+    return this.detail(await bonCrud.createBon(this.ctx, dto, userId));
+  }
+
+  async update(id: string, dto: UpdateBonDto, actorId: string | null) {
+    await updateBon(this.ctx, id, dto, actorId);
+    return this.detail(id);
+  }
+
+  async cancel(id: string, actorId: string | null, reason?: string) {
+    await cancelBon(this.ctx, id, actorId, reason);
+    return this.detail(id);
+  }
+
+  async send(id: string, actorId: string | null, confirmations: SendConfirmations = {}) {
+    await bonSend.sendBon(this.ctx, id, actorId, confirmations);
+    return this.detail(id);
+  }
+
+  async initiateInPersonSignature(
+    id: string,
+    type: bonSend.InPersonDocument,
+    actorId: string,
+    confirmations: SendConfirmations = {},
+  ) {
+    const token = await bonSend.initiateInPersonSignature(this.ctx, id, type, actorId, confirmations);
+    return { bon: await this.detail(id), token };
+  }
+
+  async initiateRestitution(id: string, actorId: string | null, returnedEquipmentIds?: string[], inPerson = false) {
+    await bonRestitution.initiateRestitution(this.ctx, id, actorId, returnedEquipmentIds, inPerson);
+    return this.detail(id);
+  }
+
+  async undoReturn(id: string, actorId: string, equipmentIds: string[]) {
+    await bonRestitution.undoReturn(this.ctx, id, actorId, equipmentIds);
+    return this.detail(id);
+  }
+
+  async declareNotReturned(
+    id: string,
+    equipmentIds: string[],
+    reason: string,
+    userId: string,
+    signatureDataUrl?: string,
+    client?: ClientTrace,
+  ) {
+    await bonRestitution.declareNotReturned(this.ctx, id, equipmentIds, reason, userId, signatureDataUrl, client);
+    return this.detail(id);
+  }
+
+  async markFound(id: string, equipmentIds: string[], userId: string, signatureDataUrl?: string, client?: ClientTrace) {
+    await markFoundWorkflow(this.ctx, id, equipmentIds, userId, signatureDataUrl, client);
+    return this.detail(id);
+  }
+
+  async handoverWithoutSignature(id: string, actorId: string, reason: string) {
+    await withoutSignature.handoverWithoutSignature(this.ctx, id, actorId, reason);
+    return this.detail(id);
+  }
+
+  async closeWithoutSignature(id: string, actorId: string, reason: string) {
+    await withoutSignature.closeWithoutSignature(this.ctx, id, actorId, reason);
+    return this.detail(id);
+  }
+
+  /** Ancienne route « clôture unilatérale » : l'un ou l'autre geste selon le statut. */
+  async closeUnilaterally(id: string, actorId: string, reason: string) {
+    await withoutSignature.closeUnilaterally(this.ctx, id, actorId, reason);
+    return this.detail(id);
   }
 
   resendSignatureLink(bonId: string, initiatedById: string, force = false) {
@@ -203,24 +262,15 @@ export class BonsService {
   }
 
   /**
-   * Relance groupée des liens de signature (liste des bons, sélection
-   * multiple). Chaque bon passe par exactement le même chemin que le bouton
-   * « Renvoyer le lien » de la fiche (resendSignatureLinkWorkflow : mêmes
-   * contrôles, même email, même ligne d'audit), l'un après l'autre — jamais en
-   * parallèle, pour ne pas envoyer une rafale d'emails ni saturer la base.
-   *
-   * Pourquoi une route groupée plutôt que N appels à POST /bons/:id/resend :
-   * celle-ci est limitée à 5 appels par minute (anti-spam d'un même lien), ce
-   * qui rendrait une relance de 20 bons impossible depuis le navigateur sans
-   * attendre plusieurs minutes. Un refus métier (lien envoyé il y a moins
-   * d'une heure sans `force`, bon plus en attente, collaborateur sans
-   * adresse…) n'interrompt pas le lot : le bon est compté « ignoré » avec son
-   * motif ; une erreur imprévue le compte « en échec » et est journalisée.
+   * Relance groupée des liens (liste des bons) : chaque bon suit exactement
+   * le chemin du bouton « Renvoyer » de la fiche, l'un après l'autre, jamais en
+   * parallèle. Un refus métier (lien récent sans `force`, rien à signer,
+   * compte sans adresse…) n'interrompt pas le lot : le bon est « ignoré » avec
+   * son motif ; une erreur imprévue le compte « en échec » et est journalisée.
    */
   async resendSignatureLinks(ids: readonly string[], initiatedById: string, force = false): Promise<ResendBatchResult> {
-    const uniqueIds = [...new Set(ids)];
     const results: ResendBatchItem[] = [];
-    for (const id of uniqueIds) {
+    for (const id of [...new Set(ids)]) {
       results.push(await this.resendOne(id, initiatedById, force));
     }
     return {
@@ -239,35 +289,60 @@ export class BonsService {
       if (err instanceof ConflictException) {
         const body = err.getResponse() as { code?: string; sentAt?: string };
         if (body?.code === 'token_recent') {
-          return {
-            id,
-            outcome: 'skipped',
-            code: 'token_recent',
-            reason: 'Un lien a été envoyé il y a moins d’une heure',
-            sentAt: body.sentAt,
-          };
+          return { id, outcome: 'skipped', code: 'token_recent', reason: 'Un lien a été envoyé il y a moins d’une heure', sentAt: body.sentAt };
         }
       }
       if (err instanceof BadRequestException || err instanceof NotFoundException) {
         return { id, outcome: 'skipped', reason: err.message };
       }
-      this.logger.error(
-        `Relance groupée : échec du renvoi pour le bon ${id} — ${err instanceof Error ? err.stack ?? err.message : String(err)}`,
-      );
+      this.logger.error(`Relance groupée : échec du renvoi pour le bon ${id} — ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
       return { id, outcome: 'failed', reason: 'Erreur inattendue lors du renvoi' };
     }
   }
 
-  closeUnilaterally(id: string, userId: string, reason: string) {
-    return bonCloture.closeUnilaterally(this.ctx, id, userId, reason);
+  // ─── Remplacement et suites de signature ───────────────────────────────────
+
+  /**
+   * Bon remplaçant d'une contestation Fondée (port `ReplacementBonCreator` du
+   * module Contestation) : brouillon lié à l'original, créé dans la
+   * transaction de la décision. Voir workflow/bon-replacement.ts.
+   */
+  async createReplacementBon(
+    tx: Prisma.TransactionClient,
+    originalBonId: string,
+    contestationId: string,
+    actorId: string,
+  ): Promise<{ id: string; reference: string; status: BonStatus }> {
+    const created = await createReplacementBon(this.ctx, { originalBonId, actorId, contestationId }, tx);
+    return { ...created, status: 'draft' };
   }
 
-  duplicateAsDraft(
-    sourceBonId: string,
-    userId: string,
-    context?: { contestationId?: string },
+  /**
+   * Contestation Fondée sur une restitution ou un PV : correction du bon
+   * d'origine (voir workflow/bon-reopen.ts). À appeler dans la transaction de
+   * la décision, une fois le bon revenu à son statut d'avant la contestation.
+   */
+  reopenForCorrection(
+    bonId: string,
+    contestedDocument: CorrectableDocument,
+    actorId: string,
     tx?: Prisma.TransactionClient,
-  ) {
+  ): Promise<void> {
+    return reopenForCorrection(this.ctx, bonId, contestedDocument, actorId, tx);
+  }
+
+  /** Remise du remplaçant constatée sans signature : l'original est aussi clôturé. */
+  closeReplacedOriginal(replacementBonId: string): Promise<void> {
+    return closeReplacedOriginal(this.ctx, replacementBonId);
+  }
+
+  /** Duplique un bon en brouillon (ancien parcours de correction). */
+  duplicateAsDraft(sourceBonId: string, userId: string, context?: { contestationId?: string }, tx?: Prisma.TransactionClient) {
     return bonCrud.duplicateAsDraft(this.ctx, sourceBonId, userId, context, tx);
+  }
+
+  /** Suites d'une signature du collaborateur (écouteur de `signature.signed`). */
+  afterCollaboratorSignature(event: SignatureSignedEvent): Promise<void> {
+    return afterCollaboratorSignature(this.ctx, event);
   }
 }

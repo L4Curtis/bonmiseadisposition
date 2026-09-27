@@ -1,228 +1,137 @@
-import type { BonDetailData, FailedItAction, PendingItAction, SendSerialConflict } from './types';
+import { toast } from '@/hooks/use-toast';
+import type { BonActions } from './useBonActions';
+import type { BonFiche } from './types';
 import { ConfirmModal } from './ConfirmModal';
 import { InPersonModal } from './InPersonModal';
 import { ItSignModal } from './ItSignModal';
 import { RestitutionModal } from './RestitutionModal';
 import { DeclareNotReturnedModal } from './DeclareNotReturnedModal';
 import { MarkFoundModal } from './MarkFoundModal';
-import { CloseUnilateralModal } from './CloseUnilateralModal';
-import { SendSerialConflictsModal } from './SendSerialConflictsModal';
+import { ReasonModal } from './ReasonModal';
+import { SendChecksModal } from './SendChecksModal';
+import { UndoReturnModal } from './UndoReturnModal';
 
 export interface BonModalsProps {
-  readonly bon: BonDetailData;
-
-  // Cancel modal
-  readonly confirmCancel: boolean;
-  readonly onCancelConfirm: () => Promise<void>;
-  readonly onCancelDismiss: () => void;
-  readonly cancelLoading: boolean;
-
-  // In-person modal
-  readonly inPersonModal: { type: 'mise_disposition' | 'restitution'; token: string } | null;
-  readonly onInPersonClose: () => void;
-
-  // IT sign modal
-  readonly pendingItAction: PendingItAction | null;
-  readonly onItSignClose: () => void;
-  readonly onItSigned: () => Promise<void>;
-
-  // Cachet enregistré mais action suivante (envoi, restitution…) échouée :
-  // proposer de la relancer SANS re-signer.
-  readonly failedItAction: FailedItAction | null;
-  readonly onRetryFailedItAction: () => void;
-  readonly onDismissFailedItAction: () => void;
-  readonly retryingFailedItAction: boolean;
-
-  // Conflits de numéro de série à l'envoi (409 serial_conflicts)
-  readonly sendSerialConflicts: readonly SendSerialConflict[] | null;
-  readonly onSendConflictsConfirm: () => void;
-  readonly onSendConflictsDismiss: () => void;
-  readonly sendLoading: boolean;
-
-  // Restitution modal
-  readonly showRestitutionModal: boolean;
-  readonly onRestitutionConfirm: (selectedIds: string[]) => void;
-  readonly onRestitutionCancel: () => void;
-  readonly restitutionLoading: boolean;
-
-  // Not returned modal
-  readonly showNotReturnedModal: boolean;
-  readonly onNotReturnedConfirm: (equipmentIds: string[], reason: string, signatureDataUrl: string) => Promise<void>;
-  readonly onNotReturnedCancel: () => void;
-  readonly notReturnedLoading: boolean;
-
-  // Mark found modal
-  readonly showMarkFoundModal: boolean;
-  readonly onMarkFoundConfirm: (equipmentIds: string[], signatureDataUrl: string) => Promise<void>;
-  readonly onMarkFoundCancel: () => void;
-  readonly markFoundLoading: boolean;
-
-  // Resend confirm modal
-  readonly resendConfirmSentAt: string | null;
-  readonly onResendForce: () => Promise<void>;
-  readonly onResendDismiss: () => void;
-  readonly resendLoading: boolean;
-
-  // Close unilateral modal
-  readonly showCloseUnilateralModal: boolean;
-  readonly onCloseUnilateralConfirm: (reason: string) => void;
-  readonly onCloseUnilateralCancel: () => void;
-  readonly closeUnilateralLoading: boolean;
+  readonly bon: BonFiche;
+  readonly actions: BonActions;
 }
 
-export function BonModals({
-  bon,
-  confirmCancel,
-  onCancelConfirm,
-  onCancelDismiss,
-  cancelLoading,
-  inPersonModal,
-  onInPersonClose,
-  pendingItAction,
-  onItSignClose,
-  onItSigned,
-  failedItAction,
-  onRetryFailedItAction,
-  onDismissFailedItAction,
-  retryingFailedItAction,
-  sendSerialConflicts,
-  onSendConflictsConfirm,
-  onSendConflictsDismiss,
-  sendLoading,
-  showRestitutionModal,
-  onRestitutionConfirm,
-  onRestitutionCancel,
-  restitutionLoading,
-  showNotReturnedModal,
-  onNotReturnedConfirm,
-  onNotReturnedCancel,
-  notReturnedLoading,
-  showMarkFoundModal,
-  onMarkFoundConfirm,
-  onMarkFoundCancel,
-  markFoundLoading,
-  resendConfirmSentAt,
-  onResendForce,
-  onResendDismiss,
-  resendLoading,
-  showCloseUnilateralModal,
-  onCloseUnilateralConfirm,
-  onCloseUnilateralCancel,
-  closeUnilateralLoading,
-}: BonModalsProps) {
-  return (
-    <>
-      {/* Modal annulation */}
-      {confirmCancel && (
-        <ConfirmModal
-          title="Annuler ce bon ?"
-          message="Le bon sera marqué comme annulé. Cette action est irréversible."
-          onConfirm={onCancelConfirm}
-          onCancel={onCancelDismiss}
-          loading={cancelLoading}
-          danger
-        />
-      )}
+function minutesAgo(sentAt: string): string {
+  const minutes = Math.floor((Date.now() - new Date(sentAt).getTime()) / 60000);
+  if (minutes < 1) return 'il y a moins d’une minute';
+  return `il y a ${minutes} minute${minutes > 1 ? 's' : ''}`;
+}
 
-      {/* Modal présentiel (s'ouvre après le cachet IT) */}
-      {inPersonModal && (
-        <InPersonModal
-          type={inPersonModal.type}
-          token={inPersonModal.token}
-          onClose={onInPersonClose}
-        />
-      )}
+/** La fenêtre ouverte sur la fiche (une seule à la fois, voir BonDialog). */
+export function BonModals({ bon, actions }: BonModalsProps) {
+  const { dialog, setDialog, actionLoading } = actions;
+  if (!dialog) return null;
+  const close = () => setDialog(null);
 
-      {/* Modal cachet IT — s'ouvre avant chaque action mise à dispo / restitution */}
-      {pendingItAction && (
+  switch (dialog.kind) {
+    case 'it-sign':
+      return (
         <ItSignModal
           bonId={bon.id}
           reference={bon.reference}
-          pdfType={pendingItAction.pdfType}
-          description={pendingItAction.description}
-          onClose={onItSignClose}
-          onSigned={onItSigned}
+          pdfType={dialog.action.pdfType}
+          description={dialog.action.description}
+          onClose={() => {
+            close();
+            if (dialog.action.dismissNotice) toast({ title: 'Signature IT non posée', description: dialog.action.dismissNotice });
+          }}
+          onSigned={async () => {
+            close();
+            // La signature IT est en base : si la suite échoue, on la relance sans signer à nouveau.
+            const ok = await dialog.action.onSigned();
+            if (!ok) setDialog({ kind: 'failed-it', failed: { pdfType: dialog.action.pdfType, retry: dialog.action.onSigned } });
+            actions.reload();
+          }}
         />
-      )}
-
-      {/* Cachet IT déjà enregistré, mais l'action qui devait suivre a échoué
-          (ex. SMTP en panne) : proposer de la relancer sans re-signer. */}
-      {failedItAction && (
+      );
+    case 'failed-it':
+      return (
         <ConfirmModal
-          title="Cachet enregistré — action interrompue"
-          message="Le cachet IT a bien été enregistré, mais l'action qui devait suivre (envoi d'email, restitution…) n'a pas abouti. Inutile de signer à nouveau : réessayez simplement l'action."
-          confirmLabel="Réessayer l'action"
-          onConfirm={onRetryFailedItAction}
-          onCancel={onDismissFailedItAction}
-          loading={retryingFailedItAction}
+          title="Signature IT enregistrée — suite interrompue"
+          message="Votre signature IT est bien enregistrée, mais l’étape suivante (envoi du lien…) n’a pas abouti. Inutile de signer à nouveau : réessayez simplement."
+          confirmLabel="Réessayer"
+          onConfirm={async () => { if (await dialog.failed.retry()) close(); }}
+          onCancel={close}
+          loading={actionLoading !== null}
         />
-      )}
-
-      {/* Conflits de numéro de série à l'envoi (409 serial_conflicts) */}
-      {sendSerialConflicts && sendSerialConflicts.length > 0 && (
-        <SendSerialConflictsModal
-          conflicts={sendSerialConflicts}
-          onConfirm={onSendConflictsConfirm}
-          onCancel={onSendConflictsDismiss}
-          loading={sendLoading}
+      );
+    case 'send-checks':
+      return (
+        <SendChecksModal
+          checks={dialog.checks}
+          onConfirm={(confirmations) => actions.proceedHandover(dialog.channel, confirmations)}
+          onEdit={() => { close(); actions.goToEdit(); }}
+          onCancel={close}
         />
-      )}
-
-      {/* Modal restitution avec sélection d'équipements */}
-      {showRestitutionModal && (
+      );
+    case 'in-person':
+      return <InPersonModal type={dialog.type} token={dialog.token} onClose={close} />;
+    case 'restitution':
+      return (
         <RestitutionModal
           equipments={bon.equipments}
-          onConfirm={onRestitutionConfirm}
-          onCancel={onRestitutionCancel}
-          loading={restitutionLoading}
+          channel={dialog.channel}
+          onConfirm={(ids) => void actions.confirmRestitution(ids, dialog.channel)}
+          onCancel={close}
+          loading={actionLoading === 'restitution'}
         />
-      )}
-
-      {/* Modal déclarer non rendu */}
-      {showNotReturnedModal && (
+      );
+    case 'undo-return':
+      return <UndoReturnModal equipments={bon.equipments} onConfirm={(ids) => void actions.undoReturn(ids)} onCancel={close} loading={actionLoading === 'undo'} />;
+    case 'not-returned':
+      return (
         <DeclareNotReturnedModal
           equipments={bon.equipments}
-          onConfirm={onNotReturnedConfirm}
-          onCancel={onNotReturnedCancel}
-          loading={notReturnedLoading}
+          onConfirm={(ids, reason, signature) => void actions.declareNotReturned(ids, reason, signature)}
+          onCancel={close}
+          loading={actionLoading === 'notreturned'}
         />
-      )}
-
-      {/* Modal équipement retrouvé */}
-      {showMarkFoundModal && (
+      );
+    case 'mark-found':
+      return (
         <MarkFoundModal
           equipments={bon.equipments}
-          onConfirm={onMarkFoundConfirm}
-          onCancel={onMarkFoundCancel}
-          loading={markFoundLoading}
+          onConfirm={(ids, signature) => void actions.markFound(ids, signature)}
+          onCancel={close}
+          loading={actionLoading === 'markfound'}
           isArchived={bon.status === 'archived'}
         />
-      )}
-
-      {/* Modal clôture unilatérale (motif obligatoire) */}
-      {showCloseUnilateralModal && (
-        <CloseUnilateralModal
-          outcomeLabel={bon.status === 'sent_mise_dispo' ? 'activé (remise constatée)' : 'archivé'}
-          onConfirm={onCloseUnilateralConfirm}
-          onCancel={onCloseUnilateralCancel}
-          loading={closeUnilateralLoading}
+      );
+    case 'reason':
+      return (
+        <ReasonModal
+          action={dialog.action}
+          reasonRequired={!(dialog.action === 'cancel' && bon.status === 'draft')}
+          onConfirm={(reason) => void actions.confirmReason(dialog.action, reason)}
+          onCancel={close}
+          loading={actionLoading === dialog.action}
         />
-      )}
-
-      {/* Confirmation renvoi lien récent (< 1h) */}
-      {resendConfirmSentAt && (() => {
-        const minutesAgo = Math.floor((Date.now() - new Date(resendConfirmSentAt).getTime()) / 60000);
-        const label = minutesAgo < 1 ? 'il y a moins d\'une minute' : `il y a ${minutesAgo} minute${minutesAgo > 1 ? 's' : ''}`;
-        return (
-          <ConfirmModal
-            title="Lien récemment envoyé"
-            message={`Un lien de signature a déjà été envoyé ${label}. Le collaborateur l'a peut-être reçu. Renvoyer quand même ?`}
-            onConfirm={onResendForce}
-            onCancel={onResendDismiss}
-            loading={resendLoading}
-          />
-        );
-      })()}
-    </>
-  );
+      );
+    case 'resend-confirm':
+      return (
+        <ConfirmModal
+          title="Lien envoyé récemment"
+          message={`Un lien de signature encore valable a été envoyé ${minutesAgo(dialog.sentAt)}. Le collaborateur l’a peut-être déjà reçu. Envoyer un nouveau lien quand même ? L’ancien ne fonctionnera plus.`}
+          confirmLabel="Renvoyer quand même"
+          onConfirm={() => void actions.resend(true)}
+          onCancel={close}
+          loading={actionLoading === 'resend'}
+        />
+      );
+    case 'edit-sent':
+      return (
+        <ConfirmModal
+          title="Modifier un bon déjà envoyé ?"
+          message="Le lien envoyé au collaborateur ne fonctionnera plus. Après vos modifications, votre signature IT sera redemandée, puis un nouveau lien partira. La modification est tracée dans le journal d’audit."
+          confirmLabel="Modifier le bon"
+          onConfirm={() => { close(); actions.goToEdit(); }}
+          onCancel={close}
+        />
+      );
+  }
 }

@@ -7,6 +7,8 @@ export interface BuildBonPayloadOptions {
   dateMiseDisposition: string;
   dateRestitution: string;
   notes: string;
+  /** « Note interne IT » : jamais montrée au collaborateur. */
+  internalNote: string;
   validEquipments: EquipmentLine[];
   isEditing: boolean;
 }
@@ -21,6 +23,7 @@ export function buildBonPayload({
   dateMiseDisposition,
   dateRestitution,
   notes,
+  internalNote,
   validEquipments,
   isEditing,
 }: BuildBonPayloadOptions) {
@@ -31,6 +34,7 @@ export function buildBonPayload({
     dateMiseDisposition,
     dateRestitution: isEditing ? (dateRestitution || null) : (dateRestitution || undefined),
     notes: isEditing ? notes : (notes || undefined),
+    internalNote: isEditing ? internalNote : (internalNote || undefined),
     equipments: validEquipments.map((e, idx) => ({
       catalogItemId: e.catalogItemId || undefined,
       customLabel: e.customLabel || undefined,

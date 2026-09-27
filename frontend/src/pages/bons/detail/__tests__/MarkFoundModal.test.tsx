@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MarkFoundModal } from '../MarkFoundModal';
-import type { EquipmentItem } from '../types';
+import { equipment } from './fixtures';
 
 function mockCanvasContext() {
   return {
@@ -26,10 +26,10 @@ beforeEach(() => {
   })) as unknown as typeof HTMLCanvasElement.prototype.getBoundingClientRect;
 });
 
-const equipments: EquipmentItem[] = [
-  { id: 'e1', customLabel: 'Souris sans fil', serialNumber: 'SN-1', order: 0, notReturned: true, notReturnedReason: 'Perdu' },
-  { id: 'e2', customLabel: 'Clavier', serialNumber: 'SN-2', order: 1, notReturned: true },
-  { id: 'e3', customLabel: 'Écran', serialNumber: 'SN-3', order: 2 },
+const equipments = [
+  equipment({ id: 'e1', customLabel: 'Souris sans fil', serialNumber: 'SN-1', order: 0, notReturned: true, notReturnedReason: 'Perdu', returnState: 'not_returned' }),
+  equipment({ id: 'e2', customLabel: 'Clavier', serialNumber: 'SN-2', order: 1, notReturned: true, returnState: 'not_returned' }),
+  equipment({ id: 'e3', customLabel: 'Écran', serialNumber: 'SN-3', order: 2 }),
 ];
 
 function sign() {
@@ -50,38 +50,47 @@ describe('MarkFoundModal', () => {
     const onConfirm = vi.fn();
     render(<MarkFoundModal equipments={equipments} onConfirm={onConfirm} onCancel={vi.fn()} loading={false} />);
 
-    await user.click(screen.getByRole('button', { name: /Mettre à jour le PV/i }));
+    await user.click(screen.getByRole('button', { name: /Marquer retrouvé/i }));
 
     expect(await screen.findByText('Sélectionnez au moins un équipement retrouvé.')).toBeInTheDocument();
     expect(onConfirm).not.toHaveBeenCalled();
   });
 
-  it('refuse la soumission sans signature', async () => {
+  it('bon clôturé : la signature IT de l’avenant est obligatoire', async () => {
     const user = userEvent.setup();
     const onConfirm = vi.fn();
-    render(<MarkFoundModal equipments={equipments} onConfirm={onConfirm} onCancel={vi.fn()} loading={false} />);
+    render(<MarkFoundModal equipments={equipments} onConfirm={onConfirm} onCancel={vi.fn()} loading={false} isArchived />);
 
     await user.click(screen.getAllByRole('checkbox')[0]);
-    await user.click(screen.getByRole('button', { name: /Mettre à jour le PV/i }));
+    await user.click(screen.getByRole('button', { name: /Générer l'avenant/i }));
 
-    expect(await screen.findByText('Le cachet IT est obligatoire pour mettre à jour le PV.')).toBeInTheDocument();
+    expect(await screen.findByText(/signature IT est obligatoire/i)).toBeInTheDocument();
     expect(onConfirm).not.toHaveBeenCalled();
   });
 
-  it('sélection multiple + signature : un seul appel avec les bons ids', async () => {
+  it('bon clôturé : sélection multiple + signature, un seul appel', async () => {
     const user = userEvent.setup();
     const onConfirm = vi.fn();
-    render(<MarkFoundModal equipments={equipments} onConfirm={onConfirm} onCancel={vi.fn()} loading={false} />);
+    render(<MarkFoundModal equipments={equipments} onConfirm={onConfirm} onCancel={vi.fn()} loading={false} isArchived />);
 
     const checkboxes = screen.getAllByRole('checkbox');
     await user.click(checkboxes[0]);
     await user.click(checkboxes[1]);
     sign();
+    await user.click(screen.getByRole('button', { name: /Générer l'avenant \(2\)/i }));
 
-    await user.click(screen.getByRole('button', { name: /Mettre à jour le PV \(2\)/i }));
-
-    expect(onConfirm).toHaveBeenCalledTimes(1);
     expect(onConfirm).toHaveBeenCalledWith(['e1', 'e2'], 'data:image/png;base64,MOCK');
+  });
+
+  it('restitution en cours : pas de signature ici, la restitution suivra le parcours habituel', async () => {
+    const user = userEvent.setup();
+    const onConfirm = vi.fn();
+    render(<MarkFoundModal equipments={equipments} onConfirm={onConfirm} onCancel={vi.fn()} loading={false} />);
+
+    expect(screen.queryByLabelText(/zone de signature/i)).not.toBeInTheDocument();
+    await user.click(screen.getAllByRole('checkbox')[1]);
+    await user.click(screen.getByRole('button', { name: /Marquer retrouvé \(1\)/i }));
+    expect(onConfirm).toHaveBeenCalledWith(['e2']);
   });
 
   it('désactive le bouton de confirmation pendant le chargement', () => {

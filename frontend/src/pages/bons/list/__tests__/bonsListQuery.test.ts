@@ -98,3 +98,24 @@ describe('nextSort', () => {
     expect(nextSort(DEFAULT_LIST_QUERY, 'updatedAt')).toEqual({ sort: 'updatedAt', order: 'desc' });
   });
 });
+
+describe('filtres des tuiles de l’accueil (tuile = liste)', () => {
+  it('lit et transmet awaitingSignature et linkExpired à l’API', async () => {
+    const { parseListQuery: parse, toApiParams: api, hasActiveFilters: active } = await import('../bonsListQuery');
+    const q = parse(new URLSearchParams('awaitingSignature=1&linkExpired=1'));
+    expect(q).toMatchObject({ awaitingSignature: true, linkExpired: true });
+    const params = api(q, 25);
+    expect(params.get('awaitingSignature')).toBe('1');
+    expect(params.get('linkExpired')).toBe('1');
+    expect(active(q)).toBe(true);
+  });
+});
+
+describe('filtre par sous-état (section « Restitution partielle à signer » de l’accueil)', () => {
+  it('lit un sous-état connu et le transmet ; ignore une valeur inconnue', async () => {
+    const { parseListQuery: parse, toApiParams: api } = await import('../bonsListQuery');
+    const q = parse(new URLSearchParams('subStatus=partial_restitution_to_sign'));
+    expect(api(q, 25).get('subStatus')).toBe('partial_restitution_to_sign');
+    expect(parse(new URLSearchParams('subStatus=nimporte')).subStatus).toBe('');
+  });
+});

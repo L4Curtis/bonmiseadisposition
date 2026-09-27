@@ -13,11 +13,16 @@ describe('InPersonModal', () => {
   it('génère le QR code en haute définition avec la marge normalisée de 4 modules', async () => {
     renderWithProviders(<InPersonModal type="mise_disposition" token="tok-1" onClose={vi.fn()} />);
 
-    await screen.findByAltText('QR code du lien de signature mise à disposition');
+    await screen.findByAltText('QR code pour signer la remise');
     expect(QRCode.toDataURL).toHaveBeenCalledWith(
       expect.stringContaining('/signer/tok-1'),
       expect.objectContaining({ width: 1024, margin: 4 }),
     );
+  });
+
+  it('PV de non-restitution signable sur place : le titre le nomme', async () => {
+    renderWithProviders(<InPersonModal type="pv_cloture" token="tok-3" onClose={vi.fn()} />);
+    expect(await screen.findByAltText('QR code pour signer le PV de non-restitution')).toBeInTheDocument();
   });
 
   it('affiche le QR code en grand puis revient à la modale sans la fermer', async () => {
@@ -29,12 +34,12 @@ describe('InPersonModal', () => {
     await user.click(agrandir);
 
     expect(await screen.findByRole('dialog', { name: 'Scannez pour signer la restitution' })).toBeInTheDocument();
-    expect(screen.getByAltText('QR code du lien de signature restitution, en grand')).toBeInTheDocument();
+    expect(screen.getByAltText('QR code pour signer la restitution, en grand')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Réduire' }));
 
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Scannez pour signer la restitution' })).not.toBeInTheDocument());
-    expect(screen.getByRole('dialog', { name: 'Signature présentielle' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Signature au guichet' })).toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();
   });
 });

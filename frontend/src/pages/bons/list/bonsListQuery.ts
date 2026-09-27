@@ -1,3 +1,4 @@
+import { BON_SUB_STATUS_LABELS } from '@/domain/labels';
 /**
  * État de la liste des bons (filtres, tri, page) et sa traduction en URL et en
  * paramètres d'API. Fonctions pures : l'URL est la forme partageable de cet
@@ -38,6 +39,12 @@ export interface BonsListQuery {
   readonly excludeStatus: string;
   readonly filialeId: string;
   readonly overdue: boolean;
+  /** « Signature attendue » : même prédicat que la tuile de l'accueil. */
+  readonly awaitingSignature: boolean;
+  /** « Lien expiré » : même prédicat que la tuile de l'accueil. */
+  readonly linkExpired: boolean;
+  /** Sous-état de « Restitution en cours » (valeur de `BonSubStatus`, '' = tous). */
+  readonly subStatus: string;
   /** Période sur la date de mise à disposition (AAAA-MM-JJ, bornes incluses). */
   readonly dateFrom: string;
   readonly dateTo: string;
@@ -54,6 +61,9 @@ export const DEFAULT_LIST_QUERY: BonsListQuery = {
   excludeStatus: '',
   filialeId: '',
   overdue: false,
+  awaitingSignature: false,
+  linkExpired: false,
+  subStatus: '',
   dateFrom: '',
   dateTo: '',
   noReturnDate: false,
@@ -74,6 +84,12 @@ function readDay(params: URLSearchParams, key: string): string {
   return DAY_PATTERN.test(value) ? value : '';
 }
 
+/** Sous-état lu dans l'adresse ; une valeur inconnue est ignorée (pas de 400). */
+function readSubStatus(params: URLSearchParams): string {
+  const value = params.get('subStatus') ?? '';
+  return Object.prototype.hasOwnProperty.call(BON_SUB_STATUS_LABELS, value) ? value : '';
+}
+
 function readFlag(params: URLSearchParams, key: string): boolean {
   const value = params.get(key);
   return value === '1' || value === 'true';
@@ -92,6 +108,9 @@ export function parseListQuery(params: URLSearchParams): BonsListQuery {
     excludeStatus: params.get('excludeStatus') ?? '',
     filialeId: params.get('filialeId') ?? '',
     overdue: readFlag(params, 'overdue'),
+    awaitingSignature: readFlag(params, 'awaitingSignature'),
+    linkExpired: readFlag(params, 'linkExpired'),
+    subStatus: readSubStatus(params),
     dateFrom: readDay(params, 'dateFrom'),
     dateTo: readDay(params, 'dateTo'),
     noReturnDate: readFlag(params, 'noReturnDate'),
@@ -109,6 +128,9 @@ function filterEntries(q: BonsListQuery): Array<[string, string]> {
   if (q.status) entries.push(['status', q.status]);
   if (q.excludeStatus) entries.push(['excludeStatus', q.excludeStatus]);
   if (q.overdue) entries.push(['overdue', '1']);
+  if (q.awaitingSignature) entries.push(['awaitingSignature', '1']);
+  if (q.linkExpired) entries.push(['linkExpired', '1']);
+  if (q.subStatus) entries.push(['subStatus', q.subStatus]);
   if (q.filialeId) entries.push(['filialeId', q.filialeId]);
   if (q.dateFrom) entries.push(['dateFrom', q.dateFrom]);
   if (q.dateTo) entries.push(['dateTo', q.dateTo]);

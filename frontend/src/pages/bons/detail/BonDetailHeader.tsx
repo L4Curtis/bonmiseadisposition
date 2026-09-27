@@ -1,42 +1,53 @@
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { ChevronLeft } from 'lucide-react';
-import { StatusBadge } from '@/components/StatusBadge';
 import { formatDateLong } from '@/lib/utils';
-import type { BonDetailData } from './types';
-import { BonActionButtons, type BonActionButtonsProps } from './BonActionButtons';
+import { BonStateBadges } from '../components/BonStateBadges';
+import type { BonFiche } from './types';
 
-export interface BonDetailHeaderProps extends BonActionButtonsProps {
-  readonly bon: BonDetailData;
-  readonly bonId: string;
-  readonly isActive: boolean;
-  readonly isPartiallyReturned: boolean;
+export interface BonDetailHeaderProps {
+  readonly bon: BonFiche;
 }
 
-export function BonDetailHeader(props: BonDetailHeaderProps) {
-  const { bon, isActive, isPartiallyReturned } = props;
+/** En-tête de la fiche : référence (sur une ligne), statut, sous-état,
+ *  retards, et lien avec le bon remplacé ou remplaçant. */
+export function BonDetailHeader({ bon }: BonDetailHeaderProps) {
   const navigate = useNavigate();
-
   return (
-    <div className="flex items-start justify-between">
-      <div className="flex items-center gap-3">
-        <button onClick={() => navigate('/bons')} className="text-muted-foreground/70 hover:text-muted-foreground" aria-label="Retour à la liste des bons">
-          <ChevronLeft className="h-5 w-5" />
-        </button>
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl font-bold font-mono text-foreground">{bon.reference}</h1>
-            <StatusBadge status={bon.status} signatures={bon.signatures} />
-          </div>
-          <p className="text-xs text-muted-foreground/70 mt-0.5">
-            Créé le {formatDateLong(bon.createdAt)} par {bon.createdBy.displayName}
-          </p>
+    <div className="flex items-start gap-2 sm:gap-3">
+      <button
+        type="button"
+        onClick={() => navigate('/bons')}
+        className="touch-target -ml-2 flex shrink-0 items-center justify-center rounded-lg text-muted-foreground/70 hover:text-muted-foreground sm:ml-0"
+        aria-label="Retour à la liste des bons"
+      >
+        <ChevronLeft className="h-5 w-5" />
+      </button>
+      <div className="min-w-0 space-y-1">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <h1 className="whitespace-nowrap font-mono text-xl font-bold text-foreground">{bon.reference}</h1>
+          <BonStateBadges
+            status={bon.status}
+            subStatus={bon.subStatus}
+            lateness={bon.lateness}
+            awaitingSignature={!!bon.pendingSignature}
+          />
         </div>
+        <p className="text-xs text-muted-foreground/70">
+          Créé le {formatDateLong(bon.createdAt)} par {bon.createdBy.displayName}
+        </p>
+        {bon.replaces && (
+          <p className="text-xs text-muted-foreground">
+            Remplace le bon{' '}
+            <Link className="font-mono text-primary hover:underline" to={`/bons/${bon.replaces.id}`}>{bon.replaces.reference}</Link>
+          </p>
+        )}
+        {bon.replacedBy && (
+          <p className="text-xs text-muted-foreground">
+            {bon.status === 'archived' ? 'Clôturé — remplacé par le bon ' : 'Sera remplacé par le bon '}
+            <Link className="font-mono text-primary hover:underline" to={`/bons/${bon.replacedBy.id}`}>{bon.replacedBy.reference}</Link>
+          </p>
+        )}
       </div>
-
-      <BonActionButtons
-        {...props}
-        canInitiateRestitution={isActive || isPartiallyReturned}
-      />
     </div>
   );
 }

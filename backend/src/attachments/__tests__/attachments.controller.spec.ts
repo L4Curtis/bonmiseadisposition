@@ -16,6 +16,7 @@ describe('AttachmentsController — collaborator write window', () => {
   let attachments: {
     list: Mock;
     create: Mock;
+    createForHolder: Mock;
     remove: Mock;
   };
 
@@ -50,6 +51,7 @@ describe('AttachmentsController — collaborator write window', () => {
     attachments = {
       list: vi.fn().mockResolvedValue([]),
       create: vi.fn().mockResolvedValue({ id: 'att-1' }),
+      createForHolder: vi.fn().mockResolvedValue({ id: 'att-1' }),
       remove: vi.fn().mockResolvedValue({ ok: true }),
     };
     controller = new AttachmentsController(attachments as unknown as AttachmentsService, prisma as never);
@@ -68,9 +70,11 @@ describe('AttachmentsController — collaborator write window', () => {
       mockBon({ status: 'sent_mise_dispo' });
 
       await expect(
-        controller.upload('bon-1', uploadedFile, 'mise_disposition', undefined, collaborator),
+        controller.upload('bon-1', uploadedFile, 'pv_cloture', undefined, collaborator),
       ).resolves.toBeDefined();
-      expect(attachments.create).toHaveBeenCalled();
+      // L'étape envoyée par le collaborateur n'est pas transmise : le serveur la décide.
+      expect(attachments.createForHolder).toHaveBeenCalledWith('bon-1', expect.anything(), undefined, expect.anything());
+      expect(attachments.create).not.toHaveBeenCalled();
     });
 
     it('forbids a collaborator from uploading once the bon is archived', async () => {
@@ -79,7 +83,7 @@ describe('AttachmentsController — collaborator write window', () => {
       await expect(
         controller.upload('bon-1', uploadedFile, 'mise_disposition', undefined, collaborator),
       ).rejects.toThrow(ForbiddenException);
-      expect(attachments.create).not.toHaveBeenCalled();
+      expect(attachments.createForHolder).not.toHaveBeenCalled();
     });
 
     it('never restricts admin/technician regardless of bon status', async () => {

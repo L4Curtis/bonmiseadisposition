@@ -18,6 +18,8 @@ import {
 import { BonStatus } from '../../common/types';
 import { BON_SORT_FIELDS, BonSortField, SORT_ORDERS, SortOrder } from '../queries/bon-order';
 import { BonListFilters } from '../queries/bon-where';
+import { BON_SUB_STATUSES } from '../bon-status';
+import type { BonSubStatus } from '../../contracts/bons';
 
 /** Nombre maximal d'identifiants dans `ids` (export de la sélection) : une page
  *  de liste compte au plus 100 bons, et l'URL reste ainsi sous 4 ko. */
@@ -60,6 +62,23 @@ export class QueryBonsDto {
   @Transform(toBoolean)
   @IsBoolean()
   overdue?: boolean;
+
+  /** Sous-état de « Restitution en cours » (même règle que la fiche). */
+  @IsOptional()
+  @IsIn(BON_SUB_STATUSES, { message: `subStatus doit valoir l'un de : ${BON_SUB_STATUSES.join(', ')}` })
+  subStatus?: BonSubStatus;
+
+  /** « Signature attendue » : même prédicat que la tuile de l'accueil. */
+  @IsOptional()
+  @Transform(toBoolean)
+  @IsBoolean()
+  awaitingSignature?: boolean;
+
+  /** « Lien expiré » : signature attendue, dernier lien expiré sans relève. */
+  @IsOptional()
+  @Transform(toBoolean)
+  @IsBoolean()
+  linkExpired?: boolean;
 
   /** Début de période (date de mise à disposition, incluse), AAAA-MM-JJ. */
   @IsOptional()
@@ -121,14 +140,14 @@ export function toBonListQuery(
   dto: QueryBonsDto,
 ): BonListFilters & { sort?: BonSortField; order?: SortOrder } {
   const {
-    status, excludeStatus, filialeId, search, overdue,
+    status, excludeStatus, filialeId, search, overdue, awaitingSignature, linkExpired, subStatus,
     dateFrom, dateTo, noReturnDate, createdById, ids, sort, order,
   } = dto;
   if (dateFrom && dateTo && dateFrom > dateTo) {
     throw new BadRequestException('La date de début de période doit précéder la date de fin');
   }
   return {
-    status, excludeStatus, filialeId, search, overdue,
+    status, excludeStatus, filialeId, search, overdue, awaitingSignature, linkExpired, subStatus,
     dateFrom, dateTo, noReturnDate, createdById, ids, sort, order,
   };
 }

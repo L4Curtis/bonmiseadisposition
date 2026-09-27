@@ -8,7 +8,7 @@ const DRAFT_STORAGE_KEY = 'bon-create-draft:v1';
 export interface BonDraftData {
   collaborateur: UserResult | null;
   filialeId: string;
-  civilite: 'mme' | 'mr';
+  civilite: 'mme' | 'mr' | '';
   dateMiseDisposition: string;
   dateRestitution: string;
   notes: string;
@@ -36,7 +36,7 @@ export function readDraft(): BonDraftData | null {
     return {
       collaborateur: parsed.collaborateur ?? null,
       filialeId: typeof parsed.filialeId === 'string' ? parsed.filialeId : '',
-      civilite: parsed.civilite === 'mme' ? 'mme' : 'mr',
+      civilite: parsed.civilite === 'mme' || parsed.civilite === 'mr' ? parsed.civilite : '',
       dateMiseDisposition: typeof parsed.dateMiseDisposition === 'string' ? parsed.dateMiseDisposition : '',
       dateRestitution: typeof parsed.dateRestitution === 'string' ? parsed.dateRestitution : '',
       notes: typeof parsed.notes === 'string' ? parsed.notes : '',

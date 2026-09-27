@@ -2,10 +2,10 @@ import { useState } from 'react';
 import { api } from '@/lib/api';
 import { toast } from '@/hooks/use-toast';
 import { errorMessage } from '@/lib/errors';
-import type { BonDetailData } from '../types';
+import type { BonFiche } from '../types';
 
 /** Téléchargement des PDF (document courant et snapshots historiques). */
-export function usePdfDownloads(id: string | undefined, bon: BonDetailData | null) {
+export function usePdfDownloads(id: string | undefined, bon: BonFiche | null) {
   const [pdfLoading, setPdfLoading] = useState<string | null>(null);
 
   const downloadPdf = async (type: 'mise_disposition' | 'restitution', loadingKey = 'header') => {

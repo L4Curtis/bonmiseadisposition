@@ -11,10 +11,13 @@ import {
 import { isDeliverableEmail } from '@/lib/email';
 import type { Filiale } from '@/types';
 import { UserAutocomplete } from './UserAutocomplete';
-import type { UserResult } from './types';
+import type { CiviliteChoice, UserResult } from './types';
+import { CIVILITE_LABELS, CIVILITE_LONG_LABELS } from '@/domain/labels';
 
 export interface CollaborateurSectionProps {
-  readonly civilite: 'mme' | 'mr';
+  readonly civilite: CiviliteChoice;
+  /** La civilité affichée vient du compte du collaborateur (bon précédent). */
+  readonly civiliteFromAccount?: boolean;
   readonly onCiviliteChange: (civilite: 'mme' | 'mr') => void;
   readonly filialeId: string;
   readonly onFilialeIdChange: (filialeId: string) => void;
@@ -28,6 +31,7 @@ export interface CollaborateurSectionProps {
  *  lien de signature ne pourra alors pas lui être envoyé). */
 export function CollaborateurSection({
   civilite,
+  civiliteFromAccount = false,
   onCiviliteChange,
   filialeId,
   onFilialeIdChange,
@@ -37,26 +41,36 @@ export function CollaborateurSection({
 }: CollaborateurSectionProps) {
   return (
     <Card>
-      <CardHeader><CardTitle className="text-base">Collaborateur & Filiale</CardTitle></CardHeader>
+      <CardHeader><CardTitle className="text-base">Collaborateur et filiale</CardTitle></CardHeader>
       <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="space-y-1">
-          <Label id="civilite-label">Civilité</Label>
-          <div role="group" aria-labelledby="civilite-label" className="flex gap-2">
-            {(['mr', 'mme'] as const).map((c) => (
+          <Label id="civilite-label">Civilité *</Label>
+          <div role="radiogroup" aria-labelledby="civilite-label" className="flex gap-2">
+            {(['mme', 'mr'] as const).map((c) => (
               <button
                 key={c}
                 type="button"
+                role="radio"
+                aria-checked={civilite === c}
+                aria-label={CIVILITE_LONG_LABELS[c]}
                 onClick={() => onCiviliteChange(c)}
-                className={`rounded-md border px-3 py-1.5 text-sm font-medium transition-colors ${
+                className={`min-h-11 rounded-md border px-4 text-sm font-medium transition-colors sm:min-h-9 ${
                   civilite === c
                     ? 'bg-primary text-primary-foreground border-primary'
                     : 'bg-card text-muted-foreground hover:bg-muted/40'
                 }`}
               >
-                {c === 'mr' ? 'M.' : 'Mme'}
+                {CIVILITE_LABELS[c]}
               </button>
             ))}
           </div>
+          <p className="text-xs text-muted-foreground">
+            {civilite === ''
+              ? 'À choisir : aucune civilité n’est proposée par défaut.'
+              : civiliteFromAccount
+                ? 'Reprise du compte du collaborateur (bon précédent).'
+                : 'Elle sera retenue pour les prochains bons de ce collaborateur.'}
+          </p>
         </div>
         <div className="space-y-1">
           <Label htmlFor="filiale-select">Filiale *</Label>
@@ -82,7 +96,7 @@ export function CollaborateurSection({
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
               <span>
                 Ce compte n'a pas d'adresse email valide ({collaborateur.email || 'vide'}) : le lien de signature ne
-                pourra pas lui être envoyé. Seule la signature présentielle sera possible.
+                pourra pas lui être envoyé. Seule la signature au guichet sera possible.
               </span>
             </p>
           )}

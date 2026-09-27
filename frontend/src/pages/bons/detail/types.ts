@@ -1,6 +1,17 @@
 import type { BonStatus } from '@/types';
+import type { BonDetail, BonEquipment, SafeSignature } from '@/contracts';
+import { PDF_SNAPSHOT_LABELS, SIGNATURE_TYPE_LABELS, labelOrKey } from '@/domain/labels';
 
-// ─── Bon detail types ────────────────────────────────────────────────────────
+// ─── Fiche d'un bon (contrat du serveur) ─────────────────────────────────────
+
+/** Fiche d'un bon telle que la renvoie `GET /bons/:id` pour l'IT : colonnes,
+ *  état calculé par la machine à états, actions possibles. */
+export type BonFiche = BonDetail;
+export type FicheEquipment = BonEquipment;
+export type FicheSignature = SafeSignature;
+
+// ─── Anciennes formes (fiche du collaborateur, lot 2C) ───────────────────────
+// Gardées telles quelles : la fiche du collaborateur les importe encore.
 
 export interface SignatureInfo {
   id: string;
@@ -58,30 +69,24 @@ export interface PdfSnapshotInfo {
   sha256?: string | null;
 }
 
+/** Signature IT à poser avant de transmettre un lien, et la suite du parcours. */
 export interface PendingItAction {
   pdfType: 'mise_disposition' | 'restitution';
   description: string;
-  /** Renvoie `false` (au lieu de rejeter) en cas d'échec : les actions
-   *  gèrent déjà leur propre toast d'erreur en interne. Le booléen permet à
-   *  l'appelant de savoir s'il doit proposer un « Réessayer l'action » sans
-   *  redemander le cachet (déjà enregistré à ce stade). */
+  /** Suite du parcours, une fois la signature IT enregistrée. Renvoie `false`
+   *  (au lieu de rejeter) en cas d'échec, déjà signalé à l'écran : la fiche
+   *  propose alors de la relancer sans signer à nouveau. */
   onSigned: () => Promise<boolean>;
+  /** Message à afficher si l'IT ferme la fenêtre sans signer (ce qui est
+   *  déjà enregistré, ce qui ne part pas). */
+  dismissNotice?: string;
 }
 
-/** Cachet IT déjà apposé (donc en base) mais dont l'action qui devait suivre
- *  (envoi d'email, restitution…) a échoué — permet de la relancer SANS
- *  re-signer, pour éviter un second cachet en cas de nouvelle tentative. */
+/** Signature IT déjà enregistrée, mais la suite (envoi du lien…) a échoué :
+ *  on la relance SANS signer à nouveau. */
 export interface FailedItAction {
   pdfType: 'mise_disposition' | 'restitution';
   retry: () => Promise<boolean>;
-}
-
-/** Conflit de numéro de série renvoyé par POST /bons/:id/send (409,
- *  { code: 'serial_conflicts', conflicts } — voir
- *  backend/src/bons/bons.service.ts `send()`/`findSerialConflicts()`). */
-export interface SendSerialConflict {
-  serialNumber: string;
-  bonReference: string;
 }
 
 export interface NotificationLog {
@@ -96,25 +101,19 @@ export interface NotificationLog {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-export function equipmentLabel(eq: EquipmentItem): string {
+export function equipmentLabel(eq: {
+  catalogItem?: { brand: string; model: string } | null;
+  customLabel?: string | null;
+}): string {
   return eq.catalogItem
     ? `${eq.catalogItem.brand} ${eq.catalogItem.model}`
     : eq.customLabel || '—';
 }
 
-export const SNAPSHOT_LABELS: Record<string, string> = {
-  signature_it_mise_disposition: 'Cachet IT — Mise à disposition',
-  signature_collab_mise_disposition: 'Signature collab — Mise à disposition',
-  signature_it_restitution: 'Cachet IT — Restitution',
-  signature_collab_restitution: 'Signature collab — Restitution',
-  cloture_equipements_manquants: 'PV — Équipements non restitués',
-  avenant_equipement_retrouve: 'Avenant — Équipement(s) retrouvé(s)',
-};
+/** Version figée d'un PDF (lexique). */
+export const SNAPSHOT_LABELS: Readonly<Record<string, string>> = PDF_SNAPSHOT_LABELS;
 
+/** Étape de signature, en titre (lexique). */
 export function sigTypeLabel(type: string): string {
-  if (type === 'mise_disposition') return 'Mise à disposition';
-  if (type === 'restitution') return 'Restitution';
-  if (type === 'it_cachet') return 'Cachet IT';
-  if (type === 'pv_cloture') return 'PV équipements non restitués';
-  return type;
+  return labelOrKey(SIGNATURE_TYPE_LABELS, type);
 }

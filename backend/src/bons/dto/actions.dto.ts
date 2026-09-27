@@ -12,25 +12,57 @@ import {
   Matches,
 } from 'class-validator';
 
-export class CreateContestationDto {
-  @IsString()
-  @MinLength(1, { message: 'Le message est requis' })
-  @MaxLength(2000, { message: 'Le message ne peut pas dépasser 2000 caractères' })
-  message!: string;
-}
-
 export class InitiateRestitutionDto {
   @IsOptional()
   @IsArray()
   @IsUUID('4', { each: true, message: 'returnedEquipmentIds doit contenir des UUIDs valides' })
   returnedEquipmentIds?: string[];
+
+  /** Restitution au guichet : aucun email ne partira, l'adresse n'est pas exigée. */
+  @IsOptional()
+  @IsBoolean()
+  inPerson?: boolean;
 }
 
-export class InitiateInPersonDto {
-  @IsEnum(['mise_disposition', 'restitution'], {
-    message: "type doit être 'mise_disposition' ou 'restitution'",
+/** Confirmations de l'IT pour une remise malgré les contrôles (R-003). */
+export class SendConfirmationsDto {
+  @IsOptional()
+  @IsBoolean()
+  confirmSerialConflicts?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  confirmMissingSerials?: boolean;
+}
+
+export class InitiateInPersonDto extends SendConfirmationsDto {
+  @IsEnum(['mise_disposition', 'restitution', 'pv_cloture'], {
+    message: "type doit être 'mise_disposition', 'restitution' ou 'pv_cloture'",
   })
-  type!: 'mise_disposition' | 'restitution';
+  type!: 'mise_disposition' | 'restitution' | 'pv_cloture';
+}
+
+/** Motif d'un geste tracé : annulation, remise ou clôture sans signature. */
+export class ReasonDto {
+  @IsString()
+  @MinLength(10, { message: 'Le motif doit faire au moins 10 caractères' })
+  @MaxLength(1000, { message: 'Le motif ne peut pas dépasser 1000 caractères' })
+  reason!: string;
+}
+
+/** Annulation : motif obligatoire pour un bon envoyé, facultatif pour un brouillon. */
+export class CancelBonDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000, { message: 'Le motif ne peut pas dépasser 1000 caractères' })
+  reason?: string;
+}
+
+export class UndoReturnDto {
+  @IsArray()
+  @ArrayMinSize(1, { message: 'Aucun équipement sélectionné' })
+  @IsUUID('4', { each: true, message: 'equipmentIds doit contenir des UUIDs valides' })
+  equipmentIds!: string[];
 }
 
 export class DeclareNotReturnedDto {
@@ -50,12 +82,8 @@ export class DeclareNotReturnedDto {
   signatureDataUrl?: string;
 }
 
-export class CloseUnilateralDto {
-  @IsString()
-  @MinLength(10, { message: 'Le motif doit faire au moins 10 caractères' })
-  @MaxLength(1000, { message: 'Le motif ne peut pas dépasser 1000 caractères' })
-  reason!: string;
-}
+/** Ancienne route « clôture unilatérale » (même motif). */
+export class CloseUnilateralDto extends ReasonDto {}
 
 export class MarkFoundDto {
   @IsArray()

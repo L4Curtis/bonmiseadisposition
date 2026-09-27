@@ -15,6 +15,24 @@ export function isNonEmptyLine(line: EquipmentLine): boolean {
   );
 }
 
+/** La ligne désigne un équipement : article du catalogue ou libellé saisi. */
+export function hasDesignation(line: EquipmentLine): boolean {
+  return Boolean(line.catalogItemId || line.customLabel?.trim());
+}
+
+/** Place un article du catalogue : sur la première ligne encore sans article
+ *  ni libellé (la ligne vide de départ, ou une ligne dont seul le numéro est
+ *  saisi, qui le garde), sinon sur une nouvelle ligne. Évite une ligne vide
+ *  en trop au-dessus de l'article ajouté. */
+export function placeCatalogItem(
+  lines: readonly EquipmentLine[],
+  article: Pick<EquipmentLine, 'catalogItemId' | 'catalogItemLabel'>,
+): EquipmentLine[] {
+  const index = lines.findIndex((line) => !hasDesignation(line));
+  if (index === -1) return [...lines, newLine(article)];
+  return lines.map((line, i) => (i === index ? { ...line, ...article } : line));
+}
+
 /** Ramène une quantité saisie à un entier valide dans les bornes autorisées
  *  (au moins une unité, au plus MAX_CATALOG_QUANTITY pour éviter une saisie
  *  erronée qui créerait des milliers de lignes). */

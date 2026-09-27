@@ -11,6 +11,7 @@ describe('buildBonPayload', () => {
       dateMiseDisposition: '2026-01-01',
       dateRestitution: '',
       notes: '',
+      internalNote: '',
       validEquipments: [newLine({ customLabel: 'Laptop A', serialNumber: 'SN-1' })],
       isEditing: false,
     });
@@ -37,6 +38,7 @@ describe('buildBonPayload', () => {
       dateMiseDisposition: '2026-01-01',
       dateRestitution: '',
       notes: '',
+      internalNote: '',
       validEquipments: [],
       isEditing: true,
     });
@@ -54,6 +56,7 @@ describe('buildBonPayload', () => {
       dateMiseDisposition: '2026-01-01',
       dateRestitution: '2026-02-01',
       notes: 'RAS',
+      internalNote: '',
       validEquipments: [
         newLine({ customLabel: 'A' }),
         newLine({ customLabel: 'B' }),

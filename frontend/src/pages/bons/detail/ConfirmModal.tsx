@@ -7,6 +7,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { PHONE_FULLSCREEN_DIALOG, TOUCH_BUTTON, TOUCH_FOOTER } from './dialog-layout';
 
 interface ConfirmModalProps {
   title: string;
@@ -23,17 +24,18 @@ interface ConfirmModalProps {
 export function ConfirmModal({ title, message, onConfirm, onCancel, danger, loading, confirmLabel }: ConfirmModalProps) {
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !loading) onCancel(); }}>
-      <DialogContent className="sm:max-w-sm">
+      <DialogContent className={`sm:max-w-sm ${PHONE_FULLSCREEN_DIALOG}`}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{message}</DialogDescription>
         </DialogHeader>
-        <DialogFooter>
-          <Button variant="outline" size="sm" onClick={onCancel} disabled={loading}>
+        <DialogFooter className={TOUCH_FOOTER}>
+          <Button variant="outline" size="sm" className={TOUCH_BUTTON} onClick={onCancel} disabled={loading}>
             Annuler
           </Button>
           <Button
             size="sm"
+            className={TOUCH_BUTTON}
             variant={danger ? 'destructive' : 'default'}
             onClick={onConfirm}
             disabled={loading}

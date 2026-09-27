@@ -32,38 +32,28 @@ describe('formatTimeAgo', () => {
 });
 
 describe('canResendLink', () => {
-  const base = { collaborateurEmail: 'a@b.fr', signatures: [] };
+  const pending = { type: 'mise_disposition' as const, expired: true, inPerson: false, itSigned: true, sentAt: '2026-09-10T00:00:00.000Z', expiresAt: null };
 
-  it('autorise un bon en attente de signature avec une adresse', () => {
-    expect(canResendLink({ ...base, status: 'sent_mise_dispo' })).toBe(true);
-    expect(canResendLink({ ...base, status: 'sent_restitution' })).toBe(true);
+  it('autorise un bon dont un document attend la signature, signé par l’IT, vers une adresse joignable', () => {
+    expect(canResendLink({ pendingSignature: pending, canSendLink: true })).toBe(true);
+    expect(canResendLink({ pendingSignature: { ...pending, type: 'restitution' }, canSendLink: true })).toBe(true);
   });
 
-  it('refuse sans adresse email (signature présentielle uniquement)', () => {
-    expect(canResendLink({ ...base, collaborateurEmail: null, status: 'sent_mise_dispo' })).toBe(false);
+  it('refuse quand aucun email ne peut partir (compte désactivé, pas d’adresse)', () => {
+    expect(canResendLink({ pendingSignature: pending, canSendLink: false })).toBe(false);
   });
 
-  it('refuse un bon qui n’attend aucune signature', () => {
-    expect(canResendLink({ ...base, status: 'active' })).toBe(false);
-    expect(canResendLink({ ...base, status: 'partially_returned' })).toBe(false);
+  it('refuse quand rien n’attend la signature du collaborateur', () => {
+    expect(canResendLink({ pendingSignature: null, canSendLink: true })).toBe(false);
   });
 
-  it('autorise une restitution partielle avec une signature en attente', () => {
-    expect(canResendLink({
-      ...base,
-      status: 'partially_returned',
-      signatures: [{ type: 'restitution', signed: false, createdAt: ago(DAY) }],
-    })).toBe(true);
+  it('refuse sans la signature IT du document : elle se pose depuis la fiche', () => {
+    expect(canResendLink({ pendingSignature: { ...pending, itSigned: false }, canSendLink: true })).toBe(false);
   });
 
-  it('lastLinkSentAt renvoie l’envoi le plus récent', () => {
-    expect(lastLinkSentAt({ signatures: [] })).toBeNull();
-    expect(lastLinkSentAt({
-      signatures: [
-        { type: 'mise_disposition', signed: false, createdAt: '2026-09-01T00:00:00.000Z' },
-        { type: 'mise_disposition', signed: false, createdAt: '2026-09-10T00:00:00.000Z' },
-      ],
-    })).toBe('2026-09-10T00:00:00.000Z');
+  it('lastLinkSentAt lit la date du dernier lien calculée par le serveur', () => {
+    expect(lastLinkSentAt({ pendingSignature: null })).toBeNull();
+    expect(lastLinkSentAt({ pendingSignature: pending })).toBe('2026-09-10T00:00:00.000Z');
   });
 });
 

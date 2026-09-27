@@ -189,6 +189,7 @@ describe('BonCreatePage — validation avant envoi', () => {
     await user.type(serials[0], 'SN-123');
     await user.type(serials[1], 'SN-123');
 
+    await user.click(screen.getByRole('radio', { name: 'Monsieur' }));
     await user.click(screen.getByRole('button', { name: /créer le bon/i }));
 
     expect(await screen.findByText(/Numéro de série en double/i)).toBeInTheDocument();
@@ -236,6 +237,7 @@ describe('BonCreatePage — validation avant envoi', () => {
 
     await user.type(screen.getAllByPlaceholderText('Libellé personnalisé')[0], 'Laptop A');
     await user.type(screen.getAllByPlaceholderText('SN-XXXXX')[0], 'SN-123');
+    await user.click(screen.getByRole('radio', { name: 'Monsieur' }));
 
     await user.click(screen.getByRole('button', { name: /créer le bon/i }));
 
@@ -477,19 +479,19 @@ describe('BonCreatePage — brouillon local conservé (C5)', () => {
     const user = userEvent.setup();
     const { unmount } = renderWithProviders(<BonCreatePage />);
 
-    await user.type(screen.getByPlaceholderText('Informations complémentaires...'), 'Écran fissuré à vérifier');
+    await user.type(screen.getByPlaceholderText(/chargeur fourni/), 'Écran fissuré à vérifier');
     await waitFor(() => expect(window.localStorage.getItem(DRAFT_STORAGE_KEY)).toContain('Écran fissuré'));
     unmount();
 
     renderWithProviders(<BonCreatePage />);
     expect(await screen.findByText(/Brouillon restauré/i)).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('Informations complémentaires...')).toHaveValue('Écran fissuré à vérifier');
+    expect(screen.getByPlaceholderText(/chargeur fourni/)).toHaveValue('Écran fissuré à vérifier');
   });
 
   it('« Repartir de zéro » efface le brouillon restauré et revient aux valeurs par défaut', async () => {
     const user = userEvent.setup();
     const { unmount } = renderWithProviders(<BonCreatePage />);
-    await user.type(screen.getByPlaceholderText('Informations complémentaires...'), 'À reprendre plus tard');
+    await user.type(screen.getByPlaceholderText(/chargeur fourni/), 'À reprendre plus tard');
     await waitFor(() => expect(window.localStorage.getItem(DRAFT_STORAGE_KEY)).not.toBeNull());
     unmount();
 
@@ -498,7 +500,7 @@ describe('BonCreatePage — brouillon local conservé (C5)', () => {
     await user.click(screen.getByRole('button', { name: 'Repartir de zéro' }));
 
     expect(screen.queryByText(/Brouillon restauré/i)).not.toBeInTheDocument();
-    expect(screen.getByPlaceholderText('Informations complémentaires...')).toHaveValue('');
+    expect(screen.getByPlaceholderText(/chargeur fourni/)).toHaveValue('');
     expect(window.localStorage.getItem(DRAFT_STORAGE_KEY)).toBeNull();
   });
 
@@ -512,11 +514,58 @@ describe('BonCreatePage — brouillon local conservé (C5)', () => {
     await user.click(screen.getByText('Sélectionner une filiale...'));
     await user.click(await screen.findByRole('option', { name: 'Siège' }));
     await user.type(screen.getAllByPlaceholderText('Libellé personnalisé')[0], 'Laptop A');
+    await user.click(screen.getByRole('radio', { name: 'Madame' }));
     await waitFor(() => expect(window.localStorage.getItem(DRAFT_STORAGE_KEY)).not.toBeNull());
 
     await user.click(screen.getByRole('button', { name: /créer le bon/i }));
 
     await waitFor(() => expect(api.post).toHaveBeenCalled());
     expect(window.localStorage.getItem(DRAFT_STORAGE_KEY)).toBeNull();
+  });
+});
+
+describe('BonCreatePage — civilité sans valeur par défaut (R-002)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.localStorage.clear();
+    resetActiveFilialesForTests();
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path.startsWith('/filiales/active')) return Promise.resolve([{ id: 'f1', name: 'siege', displayName: 'Siège', active: true }]);
+      if (path.startsWith('/equipment/catalog')) return Promise.resolve([]);
+      if (path.startsWith('/equipment/packs')) return Promise.resolve([]);
+      if (path.startsWith('/users/search')) {
+        return Promise.resolve([
+          { id: 'u1', displayName: 'Léa Martin', email: 'lea@livio.fr', civilite: 'mme' },
+          { id: 'u2', displayName: 'Paul Neuf', email: 'paul@livio.fr', civilite: null },
+        ]);
+      }
+      if (path.startsWith('/equipment/serial-conflicts')) return Promise.resolve({ items: [], truncated: false });
+      return Promise.reject(new Error(`GET non mocké dans ce test : ${path}`));
+    });
+  });
+
+  it('aucune civilité cochée à l’ouverture ; « Créer » refuse sans choix', async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    renderWithProviders(<BonCreatePage />);
+    await user.type(screen.getByPlaceholderText('Rechercher un collaborateur...'), 'Paul');
+    await user.click(await screen.findByText('Paul Neuf'));
+    await user.click(screen.getByText('Sélectionner une filiale...'));
+    await user.click(await screen.findByRole('option', { name: 'Siège' }));
+    await user.type(screen.getAllByPlaceholderText('Libellé personnalisé')[0], 'Laptop A');
+
+    expect(screen.getByRole('radio', { name: 'Madame' })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByRole('radio', { name: 'Monsieur' })).toHaveAttribute('aria-checked', 'false');
+    await user.click(screen.getByRole('button', { name: /créer le bon/i }));
+    expect(await screen.findByText(/Choisissez la civilité/)).toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it('la civilité retenue sur le compte est proposée et signalée', async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    renderWithProviders(<BonCreatePage />);
+    await user.type(screen.getByPlaceholderText('Rechercher un collaborateur...'), 'Léa');
+    await user.click(await screen.findByText('Léa Martin'));
+    expect(screen.getByRole('radio', { name: 'Madame' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByText(/Reprise du compte du collaborateur/)).toBeInTheDocument();
   });
 });
