@@ -100,6 +100,8 @@ async function amorcer(scenarios) {
     sessionCollaborateur: fabriqueSessionsCollaborateurs(),
     bons: new Map(),
     horlogeIt: new Map(),
+    /** Contestation créée par l'amorçage, par identifiant de bon. */
+    contestations: new Map(),
   };
 
   journal(`Amorçage : ${scenarios.length} bons, en cinq phases…`);

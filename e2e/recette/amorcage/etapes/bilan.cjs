@@ -37,6 +37,13 @@ function tableauSituations() {
   return colonnes([['Situation', 'Référence', 'Statut', 'Description']].concat(lignes.map(([ref, statut, cle, texte]) => [cle, ref, statut, texte])));
 }
 
+/** Collaborateurs sans civilité enregistrée : le formulaire « Nouveau bon » leur impose le choix. */
+function sansCivilite() {
+  return requeteSql(
+    "SELECT display_name FROM users WHERE role::text = 'collaborator' AND civilite IS NULL AND active ORDER BY display_name;",
+  ).map(([nom]) => nom);
+}
+
 function afficherBilan(journal) {
   const [[total]] = requeteSql('SELECT count(*) FROM bons;');
   const [[emails]] = requeteSql('SELECT count(*) FROM notification_logs;');
@@ -51,6 +58,8 @@ function afficherBilan(journal) {
   journal('');
   journal('Situations (bon à ouvrir) :');
   for (const ligne of tableauSituations()) journal(`  ${ligne}`);
+  journal('');
+  journal(`Sans civilité enregistrée (choix imposé à la création) : ${sansCivilite().join(', ') || 'aucun'}`);
   journal('');
   journal('Guide complet : e2e/recette/GUIDE-TESTEUR.md');
 }

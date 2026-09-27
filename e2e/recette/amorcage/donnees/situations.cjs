@@ -16,7 +16,7 @@ const A = require('../lib/actions.cjs');
 const { expirerLienEnAttente } = require('../lib/hors-api.cjs');
 
 function situations(numero) {
-  const s = (cle, situation, statut, bon, etapes) => Object.freeze({ cle, situation, statut, bon: { ...bon, notes: `Recette ${cle} : ${situation}.` }, etapes });
+  const s = (cle, situation, statut, bon, etapes, attendu = {}) => Object.freeze({ cle, situation, statut, bon: { ...bon, notes: `Recette ${cle} : ${situation}.` }, etapes, attendu });
   const series = (bonArticles, cles) => cles.map((c) => bonArticles.find((a) => a.cle === c).serie);
 
   const s06 = [numero('t14'), numero('wd19s'), numero('lg27')];
@@ -96,8 +96,9 @@ function situations(numero) {
       { par: 'tech2', collaborateur: 'hugo', filiale: 'EST', remiseIlYA: 20, articles: [numero('iphone15'), numero('targus')] },
       {
         remise: { jours: 20, faire: (ctx, bon) => A.remisePresentielle(ctx, bon, 'tech2', 'hugo') },
-        restitution: { jours: 1, faire: (ctx, bon) => A.contester(ctx, bon, 'hugo', 'La sacoche Targus indiquée sur le bon ne m\'a jamais été remise.') },
-      }),
+        restitution: { jours: 1, faire: (ctx, bon) => A.contester(ctx, bon, 'hugo', 'mise_disposition', 'La sacoche Targus indiquée sur le bon ne m\'a jamais été remise.') },
+      },
+      { contestation: { document: 'mise_disposition', issue: null } }),
 
     s('S10', 'Clôturé normalement (restitution signée au guichet)', 'archived',
       { par: 'tech2', collaborateur: 'sophie', filiale: 'SUD', remiseIlYA: 130, articles: [numero('lat5450'), numero('wd19s'), numero('mxmaster')] },
@@ -117,7 +118,8 @@ function situations(numero) {
             await A.cloturerSansSignature(ctx, bon, 'tech2', 'Le collaborateur est reparti sur chantier avant de signer ; matériel contrôlé et remis en stock.');
           },
         },
-      }),
+      },
+      { documents: ['cloture_sans_signature'] }),
 
     s('S12', 'Collaborateur parti (compte désactivé) qui détient encore du matériel', 'active',
       { par: 'tech1', collaborateur: 'paul', filiale: 'NORD', remiseIlYA: 200, articles: [numero('lat5450'), numero('a55'), numero('targus')] },
@@ -137,7 +139,7 @@ function situations(numero) {
       { par: 'tech1', collaborateur: 'camille', filiale: 'NORD', remiseIlYA: 6, articles: [numero('p2425h'), numero('ms116')] },
       {
         remise: { jours: 6, faire: (ctx, bon) => A.envoyer(ctx, bon, 'tech1') },
-        'signature-remise': { jours: 5, faire: (ctx, bon) => A.annuler(ctx, bon, 'tech1') },
+        'signature-remise': { jours: 5, faire: (ctx, bon) => A.annuler(ctx, bon, 'tech1', 'Embauche annulée : la collaboratrice ne rejoint finalement pas le service.') },
       }),
 
     s('S15', 'Clôturé avec PV signé, puis équipement retrouvé (avenant)', 'archived',
@@ -181,20 +183,85 @@ function situations(numero) {
       { par: 'tech2', collaborateur: 'mathis', filiale: 'EST', remiseIlYA: 12, articles: [numero('a55'), numero('targus')] },
       {
         remise: { jours: 12, faire: (ctx, bon) => A.remisePresentielle(ctx, bon, 'tech2', 'mathis', { signer: false }) },
-        cloture: { jours: 0, faire: (ctx, bon) => A.cloturerSansSignature(ctx, bon, 'tech2', 'Remise faite sur le chantier de Colmar ; le collaborateur n\'a pas pu signer (tablette hors service).') },
-      }),
+        cloture: { jours: 0, faire: (ctx, bon) => A.constaterRemiseSansSignature(ctx, bon, 'tech2', 'Remise faite sur le chantier de Colmar ; le collaborateur n\'a pas pu signer (tablette hors service).') },
+      },
+      { documents: ['remise_sans_signature'] }),
 
-    s('S21', 'Contestation ouverte depuis 9 jours, jamais prise en charge', 'contested',
+    s('S21', 'Contestation de la remise ouverte depuis 12 jours, jamais prise en charge (en retard)', 'contested',
       { par: 'tech1', collaborateur: 'lea', filiale: 'NORD', remiseIlYA: 40, articles: [numero('lg27'), numero('usbc')] },
       {
         remise: { jours: 40, faire: (ctx, bon) => A.envoyer(ctx, bon, 'tech1') },
         'signature-remise': { jours: 39, faire: (ctx, bon) => A.signerADistance(ctx, bon, 'lea', 'mise_disposition') },
-        restitution: { jours: 9, faire: (ctx, bon) => A.contester(ctx, bon, 'lea', 'Le numéro de série de l\'écran ne correspond pas à celui de l\'étiquette.') },
-      }),
+        restitution: { jours: 12, faire: (ctx, bon) => A.contester(ctx, bon, 'lea', 'mise_disposition', 'Le numéro de série de l\'écran ne correspond pas à celui de l\'étiquette.') },
+      },
+      { contestation: { document: 'mise_disposition', issue: null }, contestationEnRetard: true }),
 
     s('S22', 'En cours, collaborateur à l\'adresse invalide (remise signée au guichet)', 'active',
       { par: 'tech1', collaborateur: 'karim', filiale: 'NORD', remiseIlYA: 25, articles: [numero('iphone15')] },
       { remise: { jours: 25, faire: (ctx, bon) => A.remisePresentielle(ctx, bon, 'tech1', 'karim') } }),
+
+    // ── Situations de la vague 2 ─────────────────────────────────────────
+    s('S23', 'Remise envoyée puis modifiée : lien invalidé, nouvelle signature IT et nouvel envoi à faire', 'sent_mise_dispo',
+      { par: 'tech2', collaborateur: 'hugo', filiale: 'EST', remiseIlYA: 4, articles: [numero('elitemini'), numero('p2425h'), numero('ms116')] },
+      {
+        remise: { jours: 4, faire: (ctx, bon) => A.envoyer(ctx, bon, 'tech2') },
+        'signature-remise': { jours: 3, faire: (ctx, bon) => A.modifierBon(ctx, bon, 'tech2', { dateRestitution: A.dateDecalee(90) }) },
+      },
+      { lienInvalide: { type: 'mise_disposition', motif: 'modified' } }),
+
+    s('S24', 'Contestation Fondée sur une remise : un bon remplaçant attend en brouillon', 'active',
+      { par: 'tech2', collaborateur: 'hugo', filiale: 'EST', remiseIlYA: 30, articles: [numero('t14'), numero('wd19s'), numero('lg27')] },
+      {
+        remise: { jours: 30, faire: (ctx, bon) => A.remisePresentielle(ctx, bon, 'tech2', 'hugo') },
+        restitution: { jours: 3, faire: (ctx, bon) => A.contester(ctx, bon, 'hugo', 'mise_disposition', 'On m\'a remis un écran Dell 24 pouces, pas l\'écran LG 27 pouces inscrit sur le bon.') },
+        cloture: {
+          jours: 0,
+          faire: async (ctx, bon) => {
+            const { replacementBon } = await A.trancherContestation(ctx, bon, 'tech2', 'founded', 'Vous avez raison : un bon corrigé va vous être envoyé à signer.');
+            if (!replacementBon) throw new Error('Contestation Fondée sur une remise sans bon remplaçant');
+          },
+        },
+      },
+      { contestation: { document: 'mise_disposition', issue: 'founded' }, remplacant: true }),
+
+    s('S25', 'Contestation Fondée sur une restitution : le bon est rouvert pour correction', 'sent_restitution',
+      { par: 'tech1', collaborateur: 'lea', filiale: 'NORD', remiseIlYA: 50, articles: [numero('lat5450'), numero('mxmaster'), numero('jabra')] },
+      {
+        remise: { jours: 50, faire: (ctx, bon) => A.envoyer(ctx, bon, 'tech1') },
+        'signature-remise': { jours: 49, faire: (ctx, bon) => A.signerADistance(ctx, bon, 'lea', 'mise_disposition') },
+        restitution: { jours: 6, faire: async (ctx, bon) => A.demanderRestitution(ctx, bon, 'tech1', await A.seriesDuBon(ctx, bon.id)) },
+        'signature-restitution': { jours: 5, faire: (ctx, bon) => A.contester(ctx, bon, 'lea', 'restitution', 'Je n\'ai jamais rendu le casque : je l\'ai encore, il m\'a été laissé pour le télétravail.') },
+        cloture: {
+          jours: 0,
+          faire: async (ctx, bon) => {
+            const { reopenedDocument } = await A.trancherContestation(ctx, bon, 'tech1', 'founded', 'Vous avez raison : la restitution va être corrigée puis vous sera renvoyée à signer.');
+            if (reopenedDocument !== 'restitution') throw new Error(`Restitution Fondée : document rouvert « ${reopenedDocument} »`);
+          },
+        },
+      },
+      { contestation: { document: 'restitution', issue: 'founded' }, lienInvalide: { type: 'restitution', motif: 'contested' } }),
+
+    s('S26', 'Lien de remise expiré : la collaboratrice a demandé un nouveau lien', 'sent_mise_dispo',
+      { par: 'tech2', collaborateur: 'sophie', filiale: 'SUD', remiseIlYA: 12, articles: [numero('iphone15'), numero('usbc')] },
+      {
+        remise: { jours: 12, faire: (ctx, bon) => A.envoyer(ctx, bon, 'tech2') },
+        cloture: {
+          jours: 0,
+          faire: async (ctx, bon) => {
+            await expirerLienEnAttente(ctx, bon, 'mise_disposition');
+            await A.demanderNouveauLien(ctx, bon, 'sophie');
+          },
+        },
+      },
+      { lienRedemande: true }),
+
+    s('S27', 'Clôturé ; civilité (Madame) retenue sur le compte : un nouveau bon la propose d\'office', 'archived',
+      { par: 'tech1', collaborateur: 'emilie', filiale: 'NORD', remiseIlYA: 90, articles: [numero('mba13'), numero('usbc')] },
+      {
+        remise: { jours: 90, faire: (ctx, bon) => A.remisePresentielle(ctx, bon, 'tech1', 'emilie') },
+        restitution: { jours: 60, faire: (ctx, bon) => A.restitutionPresentielle(ctx, bon, 'tech1', 'emilie') },
+      },
+      { civilite: { collaborateur: 'emilie', valeur: 'mme' } }),
   ];
 }
 

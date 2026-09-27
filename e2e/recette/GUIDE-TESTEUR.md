@@ -18,9 +18,11 @@ bash e2e/recette/recette-down.sh --images           # … et supprime aussi les 
 ```
 
 - `recette-up.sh` supprime d'abord un éventuel banc précédent : **chaque démarrage repart de zéro**.
-- Durée mesurée sur le poste le 24/09/2026 : construction ≈ 1 min 50 s (backend 1 min 09 s, frontend 37 s, cache
-  Docker en place), démarrage 20 s, amorçage 3 min 02 s ; soit **≈ 5 min 15 s** en tout, **3 min 30 s** sans
-  construction. `recette-up.sh` affiche ces durées à la fin.
+- Durées mesurées sur le poste : construction ≈ 1 min 50 s quand les sources ont changé (backend 1 min 09 s,
+  frontend 37 s, cache Docker en place, 24/09/2026), quelques secondes quand elles n'ont pas changé ; démarrage
+  17 à 19 s, amorçage 2 min 24 s à 3 min 11 s selon la charge du poste (27/09/2026, code de la vague 2) ;
+  soit **≈ 5 min** en tout, **≈ 2 min 45 s à 3 min 40 s**
+  sans construction. `recette-up.sh` affiche ces durées à la fin.
 - Seul le projet compose `bmad-recette` est touché : jamais les conteneurs de dev (`bondemiseadisposition-*`) ni la
   pile E2E (`bmad-e2e`).
 - Seul l'orchestrateur (ou l'agent désigné) construit les images. Les testeurs **utilisent** un banc déjà démarré.
@@ -65,7 +67,8 @@ La colonne « Clé » est ce que l'on passe à `t.connecter(…)` dans le gabari
 - **Catalogue** : 16 articles actifs couvrant toutes les catégories (portables Dell, Lenovo, Apple ; mini-PC HP ;
   écrans ; souris ; clavier ; casque ; téléphones ; sacoche ; station d'accueil ; câble ; clé de sécurité), et un
   article **retiré** (HP ProBook 450 G7). **Packs** : « Pack poste nomade », « Pack chef de chantier ».
-- **Bons** : 64 au total, étalés sur environ sept mois — les 22 situations ci-dessous, puis 42 bons ordinaires
+- **Bons** : 70 au total, étalés sur environ sept mois — les 27 situations ci-dessous et le bon remplaçant né de
+  S24, puis 42 bons ordinaires
   (clôturés, en cours, à signer, annulés, brouillons) pour donner du volume aux listes, à la pagination, à
   l'inventaire et au tableau de bord. Numéros de série lisibles (`DL5450-0007`), numéros d'inventaire `INV-00012`.
   Deux brouillons reprêtent un portable déjà rendu (historique d'équipement sur deux bons).
@@ -75,7 +78,7 @@ La colonne « Clé » est ce que l'on passe à `t.connecter(…)` dans le gabari
 
 ## 4. Les situations : quel bon ouvrir
 
-Les références ont la forme `BON-<année de l'amorçage>-00NN` ; l'année ci-dessous est celle du 24/09/2026.
+Les références ont la forme `BON-<année de l'amorçage>-00NN` ; l'année ci-dessous est celle du 27/09/2026.
 `recette-up.sh` vérifie à chaque amorçage que chaque bon a bien la référence et le statut annoncés, et réaffiche ce
 tableau en fin de sortie. La note de chaque bon rappelle sa situation (« Recette S07 : … »).
 
@@ -92,20 +95,30 @@ un technicien voit les bons de toutes les filiales.
 | S06 | BON-2026-0006 | `partially_returned` | Restitution en cours — équipements encore chez la collaboratrice | Restitution partielle signée, 2 équipements encore détenus | IT ; `collaborateur` (Léa) |
 | S07 | BON-2026-0007 | `partially_returned` | Restitution en cours — PV à signer | PV de non-restitution émis, à signer par Hugo | IT ; `collaborateur-hugo` (lien dans Mailpit) |
 | S08 | BON-2026-0008 | `partially_returned` | Restitution en cours — PV à signer, lien expiré | PV dont le lien a expiré (à renvoyer) | IT ; `collaborateur` (Léa) |
-| S09 | BON-2026-0009 | `contested` | Contesté | Contestation ouverte hier par Hugo | IT (Contestations) ; `collaborateur-hugo` |
+| S09 | BON-2026-0009 | `contested` | Contesté | Hugo conteste **la remise** depuis hier ; contestation ouverte, pas encore prise en charge | IT (Contestations) ; `collaborateur-hugo` |
 | S10 | BON-2026-0010 | `archived` | Clôturé | Clôturé normalement (restitution signée au guichet) | IT ; `collaborateur-sophie` |
-| S11 | BON-2026-0011 | `archived` | Clôturé (sans signature) | Compagnon reparti avant de signer la restitution | IT |
+| S11 | BON-2026-0011 | `archived` | Clôturé (sans signature) | Compagnon reparti avant de signer la restitution : **« Clôturer sans signature »**, document `cloture_sans_signature` | IT |
 | S12 | BON-2026-0012 | `active` | En cours | **Collaborateur parti** (compte désactivé) qui détient encore 3 équipements | IT ; `direction` |
 | S13 | BON-2026-0013 | `active` | En cours | **Collaboratrice mutée** Sud → Est ; le bon reste sur Sud | IT ; `collaborateur-sophie` |
-| S14 | BON-2026-0014 | `cancelled` | Annulé | Annulé après envoi (email d'annulation dans Mailpit) | IT |
+| S14 | BON-2026-0014 | `cancelled` | Annulé | Annulé après envoi, avec son motif (email d'annulation dans Mailpit) | IT |
 | S15 | BON-2026-0015 | `archived` | Clôturé | PV signé, puis **équipement retrouvé** (avenant) | IT ; `collaborateur-hugo` |
 | S16 | BON-2026-0016 | `active` | En cours, **retour en retard** | Date de restitution prévue dépassée de 5 jours | IT ; `direction` |
 | S17 | BON-2026-0017 | `partially_returned` | Restitution en cours — restitution partielle à signer | Restitution partielle demandée hier, pas encore signée | IT |
 | S18 | BON-2026-0018 | `partially_returned` | Restitution en cours — perte déclarée | Casque déclaré perdu, les 2 autres équipements encore détenus | IT |
 | S19 | BON-2026-0019 | `draft` | Brouillon | Collaborateur à l'**adresse invalide** : l'envoi par email doit être refusé | IT |
-| S20 | BON-2026-0020 | `active` | En cours (remise constatée sans signature) | Compagnon sans adresse, remise constatée sans signature | IT |
-| S21 | BON-2026-0021 | `contested` | Contesté | Contestation ouverte depuis 9 jours, jamais prise en charge | IT ; `collaborateur` (Léa) |
+| S20 | BON-2026-0020 | `active` | En cours (remise constatée sans signature) | Compagnon sans adresse : **« Constater la remise sans signature »**, document `remise_sans_signature` | IT |
+| S21 | BON-2026-0021 | `contested` | Contesté | Léa conteste **la remise** depuis 12 jours (au moins 8 jours ouvrés), jamais prise en charge : **en retard** | IT ; `collaborateur` (Léa) |
 | S22 | BON-2026-0022 | `active` | En cours | Karim (adresse invalide), remise signée au guichet | IT ; `collaborateur-karim` (portail) |
+| S23 | BON-2026-0023 | `sent_mise_dispo` | Remise à signer | Envoyé il y a 4 jours puis **modifié** (date de restitution) : lien et signature IT invalidés (« modifié »), signature IT et nouvel envoi à faire | IT ; `collaborateur-hugo` (ancien lien dans Mailpit) |
+| S24 | BON-2026-0024 | `active` | En cours | Contestation de la remise **Fondée** aujourd'hui : le **bon remplaçant** BON-2026-0068 attend en brouillon | IT (Contestations, « Fondées ») ; `collaborateur-hugo` |
+| S24 bis | BON-2026-0068 | `draft` | Brouillon | Bon remplaçant de BON-2026-0024, prérempli, à corriger puis envoyer | IT |
+| S25 | BON-2026-0025 | `sent_restitution` | Restitution à signer | Contestation de la restitution **Fondée** aujourd'hui : bon rouvert, lien et signature IT de la restitution invalidés (« contesté »), à corriger puis renvoyer | IT ; `collaborateur` (Léa) |
+| S26 | BON-2026-0026 | `sent_mise_dispo` | Remise à signer, **signature en retard** | Lien expiré ; Sophie a cliqué « **Demander un nouveau lien** » (alerte IT dans Mailpit) | IT ; `collaborateur-sophie` |
+| S27 | BON-2026-0027 | `archived` | Clôturé | Émilie Michel : **civilité (Madame) retenue sur le compte** ; « Nouveau bon » pour elle la propose d'office | IT |
+
+**Civilité** : chaque collaborateur qui a déjà eu un bon a sa civilité enregistrée sur son compte (le formulaire la
+propose). Le seul collaborateur actif **sans** civilité est **Théo Lambert** (Services Est) : un nouveau bon pour
+lui impose le choix Madame / Monsieur. `recette-up.sh` affiche cette liste en fin de sortie.
 
 **Partage du banc entre testeurs** : les bons ci-dessus sont communs à tous. Un testeur qui **agit** sur une
 situation (signe, renvoie un lien, clôture…) la fait disparaître pour les autres. Règle : chaque testeur **ne modifie
@@ -117,6 +130,8 @@ que les situations qui lui sont confiées** par l'orchestrateur ; pour tout autr
 - Comptes, filiales, articles et packs sont datés du jour de l'amorçage : seuls les bons, et ce qui s'y rattache
   (signatures, PDF, journal, emails journalisés), ont été reculés dans le temps.
 - S08 : le PV a été émis le jour de l'amorçage et son lien expiré artificiellement une heure plus tard.
+- S26 : le lien a été expiré artificiellement le jour de l'amorçage, juste avant la demande de nouveau lien.
+- S24 et S25 : la prise en charge et la décision datent du jour de l'amorçage, comme le bon remplaçant.
 - Les comptes « annuaire » n'ont jamais été synchronisés avec un vrai annuaire (aucun annuaire sur le banc).
 - Le rappel quotidien part à 9 h (heure de Paris) : un banc qui tourne à ce moment-là envoie de vrais rappels.
 
@@ -272,11 +287,11 @@ Gravité :
   `bmad-recette : amorcage termine`) ; relancé sur un banc marqué, il n'ajoute rien, même si des testeurs y ont créé
   des bons, et réaffiche le bilan. Un banc non marqué mais non vide est refusé (amorçage interrompu).
   - `donnees/personnes.cjs` : tous les comptes (source unique) ; `donnees/referentiels.cjs` : filiales, catalogue,
-    packs ; `donnees/situations.cjs` : les 22 situations ; `donnees/volume.cjs` : les 42 bons de volume (tirage à
+    packs ; `donnees/situations.cjs` : les 27 situations, chacune avec son statut et ses attendus (champ `attendu` : document sans signature, contestation, lien invalidé, remplaçant, nouveau lien demandé, civilité) ; `donnees/volume.cjs` : les 42 bons de volume (tirage à
     graine fixe).
   - `lib/actions.cjs` : **tous** les appels à l'API (référentiels, gestes métier dans l'ordre d'appels de
     l'interface, lectures de contrôle) ; `lib/client-api.cjs` : session, en-têtes, erreurs. **Si une route, une
-    forme de réponse ou l'ordre des gestes change (vagues 2 et 3), ce sont les seuls fichiers à adapter** : chaque
+    forme de réponse ou l'ordre des gestes change (vague 3 et suivantes), ce sont les seuls fichiers à adapter** : chaque
     réponse lue y est contrôlée, et l'amorçage s'arrête sur un message qui le rappelle.
   - `lib/hors-api.cjs` : les gestes faits en SQL faute de route (comptes locaux et « annuaire », départ, mutation,
     lien expiré) ; à adapter si le schéma des tables `users` ou `signatures` change.
@@ -284,6 +299,12 @@ Gravité :
     (remise, signature de la remise, restitution, signature de la restitution, clôture) ; à la fin de chaque phase,
     les dates de ce que chaque bon a fait sont reculées du nombre de jours voulu par son scénario, dans toutes les
     tables rattachées à un bon (colonnes découvertes dans le schéma), les signatures sont rescellées et les PDF
-    régénérés par l'application. Une étape qui produit un document non régénérable (PV encore à signer, clôture sans
-    signature, avenant) doit rester à 0 jour : l'amorçage refuse sinon.
-  - `etapes/verification.cjs` : contrôle final (statuts, références, intégrité des signatures).
+    régénérés par l'application. Une étape qui produit un document non régénérable (PV encore à signer, remise ou
+    clôture sans signature, avenant) doit rester à 0 jour : l'amorçage refuse sinon. Le script refuse aussi de
+    tourner si l'une des dates dont dépendent écrans et indicateurs n'est plus découverte (`awaiting_since`,
+    `cancelled_at`, `archived_at`, `invalidated_at`, `reviewed_at`, `resolved_at`…) : colonne renommée ou table
+    détachée du bon.
+  - `etapes/verification.cjs` : contrôle final (statuts, références, intégrité des signatures, attendus de chaque
+    situation, retard de la contestation S21 tel que le calcule l'application).
+  - Vague 2 : la restitution par email est « marquage, signature IT, puis Renvoyer » ; au guichet « marquage,
+    signature IT, lien présentiel ». La civilité est obligatoire à la création (celle de `donnees/personnes.cjs`).

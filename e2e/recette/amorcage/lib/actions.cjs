@@ -9,8 +9,14 @@
  *       - remise par email : cachet IT, puis envoi ;
  *       - remise présentielle : cachet IT, puis lien présentiel, puis
  *         signature recueillie par le technicien sur son poste ;
- *       - restitution par email : marquage des équipements rendus, puis cachet IT ;
- *       - restitution présentielle : cachet IT, puis lien présentiel, puis signature ;
+ *       - restitution par email : marquage des équipements rendus, cachet IT,
+ *         puis « Renvoyer » (le marquage seul n'envoie plus rien) ;
+ *       - restitution présentielle : marquage, cachet IT, lien présentiel,
+ *         signature ;
+ *       - gestes sans signature (remise constatée, clôture), annulation avec
+ *         motif, modification d'un bon envoyé ;
+ *       - contestation (document contesté explicite), prise en charge et
+ *         décision (Fondée ou Non retenue), demande d'un nouveau lien ;
  *   - lectures de contrôle : bon, intégrité des signatures, état d'un lien de
  *     signature, régénération des PDF manquants.
  * Si une route, une forme de réponse ou l'ordre de ces appels change dans
@@ -107,8 +113,22 @@ async function integriteDuBon(ctx, bonId) {
 
 /** Le lien `token` est-il en attente de signature, et pour ce type de document ? */
 async function lienEnAttente(session, token, type) {
-  const info = exiger(await session.get(`/signature/${token}`), ['status', 'signature'], 'GET /signature/:token');
-  return info.status === 'pending' && exiger(info.signature, ['type'], 'GET /signature/:token (signature)').type === type;
+  const info = exiger(await session.get(`/signature/${token}`), ['status'], 'GET /signature/:token');
+  if (info.status !== 'pending') return false;
+  return exiger(info.signature, ['type'], 'GET /signature/:token (signature)').type === type;
+}
+
+/** Le lien `token` est-il expiré (page « Demander un nouveau lien ») ? */
+async function lienExpire(session, token) {
+  return exiger(await session.get(`/signature/${token}`), ['status'], 'GET /signature/:token').status === 'expired';
+}
+
+/** Contestations « À traiter » et seuil de retard (`overdueSince`) calculé par l'application. */
+async function contestationsATraiter(ctx) {
+  const liste = exiger(await ctx.sessions.admin.get('/contestations?aTraiter=1&limit=100'),
+    ['contestations', 'overdueSince'], 'GET /contestations?aTraiter=1');
+  for (const c of liste.contestations) exiger(c, ['bonId', 'createdAt'], 'GET /contestations (contestations[])');
+  return liste;
 }
 
 /** Fait régénérer par l'application les PDF de preuve absents ; rend { regenerated, failed }. */
@@ -202,15 +222,40 @@ async function signerADistance(ctx, bon, collaborateur, type) {
   });
 }
 
-/** Restitution par email des équipements `series` : marquage, puis cachet IT. */
-async function demanderRestitution(ctx, bon, par, series) {
-  const ids = await equipementsParSerie(ctx, bon.id, series);
-  await ctx.sessions[par].post(`/bons/${bon.id}/initiate-restitution`, { returnedEquipmentIds: ids });
-  await apposerCachet(ctx, bon, par, 'restitution');
+/** Marquage des équipements rendus : aucun lien ne part avant la signature IT. */
+async function marquerRendus(ctx, bon, par, ids, inPerson) {
+  await ctx.sessions[par].post(`/bons/${bon.id}/initiate-restitution`, { returnedEquipmentIds: ids, inPerson });
 }
 
-/** Restitution présentielle de tout ce qui reste : cachet IT, lien, signature sur place. */
+/**
+ * « Renvoyer » : lien du document en attente, par email. L'interface passe
+ * `force` juste après la signature IT d'une restitution (aucune question à
+ * poser) ; un second appel rapproché réutilise le lien sans nouvel email.
+ */
+async function renvoyer(ctx, bon, par, { force = false } = {}) {
+  const reponse = await ctx.sessions[par].post(`/bons/${bon.id}/resend`, force ? { force: true } : {});
+  return exiger(reponse, ['ok', 'message'], 'POST /bons/:id/resend');
+}
+
+/** Restitution par email des équipements `series` : marquage, cachet IT, puis envoi du lien. */
+async function demanderRestitution(ctx, bon, par, series) {
+  const ids = await equipementsParSerie(ctx, bon.id, series);
+  await marquerRendus(ctx, bon, par, ids, false);
+  await apposerCachet(ctx, bon, par, 'restitution');
+  await renvoyer(ctx, bon, par, { force: true });
+}
+
+/** Identifiants des équipements encore chez le collaborateur. */
+async function equipementsDetenus(ctx, bonId) {
+  const bon = await relireBon(ctx, bonId);
+  for (const e of bon.equipments) exiger(e, ['returnState'], 'GET /bons/:id (equipments[].returnState)');
+  return bon.equipments.filter((e) => e.returnState === 'out').map((e) => e.id);
+}
+
+/** Restitution au guichet de tout ce qui reste : marquage, cachet IT, lien présentiel, signature sur place. */
 async function restitutionPresentielle(ctx, bon, par, collaborateur, { signer = true } = {}) {
+  const ids = await equipementsDetenus(ctx, bon.id);
+  if (ids.length > 0) await marquerRendus(ctx, bon, par, ids, true);
   await apposerCachet(ctx, bon, par, 'restitution');
   const { token } = await lienPresentiel(ctx, bon, par, 'restitution');
   if (signer) await signerSurPlace(ctx, par, token, collaborateur);
@@ -237,17 +282,59 @@ async function marquerRetrouve(ctx, bon, par, series) {
   noterSignatureIt(ctx, bon.id);
 }
 
+/** « Clôturer sans signature » (plus rien chez le collaborateur, un document attend). */
 async function cloturerSansSignature(ctx, bon, par, motif) {
-  await ctx.sessions[par].post(`/bons/${bon.id}/close-unilateral`, { reason: motif });
+  await ctx.sessions[par].post(`/bons/${bon.id}/close-without-signature`, { reason: motif });
 }
 
-async function annuler(ctx, bon, par) {
-  await ctx.sessions[par].supprimer(`/bons/${bon.id}`);
+/** « Constater la remise sans signature » (bon « Remise à signer »). */
+async function constaterRemiseSansSignature(ctx, bon, par, motif) {
+  await ctx.sessions[par].post(`/bons/${bon.id}/handover-without-signature`, { reason: motif });
 }
 
-async function contester(ctx, bon, collaborateur, message) {
+const MOTIF_ANNULATION_PAR_DEFAUT = 'Besoin annulé par le responsable du collaborateur.';
+
+/** Annulation avec son motif (obligatoire pour un bon envoyé, 10 caractères au moins). */
+async function annuler(ctx, bon, par, motif = MOTIF_ANNULATION_PAR_DEFAUT) {
+  await ctx.sessions[par].post(`/bons/${bon.id}/cancel`, { reason: motif });
+}
+
+/** Modification d'un bon (brouillon, ou envoyé et pas encore signé), champs du formulaire. */
+async function modifierBon(ctx, bon, par, changements) {
+  exiger(await ctx.sessions[par].put(`/bons/${bon.id}`, changements), ['id', 'status'], 'PUT /bons/:id');
+}
+
+/** Le collaborateur conteste `document` ; le serveur doit retenir ce même document. */
+async function contester(ctx, bon, collaborateur, document, message) {
   const session = await ctx.sessionCollaborateur(collaborateur);
-  await session.post(`/bons/${bon.id}/contestation`, { message });
+  const cree = exiger(await session.post(`/bons/${bon.id}/contestation`, { message, document }),
+    ['id', 'contestedDocument'], 'POST /bons/:id/contestation');
+  if (cree.contestedDocument !== document) {
+    throw new Error(`${bon.reference} : document contesté ${cree.contestedDocument}, attendu ${document}`);
+  }
+  ctx.contestations.set(bon.id, cree.id);
+}
+
+/**
+ * L'IT prend en charge la contestation du bon, puis la tranche. Rend la
+ * décision : `replacementBon` (remise Fondée) ou `reopenedDocument`
+ * (restitution ou PV Fondé), l'un ou l'autre null.
+ */
+async function trancherContestation(ctx, bon, par, outcome, reponse) {
+  const id = ctx.contestations.get(bon.id);
+  if (!id) throw new Error(`${bon.reference} : aucune contestation créée par l'amorçage`);
+  await ctx.sessions[par].patch(`/contestations/${id}/review`);
+  const decision = await ctx.sessions[par].patch(`/contestations/${id}/resolve`, { outcome, resolutionMessage: reponse });
+  return exiger(decision, ['outcome', 'replacementBon', 'reopenedDocument'], 'PATCH /contestations/:id/resolve');
+}
+
+/** Le collaborateur ouvre son lien expiré (reçu dans Mailpit) et clique « Demander un nouveau lien ». */
+async function demanderNouveauLien(ctx, bon, collaborateur) {
+  const personne = ctx.personnes[collaborateur];
+  const session = await ctx.sessionCollaborateur(collaborateur);
+  const token = await lienDeSignature(personne.email, bon.reference, (jeton) => lienExpire(session, jeton), 'lien expiré');
+  const reponse = exiger(await session.post(`/signature/${token}/request-new-link`), ['status'], 'POST /signature/:token/request-new-link');
+  if (reponse.status !== 'requested') throw new Error(`${bon.reference} : demande de nouveau lien « ${reponse.status} »`);
 }
 
 module.exports = {
@@ -260,6 +347,7 @@ module.exports = {
   relireBon,
   seriesDuBon,
   integriteDuBon,
+  contestationsATraiter,
   regenererPdfManquants,
   dateDecalee,
   creerBon,
@@ -267,11 +355,16 @@ module.exports = {
   envoyer,
   remisePresentielle,
   signerADistance,
+  renvoyer,
   demanderRestitution,
   restitutionPresentielle,
   declarerNonRestitue,
   marquerRetrouve,
   cloturerSansSignature,
+  constaterRemiseSansSignature,
   annuler,
+  modifierBon,
   contester,
+  trancherContestation,
+  demanderNouveauLien,
 };

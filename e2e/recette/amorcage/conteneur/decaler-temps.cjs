@@ -152,7 +152,26 @@ async function colonnesHorodatees() {
     if (!IDENTIFIANT_SQL.test(table) || !IDENTIFIANT_SQL.test(colonne)) throw new Error(`Identifiant inattendu : ${table}.${colonne}`);
     parTable.set(table, [...(parTable.get(table) ?? []), colonne]);
   }
+  verifierColonnesConnues(parTable);
   return parTable;
+}
+
+/**
+ * Dates dont dépendent les écrans et les indicateurs (attente de signature,
+ * annulation, lien invalidé, contestation prise en charge et tranchée) : la
+ * découverte doit les trouver. Si l'une manque (colonne renommée, table
+ * détachée du bon), le banc mentirait sur les délais : on s'arrête.
+ */
+const COLONNES_INDISPENSABLES = Object.freeze({
+  bons: ['awaiting_since', 'cancelled_at', 'archived_at'],
+  signatures: ['signed_at', 'invalidated_at', 'created_at'],
+  contestations: ['created_at', 'reviewed_at', 'resolved_at'],
+});
+
+function verifierColonnesConnues(parTable) {
+  const absentes = Object.entries(COLONNES_INDISPENSABLES).flatMap(([table, colonnes]) =>
+    colonnes.filter((c) => !(parTable.get(table) ?? []).includes(c)).map((c) => `${table}.${c}`));
+  if (absentes.length > 0) throw new Error(`Colonnes de date introuvables pour le recul : ${absentes.join(', ')}`);
 }
 
 const DEBUT = `($1::timestamptz AT TIME ZONE 'UTC')`;
