@@ -1,147 +1,129 @@
 import type { ElementType } from 'react';
-import { useNavigate } from 'react-router';
-import { ArrowRight, Bell, CheckCircle2, FileText, RotateCcw } from 'lucide-react';
+import { Link } from 'react-router';
+import {
+  AlertTriangle, ArrowRight, CheckCircle2, FileText, LinkIcon, MessageSquareWarning, PenLine, RotateCcw, UserX,
+} from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useActionableBons, type ActionableBonRow, type ActionableCategory } from './useActionableBons';
+import type { KpiTodayResponse, KpiTodayRow, KpiTodaySection } from '@/contracts/kpi';
+import { BON_SUB_STATUS_LABELS, LATENESS_LABELS } from '@/domain/labels';
+import { formatDate } from '@/lib/dates';
+import { countWithUnit, sinceLabel, UNITS, type Unit } from '../../lib/kpi-scope';
+import { TODAY_LINKS } from './today-links';
 
-interface CategoryDef {
-  key: string;
+type SectionKey = keyof KpiTodayResponse['toDo'];
+
+interface SectionDef {
+  key: SectionKey;
   label: string;
   icon: ElementType;
-  /** Libellé de l'action proposée pour chaque ligne (« Envoyer », « Relancer »…). */
+  unit: Unit;
+  /** Geste attendu sur chaque ligne (« Relancer »). */
   actionLabel: string;
-  /** Liste filtrée existante vers laquelle pointe le lien « Voir tout ». */
+  /** Ce que mesure la date de la ligne. */
+  sinceWord: string;
   seeAllHref: string;
-  category: ActionableCategory;
 }
 
-function formatDaysAgo(days: number): string {
-  if (days <= 0) return "aujourd'hui";
-  return `il y a ${days} j`;
-}
+/** Ordre de lecture : ce qui bloque le collaborateur ou la preuve d'abord. */
+const SECTIONS: readonly SectionDef[] = [
+  { key: 'contestations', label: 'Contestations à traiter', icon: MessageSquareWarning, unit: UNITS.contestations,
+    actionLabel: 'Traiter', sinceWord: 'reçue le', seeAllHref: TODAY_LINKS.contestations },
+  { key: 'overdueSignatures', label: LATENESS_LABELS.signature, icon: AlertTriangle, unit: UNITS.bons,
+    actionLabel: 'Relancer', sinceWord: 'demandée le', seeAllHref: TODAY_LINKS.overdueSignatures },
+  { key: 'expiredLinks', label: 'Liens expirés', icon: LinkIcon, unit: UNITS.bons,
+    actionLabel: 'Renvoyer un lien', sinceWord: 'expiré le', seeAllHref: TODAY_LINKS.expiredLinks },
+  { key: 'partialRestitutionsToSign', label: BON_SUB_STATUS_LABELS.partial_restitution_to_sign, icon: PenLine,
+    unit: UNITS.bons, actionLabel: 'Faire signer', sinceWord: 'demandée le',
+    seeAllHref: TODAY_LINKS.partialRestitutionsToSign },
+  { key: 'overdueReturns', label: LATENESS_LABELS.return, icon: RotateCcw, unit: UNITS.equipments,
+    actionLabel: 'Organiser le retour', sinceWord: 'prévu le', seeAllHref: TODAY_LINKS.overdueReturns },
+  { key: 'departures', label: 'Départs avec matériel', icon: UserX, unit: UNITS.collaborateurs,
+    actionLabel: 'Voir le bon', sinceWord: 'remis le', seeAllHref: TODAY_LINKS.departures },
+  { key: 'drafts', label: 'Brouillons jamais envoyés', icon: FileText, unit: UNITS.bons,
+    actionLabel: 'Envoyer', sinceWord: 'créé le', seeAllHref: TODAY_LINKS.drafts },
+];
 
-function CategoryRow({ row, actionLabel, onClick }: { row: ActionableBonRow; actionLabel: string; onClick: () => void }) {
+function TaskRow({ row, def }: { row: KpiTodayRow; def: SectionDef }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex w-full items-center gap-3 px-5 py-2.5 text-left transition-colors hover:bg-muted/40"
+    <Link
+      to={`/bons/${row.bonId}`}
+      className="flex min-h-[44px] flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 transition-colors hover:bg-muted/40 sm:flex-nowrap sm:px-5"
     >
       <span className="shrink-0 rounded bg-muted px-2 py-0.5 font-mono text-xs font-semibold text-foreground/80">
         {row.reference}
       </span>
-      <span className="min-w-0 flex-1 truncate text-sm text-foreground/80">{row.collaborateurName}</span>
-      <span className="shrink-0 text-xs text-muted-foreground/70">{formatDaysAgo(row.daysAgo)}</span>
-      <span className="shrink-0 inline-flex items-center gap-1 text-xs font-medium text-primary">
-        {actionLabel}
+      {/* Nom du collaborateur toujours lisible : il passe à la ligne plutôt que d'être masqué. */}
+      <span className="order-last w-full min-w-0 break-words text-sm text-foreground/80 sm:order-none sm:w-auto sm:flex-1">
+        {row.collaborateur}
+        {row.detail && <span className="text-muted-foreground"> · {row.detail}</span>}
+      </span>
+      <span className="ml-auto shrink-0 text-xs text-muted-foreground sm:ml-0" title={`${def.sinceWord} ${formatDate(row.since)}`}>
+        {sinceLabel(row.since)}
+      </span>
+      <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-primary">
+        {def.actionLabel}
         <ArrowRight className="h-3 w-3" aria-hidden="true" />
       </span>
-    </button>
+    </Link>
   );
 }
 
-function CategorySection({ def, onNavigate }: { def: CategoryDef; onNavigate: (href: string) => void }) {
+function TaskSection({ def, section }: { def: SectionDef; section: KpiTodaySection }) {
   const Icon = def.icon;
   return (
-    <div className="py-4">
-      <div className="mb-1 flex items-center justify-between gap-3 px-5">
-        <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground/80">
+    <section className="py-3" aria-label={def.label}>
+      <div className="mb-1 flex items-center justify-between gap-3 px-4 sm:px-5">
+        <h4 className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
           <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-          {def.label}
-        </div>
-        <button
-          type="button"
-          onClick={() => onNavigate(def.seeAllHref)}
-          className="flex items-center gap-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+          {`${def.label} (${countWithUnit(section.total, def.unit)})`}
+        </h4>
+        <Link
+          to={def.seeAllHref}
+          className="inline-flex min-h-[44px] shrink-0 items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
         >
-          {`Voir tout (${def.category.total})`}
+          Voir tout
           <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-        </button>
+        </Link>
       </div>
       <div className="divide-y divide-border/60">
-        {def.category.rows.map((row) => (
-          <CategoryRow key={row.id} row={row} actionLabel={def.actionLabel} onClick={() => onNavigate(`/bons/${row.id}`)} />
-        ))}
+        {section.rows.map((row) => <TaskRow key={`${def.key}-${row.bonId}-${row.since}`} row={row} def={def} />)}
       </div>
-    </div>
+    </section>
   );
 }
 
-function ActionableTasksSkeleton() {
+interface ActionableTasksCardProps {
+  data: KpiTodayResponse | null;
+  loading: boolean;
+}
+
+/**
+ * « À traiter aujourd'hui » : pour chaque situation, les cas les plus anciens
+ * avec leur ancienneté et un lien vers le bon, et « Voir tout » vers la liste
+ * complète (même nombre que la tuile). Une section vide n'est pas affichée.
+ */
+export function ActionableTasksCard({ data, loading }: ActionableTasksCardProps) {
+  const visible = data ? SECTIONS.filter((def) => data.toDo[def.key].total > 0) : [];
   return (
-    <div className="divide-y divide-border">
-      {Array.from({ length: 2 }).map((_, i) => (
-        <div key={i} className="space-y-2.5 px-5 py-4">
+    <div className="overflow-hidden rounded-xl border border-border bg-card card-elevated">
+      <div className="border-b border-border px-4 py-3 sm:px-5">
+        <h3 className="text-sm font-semibold text-foreground">À traiter aujourd&apos;hui</h3>
+      </div>
+      {loading || !data ? (
+        <div className="space-y-2.5 px-5 py-4">
           <Skeleton className="h-3.5 w-40" />
           <Skeleton className="h-9 w-full" />
           <Skeleton className="h-9 w-full" />
         </div>
-      ))}
-    </div>
-  );
-}
-
-/**
- * Bloc « À traiter aujourd'hui » (lot E1) : remplace les compteurs muets par
- * du travail concret — brouillons jamais envoyés, signatures en attente
- * au-delà du seuil configuré, restitutions en retard — chacun avec l'action
- * attendue et un lien « voir tout » vers la liste filtrée correspondante.
- * Une catégorie vide n'est pas affichée ; si tout est vide, un mot rassurant
- * remplace le bloc plutôt que de laisser trois sections vides côte à côte.
- */
-export function ActionableTasksCard() {
-  const navigate = useNavigate();
-  const { drafts, overdueSignatures, overdueReturns, loading } = useActionableBons();
-
-  const categories: CategoryDef[] = [
-    {
-      key: 'drafts',
-      label: 'Brouillons jamais envoyés',
-      icon: FileText,
-      actionLabel: 'Envoyer',
-      seeAllHref: '/bons?status=draft',
-      category: drafts,
-    },
-    {
-      key: 'overdue-signatures',
-      label: 'Signatures en attente',
-      icon: Bell,
-      actionLabel: 'Relancer',
-      seeAllHref: '/bons?overdue=1',
-      category: overdueSignatures,
-    },
-    {
-      key: 'overdue-returns',
-      label: 'Restitutions en retard',
-      icon: RotateCcw,
-      actionLabel: 'Initier la restitution',
-      seeAllHref: '/bons?status=active',
-      category: overdueReturns,
-    },
-  ];
-
-  const visibleCategories = categories.filter((c) => c.category.rows.length > 0);
-  const allEmpty = !loading && visibleCategories.length === 0;
-
-  return (
-    <div className="overflow-hidden rounded-xl border border-border bg-card card-elevated">
-      <div className="border-b border-border px-5 py-4">
-        <h3 className="text-sm font-semibold text-foreground">À traiter aujourd&apos;hui</h3>
-      </div>
-
-      {loading ? (
-        <ActionableTasksSkeleton />
-      ) : allEmpty ? (
+      ) : visible.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
           <CheckCircle2 className="h-8 w-8 text-success" aria-hidden="true" />
           <p className="text-sm font-medium text-foreground/80">Rien à traiter aujourd&apos;hui</p>
-          <p className="text-xs text-muted-foreground/70">Tous les bons suivis sont à jour.</p>
+          <p className="text-xs text-muted-foreground/70">Aucun retard, aucune contestation, aucun lien expiré.</p>
         </div>
       ) : (
         <div className="divide-y divide-border">
-          {visibleCategories.map((def) => (
-            <CategorySection key={def.key} def={def} onNavigate={navigate} />
-          ))}
+          {visible.map((def) => <TaskSection key={def.key} def={def} section={data.toDo[def.key]} />)}
         </div>
       )}
     </div>

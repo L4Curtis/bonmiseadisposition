@@ -2,7 +2,6 @@ import { Prisma } from '@prisma/client';
 import { KpiParcService } from '../kpi-parc.service';
 import { KpiPeriod, resolvePeriod } from '../kpi-period';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
-import { createMockConfigService } from '../../common/__tests__/helpers/mock-services';
 import type { Mock } from 'vitest';
 
 interface RouterOptions {
@@ -85,7 +84,7 @@ function buildRouter(period: KpiPeriod, opts: RouterOptions = {}) {
     if (sql.includes('b.archived_at')) {
       return Promise.resolve([isPreviousRange ? closedPrevious : closedCurrent]);
     }
-    if (sql.includes('b.status::text NOT IN (')) {
+    if (sql.includes('be.not_returned = true')) {
       return Promise.resolve([{ count: 7n }]);
     }
     return Promise.resolve([]);
@@ -99,13 +98,11 @@ function sqlCalls(prisma: ReturnType<typeof createMockPrismaService>): string[] 
 describe('KpiParcService', () => {
   const period = resolvePeriod({ from: '2026-08-01', to: '2026-08-10' });
   let prisma: ReturnType<typeof createMockPrismaService>;
-  let config: ReturnType<typeof createMockConfigService>;
   let service: KpiParcService;
 
   beforeEach(() => {
     prisma = createMockPrismaService();
-    config = createMockConfigService();
-    service = new KpiParcService(prisma as never, config as never);
+    service = new KpiParcService(prisma as never);
   });
 
   it('renvoie le contrat complet (filiale fournie), BigInt et Decimal-like convertis en number', async () => {
@@ -134,8 +131,8 @@ describe('KpiParcService', () => {
     expect(result.loaned.byFiliale).toEqual([{ filialeId: 'f1', name: 'Paris', count: 90 }]);
     expect(result.loaned.bySituation).toEqual([
       { situation: 'en_attente_signature', label: 'Remise à signer', count: 20 },
-      { situation: 'en_circulation', label: 'En circulation', count: 90 },
-      { situation: 'en_litige', label: 'En litige', count: 10 },
+      { situation: 'en_circulation', label: 'En cours', count: 90 },
+      { situation: 'en_litige', label: 'Contesté', count: 10 },
     ]);
     // Invariant verrouillé par l'audit : la somme des situations égale le total.
     expect(result.loaned.bySituation.reduce((sum, s) => sum + s.count, 0)).toBe(result.loaned.total);
@@ -192,7 +189,7 @@ describe('KpiParcService', () => {
       expect(sql).not.toMatch(/b\.status\s+(NOT\s+)?IN\s*\(/);
     }
     expect(calls.some((sql) => sql.includes('b.status::text IN ('))).toBe(true);
-    expect(calls.some((sql) => sql.includes('b.status::text NOT IN ('))).toBe(true);
+    expect(calls.some((sql) => sql.includes("b.status::text <> 'cancelled'"))).toBe(true);
     expect(calls.some((sql) => sql.includes('ec.category::text'))).toBe(true);
     expect(calls.some((sql) => sql.includes('s.type::text'))).toBe(true);
 

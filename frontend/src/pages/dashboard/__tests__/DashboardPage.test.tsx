@@ -3,6 +3,7 @@ import { screen } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { resetActiveFilialesForTests } from '@/hooks/use-active-filiales';
 import { DashboardPage } from '../DashboardPage';
+import { todayFixture } from './kpi-fixtures';
 
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>();
@@ -49,12 +50,7 @@ beforeEach(() => {
   resetActiveFilialesForTests();
   mockRole = 'admin';
   vi.mocked(api.get).mockImplementation((path: string) => {
-    if (path.startsWith('/bons/stats')) {
-      return Promise.resolve({
-        waitingSignature: 0, active: 0, overdue: 0, total: 0,
-        archivedThisMonth: 0, partiallyReturned: 0, byFiliale: [],
-      });
-    }
+    if (path.startsWith('/kpi/aujourdhui')) return Promise.resolve(todayFixture());
     if (path.startsWith('/bons/recent')) return Promise.resolve([]);
     if (path.startsWith('/filiales/active')) return Promise.resolve([]);
     return Promise.resolve(null);
@@ -72,7 +68,7 @@ describe('DashboardPage', () => {
 
     // Laisse les appels de TodayTab se résoudre pour ne pas terminer le test
     // avec une mise à jour d'état en attente.
-    await screen.findByText('Bons ouverts');
+    await screen.findByText('Signatures attendues');
   });
 
   it('selects "Délais" when ?tab=delais is present in the URL', async () => {

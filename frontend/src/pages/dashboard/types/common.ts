@@ -28,6 +28,8 @@ export interface SeriesPoint {
 
 /** Champs communs à toutes les enveloppes /kpi/*. */
 export interface KpiEnvelope {
+  /** Instant du calcul (date-heure ISO) : date des états du jour. */
+  asOf: string;
   period: PeriodInfo;
   previous: PreviousRange;
   filialeId: string | null;

@@ -4,10 +4,10 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/StatusBadge';
 import { cn } from '@/lib/utils';
 import { formatDate } from '@/lib/dates';
-import { formatDays } from '@/lib/kpi-format';
+import { ageLabel } from '@/pages/dashboard/lib/kpi-scope';
 import { AlertTriangle, Boxes, X } from 'lucide-react';
 import { isOverdue } from './isOverdue';
-import { daysOverdue, daysSince } from './dateMetrics';
+import { daysOverdue } from './dateMetrics';
 import { InventorySortHeader } from './InventorySortHeader';
 import { InventoryRowActions } from './InventoryRowActions';
 import type { EquipmentSituation, InventoryItem, InventorySort, InventorySortField } from './types';
@@ -212,7 +212,7 @@ export function InventoryTable({
                     <td className="px-4 py-3.5 hidden lg:table-cell whitespace-nowrap">
                       <div className="text-muted-foreground">{formatDate(it.dateMiseDisposition)}</div>
                       <div className="text-xs text-muted-foreground/70 mt-0.5">
-                        {`il y a ${formatDays(daysSince(it.dateMiseDisposition))}`}
+                        {ageLabel(it.dateMiseDisposition)}
                       </div>
                     </td>
                     <td className={`px-4 py-3.5 hidden xl:table-cell whitespace-nowrap ${overdue ? 'text-destructive font-medium' : 'text-muted-foreground'}`}>

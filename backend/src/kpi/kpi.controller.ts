@@ -7,6 +7,8 @@ import { KpiCacheService } from './kpi-cache.service';
 import { KpiParcService } from './kpi-parc.service';
 import { KpiDelaisService } from './kpi-delais.service';
 import { KpiIncidentsService } from './kpi-incidents.service';
+import { KpiTodayService } from './kpi-today.service';
+import { KpiTodayResponse } from './today/today-types';
 import { resolvePeriod, KpiPeriod } from './kpi-period';
 import { KpiParcResponse, KpiDelaisResponse, KpiIncidentsResponse } from './kpi-types';
 
@@ -16,8 +18,9 @@ export function cacheKey(endpoint: string, period: KpiPeriod, filialeId?: string
   return `kpi:${endpoint}:${period.from}:${period.to}:${filialeId ?? ''}`;
 }
 
-/** Tableau de bord KPI : parc prêté, délais de traitement, incidents.
- *  Accessible à l'IT (admin, technician) et au rôle Direction (lecture seule). */
+/** Tableau de bord : accueil IT (`aujourdhui`), parc, délais, incidents.
+ *  Parc, délais et incidents : IT (admin, technician) et Direction (lecture
+ *  seule) ; l'accueil : IT seulement. */
 @Controller('kpi')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('admin', 'technician', 'direction')
@@ -27,7 +30,17 @@ export class KpiController {
     private readonly parcService: KpiParcService,
     private readonly delaisService: KpiDelaisService,
     private readonly incidentsService: KpiIncidentsService,
+    private readonly todayService: KpiTodayService,
   ) {}
+
+  /** Accueil IT « Aujourd'hui » : états du jour, sans période ni cache (la
+   *  tuile doit concorder avec la liste ouverte au moment du clic). La
+   *  direction n'a pas cet onglet : ses lignes mènent à des bons. */
+  @Get('aujourdhui')
+  @Roles('admin', 'technician')
+  getToday(): Promise<KpiTodayResponse> {
+    return this.todayService.getToday();
+  }
 
   @Get('parc')
   getParc(@Query() query: KpiQueryDto): Promise<KpiParcResponse> {

@@ -9,13 +9,15 @@ import type {
   ContestationListBon,
   ContestationListItem,
   ContestationListResponse,
-  CorrectedBonRef,
   CreateContestationResponse,
+  MyContestation,
+  ReplacementBonRef,
   ResolveContestationResponse,
   ReviewContestationResponse,
 } from '../../../src/contracts/contestations';
 import type {
   CompletedLinkSignature,
+  RequestNewLinkResponse,
   PendingLinkSignature,
   SignatureAlreadySignedResponse,
   SignatureBonClosedResponse,
@@ -25,8 +27,13 @@ import type {
   SignatureUnauthorizedResponse,
   SignDocumentResponse,
 } from '../../../src/contracts/signature';
-import { bonStatus, contestationStatus } from '../support/common-shapes';
-import { arrayOf, bool, int, isoDate, literal, nullable, object, str, uuid } from '../support/shape';
+import {
+  bonStatus,
+  contestationOutcome,
+  contestationStatus,
+  signatureInvalidationReason,
+} from '../support/common-shapes';
+import { arrayOf, bool, int, isoDate, literal, nullable, object, optional, str, uuid } from '../support/shape';
 import { bonForSignature, safeSignatureFields, signaturePdfType } from './bons';
 
 // ─── Signature par lien ───────────────────────────────────────────────────────
@@ -46,9 +53,23 @@ export const signatureAlreadySigned = object<SignatureAlreadySignedResponse>({
   bonId: uuid,
 });
 
-export const signatureReplaced = object<SignatureReplacedResponse>({ status: literal('replaced'), reference: str });
+export const signatureReplaced = object<SignatureReplacedResponse>({
+  status: literal('replaced'),
+  reference: str,
+  invalidatedReason: optional(nullable(signatureInvalidationReason)),
+});
 
-export const signatureExpired = object<SignatureExpiredResponse>({ status: literal('expired'), reference: str });
+export const signatureExpired = object<SignatureExpiredResponse>({
+  status: literal('expired'),
+  reference: str,
+  newLinkRequestedAt: optional(nullable(isoDate)),
+});
+
+export const requestNewLink = object<RequestNewLinkResponse>({
+  ok: literal(true),
+  status: literal('requested', 'already_requested'),
+  requestedAt: isoDate,
+});
 
 export const signaturePending = object<SignaturePendingResponse>({
   status: literal('pending'),
@@ -80,7 +101,13 @@ const contestationColumns = {
   userId: uuid,
   message: str,
   status: contestationStatus,
+  previousBonStatus: nullable(bonStatus),
+  contestedDocument: nullable(linkSignatureType),
+  outcome: nullable(contestationOutcome),
+  reviewedById: nullable(uuid),
+  reviewedAt: nullable(isoDate),
   resolvedById: nullable(uuid),
+  resolvedAt: nullable(isoDate),
   resolutionMessage: nullable(str),
   createdAt: isoDate,
   updatedAt: isoDate,
@@ -89,19 +116,25 @@ const contestationColumns = {
 const author = object<ContestationAuthor>({ id: uuid, displayName: str, email: nullable(str) });
 const handler = object<ContestationHandler>({ id: uuid, displayName: str });
 const bonRef = object<ContestationBonRef>({ id: uuid, reference: str });
+const bonWithStatus = object<ContestationBonWithStatus>({ id: uuid, reference: str, status: bonStatus });
+
+const people = {
+  user: author,
+  reviewedBy: nullable(handler),
+  resolvedBy: nullable(handler),
+};
 
 export const contestationList = object<ContestationListResponse>({
   contestations: arrayOf(
     object<ContestationListItem>({
       ...contestationColumns,
+      ...people,
       bon: object<ContestationListBon>({
         id: uuid,
         reference: str,
         status: bonStatus,
         filiale: object<ContestationListBon['filiale']>({ displayName: str }),
       }),
-      user: author,
-      resolvedBy: nullable(handler),
     }),
     { minLength: 1 },
   ),
@@ -109,32 +142,59 @@ export const contestationList = object<ContestationListResponse>({
   page: int,
   limit: int,
   openCount: int,
+  pendingCount: int,
+  overdueCount: int,
+  overdueAfterDays: int,
+  overdueSince: isoDate,
 });
+
+export const myContestations = arrayOf(
+  object<MyContestation>({
+    id: uuid,
+    bon: bonRef,
+    contestedDocument: nullable(linkSignatureType),
+    message: str,
+    status: contestationStatus,
+    outcome: nullable(contestationOutcome),
+    createdAt: isoDate,
+    reviewedAt: nullable(isoDate),
+    resolvedAt: nullable(isoDate),
+    resolutionMessage: nullable(str),
+    replacementBon: nullable(bonRef),
+  }),
+  { minLength: 1 },
+);
 
 export const createContestation = object<CreateContestationResponse>({
   ...contestationColumns,
   status: literal('open'),
+  contestedDocument: linkSignatureType,
+  previousBonStatus: bonStatus,
   bon: bonRef,
   user: author,
 });
 
 export const reviewContestation = object<ReviewContestationResponse>({
   ...contestationColumns,
+  ...people,
   status: literal('in_review'),
-  resolvedById: uuid,
-  bon: bonRef,
-  user: author,
-  resolvedBy: handler,
+  reviewedById: uuid,
+  reviewedAt: isoDate,
+  reviewedBy: handler,
+  bon: bonWithStatus,
 });
 
 export const resolveContestation = object<ResolveContestationResponse>({
   ...contestationColumns,
+  ...people,
   status: literal('resolved', 'rejected'),
+  outcome: contestationOutcome,
   resolvedById: uuid,
-  bon: object<ContestationBonWithStatus>({ id: uuid, reference: str, status: bonStatus }),
-  user: author,
+  resolvedAt: isoDate,
   resolvedBy: handler,
-  correctedBon: nullable(object<CorrectedBonRef>({ id: uuid, reference: str })),
+  bon: bonWithStatus,
+  replacementBon: nullable(object<ReplacementBonRef>({ id: uuid, reference: str, status: bonStatus })),
+  reopenedDocument: nullable(literal('restitution', 'pv_cloture')),
 });
 
 // ─── Pièces jointes ───────────────────────────────────────────────────────────

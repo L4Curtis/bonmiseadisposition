@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { AppConfigService } from '../config/config.service';
 import { KpiPeriod, buildBuckets, fillSeries } from './kpi-period';
 import {
   KpiParcResponse,
@@ -41,8 +40,12 @@ import {
 } from './kpi-parc.queries';
 
 /**
- * `GET /kpi/parc` — parc en circulation (définition élargie, cf.
- * PARC_BON_STATUSES dans bon-predicates.ts), retards de restitution, non-rendus.
+ * `GET /kpi/parc` — parc en circulation (cf. PARC_BON_STATUSES dans
+ * bon-predicates.ts), « Retour en retard », non-restitutions.
+ *
+ * États du jour (non filtrés par la période) : `loaned` (sauf `series`),
+ * `returnOverdue`, `notReturned.openNow`. Flux sur la période : `series`,
+ * `notReturned.declared/found/closedBonsShare`.
  *
  * Chaque bloc de la réponse est calculé par une requête SQL dédiée
  * (`Prisma.sql`, jamais de concaténation), exécutées en parallèle. Toutes
@@ -57,12 +60,9 @@ import {
  */
 @Injectable()
 export class KpiParcService {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly configService: AppConfigService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  async getParc(period: KpiPeriod, filialeId?: string): Promise<KpiParcResponse> {
+  async getParc(period: KpiPeriod, filialeId?: string, now: Date = new Date()): Promise<KpiParcResponse> {
     const currentRange = { from: period.from, to: period.to };
 
     const [
@@ -114,6 +114,7 @@ export class KpiParcService {
     const overdueAggregate = overdueAggregateRows[0];
 
     return {
+      asOf: now.toISOString(),
       period: { from: period.from, to: period.to, granularity: period.granularity, days: period.days },
       previous: { from: period.previous.from, to: period.previous.to },
       filialeId: filialeId ?? null,

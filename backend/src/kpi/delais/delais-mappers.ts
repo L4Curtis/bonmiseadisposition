@@ -36,9 +36,9 @@ import {
 const WORKFLOW_STEP_ORDER: readonly WaitingStepId[] = ['mise_disposition', 'restitution', 'pv_cloture'];
 
 const WAITING_STEP_LABELS: Record<WaitingStepId, string> = {
-  mise_disposition: 'Signature mise à disposition',
-  restitution: 'Signature restitution',
-  pv_cloture: 'PV de non-restitution',
+  mise_disposition: 'Remise à signer',
+  restitution: 'Restitution à signer',
+  pv_cloture: 'PV de non-restitution à signer',
 };
 
 const EMPTY_METRICS: SendToSignatureMetrics = {

@@ -41,7 +41,7 @@ export class KpiDelaisService {
     private readonly configService: AppConfigService,
   ) {}
 
-  async getDelais(period: KpiPeriod, filialeId?: string): Promise<KpiDelaisResponse> {
+  async getDelais(period: KpiPeriod, filialeId?: string, now: Date = new Date()): Promise<KpiDelaisResponse> {
     const thresholdDays = await this.configService.getSignatureOverdueDays();
     const current: DelaisRange = { from: period.from, to: period.to };
     const previous: DelaisRange = { from: period.previous.from, to: period.previous.to };
@@ -73,7 +73,7 @@ export class KpiDelaisService {
       querySendToSignature(this.prisma, previous, filialeId),
       queryLoanDuration(this.prisma, current, filialeId),
       queryLoanDuration(this.prisma, previous, filialeId),
-      queryWaitingSteps(this.prisma, thresholdDays, filialeId),
+      queryWaitingSteps(this.prisma, thresholdDays, now, filialeId),
     ]);
 
     const { sendToSignature, signatureMode } = buildSendToSignature(
@@ -82,6 +82,7 @@ export class KpiDelaisService {
     );
 
     return {
+      asOf: now.toISOString(),
       period: { from: period.from, to: period.to, granularity: period.granularity, days: period.days },
       previous: { from: period.previous.from, to: period.previous.to },
       filialeId: filialeId ?? null,

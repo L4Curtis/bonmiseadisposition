@@ -137,6 +137,20 @@ export interface EquipmentHistoryBon {
   };
 }
 
+/** Situation de l'équipement sur ce bon (backend/src/equipment/equipment-holding.ts) :
+ *  `planned` brouillon (rien de remis), `handover_to_sign` remis, remise à
+ *  signer, `with_collaborateur` chez le collaborateur, `returned` rendu,
+ *  `not_returned` déclaré non restitué, `cancelled` bon annulé, `closed` bon
+ *  clôturé sans trace de retour. */
+export type EquipmentHolding =
+  | 'planned'
+  | 'handover_to_sign'
+  | 'with_collaborateur'
+  | 'returned'
+  | 'not_returned'
+  | 'cancelled'
+  | 'closed';
+
 /** Une apparition du matériel sur un bon. */
 export interface EquipmentHistoryEntry {
   /** Identifiant de la ligne `bon_equipments`. */
@@ -148,6 +162,7 @@ export interface EquipmentHistoryEntry {
   label: string | null;
   returnedAt: IsoDateTime | null;
   notReturned: boolean;
+  holding: EquipmentHolding;
   bon: EquipmentHistoryBon;
 }
 

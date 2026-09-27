@@ -1,299 +1,73 @@
-import { useMemo } from 'react';
 import { useNavigate } from 'react-router';
-import {
-  FileText, Clock, CheckCircle, AlertTriangle, Plus,
-  Building2, ArrowRight, Archive, RotateCcw, UserX,
-} from 'lucide-react';
+import { Building2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/skeleton';
-import { StatusBadge } from '@/components/StatusBadge';
-import { StatCard, StatCardSkeleton, type StatCardProps } from '@/components/dashboard/StatCard';
 import { BreakdownBars } from '@/components/dashboard/BreakdownBars';
-import { staggerClass } from '@/components/dashboard/stagger';
 import { useApiResource } from '@/hooks/use-api-resource';
-import { formatDate } from '@/lib/dates';
-import { BON_STATUS_LABELS, LATENESS_LABELS } from '@/domain/labels';
-import { isWaitingStatus, type SignatureSummary } from '@/lib/bon-helpers';
-import type { BonStatus } from '@/types';
-import type { CollaborateurInventoryResponse } from '@/pages/inventaire/types';
+import type { KpiTodayResponse } from '@/contracts/kpi';
+import { asOfLabel, countWithUnit, UNITS } from '../lib/kpi-scope';
 import { ActionableTasksCard } from './today/ActionableTasksCard';
+import { RecentBonsCard } from './today/RecentBonsCard';
 import { ScheduledJobsAlert } from './today/ScheduledJobsAlert';
+import { TodayTiles } from './today/TodayTiles';
+import { openBonsOfFiliale } from './today/today-links';
 
-const DEFAULT_OVERDUE_THRESHOLD_DAYS = 7;
-
-interface Stats {
-  waitingSignature: number;
-  active: number;
-  overdue: number;
-  total: number;
-  archivedThisMonth: number;
-  partiallyReturned: number;
-  /** Ajouté par le backend (lot 1) ; 7 par défaut en attendant. */
-  overdueThresholdDays?: number;
-  byFiliale: { id: string; name: string; count: number }[];
-}
-
-interface RecentBon {
-  id: string;
-  reference: string;
-  status: BonStatus;
-  dateMiseDisposition: string;
-  updatedAt: string;
-  collaborateur: { displayName: string; email: string };
-  filiale: { displayName: string };
-  signatures: SignatureSummary[];
-}
-
-function isOverdue(bon: RecentBon, thresholdDays: number): boolean {
-  if (!isWaitingStatus(bon.status)) return false;
-  return new Date(bon.updatedAt) < new Date(Date.now() - thresholdDays * 24 * 60 * 60 * 1000);
-}
-
-function RecentListSkeleton() {
-  return (
-    <div className="divide-y divide-border">
-      {Array.from({ length: 5 }).map((_, i) => (
-        <div key={i} className="flex items-center gap-4 px-5 py-3.5">
-          <Skeleton className="h-5 w-24 rounded" />
-          <Skeleton className="h-4 w-36" />
-          <Skeleton className="ml-auto h-5 w-20 rounded-full" />
-          <Skeleton className="h-4 w-20" />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function FilialeSkeleton() {
-  return (
-    <div className="divide-y divide-border">
-      {Array.from({ length: 4 }).map((_, i) => (
-        <div key={i} className="space-y-2.5 px-5 py-3.5">
-          <div className="flex items-center justify-between">
-            <Skeleton className="h-3.5 w-32" />
-            <Skeleton className="h-5 w-8 rounded-full" />
-          </div>
-          <Skeleton className="h-1.5 w-full rounded-full" />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/** Onglet « Aujourd'hui » — contenu du tableau de bord IT d'origine, déplacé
- *  tel quel mais avec deux `useApiResource` indépendants : les tuiles et la
- *  liste des bons récents ont chacune leur propre chargement/erreur. */
+/**
+ * Onglet « Aujourd'hui » (IT) : états du jour, jamais filtrés par une période
+ * (`GET /kpi/aujourdhui`). Chaque tuile et chaque ligne mène à la liste ou au
+ * bon qu'elle compte. Sur téléphone, « À traiter » passe en premier.
+ */
 export function TodayTab() {
   const navigate = useNavigate();
-
-  const { data: stats, loading: statsLoading, error: statsError, reload: reloadStats } =
-    useApiResource<Stats>('/bons/stats', 'Erreur lors du chargement des statistiques');
-  const { data: recent, loading: recentLoading, error: recentError, reload: reloadRecent } =
-    useApiResource<RecentBon[]>('/bons/recent?limit=10', 'Erreur lors du chargement des bons récents');
-  // Lot D1 (départ d'un collaborateur) : chargement indépendant — sa propre
-  // erreur ne doit pas bloquer le reste de l'onglet, et la tuile n'existe
-  // (cf. statCards ci-dessous) que si le nombre concerné est strictement
-  // positif : contrairement aux autres tuiles, une alerte à 0 n'a pas sa place.
-  const { data: departures } = useApiResource<CollaborateurInventoryResponse>(
-    '/reporting/inventory/by-collaborateur?compte=inactif&limit=1',
-    'Erreur lors du chargement des départs avec matériel',
+  const { data, loading, error, reload } = useApiResource<KpiTodayResponse>(
+    '/kpi/aujourdhui',
+    "Erreur lors du chargement de l'accueil",
   );
-  const departureCount = departures?.total ?? 0;
 
-  const thresholdDays = stats?.overdueThresholdDays ?? DEFAULT_OVERDUE_THRESHOLD_DAYS;
-
-  const statCards: Array<StatCardProps & { key: string }> = useMemo(() => [
-    {
-      key: 'total',
-      label: 'Bons ouverts',
-      value: stats?.total ?? null,
-      icon: FileText,
-      onClick: () => navigate('/bons?excludeStatus=cancelled,archived'),
-    },
-    {
-      key: 'waiting',
-      label: 'Signatures attendues',
-      value: stats?.waitingSignature ?? null,
-      icon: Clock,
-      onClick: () => navigate('/bons?status=sent_mise_dispo,sent_restitution,partially_returned'),
-    },
-    {
-      key: 'active',
-      label: 'Bons en cours',
-      value: stats?.active ?? null,
-      icon: CheckCircle,
-      onClick: () => navigate('/bons?status=active'),
-    },
-    {
-      key: 'partial',
-      label: BON_STATUS_LABELS.partially_returned,
-      value: stats?.partiallyReturned ?? null,
-      icon: RotateCcw,
-      onClick: () => navigate('/bons?status=partially_returned'),
-    },
-    {
-      key: 'archived',
-      label: 'Clôturés ce mois',
-      value: stats?.archivedThisMonth ?? null,
-      icon: Archive,
-      onClick: () => navigate('/bons?status=archived'),
-    },
-    {
-      key: 'overdue',
-      label: `${LATENESS_LABELS.signature} (> ${thresholdDays} j)`,
-      value: stats?.overdue ?? null,
-      icon: AlertTriangle,
-      tone: 'danger',
-      onClick: () => navigate('/bons?overdue=1'),
-    },
-    // Lot D1 : alerte, pas erreur (--warning) — absente tant qu'aucun
-    // collaborateur n'est concerné, contrairement aux autres tuiles.
-    ...(departureCount > 0 ? [{
-      key: 'departures',
-      label: 'Départs avec matériel',
-      value: departureCount,
-      icon: UserX,
-      tone: 'warning' as const,
-      onClick: () => navigate('/inventaire?vue=collaborateurs&compte=inactif'),
-    }] : []),
-  ], [stats, thresholdDays, departureCount, navigate]);
-
-  const breakdownRows = (stats?.byFiliale ?? []).map((f) => ({
+  const filialeRows = (data?.openBonsByFiliale ?? []).map((f) => ({
     key: f.id,
     label: f.name,
     count: f.count,
-    onClick: () => navigate(`/bons?filialeId=${f.id}`),
+    onClick: () => navigate(openBonsOfFiliale(f.id)),
   }));
 
   return (
-    <div className="space-y-6">
-      {/* ── Tâches planifiées en échec (lot E3) — invisible si tout va bien ── */}
+    <div className="space-y-5 sm:space-y-6">
       <ScheduledJobsAlert />
 
-      {/* ── KPI cards ──
-          lg:grid-cols-4 (et non 3) : sept tuiles en 3 colonnes laissent la
-          dernière orpheline sur sa propre ligne (3 + 3 + 1). En 4 colonnes,
-          6 ou 7 tuiles se répartissent en 4 + 2 ou 4 + 3 — jamais de ligne à
-          un seul élément, même principe que les tuiles « Volumes » de
-          l'onglet Délais (DelaisTab, 4 colonnes). */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {statsLoading ? (
-          Array.from({ length: 6 }).map((_, i) => <StatCardSkeleton key={i} />)
-        ) : statsError ? (
-          <div className="col-span-full flex flex-col items-center gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-6 text-center">
-            <p className="text-sm text-destructive">{statsError}</p>
-            <Button type="button" variant="outline" size="sm" onClick={reloadStats}>Réessayer</Button>
+      {error ? (
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-6 text-center">
+          <p className="text-sm text-destructive">{error}</p>
+          <Button type="button" variant="outline" size="sm" onClick={reload}>Réessayer</Button>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-5 sm:gap-6">
+          {/* Téléphone : le travail du jour d'abord, les compteurs ensuite. */}
+          <div className="order-2 md:order-1">
+            <TodayTiles data={data} loading={loading} />
           </div>
-        ) : (
-          statCards.map((card, index) => {
-            const { key, ...cardProps } = card;
-            return <StatCard key={key} {...cardProps} className={staggerClass(index)} />;
-          })
-        )}
-      </div>
+          <div className="order-1 md:order-2">
+            <ActionableTasksCard data={data} loading={loading} />
+          </div>
+        </div>
+      )}
 
-      {/* ── À traiter aujourd'hui (lot E1) : du compteur à l'action ── */}
-      <ActionableTasksCard />
-
-      {/* ── Bottom grid ── */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <RecentBonsCard />
 
-        {/* Bons récents – spans 2/3 */}
-        <div className="overflow-hidden rounded-xl border border-border bg-card card-elevated lg:col-span-2">
-          <div className="flex items-center justify-between border-b border-border px-5 py-4">
-            <h3 className="text-sm font-semibold text-foreground">Bons récents</h3>
-            <button
-              onClick={() => navigate('/bons')}
-              className="flex items-center gap-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
-            >
-              Voir tout
-              <ArrowRight className="h-3.5 w-3.5" />
-            </button>
-          </div>
-
-          {recentLoading ? (
-            <RecentListSkeleton />
-          ) : recentError ? (
-            <div className="flex flex-col items-center justify-center py-16 text-center">
-              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
-                <AlertTriangle className="h-6 w-6 text-destructive" />
-              </div>
-              <p className="mb-1 text-sm font-medium text-foreground/80">Erreur de chargement</p>
-              <p className="max-w-xs text-xs text-muted-foreground/70">{recentError}</p>
-              <Button variant="outline" size="sm" onClick={reloadRecent} className="mt-4">
-                Réessayer
-              </Button>
-            </div>
-          ) : !recent || recent.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-center">
-              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-                <FileText className="h-6 w-6 text-muted-foreground/70" />
-              </div>
-              <p className="text-sm font-medium text-foreground/80">Aucun bon créé pour l&apos;instant</p>
-              <p className="mt-1 text-xs text-muted-foreground/70">Commencez par créer un premier bon de mise à disposition.</p>
-              <Button variant="outline" size="sm" onClick={() => navigate('/bons/new')} className="mt-4 gap-1.5">
-                <Plus className="h-3.5 w-3.5" />
-                Créer un bon
-              </Button>
-            </div>
-          ) : (
-            <div className="divide-y divide-border">
-              {recent.map((bon, index) => {
-                const late = isOverdue(bon, thresholdDays);
-                return (
-                  <button
-                    key={bon.id}
-                    className={`group flex w-full cursor-pointer items-center gap-4 px-5 py-3.5 text-left transition-colors hover:bg-muted/40 ${staggerClass(index)}`}
-                    onClick={() => navigate(`/bons/${bon.id}`)}
-                  >
-                    <span className="shrink-0 rounded bg-muted px-2 py-1 font-mono text-xs font-semibold text-foreground/80 transition-colors group-hover:bg-muted">
-                      {bon.reference}
-                    </span>
-
-                    <span className="min-w-0 flex-1 truncate text-sm text-foreground/80">
-                      {bon.collaborateur.displayName}
-                    </span>
-
-                    <span className="shrink-0">
-                      <StatusBadge status={bon.status} signatures={bon.signatures} />
-                    </span>
-
-                    {late && (
-                      <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-destructive">
-                        <AlertTriangle className="h-3 w-3" />
-                        {LATENESS_LABELS.signature}
-                      </span>
-                    )}
-
-                    <span className="shrink-0 text-xs text-muted-foreground/70">
-                      {formatDate(bon.dateMiseDisposition)}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* Par filiale – spans 1/3 */}
         <div className="overflow-hidden rounded-xl border border-border bg-card card-elevated">
-          <div className="flex items-center gap-2 border-b border-border px-5 py-4">
-            <Building2 className="h-4 w-4 text-muted-foreground/70" />
-            <h3 className="text-sm font-semibold text-foreground">Bons actifs par filiale</h3>
+          <div className="border-b border-border px-4 py-3 sm:px-5">
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <Building2 className="h-4 w-4 text-muted-foreground/70" aria-hidden="true" />
+              Bons ouverts par filiale
+            </h3>
+            {data && (
+              <p className="mt-0.5 text-[11px] text-muted-foreground/70">
+                {`${countWithUnit(data.openBons, UNITS.bons)} ni clôturés ni annulés, ${asOfLabel(data.asOf)}`}
+              </p>
+            )}
           </div>
-
-          {statsLoading ? (
-            <FilialeSkeleton />
-          ) : statsError ? (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-              <Building2 className="mb-2 h-8 w-8 text-muted-foreground/70" />
-              <p className="text-xs text-muted-foreground/70">Données indisponibles</p>
-            </div>
-          ) : (
-            <BreakdownBars rows={breakdownRows} />
-          )}
+          <BreakdownBars rows={filialeRows} emptyMessage="Aucun bon ouvert" />
         </div>
-
       </div>
     </div>
   );

@@ -5,17 +5,20 @@ export interface ReasonCount {
   count: number;
 }
 
-export interface UnilateralClosures {
-  count: Compared;
-  reasons: ReasonCount[];
+export interface WithoutSignature {
+  handovers: Compared;
+  closures: Compared;
+  handoverReasons: ReasonCount[];
+  closureReasons: ReasonCount[];
 }
 
 export interface Contestations {
-  opened: Compared;
-  openNow: number;
-  closed: Compared;
+  received: Compared;
+  toProcess: number;
+  decided: Compared;
+  founded: Compared;
+  notRetained: Compared;
   resolutionMedianDays: Compared<number | null>;
-  acceptanceRate: Compared<number | null>;
 }
 
 export interface ReminderRank {
@@ -27,14 +30,14 @@ export interface ReminderRank {
 
 export interface Reminders {
   byRank: ReminderRank[];
-  bonsWithThreeOrMore: Compared;
+  documentsWithThreeOrMore: Compared;
 }
 
 /** GET /kpi/incidents */
 export interface IncidentsKpiResponse extends KpiEnvelope {
-  notReturned: { declared: Compared; found: Compared };
+  notReturned: { declared: Compared; found: Compared; stillMissing: number };
   pvCloture: { emitted: Compared };
-  unilateralClosures: UnilateralClosures;
+  withoutSignature: WithoutSignature;
   cancellations: { count: Compared };
   contestations: Contestations;
   reminders: Reminders;

@@ -3,7 +3,7 @@ import { cloneElement, isValidElement } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
-import type { IncidentsKpiResponse } from '../../types/incidents';
+import { incidentsFixture } from '../../__tests__/kpi-fixtures';
 import { IncidentsTab } from '../IncidentsTab';
 
 // jsdom ne calcule pas de mise en page réelle : ResponsiveContainer est
@@ -60,134 +60,66 @@ vi.mock('@/contexts/AuthContext', () => ({
   }),
 }));
 
-const fixture: IncidentsKpiResponse = {
-  period: { from: '2026-08-18', to: '2026-09-17', granularity: 'day', days: 30 },
-  previous: { from: '2026-07-19', to: '2026-08-17' },
-  filialeId: null,
-  notReturned: { declared: { current: 4, previous: 6 }, found: { current: 1, previous: 2 } },
-  pvCloture: { emitted: { current: 3, previous: 2 } },
-  unilateralClosures: {
-    count: { current: 2, previous: 0 },
-    reasons: [
-      { reason: 'Collaborateur parti', count: 2 },
-      { reason: 'Non renseigné', count: 1 },
-    ],
-  },
-  cancellations: { count: { current: 3, previous: 1 } },
-  contestations: {
-    opened: { current: 2, previous: 1 },
-    openNow: 1,
-    closed: { current: 2, previous: 1 },
-    resolutionMedianDays: { current: 1.5, previous: 3 },
-    acceptanceRate: { current: 0.5, previous: 1 },
-  },
-  reminders: {
-    byRank: [
-      { rank: 1, sent: { current: 20, previous: 25 }, signedAfter: { current: 8, previous: 9 }, efficiency: 0.4 },
-      { rank: 2, sent: { current: 12, previous: 10 }, signedAfter: { current: 5, previous: 4 }, efficiency: 0.4167 },
-      { rank: 3, sent: { current: 5, previous: 6 }, signedAfter: { current: 1, previous: 2 }, efficiency: 0.2 },
-    ],
-    bonsWithThreeOrMore: { current: 3, previous: 5 },
-  },
-  failedEmails: { count: { current: 3, previous: 1 } },
-};
+const ROUTE = '/dashboard?from=2026-08-27&to=2026-09-25';
 
 beforeEach(() => {
   vi.resetAllMocks();
   mockRole = 'admin';
 });
 
+function mockGet(path: string, body: unknown) {
+  vi.mocked(api.get).mockImplementation((p: string) => (p.startsWith(path) ? Promise.resolve(body) : Promise.resolve([])));
+}
+
 describe('IncidentsTab', () => {
-  it('calls /kpi/incidents with from/to/filialeId in the URL', async () => {
-    vi.mocked(api.get).mockResolvedValue(fixture);
-
-    renderWithProviders(<IncidentsTab />, { route: '/dashboard?tab=incidents&from=2026-08-18&to=2026-09-17&filialeId=fil-1' });
-
-    await screen.findByText('Non restitués déclarés');
-    expect(api.get).toHaveBeenCalledTimes(1);
-    const calledPath = vi.mocked(api.get).mock.calls[0][0] as string;
-    expect(calledPath).toContain('/kpi/incidents?');
-    expect(calledPath).toContain('from=2026-08-18');
-    expect(calledPath).toContain('to=2026-09-17');
-    expect(calledPath).toContain('filialeId=fil-1');
+  it('appelle /kpi/incidents avec la période et la filiale', async () => {
+    mockGet('/kpi/incidents', incidentsFixture());
+    renderWithProviders(<IncidentsTab />, { route: `${ROUTE}&filialeId=f1` });
+    await screen.findByText('État du jour');
+    expect(api.get).toHaveBeenCalledWith('/kpi/incidents?from=2026-08-27&to=2026-09-25&filialeId=f1');
   });
 
-  it('renders the 6 stat tiles with values, the "en cours" hint, and deltas', async () => {
-    vi.mocked(api.get).mockResolvedValue(fixture);
-
-    renderWithProviders(<IncidentsTab />);
-
-    expect(await screen.findByText('Non restitués déclarés')).toBeInTheDocument();
-    expect(screen.getByText('4')).toBeInTheDocument();
-    expect(screen.getByText('Retrouvés')).toBeInTheDocument();
-    expect(screen.getByText('PV de non-restitution émis')).toBeInTheDocument();
-    expect(screen.getByText('Clôtures unilatérales')).toBeInTheDocument();
-    expect(screen.getByText('Annulations')).toBeInTheDocument();
-    expect(screen.getByText('Contestations ouvertes')).toBeInTheDocument();
-
-    // hint « n en cours » dérivé de contestations.openNow
-    expect(screen.getByText('1 en cours')).toBeInTheDocument();
-
-    // deltas vs période précédente (calculés par StatCard/computeDelta)
-    expect(screen.getAllByText(/% vs période précédente/).length).toBeGreaterThan(0);
+  it('compte des équipements, sépare remises et clôtures sans signature, contestations reçues et à traiter', async () => {
+    mockGet('/kpi/incidents', incidentsFixture());
+    renderWithProviders(<IncidentsTab />, { route: ROUTE });
+    expect(await screen.findByLabelText(/^Encore non restitués : 2 équipements, au 25\/09/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Équipements déclarés non restitués : 3 équipements, du 27\/08/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Remises constatées sans signature : 1 bon,/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Clôturés sans signature : 1 bon,/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Contestations reçues : 3 contestations,/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /^Contestations à traiter : 1 contestation, au 25\/09/ }))
+      .toHaveAttribute('href', '/admin/contestations?aTraiter=1');
+    expect(screen.getByText('Tablette en panne')).toBeInTheDocument();
+    expect(screen.getByText('Parti avant de signer')).toBeInTheDocument();
+    expect(screen.queryByText(/unilatérale|Taux d'acceptation/)).not.toBeInTheDocument();
   });
 
-  it('shows the monitoring link on "Emails en échec" for an admin, but not for a technician', async () => {
-    vi.mocked(api.get).mockResolvedValue(fixture);
-
-    const { rerender } = renderWithProviders(<IncidentsTab />);
-    expect(await screen.findByText('Emails en échec')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Voir le monitoring' })).toHaveAttribute('href', '/admin/configuration/monitoring');
-
-    mockRole = 'technician';
-    rerender(<IncidentsTab />);
-    await screen.findByText('Emails en échec');
-    expect(screen.queryByRole('link', { name: 'Voir le monitoring' })).not.toBeInTheDocument();
+  it('issues Fondée / Non retenue', async () => {
+    mockGet('/kpi/incidents', incidentsFixture());
+    renderWithProviders(<IncidentsTab />, { route: ROUTE });
+    expect(await screen.findByLabelText(/^Fondée : 1 contestation/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Non retenue : 1 contestation/)).toBeInTheDocument();
   });
 
-  it('renders the card titles', async () => {
-    vi.mocked(api.get).mockResolvedValue(fixture);
-
-    renderWithProviders(<IncidentsTab />);
-
-    expect(await screen.findByText('Contestations')).toBeInTheDocument();
-    expect(screen.getByText('Rappels par rang')).toBeInTheDocument();
-    expect(screen.getByText('Motifs de clôture unilatérale')).toBeInTheDocument();
+  it('rappels : message plutôt qu’un graphique vide quand aucun rappel n’est parti', async () => {
+    const data = incidentsFixture();
+    mockGet('/kpi/incidents', {
+      ...data,
+      reminders: { ...data.reminders, byRank: data.reminders.byRank.map((r) => ({ ...r, sent: { current: 0, previous: 0 } })) },
+    });
+    renderWithProviders(<IncidentsTab />, { route: ROUTE });
+    expect(await screen.findByText('Aucun rappel envoyé sur la période.')).toBeInTheDocument();
   });
 
-  it('renders the 3 reminder ranks with sent/signedAfter values and the summary tiles', async () => {
-    vi.mocked(api.get).mockResolvedValue(fixture);
-
-    renderWithProviders(<IncidentsTab />);
-
-    expect((await screen.findAllByText('1er rappel')).length).toBeGreaterThan(0);
-    expect(screen.getAllByText('2e rappel').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('3e rappel').length).toBeGreaterThan(0);
-
-    expect(screen.getByText('Efficacité du 1er rappel')).toBeInTheDocument();
-    expect(screen.getByText('Bons avec ≥ 3 rappels')).toBeInTheDocument();
-  });
-
-  it('lists the unilateral closure reasons', async () => {
-    vi.mocked(api.get).mockResolvedValue(fixture);
-
-    renderWithProviders(<IncidentsTab />);
-
-    expect(await screen.findByText('Collaborateur parti')).toBeInTheDocument();
-    expect(screen.getByText('Non renseigné')).toBeInTheDocument();
-  });
-
-  it('shows a single error message with a retry button on failure', async () => {
-    vi.mocked(api.get).mockRejectedValue(new Error());
-
-    const { user } = renderWithProviders(<IncidentsTab />);
-
-    expect(await screen.findByText("Impossible de charger les indicateurs d'incidents")).toBeInTheDocument();
-    const retryButton = screen.getByRole('button', { name: 'Réessayer' });
-    expect(retryButton).toBeInTheDocument();
-
-    vi.mocked(api.get).mockResolvedValue(fixture);
-    await user.click(retryButton);
-    expect(await screen.findByText('Non restitués déclarés')).toBeInTheDocument();
+  it('lien vers la supervision pour l’admin seulement ; pas de lien vers les contestations pour la direction', async () => {
+    mockGet('/kpi/incidents', incidentsFixture());
+    const { unmount } = renderWithProviders(<IncidentsTab />, { route: ROUTE });
+    expect(await screen.findByRole('link', { name: 'Voir la supervision' })).toBeInTheDocument();
+    unmount();
+    mockRole = 'direction';
+    renderWithProviders(<IncidentsTab />, { route: ROUTE });
+    await screen.findByText('État du jour');
+    expect(screen.queryByRole('link', { name: 'Voir la supervision' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Contestations à traiter/ })).not.toBeInTheDocument();
   });
 });

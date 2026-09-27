@@ -27,7 +27,8 @@ export interface ParcLoaned {
   topModels: ParcTopModel[];
   offCatalogShare: number | null;
   serialCoverage: number | null;
-  /** Stock prêté en fin de bucket — dernier point = estimation. */
+  /** Équipements chez les collaborateurs en fin de jour (semaine, mois) ; le
+   *  point qui contient aujourd'hui égale `total`. */
   series: SeriesPoint[];
 }
 

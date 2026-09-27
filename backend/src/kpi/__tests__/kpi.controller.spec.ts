@@ -14,6 +14,7 @@ describe('KpiController', () => {
     let parcService: { getParc: Mock };
     let delaisService: { getDelais: Mock };
     let incidentsService: { getIncidents: Mock };
+    let todayService: { getToday: Mock };
     let controller: KpiController;
 
     beforeEach(() => {
@@ -21,11 +22,13 @@ describe('KpiController', () => {
       parcService = { getParc: vi.fn().mockResolvedValue({ tag: 'parc' }) };
       delaisService = { getDelais: vi.fn().mockResolvedValue({ tag: 'delais' }) };
       incidentsService = { getIncidents: vi.fn().mockResolvedValue({ tag: 'incidents' }) };
+      todayService = { getToday: vi.fn().mockResolvedValue({ tag: 'today' }) };
       controller = new KpiController(
         cache as never,
         parcService as never,
         delaisService as never,
         incidentsService as never,
+        todayService as never,
       );
     });
 
@@ -61,6 +64,13 @@ describe('KpiController', () => {
         expect.any(Function),
       );
       expect(incidentsService.getIncidents).toHaveBeenCalledWith(period, undefined);
+    });
+  });
+
+  describe('GET /kpi/aujourdhui', () => {
+    it('est réservé à l’IT : la direction n’a pas l’accueil (ses lignes mènent aux bons)', () => {
+      const roles = Reflect.getMetadata('roles', KpiController.prototype.getToday);
+      expect(roles).toEqual(['admin', 'technician']);
     });
   });
 

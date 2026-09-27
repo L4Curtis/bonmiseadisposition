@@ -4,11 +4,11 @@
  * (`/api/audit`). Les indicateurs et l'inventaire sont ouverts à la direction.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ADMIN, AccessRule, describeRule, expectAccessRule, IT_AND_DIRECTION, rule } from './support/access';
+import { ADMIN, AccessRule, describeRule, expectAccessRule, IT, IT_AND_DIRECTION, rule } from './support/access';
 import { nestError } from './support/common-shapes';
 import { ContractContext, startContractContext } from './support/context';
 import { arrayOf, expectShape, str } from './support/shape';
-import { kpiDelais, kpiIncidents, kpiParc } from './shapes/kpi';
+import { kpiDelais, kpiIncidents, kpiParc, kpiToday } from './shapes/kpi';
 import { auditList, inventoryByCollaborateur, inventoryList, inventorySummary } from './shapes/reporting';
 
 let ctx: ContractContext;
@@ -29,6 +29,7 @@ const ACCESS: readonly AccessRule[] = [
   rule('GET /kpi/parc', IT_AND_DIRECTION),
   rule('GET /kpi/delais', IT_AND_DIRECTION),
   rule('GET /kpi/incidents', IT_AND_DIRECTION),
+  rule('GET /kpi/aujourdhui', IT),
   rule('GET /audit', ADMIN),
   rule('GET /audit/actions', ADMIN),
   rule('GET /audit/export', ADMIN),
@@ -99,6 +100,40 @@ describe('Indicateurs du tableau de bord', () => {
     const res = await ctx.http.get('/kpi/incidents', 'technician');
     expect(res.status).toBe(200);
     expectShape(res.body, kpiIncidents);
+  });
+
+  it('GET /kpi/aujourdhui : tuiles et sections « À traiter »', async () => {
+    const res = await ctx.http.get('/kpi/aujourdhui', 'technician');
+    expect(res.status).toBe(200);
+    expectShape(res.body, kpiToday);
+  });
+
+  it('GET /kpi/aujourdhui : « Signature en retard » = liste GET /bons?overdue=1', async () => {
+    const today = await ctx.http.get('/kpi/aujourdhui', 'admin');
+    const list = await ctx.http.get('/bons?overdue=1&limit=1', 'admin');
+    expect(list.status).toBe(200);
+    expect((today.body as { overdueSignatures: number }).overdueSignatures).toBe((list.body as { total: number }).total);
+  });
+
+  it('GET /kpi/aujourdhui : « Retour en retard » = inventaire filtré', async () => {
+    const today = await ctx.http.get('/kpi/aujourdhui', 'admin');
+    const list = await ctx.http.get('/reporting/inventory?overdue=1&limit=1', 'admin');
+    expect((today.body as { overdueReturns: { equipments: number } }).overdueReturns.equipments)
+      .toBe((list.body as { total: number }).total);
+  });
+
+  it('GET /kpi/aujourdhui : « Restitution partielle à signer » = liste GET /bons?subStatus=partial_restitution_to_sign', async () => {
+    const today = await ctx.http.get('/kpi/aujourdhui', 'technician');
+    const list = await ctx.http.get('/bons?subStatus=partial_restitution_to_sign&limit=100', 'technician');
+    expect(list.status).toBe(200);
+    const section = (today.body as { toDo: { partialRestitutionsToSign: { total: number; rows: { bonId: string }[] } } })
+      .toDo.partialRestitutionsToSign;
+    const listed = list.body as { total: number; bons: { id: string }[] };
+    // Le jeu de données contient un bon « Restitution en cours » dont un équipement rendu attend sa signature.
+    expect(section.total).toBeGreaterThan(0);
+    expect(section.total).toBe(listed.total);
+    expect(section.rows.map((r) => r.bonId)).toContain(ctx.data.bons.partiallyReturned.id);
+    expect(listed.bons.map((b) => b.id)).toContain(ctx.data.bons.partiallyReturned.id);
   });
 
   it('GET /kpi/parc avec une période invalide : 400', async () => {

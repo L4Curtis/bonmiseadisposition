@@ -1,8 +1,8 @@
 import { Fragment } from 'react';
+import { ageLabel } from '@/pages/dashboard/lib/kpi-scope';
 import { AlertTriangle, ChevronDown, ChevronRight, Users, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { formatDate } from '@/lib/dates';
-import { formatDays } from '@/lib/kpi-format';
 import { LATENESS_LABELS } from '@/domain/labels';
 import { InventoryTable, TableSkeleton } from './InventoryTable';
 import { useCollaborateurDetail } from './useCollaborateurDetail';
@@ -200,7 +200,7 @@ export function CollaborateurTable({
                       <td className="px-4 py-3.5 hidden lg:table-cell whitespace-nowrap">
                         <div className="text-muted-foreground">{formatDate(c.oldestDateMiseDisposition)}</div>
                         <div className="text-xs text-muted-foreground/70 mt-0.5">
-                          {`il y a ${formatDays(c.oldestAgeDays)}`}
+                          {ageLabel(c.oldestDateMiseDisposition)}
                         </div>
                       </td>
                     </tr>

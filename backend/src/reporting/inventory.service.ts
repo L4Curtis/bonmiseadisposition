@@ -4,8 +4,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   SITUATION_BON_STATUSES,
   buildParcEquipmentWhere,
+  buildReturnOverdueEquipmentWhere,
   buildSituationBreakdown,
   parcEquipmentSql,
+  returnOverdueEquipmentSql,
   situationCaseSql,
 } from '../common/bon-predicates';
 import { categoryLabel } from '../common/category-labels';
@@ -14,7 +16,6 @@ import { InventoryByCollaborateurQueryDto } from './dto/inventory-by-collaborate
 import { toInventoryItem } from './inventory-mapper';
 import { buildInventoryCsv } from './inventory-csv';
 import { findSortedInventoryRows } from './inventory-sort';
-import { parisTodayAsDbDate, parisTodaySql } from '../common/dates/paris';
 import {
   COLLABORATEUR_GROUP_SELECT,
   groupInventoryByCollaborateur,
@@ -80,11 +81,10 @@ export class InventoryService {
       );
     }
     if (filters.overdue) {
-      // Alimente la tuile « En retard de restitution » — indépendant de
-      // `situation` (un équipement en_circulation ou en_litige peut être en
-      // retard). `lt` exclut naturellement les dateRestitution NULL (SQL
-      // `NULL < x` est indéterminé, jamais vrai).
-      and.push({ bon: { dateRestitution: { lt: parisTodayAsDbDate(now) } } });
+      // « Retour en retard » : prédicat partagé avec les tuiles de l'accueil
+      // et de l'onglet Parc (le parc est déjà dans `and`). Indépendant de
+      // `situation` : un équipement en cours ou contesté peut être en retard.
+      and.push(...(buildReturnOverdueEquipmentWhere({}, now).AND as Prisma.BonEquipmentWhereInput[]));
     }
     if (filters.sansNumeroSerie) {
       // Qualité des données : NULL et chaîne vide (saisie effacée) sont tous
@@ -218,9 +218,7 @@ export class InventoryService {
         SELECT COUNT(*)::bigint AS count
         FROM bon_equipments be
         JOIN bons b ON b.id = be.bon_id
-        WHERE ${parcEquipmentSql()}
-          AND b.date_restitution IS NOT NULL
-          AND b.date_restitution < ${parisTodaySql()}
+        WHERE ${returnOverdueEquipmentSql()}
       `),
     ]);
 

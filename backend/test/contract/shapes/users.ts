@@ -16,7 +16,7 @@ import type {
   User,
   UserPageResponse,
 } from '../../../src/contracts/users';
-import { userRole } from '../support/common-shapes';
+import { civilite, userRole } from '../support/common-shapes';
 import { arrayOf, bool, int, isoDate, literal, nullable, object, optional, str, uuid } from '../support/shape';
 import { filialeSummary } from './filiales';
 
@@ -28,6 +28,7 @@ export const user = object<User>({
   department: nullable(str),
   company: nullable(str),
   title: nullable(str),
+  civilite: nullable(civilite),
   filialeId: nullable(uuid),
   filiale: nullable(filialeSummary),
   isItStaff: bool,

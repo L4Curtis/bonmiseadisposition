@@ -77,7 +77,7 @@ export function MaterielHistoryPage() {
       <MaterielHistoryHeader
         reference={reference}
         label={latest.label ?? '—'}
-        status={currentHolderStatus(latest)}
+        status={currentHolderStatus(entries)}
         onExport={handleExport}
         exportLoading={exportLoading}
       />

@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { PARTIAL_PENDING_SIGNATURE_TYPES, overdueSignatureSql } from '../../common/bon-predicates';
-import { SIGNATURE_LINK_BON_STATUSES, TO_SIGN_BON_STATUSES } from '../../bons/bon-status';
+import { PARTIAL_PENDING_SIGNATURE_TYPES, awaitingSignatureSql, overdueSignatureSql } from '../../common/bon-predicates';
+import { SIGNATURE_LINK_BON_STATUSES } from '../../bons/bon-status';
 import { Granularity } from '../kpi-types';
 import { parisBucketSql, parisPeriodSql } from '../../common/dates/paris';
 import { filialeFilter, toNumber } from '../kpi-sql';
@@ -276,17 +276,19 @@ export interface WaitingRow {
   overdue: bigint;
 }
 
-/** Étapes en attente de signature (état instantané) : `ps` = dernière
- *  signature en attente pour un bon `partially_returned` ; `overdue` via
- *  `overdueSignatureSql` — sans filtre filiale, la somme des `overdue` doit
- *  égaler exactement `buildOverdueSignatureWhere` (mêmes prédicats). */
+/** Signatures attendues par étape (état du jour). Même prédicat que la tuile
+ *  « Signatures attendues » (`awaitingSignatureSql`) et que « Signature en
+ *  retard » (`overdueSignatureSql`) : sans filtre filiale, la somme des
+ *  `count` égale `GET /bons?awaitingSignature=1` et celle des `overdue`
+ *  `GET /bons?overdue=1`. L'ancienneté se mesure depuis la demande
+ *  (`awaiting_since`), jamais depuis la dernière modification. L'étape d'une
+ *  restitution en cours est celle de sa dernière demande ouverte. */
 export async function queryWaitingSteps(
   prisma: PrismaService,
   thresholdDays: number,
+  now: Date,
   filialeId?: string,
 ): Promise<WaitingRow[]> {
-  // Le premier prédicat sur b.status (sans référence à ps) permet à Postgres
-  // de restreindre les bons AVANT d'évaluer la sous-requête LATERAL.
   return prisma.$queryRaw<WaitingRow[]>(Prisma.sql`
     SELECT
       CASE b.status::text
@@ -295,24 +297,21 @@ export async function queryWaitingSteps(
         ELSE ps.type
       END AS step,
       COUNT(*)::bigint AS count,
-      AVG(EXTRACT(EPOCH FROM (now() - b.updated_at)) / 86400)::float8 AS "avgAgeDays",
-      COUNT(*) FILTER (WHERE ${overdueSignatureSql(thresholdDays)})::bigint AS overdue
+      AVG(EXTRACT(EPOCH FROM (${now.toISOString()}::timestamptz AT TIME ZONE 'UTC') - b.awaiting_since) / 86400)::float8 AS "avgAgeDays",
+      COUNT(*) FILTER (WHERE ${overdueSignatureSql(thresholdDays, now)})::bigint AS overdue
     FROM bons b
     LEFT JOIN LATERAL (
       SELECT s.type::text AS type
       FROM signatures s
-      WHERE s.bon_id = b.id AND s.signed = false
+      WHERE s.bon_id = b.id AND s.signed = false AND s.invalidated_at IS NULL
         AND s.type::text IN (${Prisma.join(PARTIAL_PENDING_SIGNATURE_TYPES)})
-        AND s.token_expires_at > to_timestamp(1)
+        AND s.token_expires_at > to_timestamp(1) AT TIME ZONE 'UTC'
       ORDER BY s.created_at DESC
       LIMIT 1
     ) ps ON true
     WHERE b.status::text IN (${Prisma.join(SIGNATURE_LINK_BON_STATUSES)})
-      AND (
-        b.status::text IN (${Prisma.join(TO_SIGN_BON_STATUSES)})
-        OR (b.status::text = 'partially_returned' AND ps.type IS NOT NULL)
-      )
+      AND ${awaitingSignatureSql()}
     ${filialeFilter('b', filialeId)}
-    GROUP BY step
+    GROUP BY 1
   `);
 }

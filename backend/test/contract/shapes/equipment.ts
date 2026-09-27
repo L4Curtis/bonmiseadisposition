@@ -74,6 +74,7 @@ export const equipmentHistory = object<EquipmentHistoryResponse>({
       label: nullable(str),
       returnedAt: nullable(isoDate),
       notReturned: bool,
+      holding: literal('planned', 'handover_to_sign', 'with_collaborateur', 'returned', 'not_returned', 'cancelled', 'closed'),
       bon: historyBon,
     }),
     { minLength: 1 },

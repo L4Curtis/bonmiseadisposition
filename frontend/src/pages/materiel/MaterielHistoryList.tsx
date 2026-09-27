@@ -30,7 +30,7 @@ export function MaterielHistoryList({ entries, canLinkToBon }: MaterielHistoryLi
               {entry.label ? ` · ${entry.label}` : ''}
             </p>
             <p className="text-xs text-muted-foreground/70 mt-0.5">
-              {`Du ${formatDate(entry.bon.dateMiseDisposition)}`}
+              {`${entry.holding === 'planned' ? 'Remise prévue le' : 'Du'} ${formatDate(entry.bon.dateMiseDisposition)}`}
               {entry.bon.dateRestitution ? ` — restitution prévue le ${formatDate(entry.bon.dateRestitution)}` : ''}
             </p>
           </div>
@@ -40,6 +40,9 @@ export function MaterielHistoryList({ entries, canLinkToBon }: MaterielHistoryLi
             )}
             {entry.notReturned && (
               <span className="text-xs text-destructive">Non restitué</span>
+            )}
+            {entry.holding === 'planned' && (
+              <span className="text-xs text-muted-foreground">Rien de remis</span>
             )}
             <StatusBadge status={entry.bon.status} />
           </div>

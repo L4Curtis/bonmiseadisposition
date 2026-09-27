@@ -45,8 +45,10 @@ export interface SeriesPoint {
   count: number;
 }
 
-/** Enveloppe commune aux trois endpoints KPI. */
+/** Enveloppe commune aux trois endpoints KPI. `asOf` : instant du calcul, date
+ *  des chiffres « état du jour » (non filtrés par la période). */
 export interface KpiEnvelope {
+  asOf: string;
   period: PeriodInfo;
   previous: PreviousInfo;
   filialeId: string | null;
@@ -218,8 +220,12 @@ export interface KpiDelaisResponse extends KpiEnvelope {
 // ── incidents ────────────────────────────────────────────────────────────
 
 export interface IncidentsNotReturned {
+  /** Équipements déclarés non restitués sur la période. */
   declared: Compared;
+  /** Équipements retrouvés sur la période. */
   found: Compared;
+  /** Équipements encore non restitués aujourd'hui (état du jour). */
+  stillMissing: number;
 }
 
 export interface IncidentsPvCloture {
@@ -231,9 +237,11 @@ export interface ClosureReason {
   count: number;
 }
 
-export interface IncidentsUnilateralClosures {
-  count: Compared;
-  reasons: ClosureReason[];
+export interface IncidentsWithoutSignature {
+  handovers: Compared;
+  closures: Compared;
+  handoverReasons: ClosureReason[];
+  closureReasons: ClosureReason[];
 }
 
 export interface IncidentsCancellations {
@@ -241,11 +249,12 @@ export interface IncidentsCancellations {
 }
 
 export interface IncidentsContestations {
-  opened: Compared;
-  openNow: number;
-  closed: Compared;
+  received: Compared;
+  toProcess: number;
+  decided: Compared;
+  founded: Compared;
+  notRetained: Compared;
   resolutionMedianDays: RatioCompared;
-  acceptanceRate: RatioCompared;
 }
 
 export interface ReminderRankStat {
@@ -257,7 +266,7 @@ export interface ReminderRankStat {
 
 export interface IncidentsReminders {
   byRank: ReminderRankStat[];
-  bonsWithThreeOrMore: Compared;
+  documentsWithThreeOrMore: Compared;
 }
 
 export interface IncidentsFailedEmails {
@@ -267,7 +276,7 @@ export interface IncidentsFailedEmails {
 export interface KpiIncidentsResponse extends KpiEnvelope {
   notReturned: IncidentsNotReturned;
   pvCloture: IncidentsPvCloture;
-  unilateralClosures: IncidentsUnilateralClosures;
+  withoutSignature: IncidentsWithoutSignature;
   cancellations: IncidentsCancellations;
   contestations: IncidentsContestations;
   reminders: IncidentsReminders;

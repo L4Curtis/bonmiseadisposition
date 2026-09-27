@@ -39,11 +39,11 @@ describe('kpi-parc.queries', () => {
     expect(aggregate.values).toEqual(top.values.slice(0, aggregate.values.length));
   });
 
-  it('notReturnedOpenNowQuery exclut toujours archived et cancelled (cast texte, pas de comparaison directe sur enum)', () => {
+  it('notReturnedOpenNowQuery compte les équipements encore non restitués, bons clôturés compris, hors bons annulés', () => {
     const query = notReturnedOpenNowQuery();
-    expect(query.sql).toMatch(/b\.status::text NOT IN \(\?,\s?\?\)/);
-    expect(query.values).toEqual(['archived', 'cancelled']);
-    expect(query.sql).not.toMatch(/b\.status\s+NOT\s+IN\s*\(/);
+    expect(query.sql).toContain('be.not_returned = true');
+    expect(query.sql).toContain("b.status::text <> 'cancelled'");
+    expect(query.sql).not.toContain('archived');
   });
 
   it('loanedSeriesQuery aligne generate_series sur la granularité et compare la fin de bucket en fuseau Paris', () => {

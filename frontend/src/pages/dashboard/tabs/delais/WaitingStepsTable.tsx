@@ -4,19 +4,20 @@ import type { WaitingStep } from '../../types/delais';
 
 export interface WaitingStepsTableProps {
   steps: WaitingStep[];
+  thresholdDays: number;
 }
 
-/** Table des bons en attente par étape de workflow — nombre, ancienneté
- *  moyenne et nombre en retard (mis en évidence en rouge). */
-export function WaitingStepsTable({ steps }: WaitingStepsTableProps) {
+/** Signatures attendues par document (état du jour) : nombre de bons,
+ *  ancienneté moyenne de la demande, et combien sont en « Signature en retard ». */
+export function WaitingStepsTable({ steps, thresholdDays }: WaitingStepsTableProps) {
   return (
-    <table className="w-full text-sm" aria-label="Bons en attente par étape de workflow">
+    <table className="w-full text-sm" aria-label="Signatures attendues par document">
       <thead>
-        <tr className="border-b border-border text-left text-xs font-medium text-muted-foreground/70">
-          <th scope="col" className="py-2 pr-2">Étape</th>
-          <th scope="col" className="py-2 pr-2">Nombre</th>
-          <th scope="col" className="py-2 pr-2">Ancienneté moyenne</th>
-          <th scope="col" className="py-2">Signature en retard</th>
+        <tr className="border-b border-border text-left text-xs font-medium text-muted-foreground">
+          <th scope="col" className="py-2 pr-2">Document</th>
+          <th scope="col" className="py-2 pr-2">Bons</th>
+          <th scope="col" className="py-2 pr-2">Attente moyenne</th>
+          <th scope="col" className="py-2">{`En retard (plus de ${thresholdDays} j)`}</th>
         </tr>
       </thead>
       <tbody className="divide-y divide-border">
@@ -25,12 +26,7 @@ export function WaitingStepsTable({ steps }: WaitingStepsTableProps) {
             <td className="py-2.5 pr-2 text-foreground/80">{step.label}</td>
             <td className="py-2.5 pr-2 tabular-nums text-foreground/80">{formatNumber(step.count)}</td>
             <td className="py-2.5 pr-2 tabular-nums text-foreground/80">{formatDays(step.avgAgeDays)}</td>
-            <td
-              className={cn(
-                'py-2.5 tabular-nums font-medium',
-                step.overdue > 0 ? 'text-destructive' : 'text-foreground/80',
-              )}
-            >
+            <td className={cn('py-2.5 tabular-nums font-medium', step.overdue > 0 ? 'text-destructive' : 'text-foreground/80')}>
               {formatNumber(step.overdue)}
             </td>
           </tr>

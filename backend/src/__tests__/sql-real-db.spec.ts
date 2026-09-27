@@ -70,7 +70,7 @@ describeDb('Requêtes SQL réelles (base de développement)', () => {
   });
 
   it('indicateurs de parc : s’exécutent et concordent avec l’inventaire', async () => {
-    const parcService = new KpiParcService(prisma, configStub);
+    const parcService = new KpiParcService(prisma);
     const inventaire = new InventoryService(prisma);
     const period = resolvePeriod({});
 
@@ -88,7 +88,7 @@ describeDb('Requêtes SQL réelles (base de développement)', () => {
     const delais = await new KpiDelaisService(prisma, configStub).getDelais(period);
     expect(Array.isArray(delais.statusBreakdown)).toBe(true);
 
-    const incidents = await new KpiIncidentsService(prisma, configStub).getIncidents(period);
+    const incidents = await new KpiIncidentsService(prisma).getIncidents(period);
     expect(typeof incidents.cancellations.count.current).toBe('number');
   });
 

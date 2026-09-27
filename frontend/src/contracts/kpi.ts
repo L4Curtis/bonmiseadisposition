@@ -6,14 +6,19 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Contrats de l'API — tableau de bord KPI (`backend/src/kpi/`).
+ * Contrats de l'API — tableau de bord (`backend/src/kpi/`).
  *
- * Accès : admin, technician, direction. Les trois routes acceptent
- * `from`/`to` (AAAA-MM-JJ, 30 derniers jours par défaut) et `filialeId` ;
- * une période invalide est refusée en 400. Réponses mises en cache 60 s.
+ * `GET /kpi/aujourdhui` (admin, technician) : accueil IT, états du jour, sans
+ * paramètre ni cache. `GET /kpi/parc|delais|incidents` (admin, technician,
+ * direction) : acceptent `from`/`to` (AAAA-MM-JJ, 30 derniers jours par
+ * défaut) et `filialeId` ; une période invalide est refusée en 400 ; réponses
+ * mises en cache 60 s. Chaque indicateur est soit un **état du jour** (à la
+ * date `asOf`, non filtré par la période), soit un **flux sur la période**
+ * (comparé à la période précédente) : voir « Définition des indicateurs »
+ * dans docs/architecture.md.
  */
 
-import type { BonStatus, EquipmentCategory, SignatureType } from './common';
+import type { BonStatus, EquipmentCategory, IsoDateTime, SignatureType } from './common';
 import type { ParcCategoryCount, ParcFilialeCount, ParcSituationCount } from './inventory';
 
 // ─── Briques communes aux trois routes ────────────────────────────────────────
@@ -43,6 +48,8 @@ export interface KpiPreviousInfo {
 
 /** Enveloppe commune aux trois réponses KPI. */
 export interface KpiEnvelope {
+  /** Instant du calcul : date des états du jour (« au 25/09 »). */
+  asOf: IsoDateTime;
   period: KpiPeriodInfo;
   previous: KpiPreviousInfo;
   /** Filtre filiale appliqué, `null` sans filtre. */
@@ -97,7 +104,9 @@ export interface KpiParcLoaned {
   offCatalogShare: number | null;
   /** Part avec numéro de série renseigné (0 à 1), `null` si le parc est vide. */
   serialCoverage: number | null;
-  /** Stock estimé en fin de bucket. */
+  /** Équipements chez les collaborateurs à la fin de chaque jour (semaine,
+   *  mois) de la période ; le point qui contient aujourd'hui est l'état
+   *  présent et égale `total`. */
   series: KpiSeriesPoint[];
 }
 
@@ -116,7 +125,8 @@ export interface KpiParcReturnOverdueItem {
   equipments: number;
 }
 
-/** Retards de restitution (état instantané). */
+/** « Retour en retard » (état du jour) : équipements en circulation dont la
+ *  date de restitution prévue est dépassée ; `avgDays`/`medianDays` par bon. */
 export interface KpiParcReturnOverdue {
   bons: number;
   equipments: number;
@@ -127,13 +137,15 @@ export interface KpiParcReturnOverdue {
   top: KpiParcReturnOverdueItem[];
 }
 
-/** Équipements déclarés non rendus. */
+/** Non-restitutions. */
 export interface KpiParcNotReturned {
+  /** Équipements déclarés non restitués sur la période (pas des déclarations). */
   declared: KpiCompared;
+  /** Équipements retrouvés sur la période. */
   found: KpiCompared;
-  /** Part des bons archivés sur la période ayant au moins un non-rendu. */
+  /** Part des bons clôturés sur la période ayant au moins un équipement non restitué. */
   closedBonsShare: KpiRatioCompared;
-  /** Non-rendus sur un bon ni archivé ni annulé (état instantané). */
+  /** Équipements encore non restitués aujourd'hui, bons clôturés compris, hors bons annulés. */
   openNow: number;
 }
 
@@ -171,7 +183,7 @@ export interface KpiDelaisVolumes {
  *  partially_returned, contested, archived, cancelled, à 0 si absents. */
 export interface KpiStatusBreakdownItem {
   status: BonStatus;
-  /** Libellé français (STATUS_LABELS). */
+  /** Libellé du lexique (bons/bon-status.ts, BON_STATUS_LABELS). */
   label: string;
   count: number;
 }
@@ -227,19 +239,21 @@ export interface KpiLoanDuration {
   medianDays: KpiRatioCompared;
 }
 
-/** Bons en attente de signature à une étape (état instantané). */
+/** Signatures attendues à une étape (état du jour). */
 export interface KpiWaitingStep {
   step: KpiWorkflowStep;
+  /** « Remise à signer », « Restitution à signer », « PV de non-restitution à signer ». */
   label: string;
   count: number;
-  /** Âge moyen en jours depuis la dernière modification, `null` si aucun bon. */
+  /** Ancienneté moyenne de la demande de signature (`awaitingSince`), en jours ; `null` si aucun bon. */
   avgAgeDays: number | null;
-  /** Bons en retard de signature (seuil `thresholdDays`). */
+  /** Bons en « Signature en retard » (seuil `thresholdDays`). */
   overdue: number;
 }
 
-/** Signatures en attente : toujours trois étapes, dans l'ordre
- *  mise_disposition, restitution, pv_cloture. */
+/** Signatures attendues : toujours trois étapes, dans l'ordre mise_disposition,
+ *  restitution, pv_cloture. Somme des `count` = tuile « Signatures attendues »,
+ *  `overdueTotal` = tuile « Signature en retard » (sans filtre filiale). */
 export interface KpiWaiting {
   /** Seuil de retard en jours (configuration `rappels.signature_overdue_days`). */
   thresholdDays: number;
@@ -262,29 +276,33 @@ export interface KpiDelaisResponse extends KpiEnvelope {
 
 // ─── GET /api/kpi/incidents ───────────────────────────────────────────────────
 
-/** Motif de clôture unilatérale (période courante seule, top 10) ;
- *  « Non renseigné » si le motif est vide. */
+/** Motif d'une remise ou d'une clôture sans signature (période courante, dix
+ *  au plus) ; « Non renseigné » si le motif est vide. */
 export interface KpiClosureReason {
   reason: string;
   count: number;
 }
 
-/** Contestations. */
+/** Contestations. `received`, `decided`, `founded`, `notRetained` : flux sur
+ *  la période ; `toProcess` : état du jour (même nombre que la page
+ *  Contestations filtrée « à traiter »). */
 export interface KpiIncidentsContestations {
-  opened: KpiCompared;
-  /** Contestations `open` ou `in_review` (état instantané). */
-  openNow: number;
-  /** Contestations `resolved` ou `rejected` sur la période. */
-  closed: KpiCompared;
+  received: KpiCompared;
+  /** Contestations ouvertes ou prises en charge, pas encore tranchées. */
+  toProcess: number;
+  /** Tranchées sur la période (Fondées + Non retenues). */
+  decided: KpiCompared;
+  founded: KpiCompared;
+  notRetained: KpiCompared;
+  /** Délai médian entre réception et décision, en jours. */
   resolutionMedianDays: KpiRatioCompared;
-  /** Part des contestations closes résolues favorablement (0 à 1). */
-  acceptanceRate: KpiRatioCompared;
 }
 
-/** Rappels envoyés pour un rang donné. */
+/** Rappels envoyés pour un rang donné (le rang est compté par document). */
 export interface KpiReminderRankStat {
   rank: number;
   sent: KpiCompared;
+  /** Rappels suivis de la signature du même document, sans autre rappel entre-temps. */
   signedAfter: KpiCompared;
   /** `signedAfter.current / sent.current`, `null` si aucun rappel envoyé. */
   efficiency: number | null;
@@ -294,29 +312,113 @@ export interface KpiReminderRankStat {
  *  les rangs supérieurs observés sur l'une des deux périodes, triés par rang. */
 export interface KpiIncidentsReminders {
   byRank: KpiReminderRankStat[];
-  bonsWithThreeOrMore: KpiCompared;
+  /** Documents (bon et type de document) ayant reçu leur 3ᵉ rappel sur la période. */
+  documentsWithThreeOrMore: KpiCompared;
 }
 
-/** GET /api/kpi/incidents — non-rendus, PV de clôture, clôtures unilatérales,
- *  annulations, contestations, rappels et emails en échec. */
+/** GET /api/kpi/incidents — non-restitutions, PV, remises et clôtures sans
+ *  signature, annulations, contestations, rappels et emails en échec. */
 export interface KpiIncidentsResponse extends KpiEnvelope {
   notReturned: {
+    /** Équipements déclarés non restitués sur la période. */
     declared: KpiCompared;
+    /** Équipements retrouvés sur la période. */
     found: KpiCompared;
+    /** Équipements encore non restitués aujourd'hui (état du jour). */
+    stillMissing: number;
   };
   pvCloture: {
+    /** PV de non-restitution émis sur la période. */
     emitted: KpiCompared;
   };
-  unilateralClosures: {
-    count: KpiCompared;
-    reasons: KpiClosureReason[];
+  /** Deux gestes distincts : « Remise constatée sans signature » (le bon passe
+   *  « En cours ») et « Clôturé sans signature » (le bon passe « Clôturé »). */
+  withoutSignature: {
+    handovers: KpiCompared;
+    closures: KpiCompared;
+    handoverReasons: KpiClosureReason[];
+    closureReasons: KpiClosureReason[];
   };
   cancellations: {
+    /** Bons annulés sur la période. */
     count: KpiCompared;
   };
   contestations: KpiIncidentsContestations;
   reminders: KpiIncidentsReminders;
   failedEmails: {
+    /** Emails en échec d'envoi ou rejetés ; jamais `skipped` (bon sans adresse). */
     count: KpiCompared;
+  };
+}
+
+// ─── GET /api/kpi/aujourdhui ──────────────────────────────────────────────────
+
+/** Ligne d'une section « À traiter » : le bon concerné et la date depuis
+ *  laquelle la situation dure. */
+export interface KpiTodayRow {
+  bonId: string;
+  reference: string;
+  collaborateurId: string;
+  /** Nom affiché du collaborateur. */
+  collaborateur: string;
+  /** Début de la situation : création du brouillon, demande de signature,
+   *  expiration du lien, date de restitution prévue, réception de la
+   *  contestation, ou date de remise la plus ancienne pour un départ. */
+  since: IsoDateTime;
+  /** Précision (« 2 équipements », « En cours d'examen »), ou `null`. */
+  detail: string | null;
+}
+
+/** Section « À traiter » : `total` = tuile = liste « Voir tout » ; `rows` =
+ *  les cinq situations les plus anciennes. */
+export interface KpiTodaySection {
+  total: number;
+  rows: KpiTodayRow[];
+}
+
+/** Bons ouverts d'une filiale active (filiales à zéro omises). */
+export interface KpiTodayFilialeCount {
+  id: string;
+  name: string;
+  count: number;
+}
+
+/** GET /api/kpi/aujourdhui — accueil IT. Tous les chiffres sont des états du
+ *  jour ; chacun est calculé par le prédicat de la liste qu'il ouvre
+ *  (backend/src/common/bon-predicates.ts). */
+export interface KpiTodayResponse {
+  asOf: IsoDateTime;
+  /** Seuil de « Signature en retard », en jours. */
+  signatureOverdueDays: number;
+  /** Bons ni clôturés ni annulés. */
+  openBons: number;
+  /** Bons « En cours ». */
+  activeBons: number;
+  /** Bons « Restitution en cours ». */
+  restitutionInProgress: number;
+  /** Bons dont une signature du collaborateur est attendue. */
+  awaitingSignatures: number;
+  /** Bons dont la signature est attendue depuis plus de `signatureOverdueDays` jours. */
+  overdueSignatures: number;
+  /** « Retour en retard » : équipements, et bons qui les portent. */
+  overdueReturns: { equipments: number; bons: number };
+  contestationsToProcess: number;
+  /** Bons dont le lien de signature a expiré sans être renvoyé. */
+  expiredLinks: number;
+  /** Collaborateurs au compte désactivé qui détiennent encore des équipements. */
+  departures: { collaborateurs: number; equipments: number };
+  openBonsByFiliale: KpiTodayFilialeCount[];
+  toDo: {
+    drafts: KpiTodaySection;
+    overdueSignatures: KpiTodaySection;
+    expiredLinks: KpiTodaySection;
+    overdueReturns: KpiTodaySection;
+    contestations: KpiTodaySection;
+    departures: KpiTodaySection;
+    /** « Restitution partielle à signer » : bons « Restitution en cours »
+     *  dont des équipements rendus attendent la signature de leur restitution
+     *  (même règle que `GET /bons?subStatus=partial_restitution_to_sign`),
+     *  depuis la demande de signature ; `detail` = équipements à signer. */
+    partialRestitutionsToSign: KpiTodaySection;
   };
 }

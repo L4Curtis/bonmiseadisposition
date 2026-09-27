@@ -1,97 +1,67 @@
-import { AlertTriangle, Ban, FileWarning, MessageSquareWarning, Search, XCircle } from 'lucide-react';
-import type { StatCardProps } from '@/components/dashboard/StatCard';
+import { Ban, FileWarning, Handshake, MessageSquareWarning, PackageX, Search, XCircle } from 'lucide-react';
+import type { KpiCardProps } from '../../components/KpiCard';
+import { asOfLabel, periodLabel, UNITS } from '../../lib/kpi-scope';
 import type { IncidentsKpiResponse } from '../../types/incidents';
+import { TODAY_LINKS } from '../today/today-links';
 
-export interface IncidentStatCardConfig {
-  key: string;
-  props: StatCardProps;
-  /** Texte additionnel affiché sous la tuile (ex. « 1 en cours ») — distinct
-   *  du delta, qui occupe déjà cet emplacement dans `StatCard`. */
-  footer?: string;
-}
+export type IncidentCard = KpiCardProps & { key: string };
 
-/** Construit les 6 tuiles de la rangée supérieure de l'onglet Incidents.
- *  `data` est `null` pendant le chargement : chaque valeur retombe alors sur
- *  `null`/`undefined`, et `loading` pilote l'affichage du skeleton via
- *  `StatCard` (aucun rendu conditionnel supplémentaire n'est nécessaire côté
- *  appelant). */
-export function buildIncidentStatCards(
-  data: IncidentsKpiResponse | null,
-  loading: boolean,
-): IncidentStatCardConfig[] {
+
+/** Cartes « état du jour » de l'onglet Incidents (non filtrées par la période). */
+export function incidentStateCards(data: IncidentsKpiResponse, isIt: boolean): IncidentCard[] {
+  const scope = asOfLabel(data.asOf);
   return [
     {
-      key: 'not-returned-declared',
-      props: {
-        label: 'Non restitués déclarés',
-        value: data?.notReturned.declared.current ?? null,
-        icon: AlertTriangle,
-        loading,
-        delta: data
-          ? { current: data.notReturned.declared.current, previous: data.notReturned.declared.previous, invert: true }
-          : undefined,
-      },
+      key: 'still-missing', label: 'Encore non restitués', value: data.notReturned.stillMissing, unit: UNITS.equipments,
+      icon: PackageX, scope, tone: data.notReturned.stillMissing > 0 ? 'warning' : 'default',
+      definition: 'Équipements déclarés non restitués et pas retrouvés depuis, y compris sur des bons clôturés.',
     },
     {
-      key: 'not-returned-found',
-      props: {
-        label: 'Retrouvés',
-        value: data?.notReturned.found.current ?? null,
-        icon: Search,
-        loading,
-        delta: data
-          ? { current: data.notReturned.found.current, previous: data.notReturned.found.previous }
-          : undefined,
-      },
+      key: 'contestations-to-process', label: 'Contestations à traiter', value: data.contestations.toProcess,
+      unit: UNITS.contestations, icon: MessageSquareWarning, scope,
+      tone: data.contestations.toProcess > 0 ? 'warning' : 'default',
+      detail: 'ouvertes ou en cours d’examen', href: isIt ? TODAY_LINKS.contestations : undefined,
+    },
+  ];
+}
+
+/** Cartes « sur la période » de l'onglet Incidents, comparées à la période
+ *  précédente. */
+export function incidentFlowCards(data: IncidentsKpiResponse): IncidentCard[] {
+  const scope = periodLabel(data.period);
+  const { notReturned, withoutSignature } = data;
+  return [
+    {
+      key: 'declared', label: 'Équipements déclarés non restitués', value: notReturned.declared.current,
+      unit: UNITS.equipments, icon: PackageX, scope, delta: { ...notReturned.declared, invert: true },
+      definition: 'Équipements déclarés non restitués pendant la période : une déclaration de trois équipements en compte trois.',
     },
     {
-      key: 'pv-cloture',
-      props: {
-        label: 'PV de non-restitution émis',
-        value: data?.pvCloture.emitted.current ?? null,
-        icon: FileWarning,
-        loading,
-        delta: data
-          ? { current: data.pvCloture.emitted.current, previous: data.pvCloture.emitted.previous, invert: true }
-          : undefined,
-      },
+      key: 'found', label: 'Équipements retrouvés', value: notReturned.found.current, unit: UNITS.equipments,
+      icon: Search, scope, delta: notReturned.found,
     },
     {
-      key: 'unilateral-closures',
-      props: {
-        label: 'Clôtures unilatérales',
-        value: data?.unilateralClosures.count.current ?? null,
-        icon: Ban,
-        loading,
-        delta: data
-          ? { current: data.unilateralClosures.count.current, previous: data.unilateralClosures.count.previous, invert: true }
-          : undefined,
-      },
+      key: 'pv', label: 'PV de non-restitution émis', value: data.pvCloture.emitted.current, unit: UNITS.pv,
+      icon: FileWarning, scope, delta: { ...data.pvCloture.emitted, invert: true },
     },
     {
-      key: 'cancellations',
-      props: {
-        label: 'Annulations',
-        value: data?.cancellations.count.current ?? null,
-        icon: XCircle,
-        loading,
-        delta: data
-          ? { current: data.cancellations.count.current, previous: data.cancellations.count.previous, invert: true }
-          : undefined,
-      },
+      key: 'handovers', label: 'Remises constatées sans signature', value: withoutSignature.handovers.current,
+      unit: UNITS.bons, icon: Handshake, scope, delta: { ...withoutSignature.handovers, invert: true },
+      definition: "Bons passés « En cours » sans la signature du collaborateur : le technicien a constaté la remise, avec un motif.",
     },
     {
-      key: 'contestations-opened',
-      props: {
-        label: 'Contestations ouvertes',
-        value: data?.contestations.opened.current ?? null,
-        icon: MessageSquareWarning,
-        loading,
-        delta: data
-          ? { current: data.contestations.opened.current, previous: data.contestations.opened.previous, invert: true }
-          : undefined,
-      },
-      footer: data ? `${data.contestations.openNow} en cours` : undefined,
+      key: 'closures', label: 'Clôturés sans signature', value: withoutSignature.closures.current,
+      unit: UNITS.bons, icon: Ban, scope, delta: { ...withoutSignature.closures, invert: true },
+      definition: "Bons clôturés sans la signature du collaborateur (restitution ou PV), avec un motif. À ne pas confondre avec une remise constatée sans signature.",
+    },
+    {
+      key: 'cancellations', label: 'Bons annulés', value: data.cancellations.count.current, unit: UNITS.bons,
+      icon: XCircle, scope, delta: { ...data.cancellations.count, invert: true },
+    },
+    {
+      key: 'contestations-received', label: 'Contestations reçues', value: data.contestations.received.current,
+      unit: UNITS.contestations, icon: MessageSquareWarning, scope, delta: { ...data.contestations.received, invert: true },
+      detail: `${data.contestations.toProcess} encore à traiter aujourd'hui`,
     },
   ];
 }

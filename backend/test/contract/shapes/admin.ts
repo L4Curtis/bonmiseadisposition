@@ -54,7 +54,7 @@ export const adminStatus = object<AdminStatusResponse>({
   database: literal('ok', 'unreachable'),
   jobs: arrayOf(
     object<AdminStatusJob>({
-      job: literal('ldap-sync', 'signature-reminders', 'restitution-reminder', 'retention', 'smb-retry'),
+      job: literal('ldap-sync', 'signature-reminders', 'restitution-reminder', 'retention', 'smb-retry', 'contestation-overdue'),
       label: str,
       schedule: str,
       lastStartedAt: nullable(isoDate),

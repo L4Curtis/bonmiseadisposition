@@ -2,8 +2,7 @@ import { Prisma } from '@prisma/client';
 import { KpiPeriod } from './kpi-period';
 import { parisMidnightUtcSql, parisPeriodSql, parisTodaySql } from '../common/dates/paris';
 import { filialeFilter, stepInterval } from './kpi-sql';
-import { PARC_BON_STATUSES, parcEquipmentSql, situationCaseSql } from '../common/bon-predicates';
-import { CLOSED_BON_STATUSES } from '../bons/bon-status';
+import { PARC_BON_STATUSES, parcEquipmentSql, returnOverdueEquipmentSql, situationCaseSql } from '../common/bon-predicates';
 
 /**
  * Requêtes SQL brutes de `KpiParcService.getParc` — extraites sans
@@ -158,22 +157,19 @@ export function shareCountsQuery(filialeId?: string): Prisma.Sql {
   `;
 }
 
-/** Série historique (estimation) du stock en circulation en fin de bucket :
- *  `generate_series` aligné sur la granularité + début de prêt en LATERAL
- *  (`MIN(signed_at)` de la signature mise_disposition, repli
- *  `date_mise_disposition`) — voir kpi-design.md.
+/** Série du parc en circulation : nombre d'équipements chez les
+ *  collaborateurs à la fin de chaque jour (semaine, mois). `generate_series`
+ *  aligné sur la granularité ; début du prêt = première signature de la
+ *  remise, à défaut la date de mise à disposition.
  *
- *  Alignée sur la même définition que `loanedTotalsQuery` (PARC_BON_STATUSES,
- *  audit du 2026-09-18) plutôt que « tout statut sauf cancelled » : sans cet
- *  alignement, un bon `contested` ou `sent_mise_dispo` apparaissait dans la
- *  série (statut ≠ cancelled) mais pas dans le total instantané (ancien
- *  LOANED_BON_STATUSES), faisant diverger le dernier point de la courbe et
- *  la tuile « total » sans raison métier. Le statut du bon n'étant connu
- *  qu'à l'instant présent (pas d'historique), un bon aujourd'hui `archived`
- *  reste compté sur les buckets antérieurs à son archivage effectif
- *  (`archived_at >= bucketEnd`) — au bucket le plus récent, cette branche est
- *  fausse pour un bon réellement déjà archivé, ce qui reproduit exactement
- *  `parcEquipmentSql()`. */
+ *  Le statut d'un bon n'est connu qu'au présent : un bon aujourd'hui clôturé
+ *  reste compté sur les jours antérieurs à sa clôture (`archived_at`).
+ *
+ *  Le point qui contient aujourd'hui (fin de bucket dans le futur) est l'état
+ *  présent : la condition de début de prêt y est levée, et les autres
+ *  conditions se réduisent alors exactement à `parcEquipmentSql()`. Le dernier
+ *  point égale donc toujours `loaned.total` (la carte), y compris pour une
+ *  remise envoyée dont la date prévue est à venir. */
 export function loanedSeriesQuery(period: KpiPeriod, filialeId?: string): Prisma.Sql {
   const step = stepInterval(period.granularity);
   // Fin de bucket = minuit Paris du bucket suivant, ramené en timestamp naïf UTC
@@ -198,7 +194,10 @@ export function loanedSeriesQuery(period: KpiPeriod, filialeId?: string): Prisma
         FROM signatures s
         WHERE s.bon_id = b.id AND s.type::text = 'mise_disposition' AND s.signed
       ) ls ON true
-    ) ON COALESCE(ls.loan_start, b.date_mise_disposition::timestamp) < ${bucketEnd}
+    ) ON (
+        COALESCE(ls.loan_start, b.date_mise_disposition::timestamp) < ${bucketEnd}
+        OR ${bucketEnd} > (now() AT TIME ZONE 'UTC')
+      )
       AND (be.returned_at IS NULL OR be.returned_at >= ${bucketEnd})
       AND be.not_returned = false
       AND (
@@ -212,11 +211,9 @@ export function loanedSeriesQuery(period: KpiPeriod, filialeId?: string): Prisma
 }
 
 /** CTE partagée par `returnOverdueAggregateQuery` et `returnOverdueTopQuery` :
- *  un bon par ligne, équipements en circulation en retard de restitution
- *  regroupés (définition élargie, cf. PARC_BON_STATUSES — un bon
- *  `sent_mise_dispo` ou `contested` dont la date de restitution est dépassée
- *  compte désormais aussi comme en retard, le matériel étant physiquement
- *  chez le collaborateur), `days_late` = jours de retard (date civile Paris). */
+ *  un bon par ligne, avec ses équipements « Retour en retard »
+ *  (`returnOverdueEquipmentSql`, le prédicat de `/inventaire?overdue=1`) ;
+ *  `days_late` = jours de retard (date civile de Paris). */
 function lateBonsCte(filialeId?: string): Prisma.Sql {
   return Prisma.sql`
     SELECT b.id AS bon_id, b.reference, b.date_restitution, b.collaborateur_id, b.filiale_id,
@@ -224,9 +221,7 @@ function lateBonsCte(filialeId?: string): Prisma.Sql {
            COUNT(be.id)::bigint AS equipments
     FROM bon_equipments be
     JOIN bons b ON b.id = be.bon_id
-    WHERE ${parcEquipmentSql()}
-      AND b.date_restitution IS NOT NULL
-      AND b.date_restitution < ${parisTodaySql()}
+    WHERE ${returnOverdueEquipmentSql()}
       ${filialeFilter('b', filialeId)}
     GROUP BY b.id, b.reference, b.date_restitution, b.collaborateur_id, b.filiale_id
   `;
@@ -262,16 +257,20 @@ export function returnOverdueTopQuery(filialeId?: string): Prisma.Sql {
   `;
 }
 
-/** Flux « déclaré non rendu » / « retrouvé » (audits) sur une période
- *  donnée — appelée une fois pour la période courante et une fois pour la
- *  précédente. */
+/** Nombre d'équipements visés par une entrée du journal (`equipmentIds`),
+ *  1 pour une entrée ancienne qui ne les listait pas. */
+const AUDIT_EQUIPMENT_COUNT = Prisma.sql`COALESCE(jsonb_array_length(CASE WHEN jsonb_typeof(a.details->'equipmentIds') = 'array' THEN a.details->'equipmentIds' END), 1)`;
+
+/** Équipements déclarés non restitués et équipements retrouvés sur une
+ *  période (journal d'audit) — des ÉQUIPEMENTS, pas des déclarations : une
+ *  déclaration de trois équipements en compte trois. Appelée pour la période
+ *  courante et la précédente. */
 export function notReturnedFlowsQuery(range: { from: string; to: string }, filialeId?: string): Prisma.Sql {
   return Prisma.sql`
     SELECT
-      -- declare_not_returned / mark_found sont toujours journalisés ; les variantes
-      -- _partial sont des marqueurs supplémentaires, non comptées une seconde fois.
-      COUNT(*) FILTER (WHERE a.action = 'declare_not_returned')::bigint AS declared,
-      COUNT(*) FILTER (WHERE a.action = 'mark_found')::bigint AS found
+      -- Les variantes _partial sont des marqueurs supplémentaires, jamais comptés.
+      COALESCE(SUM(${AUDIT_EQUIPMENT_COUNT}) FILTER (WHERE a.action = 'declare_not_returned'), 0)::bigint AS declared,
+      COALESCE(SUM(${AUDIT_EQUIPMENT_COUNT}) FILTER (WHERE a.action = 'mark_found'), 0)::bigint AS found
     FROM audit_logs a
     JOIN bons b ON b.id = a.bon_id
     WHERE ${parisPeriodSql(Prisma.sql`a.created_at`, range)}
@@ -294,15 +293,15 @@ export function closedBonsShareQuery(range: { from: string; to: string }, filial
   `;
 }
 
-/** État instantané : équipements déclarés non rendus sur un bon encore actif
- *  (ni archivé ni annulé). */
+/** État du jour : équipements encore non restitués (déclarés et pas
+ *  retrouvés), y compris sur un bon clôturé par un PV ; hors bons annulés. */
 export function notReturnedOpenNowQuery(filialeId?: string): Prisma.Sql {
   return Prisma.sql`
     SELECT COUNT(*)::bigint AS count
     FROM bon_equipments be
     JOIN bons b ON b.id = be.bon_id
     WHERE be.not_returned = true
-      AND b.status::text NOT IN (${Prisma.join(CLOSED_BON_STATUSES)})
+      AND b.status::text <> 'cancelled'
       ${filialeFilter('b', filialeId)}
   `;
 }

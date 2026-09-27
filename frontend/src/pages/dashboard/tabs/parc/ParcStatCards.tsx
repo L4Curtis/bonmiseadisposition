@@ -1,82 +1,90 @@
-import { Package, AlertTriangle, PackageX, PackageCheck, Tag, ScanLine } from 'lucide-react';
-import { StatCard, type StatCardDelta } from '@/components/dashboard/StatCard';
-import { staggerClass } from '@/components/dashboard/stagger';
-import { formatDays, formatNumber } from '@/lib/kpi-format';
+import { AlertTriangle, Package, PackageCheck, PackageX, ScanLine, Tag } from 'lucide-react';
+import { LATENESS_LABELS } from '@/domain/labels';
+import { formatDays } from '@/lib/kpi-format';
+import { KpiCard } from '../../components/KpiCard';
+import { asOfLabel, countWithUnit, periodLabel, UNITS } from '../../lib/kpi-scope';
 import type { ParcKpiResponse } from '../../types/parc';
 
 interface ParcStatCardsProps {
   data: ParcKpiResponse | null;
   loading: boolean;
+  /** Filiale choisie, reportée sur l'inventaire ouvert par une carte. */
+  filialeId: string | null;
 }
 
-/** Delta « premier vs dernier point » de la série du parc prêté — nécessite au
- *  moins deux points ; sinon `undefined` (la tuile retombe alors sur `hint`). */
-function loanedSeriesDelta(data: ParcKpiResponse | null): StatCardDelta | undefined {
-  const series = data?.loaned.series ?? [];
-  if (series.length < 2) return undefined;
-  return {
-    current: Number(series[series.length - 1].count),
-    previous: Number(series[0].count),
-  };
+/** Adresse de l'inventaire avec les mêmes filtres que la carte. */
+export function inventoryHref(filialeId: string | null, extra: Record<string, string> = {}): string {
+  const params = new URLSearchParams(extra);
+  if (filialeId) params.set('filialeId', filialeId);
+  const query = params.toString();
+  return query ? `/inventaire?${query}` : '/inventaire';
 }
 
-/** Rangée des six tuiles de synthèse de l'onglet Parc. */
-export function ParcStatCards({ data, loading }: ParcStatCardsProps) {
-  const loanedDelta = loanedSeriesDelta(data);
-  const equipments = data?.returnOverdue.equipments ?? null;
+/** Cartes de l'onglet Parc : états du jour (« au 25/09 », non filtrés par la
+ *  période, sans comparaison) puis flux sur la période (comparés à la période
+ *  précédente). Les états du jour ouvrent l'inventaire filtré. */
+export function ParcStatCards({ data, loading, filialeId }: ParcStatCardsProps) {
+  const asOf = data ? asOfLabel(data.asOf) : undefined;
+  const period = data ? periodLabel(data.period) : undefined;
+  const overdue = data?.returnOverdue;
+  const total = data?.loaned.total ?? 0;
+  const missingSerial = data && data.loaned.serialCoverage !== null
+    ? Math.round((1 - data.loaned.serialCoverage) * total)
+    : 0;
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      <StatCard
-        className={staggerClass(0)}
-        label="Équipements prêtés"
-        value={data?.loaned.total ?? null}
-        icon={Package}
-        loading={loading}
-        hint={data ? `${formatNumber(data.loaned.bons)} bons` : undefined}
-        delta={loanedDelta}
-      />
-      <StatCard
-        className={staggerClass(1)}
-        label="Retards de restitution"
-        value={equipments}
-        icon={AlertTriangle}
-        loading={loading}
-        tone={(equipments ?? 0) > 0 ? 'danger' : 'default'}
-        hint={`moy. ${formatDays(data?.returnOverdue.avgDays ?? null)}`}
-      />
-      <StatCard
-        className={staggerClass(2)}
-        label="Non restitués déclarés"
-        value={data?.notReturned.declared.current ?? null}
-        icon={PackageX}
-        loading={loading}
-        delta={data ? { ...data.notReturned.declared, invert: true } : undefined}
-      />
-      <StatCard
-        className={staggerClass(3)}
-        label="Retrouvés"
-        value={data?.notReturned.found.current ?? null}
-        icon={PackageCheck}
-        loading={loading}
-        delta={data ? data.notReturned.found : undefined}
-      />
-      <StatCard
-        className={staggerClass(4)}
-        label="Part hors catalogue"
-        value={data?.loaned.offCatalogShare ?? null}
-        icon={Tag}
-        format="percent"
-        loading={loading}
-      />
-      <StatCard
-        className={staggerClass(5)}
-        label="Couverture n° de série"
-        value={data?.loaned.serialCoverage ?? null}
-        icon={ScanLine}
-        format="percent"
-        loading={loading}
-      />
+    <div className="space-y-3">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">État du jour</h3>
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
+        <KpiCard
+          label="Équipements chez les collaborateurs" value={data?.loaned.total ?? null} unit={UNITS.equipments}
+          icon={Package} loading={loading} scope={asOf} href={inventoryHref(filialeId)}
+          detail={data ? `sur ${countWithUnit(data.loaned.bons, UNITS.bons)}` : undefined}
+          definition="Équipements remis et pas encore rendus : remise à signer, bon en cours, restitution en cours ou contesté. C'est la liste de l'Inventaire."
+        />
+        <KpiCard
+          label={LATENESS_LABELS.return} value={overdue?.equipments ?? null} unit={UNITS.equipments}
+          icon={AlertTriangle} loading={loading} scope={asOf} tone={(overdue?.equipments ?? 0) > 0 ? 'danger' : 'default'}
+          href={inventoryHref(filialeId, { overdue: '1' })}
+          detail={overdue && overdue.bons > 0
+            ? `sur ${countWithUnit(overdue.bons, UNITS.bons)}, retard moyen ${formatDays(overdue.avgDays)} par bon`
+            : 'date de restitution prévue dépassée'}
+          definition="Équipements encore chez les collaborateurs dont la date de restitution prévue est passée. Le retard moyen est calculé par bon."
+        />
+        <KpiCard
+          label="Encore non restitués" value={data?.notReturned.openNow ?? null} unit={UNITS.equipments}
+          icon={PackageX} loading={loading} scope={asOf}
+          definition="Équipements déclarés non restitués (perdus, cassés, gardés) et pas retrouvés depuis, y compris sur des bons clôturés."
+        />
+        <KpiCard
+          label="Avec numéro de série" value={data?.loaned.serialCoverage ?? null} format="percent"
+          icon={ScanLine} loading={loading} scope={asOf}
+          href={missingSerial > 0 ? inventoryHref(filialeId, { sansNumeroSerie: '1' }) : undefined}
+          detail={missingSerial > 0 ? `${countWithUnit(missingSerial, UNITS.equipments)} sans numéro` : 'tous les équipements en ont un'}
+          definition="Part des équipements chez les collaborateurs dont le numéro de série est renseigné. Sans lui, on ne peut pas retrouver l'équipement ni le rapprocher d'un autre outil."
+        />
+        <KpiCard
+          label="Hors catalogue" value={data?.loaned.offCatalogShare ?? null} format="percent" icon={Tag}
+          loading={loading} scope={asOf}
+          detail="part des équipements saisis en texte libre"
+          definition="Part des équipements chez les collaborateurs qui ne viennent pas d'un article du Catalogue (saisis en texte libre)."
+        />
+      </div>
+
+      <h3 className="pt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Sur la période</h3>
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
+        <KpiCard
+          label="Équipements déclarés non restitués" value={data?.notReturned.declared.current ?? null}
+          unit={UNITS.equipments} icon={PackageX} loading={loading} scope={period}
+          delta={data ? { ...data.notReturned.declared, invert: true } : undefined}
+          definition="Équipements déclarés non restitués pendant la période. Une déclaration de trois équipements en compte trois."
+        />
+        <KpiCard
+          label="Équipements retrouvés" value={data?.notReturned.found.current ?? null} unit={UNITS.equipments}
+          icon={PackageCheck} loading={loading} scope={period} delta={data ? data.notReturned.found : undefined}
+          definition="Équipements déclarés non restitués puis retrouvés pendant la période."
+        />
+      </div>
     </div>
   );
 }

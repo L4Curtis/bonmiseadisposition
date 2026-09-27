@@ -31,6 +31,7 @@ function entree(reference: string, bonId: string, overrides: Record<string, unkn
     label: 'Laptop',
     returnedAt: null,
     notReturned: false,
+    holding: 'with_collaborateur',
     bon: {
       id: bonId,
       reference,
@@ -114,14 +115,42 @@ describe('MaterielHistoryPage', () => {
 
   it('affiche « déclaré non rendu » quand le dernier bon l\'indique', async () => {
     vi.mocked(api.get).mockResolvedValue({
-      items: [entree('BON-2026-0001', 'b1', { notReturned: true })],
+      items: [entree('BON-2026-0001', 'b1', { notReturned: true, holding: 'not_returned' })],
       truncated: false,
       total: 1,
     });
 
     renderPage();
 
-    expect(await screen.findByText('Déclaré non restitué')).toBeInTheDocument();
+    expect(await screen.findByText('Déclaré non restitué par Jean Dupont')).toBeInTheDocument();
+  });
+
+  it("ne dit jamais « Chez X » pour un brouillon : l'équipement est seulement prévu", async () => {
+    vi.mocked(api.get).mockResolvedValue({
+      items: [
+        entree('BON-2026-0019', 'b2', { holding: 'planned', bon: { ...entree('x', 'b2').bon, status: 'draft', collaborateur: { displayName: 'Karim Haddad', email: null } } }),
+        entree('BON-2026-0003', 'b1', { holding: 'returned', returnedAt: '2026-06-01T10:00:00.000Z' }),
+      ],
+      truncated: false,
+      total: 2,
+    });
+
+    renderPage();
+
+    expect(await screen.findByText(/^Rendu le 01\/06\/2026 par Jean Dupont$/)).toBeInTheDocument();
+    expect(screen.queryByText(/Chez Karim Haddad/)).not.toBeInTheDocument();
+  });
+
+  it("n'ayant qu'un brouillon, l'équipement est « prévu pour », jamais « chez »", async () => {
+    vi.mocked(api.get).mockResolvedValue({
+      items: [entree('BON-2026-0019', 'b2', { holding: 'planned' })],
+      truncated: false,
+      total: 1,
+    });
+
+    renderPage();
+
+    expect(await screen.findByText("Prévu pour Jean Dupont (brouillon, rien n'a été remis)")).toBeInTheDocument();
   });
 
   it('ne rend pas la référence de bon cliquable pour la direction (canLinkToBon=false)', async () => {

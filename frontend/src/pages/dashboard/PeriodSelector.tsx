@@ -22,7 +22,7 @@ export function PeriodSelector({ preset, from, to, onPresetChange, onRangeChange
 
   return (
     <div className={cn('flex flex-wrap items-center gap-2', className)}>
-      <div className="inline-flex items-center gap-1 rounded-lg border border-border bg-card p-1">
+      <div role="group" aria-label="Période" className="inline-flex max-w-full items-center gap-0.5 overflow-x-auto rounded-lg border border-border bg-card p-1">
         {PRESETS.map((p) => {
           const active = !isCustom && preset === p;
           return (
@@ -32,7 +32,7 @@ export function PeriodSelector({ preset, from, to, onPresetChange, onRangeChange
               onClick={() => { setManualCustom(false); onPresetChange(p); }}
               aria-pressed={active}
               className={cn(
-                'rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors',
+                'min-h-[36px] whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors',
                 active ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground',
               )}
             >
@@ -45,7 +45,7 @@ export function PeriodSelector({ preset, from, to, onPresetChange, onRangeChange
           onClick={() => setManualCustom(true)}
           aria-pressed={isCustom}
           className={cn(
-            'rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors',
+            'min-h-[36px] whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors',
             isCustom ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground',
           )}
         >

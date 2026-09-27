@@ -19,7 +19,9 @@ import type { BonStatus, EquipmentCategory, IsoDateTime } from './common';
 // ─── Briques partagées (aussi utilisées par kpi.ts) ───────────────────────────
 
 /** Situation d'un équipement du parc, dérivée du statut de son bon
- *  (common/bon-predicates.ts). */
+ *  (common/bon-predicates.ts) : clé technique → libellé du lexique :
+ *  `en_attente_signature` « Remise à signer », `en_circulation` « En cours »,
+ *  `en_litige` « Contesté ». */
 export type EquipmentSituation = 'en_attente_signature' | 'en_circulation' | 'en_litige';
 
 /** Statuts de bon couverts par le parc en circulation (PARC_BON_STATUSES) :

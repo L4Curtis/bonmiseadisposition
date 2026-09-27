@@ -16,10 +16,23 @@ import { usePeriodParams } from '../use-period-params';
 import type { ParcKpiResponse } from '../types/parc';
 import { ParcStatCards } from './parc/ParcStatCards';
 import { ReturnOverdueTable } from './parc/ReturnOverdueTable';
+import { inventoryHref } from './parc/ParcStatCards';
+import { LATENESS_LABELS } from '@/domain/labels';
+import { asOfLabel, countWithUnit, shortDate, UNITS } from '../lib/kpi-scope';
 
-/** Onglet « Parc » (GET /kpi/parc) : parc prêté (total, catégories, filiales,
- *  modèles), retards de restitution, non rendus déclarés/retrouvés, et export
- *  CSV de l'inventaire. Accessible à l'IT et à Direction (lecture seule). */
+/** Ce que montre la courbe, et pourquoi son dernier point peut différer de la
+ *  carte : seulement quand la période s'arrête avant aujourd'hui. */
+function seriesSubtitle(data: ParcKpiResponse | null): string {
+  const base = 'Nombre en fin de journée.';
+  if (!data) return base;
+  if (data.period.to >= todayInParis()) return `${base} Le dernier point est l'état d'aujourd'hui, égal à la carte.`;
+  return `${base} La période s'arrête le ${shortDate(data.period.to)} : la carte donne l'état ${asOfLabel(data.asOf)}.`;
+}
+
+/** Onglet « Parc » (GET /kpi/parc) : équipements chez les collaborateurs
+ *  (catégories, filiales, modèles), « Retour en retard », non-restitutions, et
+ *  export CSV de l'inventaire. Accessible à l'IT et à la direction (lecture
+ *  seule, sans lien vers les bons). Les cartes ouvrent l'inventaire filtré. */
 export function ParcTab() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -57,7 +70,7 @@ export function ParcTab() {
       key: f.filialeId,
       label: f.name,
       count: f.count,
-      onClick: () => navigate(`/inventaire?filialeId=${f.filialeId}`),
+      onClick: () => navigate(inventoryHref(f.filialeId)),
     })),
     [data, navigate],
   );
@@ -81,50 +94,51 @@ export function ParcTab() {
     <div className="space-y-6">
       <h2 className="sr-only">Parc et prêts</h2>
 
-      <ParcStatCards data={data} loading={loading} />
+      <ParcStatCards data={data} loading={loading} filialeId={filialeId} />
 
       <ChartCard
-        title="Évolution du parc prêté"
-        subtitle="Estimation en fin de période"
+        title="Équipements chez les collaborateurs, jour après jour"
+        subtitle={seriesSubtitle(data)}
         delayIndex={1}
         loading={loading}
         empty={!loading && (data?.loaned.series.length ?? 0) === 0}
       >
         <TimeSeriesChart
           data={data?.loaned.series ?? []}
-          series={[{ key: 'count', label: 'Équipements prêtés' }]}
+          series={[{ key: 'count', label: 'Équipements chez les collaborateurs' }]}
           granularity={data?.period.granularity ?? 'day'}
         />
       </ChartCard>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <ChartCard title="Répartition par catégorie" delayIndex={2} loading={loading} empty={!loading && categoryData.length === 0}>
+        <ChartCard title="Par catégorie" subtitle={data ? asOfLabel(data.asOf) : undefined} delayIndex={2} loading={loading} empty={!loading && categoryData.length === 0}>
           <DonutChart data={categoryData} />
         </ChartCard>
 
-        <ChartCard title="Par filiale" delayIndex={3} loading={loading} empty={!loading && filialeRows.length === 0}>
+        <ChartCard title="Par filiale" subtitle={data ? `${asOfLabel(data.asOf)}, cliquer pour ouvrir l'inventaire` : undefined} delayIndex={3} loading={loading} empty={!loading && filialeRows.length === 0}>
           <BreakdownBars rows={filialeRows} />
         </ChartCard>
       </div>
 
-      <ChartCard title="Modèles les plus prêtés" delayIndex={4} loading={loading} empty={!loading && topModelsData.length === 0}>
+      <ChartCard title="Modèles les plus prêtés" subtitle={data ? `10 premiers, ${asOfLabel(data.asOf)}` : undefined} delayIndex={4} loading={loading} empty={!loading && topModelsData.length === 0}>
         <HorizontalBars data={topModelsData} />
       </ChartCard>
 
       <ChartCard
-        title="Retards de restitution (top 10)"
+        title={`${LATENESS_LABELS.return} : les 10 bons les plus en retard`}
+        subtitle={data ? `${countWithUnit(data.returnOverdue.equipments, UNITS.equipments)} sur ${countWithUnit(data.returnOverdue.bons, UNITS.bons)}, ${asOfLabel(data.asOf)}` : undefined}
         delayIndex={5}
         loading={loading}
         empty={!loading && overdueTop.length === 0}
-        emptyMessage="Aucun retard"
+        emptyMessage="Aucun retour en retard"
       >
-        <ReturnOverdueTable rows={overdueTop} canLinkToBon={isIt} />
+        <ReturnOverdueTable rows={overdueTop} canLinkToBon={isIt} filialeId={filialeId} />
       </ChartCard>
 
       <div className="flex justify-end">
         <Button type="button" variant="outline" onClick={handleExport} disabled={exportLoading || loading}>
           <Download className="mr-1.5 h-3.5 w-3.5" />
-          Exporter l&apos;inventaire (CSV)
+          Exporter l&apos;inventaire{filialeId ? ' de la filiale' : ''} (CSV)
         </Button>
       </div>
     </div>

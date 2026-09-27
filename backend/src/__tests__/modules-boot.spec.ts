@@ -3,7 +3,7 @@
  *
  * Contexte (lot B) : SignatureService a besoin de BonsService (hook PV de
  * clôture après signature de restitution) alors que BonsService dépend déjà
- * de SignatureService, et BonsModule ↔ ContestationModule forment déjà un
+ * de SignatureService, et BonsModule ↔ ContestationModule formaient alors un
  * cycle résolu par forwardRef. Une première tentative faisait passer
  * SignatureModule par un forwardRef(() => BonsModule) supplémentaire, ce qui
  * cassait le démarrage réel de l'application (« Nest cannot create the
@@ -31,7 +31,9 @@ import { SignatureModule } from '../signature/signature.module';
 import { SignatureService } from '../signature/signature.service';
 import { TimestampService } from '../signature/timestamp.service';
 import { ContestationModule } from '../contestation/contestation.module';
+import { DomainEventsModule } from '../common/events';
 import { ContestationService } from '../contestation/contestation.service';
+import { ContestationOverdueService } from '../contestation/overdue/contestation-overdue.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppConfigService } from '../config/config.service';
 import { EncryptionService } from '../config/encryption.service';
@@ -53,7 +55,7 @@ import {
 describe('Module graph boot (Bons ↔ Signature ↔ Contestation)', () => {
   it('should compile without a circular-imports / undefined-imports-array error', async () => {
     const moduleRef: TestingModule = await Test.createTestingModule({
-      imports: [BonsModule, SignatureModule, ContestationModule],
+      imports: [DomainEventsModule, BonsModule, SignatureModule, ContestationModule],
     })
       .overrideProvider(PrismaService)
       .useValue(createMockPrismaService())
@@ -71,6 +73,9 @@ describe('Module graph boot (Bons ↔ Signature ↔ Contestation)', () => {
       .useValue(createMockSmbService())
       .overrideProvider(TimestampService)
       .useValue(createMockTimestampService())
+      // Tâche planifiée : dépend du suivi des tâches (module global absent ici).
+      .overrideProvider(ContestationOverdueService)
+      .useValue({})
       .compile();
 
     expect(moduleRef).toBeDefined();

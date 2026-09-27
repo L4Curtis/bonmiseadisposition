@@ -9,7 +9,7 @@ import { anonymizeBon as anonymizeBonPure } from './anonymize-bon';
 import { purgeOldAttachments as purgeOldAttachmentsPure } from './purge-old-attachments';
 import { purgeExpiredTokens as purgeExpiredTokensPure, purgeOldAuditLogs as purgeOldAuditLogsPure } from './purge-technical';
 import { computeRetentionStats, RetentionStats } from './retention-stats';
-import { CLOSED_BON_STATUSES } from '../bons/bon-status';
+import { closedBeforeWhere } from './closed-before';
 import { PARIS_TIME_ZONE } from '../common/dates/paris';
 
 const DEFAULT_ANONYMIZE_MONTHS = 60; // 5 ans par défaut — plancher légal RGPD
@@ -74,14 +74,11 @@ export class RetentionService {
     return d;
   }
 
-  /** Bons éligibles à l'anonymisation (archivés/annulés, anciens, non déjà anonymisés). */
+  /** Bons éligibles à l'anonymisation : clos avant la limite (date de clôture
+   *  ou d'annulation, voir closed-before.ts), pas encore anonymisés. */
   private async findEligible(cutoff: Date) {
     return this.prisma.bon.findMany({
-      where: {
-        status: { in: [...CLOSED_BON_STATUSES] },
-        anonymizedAt: null,
-        updatedAt: { lt: cutoff },
-      },
+      where: { AND: [closedBeforeWhere(cutoff), { anonymizedAt: null }] },
       select: { id: true, reference: true },
       take: 500, // par lot, pour ne pas saturer un run
     });
@@ -89,7 +86,7 @@ export class RetentionService {
 
   private async countOldAttachments(cutoff: Date): Promise<number> {
     return this.prisma.attachment.count({
-      where: { bon: { status: { in: [...CLOSED_BON_STATUSES] }, updatedAt: { lt: cutoff } } },
+      where: { bon: closedBeforeWhere(cutoff) },
     });
   }
 
@@ -98,11 +95,7 @@ export class RetentionService {
     const months = await this.getMonths('anonymize_months', DEFAULT_ANONYMIZE_MONTHS, ANONYMIZE_MONTHS_FLOOR);
     const cutoff = this.cutoffDate(months);
     const eligible = await this.prisma.bon.count({
-      where: {
-        status: { in: [...CLOSED_BON_STATUSES] },
-        anonymizedAt: null,
-        updatedAt: { lt: cutoff },
-      },
+      where: { AND: [closedBeforeWhere(cutoff), { anonymizedAt: null }] },
     });
     const attachmentMonths = await this.getMonths('attachment_months', DEFAULT_ATTACHMENT_MONTHS);
     const oldAttachmentsPurged = await this.countOldAttachments(this.cutoffDate(attachmentMonths));

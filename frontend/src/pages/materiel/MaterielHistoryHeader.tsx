@@ -4,9 +4,12 @@ import { Button } from '@/components/ui/button';
 import type { CurrentHolderStatus } from './types';
 
 const STATUS_CLASSES: Record<CurrentHolderStatus['kind'], string> = {
-  en_circulation: 'text-foreground/80',
+  chez_collaborateur: 'text-foreground/80',
+  a_signer: 'text-warning',
+  prevu: 'text-muted-foreground',
   rendu: 'text-success',
-  non_rendu: 'text-destructive',
+  non_restitue: 'text-destructive',
+  aucun: 'text-muted-foreground',
 };
 
 export interface MaterielHistoryHeaderProps {
@@ -19,7 +22,7 @@ export interface MaterielHistoryHeaderProps {
 
 /** En-tête de la page /materiel/:reference : le numéro recherché, le
  *  modèle/désignation, et l'état actuel (chez qui, depuis quand, rendu le …,
- *  ou déclaré non rendu). */
+ *  déclaré non restitué, ou seulement prévu sur un brouillon). */
 export function MaterielHistoryHeader({ reference, label, status, onExport, exportLoading }: MaterielHistoryHeaderProps) {
   const navigate = useNavigate();
 

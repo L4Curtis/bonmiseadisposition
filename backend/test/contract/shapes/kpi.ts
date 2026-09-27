@@ -25,9 +25,13 @@ import type {
   KpiStatusBreakdownItem,
   KpiWaiting,
   KpiWaitingStep,
+  KpiTodayFilialeCount,
+  KpiTodayResponse,
+  KpiTodayRow,
+  KpiTodaySection,
 } from '../../../src/contracts/kpi';
 import { bonStatus, equipmentCategory } from '../support/common-shapes';
-import { arrayOf, int, literal, nullable, num, object, Shape, str, uuid } from '../support/shape';
+import { arrayOf, int, isoDate, literal, nullable, num, object, Shape, str, uuid } from '../support/shape';
 import { parcCategoryCount, parcFilialeCount, parcSituationCount } from './reporting';
 
 /** Date civile « AAAA-MM-JJ », distincte des dates-heures ISO des autres routes. */
@@ -42,6 +46,7 @@ const ratioCompared = object<KpiRatioCompared>({ current: nullable(num), previou
 const seriesPoint = object<KpiSeriesPoint>({ bucket: kpiDate, count: int });
 
 const envelopeFields = {
+  asOf: isoDate,
   period: object<KpiPeriodInfo>({ from: kpiDate, to: kpiDate, granularity: literal('day', 'week', 'month'), days: int }),
   previous: object<KpiPreviousInfo>({ from: kpiDate, to: kpiDate }),
   filialeId: nullable(uuid),
@@ -147,28 +152,67 @@ export const kpiDelais = object<KpiDelaisResponse>({
   }),
 });
 
+const closureReason = object<KpiClosureReason>({ reason: str, count: int });
+
 export const kpiIncidents = object<KpiIncidentsResponse>({
   ...envelopeFields,
-  notReturned: object<KpiIncidentsResponse['notReturned']>({ declared: compared, found: compared }),
+  notReturned: object<KpiIncidentsResponse['notReturned']>({ declared: compared, found: compared, stillMissing: int }),
   pvCloture: object<KpiIncidentsResponse['pvCloture']>({ emitted: compared }),
-  unilateralClosures: object<KpiIncidentsResponse['unilateralClosures']>({
-    count: compared,
-    reasons: arrayOf(object<KpiClosureReason>({ reason: str, count: int })),
+  withoutSignature: object<KpiIncidentsResponse['withoutSignature']>({
+    handovers: compared,
+    closures: compared,
+    handoverReasons: arrayOf(closureReason),
+    closureReasons: arrayOf(closureReason),
   }),
   cancellations: object<KpiIncidentsResponse['cancellations']>({ count: compared }),
   contestations: object<KpiIncidentsContestations>({
-    opened: compared,
-    openNow: int,
-    closed: compared,
+    received: compared,
+    toProcess: int,
+    decided: compared,
+    founded: compared,
+    notRetained: compared,
     resolutionMedianDays: ratioCompared,
-    acceptanceRate: ratioCompared,
   }),
   reminders: object<KpiIncidentsResponse['reminders']>({
     byRank: arrayOf(
       object<KpiReminderRankStat>({ rank: int, sent: compared, signedAfter: compared, efficiency: nullable(num) }),
       { minLength: 3 },
     ),
-    bonsWithThreeOrMore: compared,
+    documentsWithThreeOrMore: compared,
   }),
   failedEmails: object<KpiIncidentsResponse['failedEmails']>({ count: compared }),
+});
+
+const todayRow = object<KpiTodayRow>({
+  bonId: uuid,
+  reference: str,
+  collaborateurId: uuid,
+  collaborateur: str,
+  since: isoDate,
+  detail: nullable(str),
+});
+const todaySection = object<KpiTodaySection>({ total: int, rows: arrayOf(todayRow) });
+
+export const kpiToday = object<KpiTodayResponse>({
+  asOf: isoDate,
+  signatureOverdueDays: int,
+  openBons: int,
+  activeBons: int,
+  restitutionInProgress: int,
+  awaitingSignatures: int,
+  overdueSignatures: int,
+  overdueReturns: object<KpiTodayResponse['overdueReturns']>({ equipments: int, bons: int }),
+  contestationsToProcess: int,
+  expiredLinks: int,
+  departures: object<KpiTodayResponse['departures']>({ collaborateurs: int, equipments: int }),
+  openBonsByFiliale: arrayOf(object<KpiTodayFilialeCount>({ id: uuid, name: str, count: int }), { minLength: 1 }),
+  toDo: object<KpiTodayResponse['toDo']>({
+    drafts: todaySection,
+    overdueSignatures: todaySection,
+    expiredLinks: todaySection,
+    overdueReturns: todaySection,
+    contestations: todaySection,
+    departures: todaySection,
+    partialRestitutionsToSign: todaySection,
+  }),
 });

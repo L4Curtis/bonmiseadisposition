@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { IN_PROGRESS_BON_STATUSES } from '../bons/bon-status';
+import { equipmentHolding } from './equipment-holding';
 
 /** Limite de lignes renvoyées par getEquipmentHistory — au-delà, `truncated:
  *  true` signale explicitement que le résultat est partiel plutôt que de
@@ -18,7 +19,9 @@ const SERIAL_CONFLICTS_LIMIT = 50;
  * plus récent au plus ancien (limité à EQUIPMENT_HISTORY_LIMIT ; `truncated`
  * indique explicitement si des résultats plus anciens ont été omis).
  * Répond à « où est le portable SN-1234 ? » comme à « où est le matériel
- * INV-5678 ? ». Alimente la page `/materiel/:reference`.
+ * INV-5678 ? ». Alimente la page `/materiel/:reference`. Chaque ligne porte sa
+ * situation (`holding`, voir equipment-holding.ts) : un brouillon n'a pas de
+ * détenteur.
  */
 export async function getEquipmentHistory(prisma: PrismaService, reference: string) {
   const query = (reference ?? '').trim();
@@ -60,6 +63,7 @@ export async function getEquipmentHistory(prisma: PrismaService, reference: stri
     label: e.catalogItem ? `${e.catalogItem.brand} ${e.catalogItem.model}` : e.customLabel,
     returnedAt: e.returnedAt,
     notReturned: e.notReturned,
+    holding: equipmentHolding({ returnedAt: e.returnedAt, notReturned: e.notReturned, bonStatus: e.bon.status }),
     bon: e.bon,
   }));
 

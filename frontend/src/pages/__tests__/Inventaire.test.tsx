@@ -120,7 +120,7 @@ describe('InventairePage', () => {
     renderWithProviders(<InventairePage />);
 
     expect(await screen.findByText('Jean Dupont')).toBeInTheDocument();
-    expect(screen.getByText('Équipements prêtés')).toBeInTheDocument();
+    expect(screen.getByText('Équipements chez les collaborateurs')).toBeInTheDocument();
     expect(screen.getByText('BMD-2026-0001')).toBeInTheDocument();
   });
 

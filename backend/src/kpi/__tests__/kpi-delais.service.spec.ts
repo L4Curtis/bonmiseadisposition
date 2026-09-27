@@ -220,9 +220,9 @@ describe('KpiDelaisService', () => {
       expect(result.waiting.thresholdDays).toBe(7);
       expect(result.waiting.overdueTotal).toBe(6);
       expect(result.waiting.steps).toEqual([
-        { step: 'mise_disposition', label: 'Signature mise à disposition', count: 12, avgAgeDays: 4.1, overdue: 3 },
-        { step: 'restitution', label: 'Signature restitution', count: 5, avgAgeDays: 2, overdue: 1 },
-        { step: 'pv_cloture', label: 'PV de non-restitution', count: 2, avgAgeDays: 9.5, overdue: 2 },
+        { step: 'mise_disposition', label: 'Remise à signer', count: 12, avgAgeDays: 4.1, overdue: 3 },
+        { step: 'restitution', label: 'Restitution à signer', count: 5, avgAgeDays: 2, overdue: 1 },
+        { step: 'pv_cloture', label: 'PV de non-restitution à signer', count: 2, avgAgeDays: 9.5, overdue: 2 },
       ]);
     });
 
@@ -276,26 +276,28 @@ describe('KpiDelaisService', () => {
       expect(lagCall![0].sql).toContain("'-infinity'::timestamp");
     });
 
-    it('waiting utilise to_timestamp(1) et embarque le seuil configuré (7 puis 10)', async () => {
+    it('waiting mesure le retard sur awaiting_since, au seuil configuré (7 puis 10 jours)', async () => {
+      const now = new Date('2026-09-20T10:00:00.000Z');
       const prisma = createPrisma();
       const config = createConfig(7);
       mockEmpty(prisma);
       const service = new KpiDelaisService(prisma as never, config as never);
 
-      await service.getDelais(PERIOD);
+      await service.getDelais(PERIOD, undefined, now);
       let calls = (prisma.$queryRaw as Mock).mock.calls as [RawQuery][];
       let waitingCall = calls.find(([q]) => q.sql.includes('CASE b.status::text'));
       expect(waitingCall).toBeDefined();
-      expect(waitingCall![0].sql).toContain('to_timestamp(1)');
-      expect(waitingCall![0].values).toContain(7);
+      expect(waitingCall![0].sql).toContain('b.awaiting_since <');
+      expect(waitingCall![0].sql).not.toContain('updated_at');
+      expect(waitingCall![0].values).toContain('2026-09-13T10:00:00.000Z');
 
       (prisma.$queryRaw as Mock).mockClear();
       (config.getSignatureOverdueDays as Mock).mockResolvedValue(10);
 
-      await service.getDelais(PERIOD);
+      await service.getDelais(PERIOD, undefined, now);
       calls = (prisma.$queryRaw as Mock).mock.calls as [RawQuery][];
       waitingCall = calls.find(([q]) => q.sql.includes('CASE b.status::text'));
-      expect(waitingCall![0].values).toContain(10);
+      expect(waitingCall![0].values).toContain('2026-09-10T10:00:00.000Z');
     });
 
     it('ajoute le filtre filiale sur toutes les requêtes quand fourni, et sur aucune sinon', async () => {

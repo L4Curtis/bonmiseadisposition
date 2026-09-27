@@ -23,7 +23,10 @@ export function buildInventoryCsv(items: InventoryItemView[], now: Date = new Da
   return buildCsv({ header: HEADERS, rows: items.map((item) => inventoryRow(item, now)) });
 }
 
-/** Une ligne du fichier : ancienneté et retard en jours calendaires à Paris. */
+/** Une ligne du fichier : ancienneté et retard en jours calendaires à Paris.
+ *  Une remise prévue dans le futur n'a pas encore d'ancienneté : cellule vide
+ *  (un nombre négatif serait en plus préfixé d'une apostrophe par la
+ *  protection contre les formules du tableur). */
 function inventoryRow(it: InventoryItemView, now: Date): CsvCell[] {
   const anciennete = parisDaysSince(new Date(it.dateMiseDisposition), now);
   const retard = it.dateRestitution ? parisDaysSince(new Date(it.dateRestitution), now) : null;
@@ -42,7 +45,7 @@ function inventoryRow(it: InventoryItemView, now: Date): CsvCell[] {
     bonStatusLabel(it.bonStatus),
     it.situationLabel,
     formatParisDate(it.dateMiseDisposition),
-    String(anciennete),
+    anciennete >= 0 ? String(anciennete) : '',
     formatParisDate(it.dateRestitution),
     retard !== null && retard > 0 ? String(retard) : '',
   ];

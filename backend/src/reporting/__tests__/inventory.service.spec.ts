@@ -197,7 +197,7 @@ describe('InventoryService', () => {
         bonReference: 'BON-2026-0001',
         bonStatus: 'active',
         situation: 'en_circulation',
-        situationLabel: 'En circulation',
+        situationLabel: 'En cours',
         collaborateur: { id: 'u-1', displayName: 'Jean Dupont', email: 'j.dupont@x.fr', department: 'IT' },
         filiale: { id: 'f-1', name: 'paris', displayName: 'Paris' },
       });
@@ -217,10 +217,10 @@ describe('InventoryService', () => {
 
     it.each([
       ['sent_mise_dispo', 'en_attente_signature', 'Remise à signer'],
-      ['active', 'en_circulation', 'En circulation'],
-      ['sent_restitution', 'en_circulation', 'En circulation'],
-      ['partially_returned', 'en_circulation', 'En circulation'],
-      ['contested', 'en_litige', 'En litige'],
+      ['active', 'en_circulation', 'En cours'],
+      ['sent_restitution', 'en_circulation', 'En cours'],
+      ['partially_returned', 'en_circulation', 'En cours'],
+      ['contested', 'en_litige', 'Contesté'],
     ])('mappe le statut de bon %s vers la situation %s (%s)', async (bonStatus, situation, situationLabel) => {
       (prisma.bonEquipment.findMany as Mock).mockResolvedValue([
         makeRow({ bon: { ...makeRow().bon, status: bonStatus } }),
@@ -372,8 +372,8 @@ describe('InventoryService', () => {
       expect(summary.byFiliale).toEqual([{ filialeId: 'f-1', name: 'Paris', count: 5 }]);
       expect(summary.bySituation).toEqual([
         { situation: 'en_attente_signature', label: 'Remise à signer', count: 1 },
-        { situation: 'en_circulation', label: 'En circulation', count: 4 },
-        { situation: 'en_litige', label: 'En litige', count: 0 },
+        { situation: 'en_circulation', label: 'En cours', count: 4 },
+        { situation: 'en_litige', label: 'Contesté', count: 0 },
       ]);
       // Invariant verrouillé par l'audit : la somme des situations égale le total.
       expect(summary.bySituation.reduce((sum, s) => sum + s.count, 0)).toBe(summary.total);
@@ -495,6 +495,20 @@ describe('InventoryService', () => {
       const cols = headerLine.split(';');
 
       expect(dataLine.split(';')[cols.indexOf('"Retard (jours)"')]).toBe('""');
+    });
+
+    it("laisse l'ancienneté vide pour une remise prévue dans le futur (jamais « '-3 »)", async () => {
+      const now = new Date('2026-09-25T10:00:00.000Z');
+      (prisma.bonEquipment.findMany as Mock).mockResolvedValue([
+        makeRow({ bon: { ...makeRow().bon, dateMiseDisposition: new Date('2026-09-28T00:00:00.000Z') } }),
+      ]);
+
+      const { csv } = await service.getExportCsv({}, now);
+      const [headerLine, dataLine] = csv.slice(1).split('\n');
+      const cols = headerLine.split(';');
+
+      expect(dataLine.split(';')[cols.indexOf('"Ancienneté (jours)"')]).toBe('""');
+      expect(dataLine).not.toContain("'-");
     });
 
     it('affiche « — » (jamais null/undefined) quand le collaborateur n\'a pas d\'adresse email (compte manuel)', async () => {

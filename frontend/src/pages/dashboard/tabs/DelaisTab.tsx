@@ -1,33 +1,85 @@
-import { useNavigate } from 'react-router';
 import {
-  FileText, Send, Archive, XCircle,
-  Timer, CheckCircle2, CalendarCheck, CalendarClock, AlertTriangle,
+  AlertTriangle, Archive, CalendarCheck, CalendarClock, CheckCircle2, FileText, Send, Timer, XCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { StatCard, StatCardSkeleton, type StatCardProps, type StatCardTone } from '@/components/dashboard/StatCard';
 import { ChartCard } from '@/components/dashboard/ChartCard';
 import { TimeSeriesChart, type TimeSeriesDatum } from '@/components/dashboard/charts/TimeSeriesChart';
 import { DonutChart, type DonutChartDatum } from '@/components/dashboard/charts/DonutChart';
-import { staggerClass } from '@/components/dashboard/stagger';
 import { EmptyPeriodNotice } from '@/components/dashboard/EmptyPeriodNotice';
 import { useApiResource } from '@/hooks/use-api-resource';
 import { useAuth } from '@/contexts/AuthContext';
+import { LATENESS_LABELS } from '@/domain/labels';
 import { isItRole } from '@/lib/roles';
+import { KpiCard, KpiCardSkeleton, type KpiCardProps } from '../components/KpiCard';
+import { asOfLabel, countWithUnit, periodLabel, UNITS } from '../lib/kpi-scope';
 import { usePeriodParams } from '../use-period-params';
 import type { DelaisKpiResponse } from '../types/delais';
 import { SignatureDelayBars } from './delais/SignatureDelayBars';
 import { SignatureModeTiles } from './delais/SignatureModeTiles';
 import { WaitingStepsTable } from './delais/WaitingStepsTable';
+import { TODAY_LINKS } from './today/today-links';
 
-const DEFAULT_THRESHOLD_DAYS = 7;
+type CardDef = KpiCardProps & { key: string };
 
-type CardDef = StatCardProps & { key: string };
+/** « 86 % des remises (6 sur 7) » : une part avec son effectif. */
+function shareDetail(ratio: number | null, count: number): string {
+  if (ratio === null || count === 0) return 'aucune remise signée sur la période';
+  return `${Math.round(ratio * count)} remises sur ${count} signées`;
+}
 
-/** Onglet « Délais » — workflow et délais de traitement (`GET /kpi/delais`).
- *  Un seul appel API pour tout l'onglet ; skeletons distribués par bloc
- *  pendant le chargement, erreur unique avec Réessayer en cas d'échec. */
+function volumeCards(data: DelaisKpiResponse): CardDef[] {
+  const scope = periodLabel(data.period);
+  const { volumes } = data;
+  return [
+    { key: 'created', label: 'Bons créés', value: volumes.created.current, unit: UNITS.bons, icon: FileText, scope, delta: volumes.created },
+    { key: 'sent', label: 'Bons envoyés', value: volumes.sent.current, unit: UNITS.bons, icon: Send, scope, delta: volumes.sent },
+    { key: 'archived', label: 'Bons clôturés', value: volumes.archived.current, unit: UNITS.bons, icon: Archive, scope, delta: volumes.archived },
+    { key: 'cancelled', label: 'Bons annulés', value: volumes.cancelled.current, unit: UNITS.bons, icon: XCircle, scope, delta: { ...volumes.cancelled, invert: true } },
+  ];
+}
+
+function delayCards(data: DelaisKpiResponse, isIt: boolean): CardDef[] {
+  const scope = periodLabel(data.period);
+  const remise = data.sendToSignature.mise_disposition;
+  const overdue = data.waiting.overdueTotal;
+  return [
+    {
+      key: 'creationToSend', label: 'Délai entre création et envoi', value: data.creationToSend.medianHours, format: 'hours',
+      icon: Timer, scope, detail: `médiane, sur ${countWithUnit(data.creationToSend.count, UNITS.bons)} envoyés`,
+      delta: data.creationToSend.medianHours != null
+        ? { current: data.creationToSend.medianHours, previous: data.creationToSend.previous.medianHours, invert: true }
+        : undefined,
+      definition: "Temps entre la création d'un bon et son premier envoi au collaborateur. La médiane : la moitié des bons sont envoyés plus vite.",
+    },
+    {
+      key: 'signed48h', label: 'Remises signées sous 48 h', value: remise.within48h, format: 'percent',
+      icon: CheckCircle2, scope, detail: shareDetail(remise.within48h, remise.count),
+      definition: 'Part des remises signées dans les 48 heures qui suivent la demande de signature, parmi les remises signées sur la période.',
+    },
+    {
+      key: 'signed7d', label: 'Remises signées sous 7 jours', value: remise.within7d, format: 'percent',
+      icon: CalendarCheck, scope, detail: shareDetail(remise.within7d, remise.count),
+    },
+    {
+      key: 'loanDuration', label: 'Durée moyenne de prêt', value: data.loanDuration.avgDays.current, format: 'days',
+      icon: CalendarClock, scope, detail: `sur ${countWithUnit(data.loanDuration.count, UNITS.bons)} clôturés`,
+      delta: data.loanDuration.avgDays.current != null
+        ? { current: data.loanDuration.avgDays.current, previous: data.loanDuration.avgDays.previous }
+        : undefined,
+      definition: 'Pour les bons clôturés sur la période : temps entre la signature de la remise et la clôture.',
+    },
+    {
+      key: 'overdue', label: LATENESS_LABELS.signature, value: overdue, unit: UNITS.bons, icon: AlertTriangle,
+      tone: overdue > 0 ? 'danger' : 'default', scope: asOfLabel(data.asOf),
+      detail: `signature attendue depuis plus de ${data.waiting.thresholdDays} jours`,
+      href: isIt ? TODAY_LINKS.overdueSignatures : undefined,
+    },
+  ];
+}
+
+/** Onglet « Délais » (`GET /kpi/delais`) : volumes et délais sur la période,
+ *  signatures attendues au jour. Chaque carte dit sa portée. */
 export function DelaisTab() {
-  const navigate = useNavigate();
   const { user } = useAuth();
   const { from, to, filialeId, preset, setPreset } = usePeriodParams();
   const isIt = isItRole(user?.role);
@@ -48,118 +100,45 @@ export function DelaisTab() {
     );
   }
 
-  const thresholdDays = data?.waiting.thresholdDays ?? DEFAULT_THRESHOLD_DAYS;
-  const overdueTotal = data?.waiting.overdueTotal ?? 0;
-  const overdueTone: StatCardTone = overdueTotal > 0 ? 'danger' : 'default';
-
-  const volumeCards: CardDef[] = data ? [
-    {
-      key: 'created', label: 'Bons créés', value: data.volumes.created.current, icon: FileText,
-      delta: { current: data.volumes.created.current, previous: data.volumes.created.previous },
-    },
-    {
-      key: 'sent', label: 'Envoyés', value: data.volumes.sent.current, icon: Send,
-      delta: { current: data.volumes.sent.current, previous: data.volumes.sent.previous },
-    },
-    {
-      key: 'archived', label: 'Clôturés', value: data.volumes.archived.current, icon: Archive,
-      delta: { current: data.volumes.archived.current, previous: data.volumes.archived.previous },
-    },
-    {
-      key: 'cancelled', label: 'Annulés', value: data.volumes.cancelled.current, icon: XCircle,
-      delta: { current: data.volumes.cancelled.current, previous: data.volumes.cancelled.previous, invert: true },
-    },
-  ] : [];
-
-  const delayCards: CardDef[] = data ? [
-    {
-      key: 'creationToSend', label: 'Délai création → envoi', value: data.creationToSend.medianHours,
-      icon: Timer, format: 'hours',
-      delta: data.creationToSend.medianHours != null
-        ? { current: data.creationToSend.medianHours, previous: data.creationToSend.previous.medianHours, invert: true }
-        : undefined,
-    },
-    {
-      key: 'signed48h', label: 'Signé sous 48 h', value: data.sendToSignature.mise_disposition.within48h,
-      icon: CheckCircle2, format: 'percent', hint: 'Mise à disposition',
-    },
-    {
-      key: 'signed7d', label: 'Signé sous 7 j', value: data.sendToSignature.mise_disposition.within7d,
-      icon: CalendarCheck, format: 'percent', hint: 'Mise à disposition',
-    },
-    {
-      key: 'avgLoanDuration', label: 'Durée moyenne de prêt', value: data.loanDuration.avgDays.current,
-      icon: CalendarClock, format: 'days',
-      delta: data.loanDuration.avgDays.current != null
-        ? { current: data.loanDuration.avgDays.current, previous: data.loanDuration.avgDays.previous, invert: true }
-        : undefined,
-    },
-    {
-      key: 'overdue', label: `Signature en retard (> ${thresholdDays} j)`, value: overdueTotal,
-      icon: AlertTriangle, tone: overdueTone,
-      onClick: isIt ? () => navigate('/bons?overdue=1') : undefined,
-    },
-  ] : [];
-
   const volumeSeries: TimeSeriesDatum[] = (data?.volumes.series ?? []).map((p) => ({
     bucket: p.bucket, created: p.created, sent: p.sent, archived: p.archived,
   }));
-
   const statusData: DonutChartDatum[] = (data?.statusBreakdown ?? [])
     .filter((s) => s.count > 0)
     .map((s) => ({ key: s.status, label: s.label, value: s.count }));
-
   const totalWaiting = (data?.waiting.steps ?? []).reduce((sum, s) => sum + s.count, 0);
-
-  // Période sans aucun mouvement : les tuiles n'affichent alors que des zéros
-  // et des tirets, et les graphiques se dessinent vides. On le dit clairement
-  // plutôt que de laisser croire à une panne.
-  const signatureModeVide =
-    !!data &&
-    data.signatureMode.inPerson.current === 0 &&
-    data.signatureMode.remote.current === 0 &&
-    data.signatureMode.proxy.current === 0;
-  const volumesVides =
-    !!data &&
-    data.volumes.created.current === 0 &&
-    data.volumes.sent.current === 0 &&
-    data.volumes.archived.current === 0 &&
-    data.volumes.cancelled.current === 0;
-  // La répartition par statut est un instantané de tous les bons, pas une
-  // activité de période : elle ne compte pas pour juger la période vide.
-  const periodeVide = volumesVides && signatureModeVide;
+  const noSignature = !!data && data.signatureMode.inPerson.current === 0 && data.signatureMode.remote.current === 0;
+  const noVolume = !!data && [data.volumes.created, data.volumes.sent, data.volumes.archived, data.volumes.cancelled]
+    .every((v) => v.current === 0);
 
   return (
     <div className="space-y-6">
-      {periodeVide && (
+      {noVolume && noSignature && (
         <EmptyPeriodNotice
-          quoi="bon créé, envoyé, archivé ou annulé"
+          quoi="bon créé, envoyé, clôturé ou annulé"
           onElargir={() => setPreset('12m')}
           elargissementPossible={preset !== '12m'}
         />
       )}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {loading
-          ? Array.from({ length: 4 }).map((_, i) => <StatCardSkeleton key={i} />)
-          : volumeCards.map(({ key, ...card }, index) => (
-              <StatCard key={key} {...card} className={staggerClass(index)} />
-            ))}
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+        {loading || !data
+          ? Array.from({ length: 4 }).map((_, i) => <KpiCardSkeleton key={i} />)
+          : volumeCards(data).map(({ key, ...card }) => <KpiCard key={key} {...card} />)}
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {loading
-          ? Array.from({ length: 5 }).map((_, i) => <StatCardSkeleton key={i} />)
-          : delayCards.map(({ key, ...card }, index) => (
-              <StatCard key={key} {...card} className={staggerClass(index)} />
-            ))}
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
+        {loading || !data
+          ? Array.from({ length: 5 }).map((_, i) => <KpiCardSkeleton key={i} />)
+          : delayCards(data, isIt).map(({ key, ...card }) => <KpiCard key={key} {...card} />)}
       </div>
 
       <ChartCard
-        title="Volumes sur la période"
+        title="Bons créés, envoyés et clôturés"
+        subtitle={data ? periodLabel(data.period) : undefined}
         loading={loading}
         delayIndex={1}
-        empty={volumesVides}
+        empty={noVolume}
         emptyMessage="Aucun bon créé, envoyé ou clôturé sur la période."
       >
         {data && (
@@ -175,41 +154,49 @@ export function DelaisTab() {
         )}
       </ChartCard>
 
+      <ChartCard
+        title="Délai entre la demande et la signature"
+        subtitle={data ? `Documents signés ${periodLabel(data.period)}` : undefined}
+        loading={loading}
+        delayIndex={3}
+        empty={!loading && noSignature}
+        emptyMessage="Aucune signature sur la période."
+      >
+        {data && <SignatureDelayBars sendToSignature={data.sendToSignature} />}
+      </ChartCard>
+
+      <ChartCard
+        title="Comment les documents ont été signés"
+        loading={loading}
+        delayIndex={4}
+        empty={!loading && noSignature}
+        emptyMessage="Aucune signature sur la période."
+      >
+        {data && <SignatureModeTiles signatureMode={data.signatureMode} scope={periodLabel(data.period)} />}
+      </ChartCard>
+
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <ChartCard title="Répartition par statut" loading={loading} empty={!loading && statusData.length === 0} delayIndex={2}>
+        <ChartCard
+          title="Bons par statut"
+          subtitle={data ? `Tous les bons, ${asOfLabel(data.asOf)}` : undefined}
+          loading={loading}
+          empty={!loading && statusData.length === 0}
+          delayIndex={2}
+        >
           {data && <DonutChart data={statusData} />}
         </ChartCard>
 
         <ChartCard
-          title="Délai envoi → signature par type"
+          title="Signatures attendues par document"
+          subtitle={data ? asOfLabel(data.asOf) : undefined}
+          delayIndex={5}
           loading={loading}
-          delayIndex={3}
-          empty={!loading && signatureModeVide}
-          emptyMessage="Aucune signature sur la période."
+          empty={!loading && totalWaiting === 0}
+          emptyMessage="Aucune signature attendue."
         >
-          {data && <SignatureDelayBars sendToSignature={data.sendToSignature} />}
+          {data && <WaitingStepsTable steps={data.waiting.steps} thresholdDays={data.waiting.thresholdDays} />}
         </ChartCard>
       </div>
-
-      <ChartCard
-        title="Mode de signature"
-        loading={loading}
-        delayIndex={4}
-        empty={!loading && signatureModeVide}
-        emptyMessage="Aucune signature sur la période."
-      >
-        {data && <SignatureModeTiles signatureMode={data.signatureMode} />}
-      </ChartCard>
-
-      <ChartCard
-        title="En attente par étape"
-        delayIndex={5}
-        loading={loading}
-        empty={!loading && totalWaiting === 0}
-        emptyMessage="Aucun bon en attente."
-      >
-        {data && <WaitingStepsTable steps={data.waiting.steps} />}
-      </ChartCard>
     </div>
   );
 }

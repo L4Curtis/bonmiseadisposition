@@ -2,7 +2,7 @@ import { Logger } from '@nestjs/common';
 import { unlink } from 'fs/promises';
 import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
-import { CLOSED_BON_STATUSES } from '../bons/bon-status';
+import { closedBeforeWhere } from './closed-before';
 import { ATTACHMENTS_DIR } from '../common/storage-paths';
 
 export interface PurgeOldAttachmentsDeps {
@@ -13,12 +13,13 @@ export interface PurgeOldAttachmentsDeps {
 /**
  * Purge complémentaire (retention.attachment_months) : supprime les pièces
  * jointes des bons clôturés/annulés au-delà de N mois, indépendamment de
- * l'anonymisation complète du bon (délai plus long, cf. plancher légal).
+ * l'anonymisation complète du bon (délai plus long, cf. plancher légal). La
+ * limite porte sur la date de clôture ou d'annulation (closed-before.ts).
  */
 export async function purgeOldAttachments(deps: PurgeOldAttachmentsDeps, cutoff: Date): Promise<number> {
   const { prisma, logger } = deps;
   const targets = await prisma.attachment.findMany({
-    where: { bon: { status: { in: [...CLOSED_BON_STATUSES] }, updatedAt: { lt: cutoff } } },
+    where: { bon: closedBeforeWhere(cutoff) },
     select: { id: true, storedPath: true },
   });
 
