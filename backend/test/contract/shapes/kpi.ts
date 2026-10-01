@@ -10,6 +10,7 @@ import type {
   KpiIncidentsResponse,
   KpiListItem,
   KpiListKey,
+  KpiListMeta,
   KpiListResponse,
   KpiLoanDuration,
   KpiParcLoaned,
@@ -33,7 +34,7 @@ import type {
   KpiTodayRow,
   KpiTodaySection,
 } from '../../../src/contracts/kpi';
-import { bonStatus, enumOf, equipmentCategory } from '../support/common-shapes';
+import { bonStatus, enumOf, equipmentCategory, listWithMeta } from '../support/common-shapes';
 import { arrayOf, int, isoDate, literal, nullable, num, object, Shape, str, uuid } from '../support/shape';
 import { parcCategoryCount, parcFilialeCount, parcSituationCount } from './reporting';
 
@@ -141,6 +142,7 @@ export const kpiDelais = object<KpiDelaisResponse>({
   loanDuration: object<KpiLoanDuration>({ count: int, avgDays: ratioCompared, medianDays: ratioCompared }),
   waiting: object<KpiWaiting>({
     thresholdDays: int,
+    overdueSignatures: int,
     overdueTotal: int,
     steps: arrayOf(
       object<KpiWaitingStep>({
@@ -148,6 +150,7 @@ export const kpiDelais = object<KpiDelaisResponse>({
         label: str,
         count: int,
         avgAgeDays: nullable(num),
+        overdueSignatures: int,
         overdue: int,
       }),
       { minLength: 3 },
@@ -238,23 +241,20 @@ const kpiListKey = enumOf<KpiListKey>({
   signatures_mandatees: true,
 });
 
-export const kpiList = object<KpiListResponse>({
-  indicateur: kpiListKey,
-  period: object<KpiListResponse['period']>({ from: kpiDate, to: kpiDate }),
-  items: arrayOf(
-    object<KpiListItem>({
-      id: uuid,
-      bonId: uuid,
-      reference: str,
-      status: bonStatus,
-      collaborateur: str,
-      filiale: str,
-      at: isoDate,
-      detail: nullable(str),
-    }),
-    { minLength: 1 },
-  ),
-  total: int,
-  page: int,
-  limit: int,
+const kpiListItem = object<KpiListItem>({
+  id: uuid,
+  bonId: uuid,
+  reference: str,
+  status: bonStatus,
+  collaborateur: str,
+  filiale: str,
+  at: isoDate,
+  detail: nullable(str),
 });
+
+/** Forme unique des listes ; le chiffre et la période dans `meta`. */
+export const kpiList: Shape<KpiListResponse> = listWithMeta<KpiListItem, KpiListMeta>(
+  kpiListItem,
+  object<KpiListMeta>({ indicateur: kpiListKey, period: object<KpiListMeta['period']>({ from: kpiDate, to: kpiDate }) }),
+  { minLength: 1 },
+);

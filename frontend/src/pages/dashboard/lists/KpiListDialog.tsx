@@ -5,10 +5,11 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/StatusBadge';
-import { useApiResource, type ApiResourceState } from '@/hooks/use-api-resource';
+import type { ApiResourceState } from '@/hooks/use-api-resource';
 import { formatDateTime } from '@/lib/dates';
 import { countWithUnit, periodLabel } from '../lib/kpi-scope';
 import { KPI_LISTS, LIST_PARAM, type KpiListItem, type KpiListKey, type KpiListResponse } from './kpi-lists';
+import { useKpiList } from './use-kpi-list';
 
 const PAGE_SIZE = 50;
 
@@ -84,7 +85,7 @@ export function KpiListDialog({ indicateur, from, to, filialeId }: KpiListDialog
 
   const query = new URLSearchParams({ indicateur, from, to, page: String(page), limit: String(PAGE_SIZE) });
   if (filialeId) query.set('filialeId', filialeId);
-  const state = useApiResource<KpiListResponse>(`/kpi/liste?${query.toString()}`, 'Impossible de charger la liste');
+  const state = useKpiList(`/kpi/liste?${query.toString()}`);
   const total = state.data?.total ?? null;
   const pages = total === null ? 1 : Math.max(1, Math.ceil(total / PAGE_SIZE));
 

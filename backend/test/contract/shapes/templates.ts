@@ -6,8 +6,7 @@ import type {
   EmailTemplatePreviewResponse,
   EmailTemplatesExportResponse,
   EmailTemplateSummary,
-  EmailTemplateTestFailure,
-  EmailTemplateTestSuccess,
+  EmailTemplateTestResponse,
   PdfTemplateConfig,
   PdfTemplateConfigResponse,
   PdfTemplateExportItem,
@@ -18,8 +17,8 @@ import type {
   TemplateSuccessResponse,
   TemplateVariable,
 } from '../../../src/contracts/templates';
-import { bonStatus } from '../support/common-shapes';
-import { arrayOf, bool, int, isoDate, literal, nullable, num, object, oneOf, str, uuid } from '../support/shape';
+import { bonStatus, listOf } from '../support/common-shapes';
+import { arrayOf, bool, int, isoDate, literal, nullable, num, object, str, uuid } from '../support/shape';
 
 const variable = object<TemplateVariable>({ name: str, description: str });
 
@@ -47,7 +46,7 @@ const emailTemplateId = literal(
 
 const pdfTemplateId = literal('mise_disposition', 'restitution', 'cloture', 'avenant');
 
-export const emailTemplates = arrayOf(
+export const emailTemplates = listOf(
   object<EmailTemplateSummary>({
     id: emailTemplateId,
     name: str,
@@ -71,7 +70,7 @@ export const emailTemplatesExport = object<EmailTemplatesExportResponse>({
 
 export const templatesImport = object<TemplatesImportResponse>({ imported: int, skipped: int });
 
-export const templateSuccess = object<TemplateSuccessResponse>({ success: literal(true) });
+export const templateSuccess = object<TemplateSuccessResponse>({ ok: literal(true) });
 
 export const emailTemplateHtml = object<EmailTemplateHtmlResponse>({
   html: str,
@@ -82,12 +81,9 @@ export const emailTemplateHtml = object<EmailTemplateHtmlResponse>({
 
 export const emailTemplatePreview = object<EmailTemplatePreviewResponse>({ html: str });
 
-export const emailTemplateTest = oneOf(
-  object<EmailTemplateTestSuccess>({ success: literal(true), message: str }),
-  object<EmailTemplateTestFailure>({ success: literal(false), message: str }),
-);
+export const emailTemplateTest = object<EmailTemplateTestResponse>({ ok: bool, message: str });
 
-export const previewBons = arrayOf(
+export const previewBons = listOf(
   object<PreviewBonOption>({
     id: uuid,
     reference: str,
@@ -105,7 +101,7 @@ export const emailTemplateBonPreview = object<EmailTemplateBonPreviewResponse>({
   sampleVariables: arrayOf(str),
 });
 
-export const pdfTemplates = arrayOf(
+export const pdfTemplates = listOf(
   object<PdfTemplateSummary>({
     id: pdfTemplateId,
     name: str,

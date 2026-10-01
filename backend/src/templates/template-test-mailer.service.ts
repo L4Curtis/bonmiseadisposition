@@ -5,10 +5,7 @@ import { NotificationService } from '../notification/notification.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { recordTemplateTestSent, TemplateTestBon } from './template-audit';
 
-export interface TemplateTestResult {
-  success: boolean;
-  message: string;
-}
+import type { EmailTemplateTestResponse } from '../contracts/templates';
 
 /**
  * Envoi d'un email de test pour un template admin, à l'adresse fournie, sans
@@ -29,7 +26,7 @@ export class TemplateTestMailerService {
     private readonly bonPreviewService: TemplateBonPreviewService,
   ) {}
 
-  async sendTest(templateId: string, email: string, userId?: string, bonId?: string): Promise<TemplateTestResult> {
+  async sendTest(templateId: string, email: string, userId?: string, bonId?: string): Promise<EmailTemplateTestResponse> {
     const tpl = this.templatesService.getTemplateById(templateId); // NotFoundException si id inconnu
     const { html, bon } = await this.renderTest(templateId, bonId);
     const subject = bon ? `[TEST] ${tpl.name} — ${bon.reference}` : `[TEST] ${tpl.name}`;
@@ -38,7 +35,7 @@ export class TemplateTestMailerService {
     await recordTemplateTestSent(this.prisma, templateId, email, result.ok, userId, bon);
 
     return {
-      success: result.ok,
+      ok: result.ok,
       message: result.ok
         ? `Email de test envoyé à ${email}.`
         : (result.error ?? "Échec de l'envoi de l'email de test."),

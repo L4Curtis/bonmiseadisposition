@@ -1,10 +1,12 @@
-import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { isItRole } from '@/lib/roles';
-import { Boxes, Download, ChevronLeft, ChevronRight } from 'lucide-react';
+import { todayInParis } from '@/lib/dates';
+import { Boxes } from 'lucide-react';
+import { ExportButton } from '@/components/export';
+import { Pagination } from '@/components/list';
 import { useInventory } from './inventaire/useInventory';
 import { useCollaborateurInventory } from './inventaire/useCollaborateurInventory';
-import { computePaginationInfo } from './inventaire/inventoryFilterParams';
+import { inventoryExportFilters } from './inventaire/inventoryExportFilters';
 import { InventorySummaryCards } from './inventaire/InventorySummaryCards';
 import { InventoryFilters } from './inventaire/InventoryFilters';
 import { InventoryTable } from './inventaire/InventoryTable';
@@ -24,6 +26,8 @@ export function InventairePage() {
     total,
     page,
     setPage,
+    pageSize,
+    setPageSize,
     loading,
     loadError,
     retry,
@@ -50,8 +54,9 @@ export function InventairePage() {
     searchInput,
     setSearchInput,
     resetFilters,
-    exportLoading,
-    handleExport,
+    exportPath,
+    exportLimit,
+    loadExportCount,
     hasActiveFilters,
     baseFilters,
   } = useInventory();
@@ -61,11 +66,22 @@ export function InventairePage() {
     filters: baseFilters,
     page,
     setPage,
+    pageSize,
     compteFilter,
   });
 
-  const activeTotal = view === 'equipements' ? total : collaborateurs.total;
-  const { totalPages, rangeStart, rangeEnd } = computePaginationInfo(activeTotal, page);
+  const byEquipment = view === 'equipements';
+  const activeTotal = byEquipment ? total : collaborateurs.total;
+  // Nombre annoncé avant l'export. Vue par équipement : le total affiché
+  // (inconnu pendant le chargement, et après un échec plutôt qu'un faux
+  // « 0 » qui bloquerait l'export) ; vue par collaborateur : le nombre
+  // d'équipements, lu à l'ouverture (l'export est par équipement).
+  const equipmentCount = loading ? null : loadError ? undefined : total;
+  const exportFilters = inventoryExportFilters(baseFilters, {
+    filiales,
+    categories: summary?.byCategory ?? [],
+    situations: summary?.bySituation ?? [],
+  });
 
   return (
     <div className="space-y-5">
@@ -81,29 +97,18 @@ export function InventairePage() {
               : 'Équipements actuellement entre les mains des collaborateurs.'}
           </p>
         </div>
-        <div className="flex flex-col items-end gap-1">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleExport}
-            disabled={exportLoading}
-            title="Exporte le détail par équipement, avec les filtres actuellement actifs."
-          >
-            {exportLoading ? (
-              <span
-                className="h-3.5 w-3.5 mr-1.5 animate-spin motion-reduce:animate-none rounded-full border-2 border-muted border-t-muted-foreground"
-                role="status"
-                aria-label="Export en cours"
-              />
-            ) : (
-              <Download className="mr-1.5 h-3.5 w-3.5" />
-            )}
-            Exporter CSV
-          </Button>
-          {view === 'collaborateurs' && (
-            <p className="text-[11px] text-muted-foreground/70">Export au détail par équipement, filtres actifs.</p>
-          )}
-        </div>
+        <ExportButton
+          className="w-full sm:w-auto"
+          path={exportPath}
+          fallbackFilename={`inventaire-${todayInParis()}.csv`}
+          filters={exportFilters}
+          count={byEquipment ? equipmentCount : undefined}
+          loadCount={byEquipment ? undefined : loadExportCount}
+          limit={exportLimit}
+          itemLabel={{ singular: 'équipement', plural: 'équipements' }}
+          title="Exporter l’inventaire"
+          note={byEquipment ? undefined : 'Une ligne par équipement, même dans la vue par collaborateur.'}
+        />
       </div>
 
       <InventorySummaryCards
@@ -146,7 +151,7 @@ export function InventairePage() {
         onReset={resetFilters}
       />
 
-      {view === 'equipements' ? (
+      {byEquipment ? (
         <InventoryTable
           items={items}
           loading={loading}
@@ -174,47 +179,16 @@ export function InventairePage() {
         />
       )}
 
-      {/* Pagination */}
-      {activeTotal > 0 && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">
-            {`Affichage ${rangeStart}–${rangeEnd} sur ${activeTotal}`}
-          </p>
-
-          {totalPages > 1 && (
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="border-border text-muted-foreground hover:text-foreground disabled:opacity-40"
-                disabled={page === 1}
-                onClick={() => setPage((p) => p - 1)}
-                aria-label="Page précédente"
-              >
-                <ChevronLeft className="h-4 w-4 mr-1" />
-                Précédent
-              </Button>
-
-              <span className="text-sm text-muted-foreground px-1">
-                Page <span className="font-medium text-foreground/80">{page}</span> sur{' '}
-                <span className="font-medium text-foreground/80">{totalPages}</span>
-              </span>
-
-              <Button
-                variant="outline"
-                size="sm"
-                className="border-border text-muted-foreground hover:text-foreground disabled:opacity-40"
-                disabled={page === totalPages}
-                onClick={() => setPage((p) => p + 1)}
-                aria-label="Page suivante"
-              >
-                Suivant
-                <ChevronRight className="h-4 w-4 ml-1" />
-              </Button>
-            </div>
-          )}
-        </div>
-      )}
+      <Pagination
+        page={page}
+        pageSize={pageSize}
+        total={activeTotal}
+        onPageChange={setPage}
+        onPageSizeChange={setPageSize}
+        itemLabel={byEquipment
+          ? { singular: 'équipement', plural: 'équipements' }
+          : { singular: 'collaborateur', plural: 'collaborateurs' }}
+      />
     </div>
   );
 }

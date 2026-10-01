@@ -223,13 +223,16 @@ describe('KpiDelaisService', () => {
         medianDays: { current: 70, previous: 75 },
       });
 
-      // waiting : overdueTotal = Σ steps.overdue, seuil dans la réponse
+      // waiting : « Signature en retard » = Σ des étapes, seuil dans la
+      // réponse ; les anciens noms (`overdueTotal`, `overdue`) gardent la
+      // même valeur pendant la vague 3.
       expect(result.waiting.thresholdDays).toBe(7);
+      expect(result.waiting.overdueSignatures).toBe(6);
       expect(result.waiting.overdueTotal).toBe(6);
       expect(result.waiting.steps).toEqual([
-        { step: 'mise_disposition', label: 'Remise à signer', count: 12, avgAgeDays: 4.1, overdue: 3 },
-        { step: 'restitution', label: 'Restitution à signer', count: 5, avgAgeDays: 2, overdue: 1 },
-        { step: 'pv_cloture', label: 'PV de non-restitution à signer', count: 2, avgAgeDays: 9.5, overdue: 2 },
+        { step: 'mise_disposition', label: 'Remise à signer', count: 12, avgAgeDays: 4.1, overdueSignatures: 3, overdue: 3 },
+        { step: 'restitution', label: 'Restitution à signer', count: 5, avgAgeDays: 2, overdueSignatures: 1, overdue: 1 },
+        { step: 'pv_cloture', label: 'PV de non-restitution à signer', count: 2, avgAgeDays: 9.5, overdueSignatures: 2, overdue: 2 },
       ]);
     });
 

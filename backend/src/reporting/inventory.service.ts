@@ -22,15 +22,18 @@ import { InventoryByCollaborateurQueryDto } from './dto/inventory-by-collaborate
 import { toInventoryItem } from './inventory-mapper';
 import { buildInventoryCsv } from './inventory-csv';
 import { findSortedInventoryRows } from './inventory-sort';
+import { DEFAULT_EXPORT_ROW_LIMIT, inventoryExportRowLimit } from './inventory-export-limit';
+import { DEFAULT_PAGE_SIZE, toListResponse, toPrismaPage } from '../common/pagination';
+import type { InventoryListMeta } from '../contracts/inventory';
 import {
   COLLABORATEUR_GROUP_SELECT,
   groupInventoryByCollaborateur,
   sortCollaborateurGroups,
 } from './inventory-collaborateur-aggregate';
 
-const DEFAULT_PAGE_LIMIT = 50;
-const MAX_PAGE_LIMIT = 200;
-export const EXPORT_ROW_LIMIT = 10000;
+/** Plafond par défaut de l'export CSV (abaissable en recette, voir
+ *  inventory-export-limit.ts). */
+export const EXPORT_ROW_LIMIT = DEFAULT_EXPORT_ROW_LIMIT;
 /** Plafond de lignes chargées pour le regroupement par collaborateur — même
  *  ordre de grandeur que EXPORT_ROW_LIMIT (le parc en circulation réel compte
  *  quelques milliers d'équipements), voir inventory-collaborateur-aggregate.ts. */
@@ -39,8 +42,19 @@ export const AGGREGATION_ROW_LIMIT = 10000;
 /** Tri effectif : sur la seule situation « Non restitué », trier par
  *  situation n'a pas de sens, et le découpage par statut de bon de
  *  `findSortedInventoryRows` écarterait les bons clôturés. Ordre par défaut. */
-function sortOf(query: InventoryQueryDto): InventoryQueryDto['sort'] {
+function sortOf(query: InventoryListQuery): InventoryQueryDto['sort'] {
   return query.situation === NOT_RETURNED_SITUATION && query.sort === 'situation' ? undefined : query.sort;
+}
+
+/** Requête de liste telle que la reçoit le service : le DTO validé, dont
+ *  chaque champ reste facultatif pour un appel interne (page 1 de 25 lignes
+ *  par défaut). */
+type InventoryListQuery = Partial<InventoryQueryDto>;
+type InventoryByCollaborateurQuery = Partial<InventoryByCollaborateurQueryDto>;
+
+/** Page demandée, avec les valeurs par défaut du DTO commun. */
+function pageOf(query: { page?: number; limit?: number }): { page: number; limit: number } {
+  return { page: query.page ?? 1, limit: query.limit ?? DEFAULT_PAGE_SIZE };
 }
 
 /**
@@ -141,21 +155,20 @@ export class InventoryService {
     return rows.map((row) => row.value);
   }
 
-  /** GET /reporting/inventory */
-  async getInventory(query: InventoryQueryDto, now: Date = new Date()) {
-    const page = query.page ?? 1;
-    const limit = Math.min(query.limit ?? DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT);
+  /** GET /reporting/inventory — forme unique des listes ; `meta.exportLimit`
+   *  donne le plafond de l'export, pour que l'écran prévienne avant
+   *  d'exporter plus de lignes que le fichier n'en contiendra. */
+  async getInventory(query: InventoryListQuery, now: Date = new Date()) {
+    const { page, limit } = pageOf(query);
     const where = await this.buildWhere(query, now);
 
     const [rows, total] = await Promise.all([
-      findSortedInventoryRows(this.prisma, where, sortOf(query), query.direction, {
-        skip: (page - 1) * limit,
-        take: limit,
-      }),
+      findSortedInventoryRows(this.prisma, where, sortOf(query), query.direction, toPrismaPage({ page, limit })),
       this.prisma.bonEquipment.count({ where }),
     ]);
 
-    return { items: rows.map((r) => toInventoryItem(r)), total, page, limit };
+    const meta: InventoryListMeta = { exportLimit: inventoryExportRowLimit() };
+    return toListResponse(rows.map((r) => toInventoryItem(r)), { total, page, limit, meta });
   }
 
   /**
@@ -171,9 +184,8 @@ export class InventoryService {
    * Pagination et tri (`count`/`oldest`) sont appliqués après regroupement,
    * sur les collaborateurs (pas sur les équipements).
    */
-  async getInventoryByCollaborateur(query: InventoryByCollaborateurQueryDto, now: Date = new Date()) {
-    const page = query.page ?? 1;
-    const limit = Math.min(query.limit ?? DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT);
+  async getInventoryByCollaborateur(query: InventoryByCollaborateurQuery, now: Date = new Date()) {
+    const { page, limit } = pageOf(query);
     const where = await this.buildWhere(query, now);
 
     const rows = await this.prisma.bonEquipment.findMany({
@@ -186,10 +198,9 @@ export class InventoryService {
     const usableRows = truncated ? rows.slice(0, AGGREGATION_ROW_LIMIT) : rows;
 
     const sorted = sortCollaborateurGroups(groupInventoryByCollaborateur(usableRows, now), query.sort);
-    const total = sorted.length;
-    const items = sorted.slice((page - 1) * limit, (page - 1) * limit + limit);
+    const { skip, take } = toPrismaPage({ page, limit });
 
-    return { items, total, page, limit, truncated };
+    return toListResponse(sorted.slice(skip, skip + take), { total: sorted.length, page, limit, truncated });
   }
 
   /**
@@ -208,7 +219,8 @@ export class InventoryService {
    * `bySituation` : somme toujours égale à `total` (3 situations couvrant
    * exactement PARC_BON_STATUSES, zéro-complétées par `buildSituationBreakdown`).
    * `notReturned` : équipements encore non restitués, hors parc (option
-   * « Non restitué » du filtre de situation).
+   * « Non restitué » du filtre de situation). `overdueReturns` : « Retour en
+   * retard » ; `overdue`, même valeur, reste servi pendant la vague 3.
    */
   async getSummary() {
     const [totalRows, byCategoryRows, byFilialeRows, bySituationRows, overdueRows, notReturnedRows] = await Promise.all([
@@ -261,6 +273,7 @@ export class InventoryService {
       `),
     ]);
 
+    const overdueReturns = Number(overdueRows[0]?.count ?? 0);
     return {
       total: Number(totalRows[0]?.count ?? 0),
       byCategory: byCategoryRows.map((r) => ({
@@ -276,7 +289,8 @@ export class InventoryService {
       bySituation: buildSituationBreakdown(
         bySituationRows.map((r) => ({ situation: r.situation, count: Number(r.count) })),
       ),
-      overdue: Number(overdueRows[0]?.count ?? 0),
+      overdueReturns,
+      overdue: overdueReturns,
       notReturned: Number(notReturnedRows[0]?.count ?? 0),
     };
   }
@@ -284,19 +298,24 @@ export class InventoryService {
   /**
    * GET /reporting/inventory/export — CSV complet (mêmes filtres et même tri
    * que la liste — `findSortedInventoryRows`, partagé —, sans pagination),
-   * plafonné à EXPORT_ROW_LIMIT lignes.
+   * plafonné à `inventoryExportRowLimit()` lignes (10 000 par défaut) : une
+   * ligne de plus est lue pour savoir si le fichier est coupé.
    * `now` est injectable (tests) pour figer le filtre `overdue` et les
    * colonnes calculées (ancienneté, retard) — voir inventory-csv.ts.
    */
-  async getExportCsv(query: InventoryQueryDto, now: Date = new Date()): Promise<{ csv: string; truncated: boolean }> {
+  async getExportCsv(
+    query: InventoryListQuery,
+    now: Date = new Date(),
+    rowLimit: number = inventoryExportRowLimit(),
+  ): Promise<{ csv: string; truncated: boolean }> {
     const where = await this.buildWhere(query, now);
     const rows = await findSortedInventoryRows(this.prisma, where, sortOf(query), query.direction, {
       skip: 0,
-      take: EXPORT_ROW_LIMIT + 1,
+      take: rowLimit + 1,
     });
 
-    const truncated = rows.length > EXPORT_ROW_LIMIT;
-    const items = (truncated ? rows.slice(0, EXPORT_ROW_LIMIT) : rows).map((r) => toInventoryItem(r));
+    const truncated = rows.length > rowLimit;
+    const items = (truncated ? rows.slice(0, rowLimit) : rows).map((r) => toInventoryItem(r));
 
     return { csv: buildInventoryCsv(items, now), truncated };
   }

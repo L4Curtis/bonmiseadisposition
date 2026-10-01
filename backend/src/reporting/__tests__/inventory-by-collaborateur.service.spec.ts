@@ -133,10 +133,10 @@ describe('InventoryService.getInventoryByCollaborateur', () => {
 
     const result = await service.getInventoryByCollaborateur({}, now);
 
-    expect(result.items[0]).toMatchObject({ count: 2, overdueCount: 1 });
+    expect(result.items[0]).toMatchObject({ count: 2, overdueReturns: 1, overdueCount: 1 });
   });
 
-  it('pagine le résultat regroupé (pas les équipements) avec page=1/limit=50 par défaut', async () => {
+  it('pagine le résultat regroupé (pas les équipements) avec page=1/limit=25 par défaut', async () => {
     const rows = Array.from({ length: 3 }, (_, i) =>
       makeGroupRow({ collaborateur: { id: `u-${i}`, displayName: `Personne ${i}`, email: null, department: null } }),
     );
@@ -145,12 +145,12 @@ describe('InventoryService.getInventoryByCollaborateur', () => {
     const result = await service.getInventoryByCollaborateur({});
 
     expect(result.page).toBe(1);
-    expect(result.limit).toBe(50);
+    expect(result.limit).toBe(25);
     expect(result.total).toBe(3);
     expect(result.items).toHaveLength(3);
   });
 
-  it('plafonne limit à 200 et respecte page/limit fournis', async () => {
+  it('respecte page/limit fournis, sur les personnes et non sur les équipements', async () => {
     const rows = Array.from({ length: 5 }, (_, i) =>
       makeGroupRow({ collaborateur: { id: `u-${i}`, displayName: `Personne ${i}`, email: null, department: null } }),
     );

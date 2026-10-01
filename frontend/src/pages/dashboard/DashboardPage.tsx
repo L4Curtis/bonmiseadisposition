@@ -13,6 +13,7 @@ import { FilialeFilter } from './FilialeFilter';
 import { TodayTab } from './tabs/TodayTab';
 import { KpiListDialog } from './lists/KpiListDialog';
 import { isKpiListKey, LIST_PARAM } from './lists/kpi-lists';
+import { KpiExportButton, type KpiExportTab } from './components/KpiExportButton';
 
 // Parc, Délais et Incidents embarquent Recharts (~141 kB gzip à eux trois) :
 // chargés paresseusement, pour que l'onglet « Aujourd'hui » (sans graphique,
@@ -104,6 +105,14 @@ export function DashboardPage() {
             <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
               <PeriodSelector preset={preset} from={from} to={to} onPresetChange={setPreset} onRangeChange={setRange} />
               <FilialeFilter value={filialeId} onChange={setFilialeId} className="h-9 w-full sm:w-[200px]" />
+              {/* Un export par onglet, avec la période et la filiale affichées. */}
+              <KpiExportButton
+                tab={activeTabId as KpiExportTab}
+                from={from}
+                to={to}
+                filialeId={filialeId}
+                className="w-full sm:w-auto"
+              />
             </div>
           )}
         </div>

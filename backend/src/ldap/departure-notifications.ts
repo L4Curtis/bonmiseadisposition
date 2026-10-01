@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { writeAuditEntry } from '../audit/audit-record';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { buildParcEquipmentWhere } from '../common/bon-predicates';
@@ -150,11 +151,8 @@ export async function notifyDepartures(deps: DepartureNotificationDeps, now: Dat
   }
 
   for (const c of due) {
-    await prisma.auditLog.create({
-      data: {
-        action: DEPARTURE_NOTIFIED_ACTION,
-        details: { collaborateurId: c.collaborateurId, equipmentCount: c.count },
-      },
+    await writeAuditEntry(prisma, DEPARTURE_NOTIFIED_ACTION, {
+      details: { collaborateurId: c.collaborateurId, equipmentCount: c.count },
     }).catch((err: unknown) => {
       logger.error(`Audit ${DEPARTURE_NOTIFIED_ACTION} non journalisé pour ${c.collaborateurId}: ${(err as Error).message}`);
     });

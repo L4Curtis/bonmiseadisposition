@@ -315,7 +315,7 @@ describeDb('Tuile = liste (base réelle)', () => {
       expect(sorted(list.items.map((i) => i.id))).toEqual(sorted(expected[key]));
       expect(list.total).toBe(value);
       expect(list.items).toHaveLength(value);
-      expect(list.period).toEqual(range);
+      expect(list.meta?.period).toEqual(range);
     });
 
     it('pagine sans perdre ni répéter de ligne', async () => {

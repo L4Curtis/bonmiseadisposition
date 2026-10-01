@@ -40,6 +40,9 @@ const DEBOUNCE_MS = 250;
 /** Nombre de caractères à partir duquel on cherche. */
 export const MIN_QUERY_LENGTH = 2;
 
+/** Résultats proposés sous le champ de recherche. */
+const MAX_HITS = 6;
+
 /** Dernière recherche aboutie : la saisie cherchée et sa réponse. */
 interface CompletedSearch {
   readonly query: string;
@@ -64,10 +67,12 @@ export function useBonSearch(value: string): BonSearchState {
     if (debounced.length < MIN_QUERY_LENGTH) return undefined;
     // Ignore une réponse arrivée après un changement de saisie.
     let ignore = false;
+    // Première page de la liste (taille commune minimale), dont on garde les
+    // premiers résultats : la liste n'accepte que 25, 50 ou 100 lignes.
     api
-      .get<{ bons: SearchHit[] }>(`/bons?search=${encodeURIComponent(debounced)}&limit=6`)
+      .getList<SearchHit>(`/bons?search=${encodeURIComponent(debounced)}&limit=25`)
       .then((data) => {
-        if (!ignore) setCompleted({ query: debounced, results: data?.bons ?? [], error: false });
+        if (!ignore) setCompleted({ query: debounced, results: data.items.slice(0, MAX_HITS), error: false });
       })
       .catch(() => {
         if (!ignore) setCompleted({ query: debounced, results: [], error: true });

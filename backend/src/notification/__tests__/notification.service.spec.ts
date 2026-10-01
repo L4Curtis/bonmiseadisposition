@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import * as nodemailer from 'nodemailer';
 import { NotificationService } from '../notification.service';
-import { AppConfigService } from '../../config/config.service';
+import { ConfigRegistryService } from '../../config/config-registry.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TemplatesService } from '../../templates/templates.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
@@ -52,7 +52,7 @@ describe('NotificationService', () => {
       providers: [
         NotificationService,
         { provide: PrismaService, useValue: prisma },
-        { provide: AppConfigService, useValue: configService },
+        { provide: ConfigRegistryService, useValue: new ConfigRegistryService(configService as never, {}) },
         { provide: TemplatesService, useValue: templatesService },
         { provide: JobTrackerService, useValue: jobTracker },
       ],
@@ -447,6 +447,7 @@ describe('NotificationService', () => {
       filiale: { id: 'f-1', displayName: 'Paris' },
       active: false,
       count: 3,
+      overdueReturns: 0,
       overdueCount: 0,
       oldestDateMiseDisposition: new Date('2026-01-05'),
       oldestAgeDays: 200,
@@ -671,6 +672,36 @@ describe('NotificationService', () => {
           MAX_REMINDERS: '3',
         }),
       );
+      expect(mockSendMail).toHaveBeenCalled();
+    });
+
+    it('ramène un délai saisi à 0 à 1 jour (borne du registre), au lieu du défaut de 3 jours', async () => {
+      configService.set('rappels', 'enabled', 'true');
+      configService.set('rappels', 'delay_1', '0');
+
+      const bon = sentMiseDispoBon();
+      const waitingSinceOneDayAndHalf = new Date(Date.now() - 36 * 60 * 60 * 1000);
+      asMock(prisma.bon.findMany).mockResolvedValue([{
+        ...bon,
+        collaborateur: { ...bon.collaborateur, active: true },
+        awaitingSince: waitingSinceOneDayAndHalf,
+        updatedAt: waitingSinceOneDayAndHalf,
+        signatures: [{
+          id: 'sig-pending-002',
+          type: 'mise_disposition',
+          signed: false,
+          token: 'pending-token',
+          tokenExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        }],
+        notifications: [],
+      }]);
+      asMock(prisma.notificationLog.create).mockResolvedValue({});
+
+      await service.sendDailyReminders();
+
+      const { where } = asMock(prisma.bon.findMany).mock.calls[0][0] as { where: { AND: Array<{ OR: Array<{ awaitingSince?: { lt: Date } }> }> } };
+      const cutoff = where.AND[0].OR[0].awaitingSince?.lt as Date;
+      expect(Math.round((Date.now() - cutoff.getTime()) / (60 * 60 * 1000))).toBe(24);
       expect(mockSendMail).toHaveBeenCalled();
     });
 

@@ -66,7 +66,7 @@ où le technicien tend son appareil).
 | Tableau de bord, inventaire, historique d'un équipement | oui | oui | lecture | non |
 | Administration : paramètres, annuaire (synchronisation LDAP), modèles d'email et de PDF, supervision, rétention, journal d'audit | oui | non | non | non |
 
-Sur les routes « propriétaire » (ouvertes à tout rôle connecté : `GET /bons/mes-bons`, `GET /bons/:id`,
+Sur les routes « propriétaire » (ouvertes à tout rôle connecté : `GET /me/bons`, `GET /bons/:id`,
 `/bons/:id/pdf`, `/pdf-snapshots`, `/integrity`, `POST /bons/:id/contestation`, pièces jointes), un compte non
 IT n'atteint **que ses propres bons** (`bons/bons-access.ts`, que `attachments.controller.ts` réutilise). Un
 **brouillon** lui répond `404` avec le message d'un bon inconnu (« Bon introuvable ») : rien ne révèle qu'un
@@ -142,7 +142,7 @@ attendant son retrait (vague 5).
   silencieusement l'accès à une route réservée à l'IT.
 - **Attribution** : par groupe Entra ID dédié (clé `entra.direction_group_id`) — comme pour
   `admin`/`technician`, le groupe Entra fait foi et le rôle est recalculé et écrasé à **chaque**
-  connexion SSO, sans exception. L'attribution manuelle (`PATCH /admin/users/:id/role`, réservée
+  connexion SSO, sans exception. L'attribution manuelle (`PATCH /users/:id/role`, réservée
   à `admin`) reste utile pour les comptes locaux ; pour un compte SSO, elle est écrasée à la
   prochaine connexion si le compte n'est pas dans le groupe Entra configuré.
 - **Garde-fous sur le changement de rôle** : refusé sur son propre compte, et refusé si la cible
@@ -176,9 +176,15 @@ là où elles ont changé depuis.
   confondues, en 30 minutes — protège contre un balayage d'emails depuis une même source.
 - Les rejets pendant un verrou sont journalisés en `login_local_locked` (pas `login_local_failed`)
   pour qu'une tentative sur un compte déjà verrouillé ne prolonge pas indéfiniment la fenêtre.
-- **Déverrouillage manuel** : `POST /admin/users/:id/unlock` (bouton « Déverrouiller » sur la
-  page Admin → Utilisateurs, visible sur un compte verrouillé). Supprime les `login_local_failed`
-  des 30 dernières minutes pour l'email ciblé et journalise `user_unlocked`.
+- **Déverrouillage manuel** : `POST /users/:id/unlock` (bouton « Déverrouiller » d'un compte
+  local, page Administration → Utilisateurs). N'efface rien du journal : il écrit `user_unlocked`
+  (`details.targetEmail`), et le compteur par compte ne compte plus que les échecs postérieurs au
+  dernier déverrouillage (`audit/login-lock.ts`). Le verrou par adresse IP n'est pas levé.
+- **Désactivation d'un compte** : `POST /users/:id/deactivate` (et `/reactivate`). Un compte venu
+  de l'annuaire ne se désactive ici que lorsque l'annuaire est inactif (`ldap.enabled` décoché ou
+  adresse vide) : sinon la synchronisation fait foi et le départ se traite dans Active Directory
+  (409 `directory_active`). Jamais son propre compte, jamais le dernier administrateur actif. Un
+  compte désactivé est refusé à la connexion locale comme SSO.
 - **Si `admin@local` lui-même est verrouillé ou son mot de passe perdu** : procédure côté
   serveur (réinitialisation du hash depuis le conteneur backend, levée du verrou en SQL) dans
   le README, section « Réinitialiser le mot de passe admin@local ». Remplace la
@@ -399,7 +405,7 @@ Aucune route ne sert `data/uploads` ; `stampPath` est retiré des réponses non 
 - [ ] `GET /api/users/search?q=…`, `GET /api/users/it-staff`, `POST /api/equipment/catalog` avec compte
       technician → `200` / `201`
 - [ ] `GET /api/filiales/file/<nom>` → `404` (route supprimée)
-- [ ] `GET /api/auth/me`, `GET /api/bons/mes-bons` avec compte collaborator → aucune clé `stampPath`
+- [ ] `GET /api/auth/me`, `GET /api/me/bons` avec compte collaborator → aucune clé `stampPath`
 - [ ] `GET /api/filiales/active` avec compte collaborator → `403`
 - [ ] `POST /api/bons/:id/sign-it` sans header `X-Requested-With` → `403`
 - [ ] SMB path `/etc` dans config → rejeté
@@ -409,7 +415,8 @@ Aucune route ne sert `data/uploads` ; `stampPath` est retiré des réponses non 
 ### Moyenne
 - [ ] 10 `login_local_failed` pour le même (email, IP) en 30 min → verrouillage de compte
 - [ ] 30 `login_local_failed` depuis la même IP toutes cibles en 30 min → verrouillage d'IP
-- [ ] `POST /admin/users/:id/unlock` sur un compte verrouillé → débloque, journalise `user_unlocked`
+- [ ] `POST /api/users/:id/unlock` sur un compte verrouillé → débloque, journalise `user_unlocked`, n'efface aucune ligne `login_local_failed`
+- [ ] Annuaire inactif : `POST /api/users/:id/deactivate` sur un compte Active Directory → compte désactivé, `user_deactivated` journalisé ; annuaire actif → `409 directory_active`
 - [ ] `GET /api/users` → aucun champ `passwordHash` dans la réponse
 - [ ] Redirect `returnTo=//evil.com` → redirige vers `/` uniquement (comparaison d'origine)
 - [ ] Upload logo 6 fois en 1 min → `429`
@@ -421,7 +428,7 @@ Aucune route ne sert `data/uploads` ; `stampPath` est retiré des réponses non 
 - [ ] Sync LDAP simulée avec > 20 % de comptes actifs absents → interrompue, `ldap_sync_aborted` journalisé
 - [ ] Un compte `direction` → `403` sur `GET /api/bons/stats`, `GET /api/bons/:id` d'un bon dont il n'est pas le destinataire, `GET /api/contestations`, `GET /api/users` et toute route `/api/admin/*`
 - [ ] Un compte `direction` → `200` sur `GET /api/kpi/parc` (et `/kpi/delais`, `/kpi/incidents`, `/api/reporting/inventory*`), et `403` sur `GET /api/kpi/liste` (les listes de bons)
-- [ ] `PATCH /api/admin/users/:id/role` refusé sur son propre compte (`400`) et sur le dernier administrateur actif (`400`)
+- [ ] `PATCH /api/users/:id/role` refusé sur son propre compte (`400 own_account`) et sur le dernier administrateur actif (`409 last_admin`)
 - [ ] `PUT /api/admin/config/rappels` avec `signature_overdue_days=0` → rejeté (minimum 1)
 
 ### Infrastructure
@@ -436,13 +443,14 @@ Aucune route ne sert `data/uploads` ; `stampPath` est retiré des réponses non 
 ## Troubleshooting sécurité
 
 ### Compte verrouillé
-**Symptôme** : `403 — Compte temporairement verrouillé`
+**Symptôme** : `401 account_locked` — « Compte temporairement verrouillé »
 - Attendre 30 minutes (automatique, compteur en DB sur `AuditLog`)
 - Ou redémarrer le backend **ne suffit plus** (brute-force persisté en DB depuis M-01)
-- Déverrouillage recommandé : bouton « Déverrouiller » sur la fiche utilisateur, page
-  Admin → Utilisateurs (`POST /admin/users/:id/unlock`)
-- Déverrouillage manuel alternatif : supprimer les `AuditLog` `login_local_failed` des 30
-  dernières minutes pour cet email
+- Déverrouillage recommandé : bouton « Déverrouiller » du compte, page
+  Administration → Utilisateurs (`POST /users/:id/unlock`)
+- Déverrouillage manuel alternatif (sans accès administrateur) : insérer une entrée
+  `user_unlocked` dont `details.targetEmail` est l'email du compte ; ne plus supprimer de lignes
+  du journal
 
 ### Filtre LDAP rejeté
 **Symptôme** : `400 — LDAP filter contains invalid characters`

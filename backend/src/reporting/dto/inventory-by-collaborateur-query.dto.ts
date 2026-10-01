@@ -1,5 +1,6 @@
-import { Transform, Type } from 'class-transformer';
-import { IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { IsBoolean, IsIn, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import { LargePaginationQueryDto } from '../../common/pagination';
 import { EquipmentCategory } from '@prisma/client';
 import { INVENTORY_SITUATIONS, InventorySituation } from '../../common/bon-predicates';
 import { COMPTE_FILTER_VALUES, CompteFilter, InventoryWhereFilters, toBoolean, trimSearch } from './inventory-query.dto';
@@ -18,7 +19,7 @@ export type CollaborateurSortField = (typeof COLLABORATEUR_SORT_FIELDS)[number];
  * un regroupement par collaborateur sur un seul collaborateur n'a pas de sens)
  * et du champ de tri, propre à cette vue.
  */
-export class InventoryByCollaborateurQueryDto implements InventoryWhereFilters {
+export class InventoryByCollaborateurQueryDto extends LargePaginationQueryDto implements InventoryWhereFilters {
   @IsOptional()
   @IsUUID()
   filialeId?: string;
@@ -61,19 +62,6 @@ export class InventoryByCollaborateurQueryDto implements InventoryWhereFilters {
   @IsOptional()
   @IsIn(COMPTE_FILTER_VALUES)
   compte?: CompteFilter;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  page?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(200)
-  limit?: number;
 
   @IsOptional()
   @IsIn(COLLABORATEUR_SORT_FIELDS)

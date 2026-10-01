@@ -1,32 +1,17 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { AppConfigService } from '../config/config.service';
+import { ConfigRegistryService } from '../config/config-registry.service';
+import type { AdminStatusJob, AdminStatusResponse } from '../contracts/admin';
 import { JOB_KEYS, JOB_REGISTRY, JobDefinition } from './job-registry';
 import { isJobLate, JobRunStatus } from './job-late.util';
 import { checkDatabase } from './database-check.util';
 
 const HOUR_MS = 60 * 60 * 1000;
-const DEFAULT_LDAP_SYNC_INTERVAL_HOURS = 6;
+/** La synchronisation de l'annuaire passe toutes les 6 h au plus souvent. */
+const LDAP_SYNC_CRON_HOURS = 6;
 
-export interface AdminStatusJob {
-  job: string;
-  label: string;
-  schedule: string;
-  lastStartedAt: string | null;
-  lastFinishedAt: string | null;
-  lastStatus: JobRunStatus | null;
-  lastError: string | null;
-  lastDurationMs: number | null;
-  late: boolean;
-}
-
-export interface AdminStatus {
-  version: string;
-  commit: string;
-  uptimeSeconds: number;
-  database: 'ok' | 'unreachable';
-  jobs: AdminStatusJob[];
-}
+export type { AdminStatusJob };
+export type AdminStatus = AdminStatusResponse;
 
 /** Agrège les informations affichées par GET /api/admin/status (lot A5,
  *  supervision) : version/commit déployés, disponibilité de la base, dernier
@@ -35,7 +20,7 @@ export interface AdminStatus {
 export class MonitoringService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly configService: AppConfigService,
+    private readonly settings: ConfigRegistryService,
   ) {}
 
   async getAdminStatus(): Promise<AdminStatus> {
@@ -101,11 +86,12 @@ export class MonitoringService {
     return def.job === JOB_KEYS.LDAP_SYNC ? ldapAlertAfterHours : def.alertAfterHours;
   }
 
-  /** 2 × l'intervalle configuré (défaut/repli 6 h si absent ou invalide). */
+  /** 2 × l'intervalle réel entre deux passages : l'intervalle configuré, mais
+   *  jamais moins que les 6 h du planificateur (un intervalle de 1 h ne fait
+   *  pas passer la synchronisation plus souvent, il ne doit donc pas la
+   *  déclarer en retard au bout de 2 h). */
   private async resolveLdapSyncAlertAfterHours(): Promise<number> {
-    const raw = await this.configService.get('ldap', 'sync_interval_hours');
-    const parsed = raw ? parseInt(raw, 10) : NaN;
-    const intervalHours = Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_LDAP_SYNC_INTERVAL_HOURS;
-    return intervalHours * 2;
+    const intervalHours = await this.settings.getInt('ldap.sync_interval_hours');
+    return Math.max(intervalHours, LDAP_SYNC_CRON_HOURS) * 2;
   }
 }

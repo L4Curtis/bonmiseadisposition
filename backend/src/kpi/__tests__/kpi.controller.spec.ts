@@ -32,11 +32,12 @@ describe('KpiController', () => {
         incidentsService as never,
         todayService as never,
         listService as never,
+        {} as never,
       );
     });
 
     it('GET /kpi/liste : jamais en cache, la requête passe telle quelle', async () => {
-      const query = { indicateur: 'bons_annules' as const, from: '2026-08-01', to: '2026-08-10', page: 2 };
+      const query = { indicateur: 'bons_annules' as const, from: '2026-08-01', to: '2026-08-10', page: 2, limit: 25 };
       await expect(controller.getList(query)).resolves.toEqual({ tag: 'liste' });
       expect(listService.getList).toHaveBeenCalledWith(query);
       expect(cache.getOrCompute).not.toHaveBeenCalled();

@@ -3,7 +3,7 @@
  * AuthContext, Login, ChangePassword et la boîte « Changer mon mot de passe ».
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { nestError, ok } from './support/common-shapes';
+import { apiError, ok } from './support/common-shapes';
 import { ContractContext, startContractContext } from './support/context';
 import { EMAILS, LOCAL_ADMIN_PASSWORD } from './support/fixtures';
 import { ONE_PERSONA_PER_ROLE } from './support/http';
@@ -45,7 +45,7 @@ describe('GET /auth/me', () => {
   it('401 sans session', async () => {
     const res = await ctx.http.get('/auth/me', 'anonymous');
     expect(res.status).toBe(401);
-    expectShape(res.body, nestError);
+    expectShape(res.body, apiError);
   });
 
   it.each(ONE_PERSONA_PER_ROLE)('200 et forme AuthMeResponse pour %s', async (persona) => {
@@ -78,16 +78,35 @@ describe('POST /auth/local-login', () => {
     expect(cookiesFrom(res.headers['set-cookie'])).toContain('access_token=');
   });
 
-  it('mauvais mot de passe : 401 au format NestJS', async () => {
+  it('mauvais mot de passe : 401 unauthorized, tracé en échec', async () => {
     const res = await ctx.http.post('/auth/local-login', 'anonymous', { email: EMAILS.admin, password: 'mauvais' });
     expect(res.status).toBe(401);
-    expectShape(res.body, nestError);
+    expectShape(res.body, apiError);
+    expect(res.body.code).toBe('unauthorized');
+  });
+
+  it('compte verrouillé (10 échecs depuis la même adresse) : 401 account_locked, tracé à part', async () => {
+    // Le client de test change d'adresse à chaque requête : on fixe la sienne.
+    const ip = '10.200.0.1';
+    const email = 'verrou@contrat.local';
+    await ctx.prisma.auditLog.createMany({
+      data: Array.from({ length: 10 }, () => ({ action: 'login_local_failed', userEmail: email, ipAddress: ip })),
+    });
+
+    const res = await ctx.http
+      .send('post', '/auth/local-login', 'anonymous', { email, password: 'peu importe' })
+      .set('X-Forwarded-For', ip);
+
+    expect(res.status).toBe(401);
+    expectShape(res.body, apiError);
+    expect(res.body.code).toBe('account_locked');
+    expect(await ctx.prisma.auditLog.count({ where: { action: 'login_local_locked', userEmail: email } })).toBe(1);
   });
 
   it('corps invalide : 400 du ValidationPipe', async () => {
     const res = await ctx.http.post('/auth/local-login', 'anonymous', { email: 'pas-un-email' });
     expect(res.status).toBe(400);
-    expectShape(res.body, nestError);
+    expectShape(res.body, apiError);
   });
 });
 
@@ -95,7 +114,7 @@ describe('POST /auth/refresh', () => {
   it('sans cookie de rafraîchissement : 401', async () => {
     const res = await ctx.http.post('/auth/refresh', 'anonymous');
     expect(res.status).toBe(401);
-    expectShape(res.body, nestError);
+    expectShape(res.body, apiError);
   });
 
   it('avec le cookie posé à la connexion : { ok: true }', async () => {
@@ -111,7 +130,7 @@ describe('POST /auth/logout', () => {
   it('401 sans session', async () => {
     const res = await ctx.http.post('/auth/logout', 'anonymous');
     expect(res.status).toBe(401);
-    expectShape(res.body, nestError);
+    expectShape(res.body, apiError);
   });
 
   it('avec une session : { ok: true }', async () => {
@@ -127,7 +146,7 @@ describe('POST /auth/change-password', () => {
   it('401 sans session', async () => {
     const res = await ctx.http.post('/auth/change-password', 'anonymous', {});
     expect(res.status).toBe(401);
-    expectShape(res.body, nestError);
+    expectShape(res.body, apiError);
   });
 
   it('mot de passe actuel faux : 401 (le client du front le confond avec une session expirée)', async () => {
@@ -136,7 +155,7 @@ describe('POST /auth/change-password', () => {
       newPassword: 'Nouveau-Mot-De-Passe-2026!',
     });
     expect(res.status).toBe(401);
-    expectShape(res.body, nestError);
+    expectShape(res.body, apiError);
   });
 
   it('changement réussi : { ok: true } et nouveaux cookies', async () => {

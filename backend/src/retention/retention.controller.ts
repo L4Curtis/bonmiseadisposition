@@ -1,4 +1,6 @@
 import { Controller, Get, Post, Body, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
+import { HEAVY_OPERATION_THROTTLE } from '../common/throttle-limits';
 import { RetentionService } from './retention.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -18,8 +20,10 @@ export class RetentionController {
     return this.retention.preview();
   }
 
-  /** Déclenche l'anonymisation. { dryRun: true } pour simuler. */
+  /** Déclenche l'anonymisation. { dryRun: true } pour simuler. Opération
+   *  lourde (jusqu'à 500 bons par passage) : débit limité. */
   @Post('run')
+  @Throttle(HEAVY_OPERATION_THROTTLE)
   run(@Body('dryRun') dryRun: boolean | undefined, @CurrentUser() user: AuthUser) {
     return this.retention.run(dryRun === true, user?.email);
   }
@@ -32,6 +36,7 @@ export class RetentionController {
 
   /** Déclenche la purge technique (tokens de signature expirés + vieux logs d'audit). */
   @Post('purge')
+  @Throttle(HEAVY_OPERATION_THROTTLE)
   async purge() {
     const results = await this.retention.purgeTechnical();
     return { ok: true, ...results };

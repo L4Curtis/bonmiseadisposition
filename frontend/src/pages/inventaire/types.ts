@@ -1,37 +1,33 @@
-import type { BonStatus } from '@/types';
+/**
+ * Types de la page Inventaire. Les formes renvoyées par l'API viennent des
+ * contrats partagés (`@/contracts`, vérifiés par les tests de contrat du
+ * serveur) ; ce fichier ne garde que l'état propre à l'écran (vue, tri,
+ * filtre de compte).
+ */
+import type { InventorySummaryResponse, ParcSituationCount } from '@/contracts';
 
-export interface InventoryCollaborateur {
-  id: string;
-  displayName: string;
-  email: string;
-  department: string | null;
-  /** État du compte (`User.active`) — pastille « Compte désactivé » sur la
-   *  vue par équipement, comme sur la vue par collaborateur. */
-  active: boolean;
-}
+export type {
+  EquipmentSituation,
+  InventoryByCollaborateurResponse as CollaborateurInventoryResponse,
+  InventoryCollaborateur,
+  InventoryCollaborateurItem as CollaborateurInventoryItem,
+  InventoryFiliale,
+  InventoryItem,
+  InventoryListMeta,
+  InventoryListResponse,
+  InventorySituation,
+  ParcCategoryCount as InventoryCategorySummary,
+  ParcFilialeCount as InventoryFilialeSummary,
+} from '@/contracts';
 
-export interface InventoryFiliale {
-  id: string;
-  name: string;
-  displayName: string;
-}
+/** Résumé du parc (tuiles et options des filtres). */
+export type InventorySummary = InventorySummaryResponse;
 
-/** Situation d'un équipement du parc, dérivée du statut de son bon
- *  (backend : common/bon-predicates.ts). Un matériel remis dont le bon attend
- *  encore la signature fait partie du parc, distingué des autres. */
-export type EquipmentSituation = 'en_attente_signature' | 'en_circulation' | 'en_litige';
+/** Une situation du parc et son nombre d'équipements. */
+export type InventorySituationSummary = ParcSituationCount;
 
-/** Situation d'une ligne : celles du parc, ou « Non restitué » (déclaré non
- *  restitué et pas retrouvé, bon clôturé compris). Choisie dans le filtre,
- *  elle remplace le parc par ces équipements (carte « Encore non restitués »). */
-export type InventorySituation = EquipmentSituation | 'non_restitue';
+/** Situation « Non restitué » (hors parc) : option du filtre et ligne de l'inventaire. */
 export const NOT_RETURNED_SITUATION = 'non_restitue';
-
-export interface InventorySituationSummary {
-  situation: EquipmentSituation;
-  label: string;
-  count: number;
-}
 
 /** Sens de tri d'une colonne de la vue par équipement. */
 export type SortDirection = 'asc' | 'desc';
@@ -57,55 +53,6 @@ export interface InventorySort {
   direction: SortDirection;
 }
 
-export interface InventoryItem {
-  equipmentId: string;
-  label: string;
-  category: string;
-  categoryLabel?: string;
-  serialNumber: string | null;
-  inventoryNumber: string | null;
-  bonId: string;
-  bonReference: string;
-  bonStatus: BonStatus;
-  situation: InventorySituation;
-  situationLabel: string;
-  /** Motif de la déclaration d'un équipement non restitué, sinon null. */
-  notReturnedReason?: string | null;
-  dateMiseDisposition: string;
-  dateRestitution: string | null;
-  collaborateur: InventoryCollaborateur;
-  filiale: InventoryFiliale;
-}
-
-export interface InventoryListResponse {
-  items: InventoryItem[];
-  total: number;
-  page: number;
-  limit: number;
-}
-
-export interface InventoryCategorySummary {
-  category: string;
-  label: string;
-  count: number;
-}
-
-export interface InventoryFilialeSummary {
-  filialeId: string;
-  name: string;
-  count: number;
-}
-
-export interface InventorySummary {
-  total: number;
-  byCategory: InventoryCategorySummary[];
-  byFiliale: InventoryFilialeSummary[];
-  bySituation: InventorySituationSummary[];
-  overdue: number;
-  /** Équipements encore non restitués (option « Non restitué » du filtre). */
-  notReturned?: number;
-}
-
 /** Bascule d'affichage de la page Inventaire — état synchronisé dans l'URL
  *  (paramètre `vue`, cf. useInventory.ts) au même titre que les filtres. */
 export type InventoryView = 'equipements' | 'collaborateurs';
@@ -115,32 +62,6 @@ export type InventoryView = 'equipements' | 'collaborateurs';
  *  plus ancien d'abord). */
 export type CollaborateurSort = 'count' | 'oldest';
 
-/** Filtre sur l'état du compte du collaborateur (lot D1 — départ d'un
- *  collaborateur), propre à la vue « Par collaborateur ». `''` = pas de
- *  filtre. */
+/** Filtre sur l'état du compte du collaborateur (départ d'un collaborateur),
+ *  propre à la vue « Par collaborateur ». `''` = pas de filtre. */
 export type CompteFilter = '' | 'actif' | 'inactif';
-
-export interface CollaborateurInventoryItem {
-  collaborateurId: string;
-  displayName: string;
-  email: string | null;
-  department: string | null;
-  filiale: InventoryFiliale | null;
-  /** État du compte (`User.active`) — alimente la pastille « Compte désactivé ». */
-  active: boolean;
-  count: number;
-  overdueCount: number;
-  oldestDateMiseDisposition: string;
-  oldestAgeDays: number;
-}
-
-export interface CollaborateurInventoryResponse {
-  items: CollaborateurInventoryItem[];
-  total: number;
-  page: number;
-  limit: number;
-  /** Le regroupement portait sur plus d'équipements que la limite serveur
-   *  (10 000) : les chiffres affichés sont incomplets. Toujours signalé à
-   *  l'utilisateur plutôt que laissé silencieux. */
-  truncated: boolean;
-}

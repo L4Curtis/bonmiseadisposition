@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
-import { AppConfigService } from '../../config/config.service';
+import { ConfigRegistryService } from '../../config/config-registry.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationBon } from '../../common/types';
 import { addDaysToIsoDate, isoDateToUtc, todayInParis } from '../../common/dates/paris';
@@ -10,9 +10,9 @@ import { RESTITUTION_START_BON_STATUSES } from '../../bons/bon-status';
 const LAST_MS_OF_DAY = 86_400_000 - 1;
 
 // ─── Cron: Rappel avant restitution prévue ───────────────────────────────────
-// Lit rappels.restitution_before_days (même catégorie que les rappels
-// quotidiens — cf. ALLOWED_CONFIG_KEYS.rappels dans admin.controller.ts).
-// Défaut 7 jours ; 0 désactive la fonctionnalité. Idempotence : seul un
+// Lit rappels.restitution_before_days par le registre de configuration :
+// 7 jours par défaut, 0 désactive la fonctionnalité (une saisie négative est
+// ramenée à 0). Idempotence : seul un
 // NotificationLog de type restitution_due_reminder au statut 'sent' exclut
 // le bon de la requête ci-dessous (comme les rappels quotidiens) — un échec
 // transitoire (SMTP down, app_url absente) ne doit PAS bloquer tout
@@ -20,16 +20,6 @@ const LAST_MS_OF_DAY = 86_400_000 - 1;
 // pour ce bon même si sa dateRestitution change ensuite (report,
 // correction) : le filtre porte sur l'existence du log 'sent', pas sur la
 // date courante — un seul rappel réussi par bon, par construction.
-
-/** Comme parseDelay (daily-reminders.ts), mais 0 est une valeur valide
- *  (désactive la fonctionnalité) — parseDelay rejette tout n <= 0 au profit
- *  du fallback, ce qui est incorrect ici : 0 doit être respecté, pas
- *  remplacé par le défaut. */
-export function parseNonNegativeInt(raw: string | null, fallback: number): number {
-  if (raw === null) return fallback;
-  const n = parseInt(raw, 10);
-  return Number.isFinite(n) && n >= 0 ? n : fallback;
-}
 
 /**
  * Fenêtre [aujourd'hui, aujourd'hui + N jours] en date locale Europe/Paris,
@@ -46,7 +36,7 @@ export function getRestitutionWindow(beforeDays: number, now: Date = new Date())
 }
 
 export interface RestitutionDueRemindersDeps {
-  configService: AppConfigService;
+  settings: ConfigRegistryService;
   prisma: PrismaService;
   logger: Logger;
   getTransporter: () => Promise<nodemailer.Transporter | null>;
@@ -61,11 +51,10 @@ export interface RestitutionDueRemindersDeps {
 export type RestitutionDueRemindersOutcome = 'skipped' | void;
 
 export async function runRestitutionDueReminders(deps: RestitutionDueRemindersDeps): Promise<RestitutionDueRemindersOutcome> {
-  const { configService, prisma, logger, getTransporter, sendReminder } = deps;
+  const { settings, prisma, logger, getTransporter, sendReminder } = deps;
   logger.log('Cron rappel restitution démarré');
 
-  const rawDays = await configService.get('rappels', 'restitution_before_days');
-  const beforeDays = parseNonNegativeInt(rawDays, 7);
+  const beforeDays = await settings.getInt('rappels.restitution_before_days');
   if (beforeDays === 0) {
     logger.log('Rappel de restitution désactivé par configuration (restitution_before_days = 0)');
     return 'skipped';

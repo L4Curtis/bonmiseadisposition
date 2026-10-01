@@ -16,7 +16,8 @@ function makeItem(overrides: Partial<InventoryItem> = {}): InventoryItem {
     bonReference: 'BMD-2026-0001',
     bonStatus: 'active',
     situation: 'en_circulation',
-    situationLabel: 'En circulation',
+    situationLabel: 'En cours',
+    notReturnedReason: null,
     dateMiseDisposition: '2026-09-01T00:00:00.000Z',
     dateRestitution: null,
     collaborateur: { id: 'u1', displayName: 'Jean Dupont', email: 'jean@example.com', department: null, active: true },
@@ -159,8 +160,26 @@ describe('InventoryTable', () => {
     const onTimeItem = makeItem({ equipmentId: 'e-ontime', dateRestitution: '2999-01-01T00:00:00.000Z' });
     renderWithProviders(<InventoryTable {...baseProps} items={[overdueItem, onTimeItem]} />);
 
-    expect(screen.getByText(/Retard \d+ j/)).toBeInTheDocument();
-    // Une seule ligne en retard : un seul badge affiché.
-    expect(screen.getAllByText(/Retard \d+ j/)).toHaveLength(1);
+    // Le retard est une sous-ligne de la situation, nommée au lexique.
+    expect(screen.getAllByText(/^Retour en retard · \d+ j$/)).toHaveLength(1);
+  });
+
+  it('une seule étiquette de situation par ligne, au lexique (pas de second statut du bon)', () => {
+    renderWithProviders(<InventoryTable {...baseProps} items={[makeItem()]} />);
+    const row = screen.getAllByRole('row')[1];
+    expect(row.querySelectorAll('[data-situation-badge]')).toHaveLength(1);
+    expect(row.querySelector('[data-situation-badge]')).toHaveTextContent('En cours');
+    // Le statut « En cours » du bon n'est pas répété à côté de la référence.
+    expect(row).toHaveTextContent(/En cours/);
+    expect(row.textContent?.match(/En cours/g)).toHaveLength(1);
+  });
+
+  it('précise l’étape du bon en sous-ligne quand elle diffère de la situation', () => {
+    renderWithProviders(
+      <InventoryTable {...baseProps} items={[makeItem({ bonStatus: 'sent_restitution' })]} />,
+    );
+    const row = screen.getAllByRole('row')[1];
+    expect(row.querySelector('[data-situation-badge]')).toHaveTextContent('En cours');
+    expect(row).toHaveTextContent('Restitution à signer');
   });
 });

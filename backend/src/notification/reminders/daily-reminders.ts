@@ -1,7 +1,7 @@
 import { Logger } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import * as nodemailer from 'nodemailer';
-import { AppConfigService } from '../../config/config.service';
+import { ConfigRegistryService } from '../../config/config-registry.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TemplatesService } from '../../templates/templates.service';
 import { generateSignatureToken } from '../../common/tokens';
@@ -13,8 +13,9 @@ import { buildReminderMessage } from '../messages/reminder-message';
 import { logRefusedRecipient, refusalLogReason } from '../collaborator-recipient';
 
 // ─── Cron : rappels de signature ─────────────────────────────────────────────
-// Réglages « rappels » (enabled, delay_1, delay_2, delay_3), les mêmes que
-// l'écran d'administration. Règle (décision du 24/09, R-033) : TROIS rappels
+// Réglages « rappels » (enabled, delay_1, delay_2, delay_3), lus par le
+// registre de configuration : 3 / 7 / 14 jours par défaut, une saisie sous la
+// borne (0) ramenée à 1 jour. Règle (décision du 24/09, R-033) : TROIS rappels
 // au plus PAR DOCUMENT (remise, restitution, PV), comptés depuis la demande de
 // ce document (`Bon.awaitingSince`) : une nouvelle demande repart de zéro. Le
 // rappel N part quand le document attend depuis delay_N jours.
@@ -24,18 +25,9 @@ import { logRefusedRecipient, refusalLogReason } from '../collaborator-recipient
 type LinkDocument = 'mise_disposition' | 'restitution' | 'pv_cloture';
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** Délai (en jours) d'un palier de rappel, borné à un entier positif. */
-export function parseDelay(raw: string | null, fallback: number): number {
-  const n = raw === null ? NaN : parseInt(raw, 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-}
-
-/** Durée de validité des liens (tokens.expiry_days, bornée 1–30, défaut 7). */
-export async function getTokenValidityDays(configService: AppConfigService): Promise<number> {
-  const raw = await configService.get('tokens', 'expiry_days');
-  const parsed = raw === null ? NaN : parseInt(raw, 10);
-  if (!Number.isFinite(parsed)) return 7;
-  return Math.min(30, Math.max(1, parsed));
+/** Durée de validité des liens (tokens.expiry_days : 1 à 30 jours, 7 par défaut). */
+export async function getTokenValidityDays(settings: ConfigRegistryService): Promise<number> {
+  return settings.getInt('tokens.expiry_days');
 }
 
 /**
@@ -46,7 +38,7 @@ export async function getTokenValidityDays(configService: AppConfigService): Pro
  */
 export async function regenerateSignatureToken(
   prisma: PrismaService,
-  configService: AppConfigService,
+  settings: ConfigRegistryService,
   logger: Pick<Logger, 'log'>,
   bonId: string,
   type: LinkDocument,
@@ -55,7 +47,7 @@ export async function regenerateSignatureToken(
     where: { bonId, type, ...LIVE_LINK_WHERE },
     data: invalidationData('replaced'),
   });
-  const validityDays = await getTokenValidityDays(configService);
+  const validityDays = await getTokenValidityDays(settings);
   const sig = await prisma.signature.create({
     data: {
       bonId,
@@ -71,7 +63,7 @@ export async function regenerateSignatureToken(
 }
 
 export interface DailyRemindersDeps {
-  configService: AppConfigService;
+  settings: ConfigRegistryService;
   prisma: PrismaService;
   templatesService: TemplatesService;
   logger: Logger;
@@ -177,7 +169,7 @@ async function remindBon(ctx: ReminderContext, bon: PendingBon): Promise<boolean
   // Lien expiré, ou lien au guichet expiré (jamais envoyé par email) : nouveau lien.
   const token =
     pending.isInPerson || pending.tokenExpiresAt <= now
-      ? (await regenerateSignatureToken(deps.prisma, deps.configService, deps.logger, bon.id, document)).token
+      ? (await regenerateSignatureToken(deps.prisma, deps.settings, deps.logger, bon.id, document)).token
       : pending.token;
 
   const { vars, subject } = buildReminderMessage({
@@ -196,19 +188,19 @@ async function remindBon(ctx: ReminderContext, bon: PendingBon): Promise<boolean
   return result.ok;
 }
 
-async function readDelays(configService: AppConfigService): Promise<number[]> {
+async function readDelays(settings: ConfigRegistryService): Promise<number[]> {
   return [
-    parseDelay(await configService.get('rappels', 'delay_1'), 3),
-    parseDelay(await configService.get('rappels', 'delay_2'), 7),
-    parseDelay(await configService.get('rappels', 'delay_3'), 14),
+    await settings.getInt('rappels.delay_1'),
+    await settings.getInt('rappels.delay_2'),
+    await settings.getInt('rappels.delay_3'),
   ];
 }
 
 export async function runDailyReminders(deps: DailyRemindersDeps): Promise<DailyRemindersOutcome> {
-  const { configService, prisma, logger } = deps;
+  const { settings, prisma, logger } = deps;
   logger.log('Cron rappels démarré');
 
-  if ((await configService.get('rappels', 'enabled')) === 'false') {
+  if (!(await settings.getBool('rappels.enabled'))) {
     logger.log('Rappels désactivés par configuration');
     return 'skipped';
   }
@@ -219,7 +211,7 @@ export async function runDailyReminders(deps: DailyRemindersDeps): Promise<Daily
   }
 
   const now = deps.now?.() ?? new Date();
-  const delays = await readDelays(configService);
+  const delays = await readDelays(settings);
   const pendingBons = await findPendingBons(prisma, new Date(now.getTime() - delays[0] * DAY_MS), deps.scope);
   const ctx: ReminderContext = { deps, delays, appUrl: await deps.getAppUrl(), now };
 

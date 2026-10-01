@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import * as fsPromises from 'fs/promises';
 import * as fs from 'fs';
 import { SmbService } from '../smb.service';
-import { AppConfigService } from '../../config/config.service';
+import { ConfigRegistryService } from '../../config/config-registry.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { createMockConfigService, createMockJobTrackerService } from '../../common/__tests__/helpers/mock-services';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
@@ -35,7 +35,7 @@ describe('SmbService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SmbService,
-        { provide: AppConfigService, useValue: configService },
+        { provide: ConfigRegistryService, useValue: new ConfigRegistryService(configService as never, {}) },
         { provide: PrismaService, useValue: prisma },
         { provide: JobTrackerService, useValue: jobTracker },
       ],
@@ -199,11 +199,9 @@ describe('SmbService', () => {
 
       const status = await service.getStatus();
 
-      expect(status.enabled).toBe(true);
-      expect(status.total).toBe(10);
-      expect(status.success).toBe(8);
-      expect(status.failed).toBe(1);
-      expect(status.pending).toBe(1);
+      expect(status).toEqual({
+        enabled: true, total: 10, success: 8, failed: 1, pending: 1, lastSuccessAt: new Date('2026-03-27'),
+      });
     });
   });
 
@@ -245,7 +243,7 @@ describe('SmbService', () => {
 
       const result = await service.testConnection();
 
-      expect(result.success).toBe(false);
+      expect(result.ok).toBe(false);
       expect(result.message).toContain('chemin');
     });
 
@@ -257,7 +255,7 @@ describe('SmbService', () => {
 
       const result = await service.testConnection();
 
-      expect(result.success).toBe(true);
+      expect(result).toEqual({ ok: true, message: 'Accès en écriture vérifié sur /mnt/share' });
     });
 
     it('should fail explicitly (without creating the root) when the share is not mounted', async () => {
@@ -267,7 +265,7 @@ describe('SmbService', () => {
 
       const result = await service.testConnection();
 
-      expect(result.success).toBe(false);
+      expect(result.ok).toBe(false);
       expect(result.message).toContain("n'existe pas ou le partage n'est pas monté");
       // Assertion discriminante : ni création de dossier sur la racine, ni
       // tentative d'écriture du fichier-sonde — la fonction doit sortir AVANT
@@ -284,8 +282,8 @@ describe('SmbService', () => {
 
       const result = await service.retryOne('exp-1');
 
-      expect(result.success).toBe(false);
-      expect(result.error).toContain('non activé');
+      expect(result.ok).toBe(false);
+      expect(result.message).toContain("n'est pas activée");
     });
 
     it('should retry successfully when the snapshot filename matches exactly', async () => {
@@ -315,7 +313,7 @@ describe('SmbService', () => {
 
       const result = await service.retryOne('exp-1');
 
-      expect(result.success).toBe(true);
+      expect(result).toEqual({ ok: true, message: 'Export relancé : le PDF a été copié sur le partage.' });
       expect(fsPromises.writeFile).toHaveBeenCalled();
     });
 
@@ -344,8 +342,7 @@ describe('SmbService', () => {
 
       const result = await service.retryOne('exp-2');
 
-      expect(result.success).toBe(false);
-      expect(result.error).toBe('Snapshot introuvable pour ce fichier');
+      expect(result).toEqual({ ok: false, message: 'La relance a échoué : Snapshot introuvable pour ce fichier' });
       expect(prisma.smbExport.update).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { id: 'exp-2' },
@@ -376,8 +373,8 @@ describe('SmbService', () => {
 
       const result = await service.retryOne('exp-3');
 
-      expect(result.success).toBe(false);
-      expect(result.error).toContain("n'existe pas ou le partage n'est pas monté");
+      expect(result.ok).toBe(false);
+      expect(result.message).toContain("n'existe pas ou le partage n'est pas monté");
       expect(fsPromises.mkdir).not.toHaveBeenCalled();
       expect(fsPromises.writeFile).not.toHaveBeenCalled();
       // Le compteur de tentatives n'est pas incrémenté pour un chemin non monté
@@ -386,6 +383,15 @@ describe('SmbService', () => {
         expect.objectContaining({ data: expect.objectContaining({ retryCount: expect.anything() }) }),
       );
     });
+  });
+
+  it('retryOne : un export inconnu répond 404', async () => {
+    configService.get.mockImplementation((cat: string, key: string) =>
+      Promise.resolve(cat === 'smb' && key === 'enabled' ? 'true' : null),
+    );
+    prisma.smbExport.findUnique.mockResolvedValue(null);
+
+    await expect(service.retryOne('inconnu')).rejects.toThrow('Export introuvable');
   });
 
   describe('retryAllFailed', () => {

@@ -7,7 +7,9 @@ import { PortailCollaborateur } from '../PortailCollaborateur';
 
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>();
-  return { ...actual, api: { get: vi.fn(), post: vi.fn() } };
+  const { listViaGet } = await import('@/test/api-mock');
+  const get = vi.fn();
+  return { ...actual, api: { get, getList: listViaGet(get), post: vi.fn() } };
 });
 
 import { api } from '@/lib/api';
@@ -96,7 +98,7 @@ const S21_CONTESTATION: MyContestation = {
 
 function mockPortal(bons: PortalBon[], contestations: MyContestation[] = []) {
   vi.mocked(api.get).mockImplementation((path: string) =>
-    Promise.resolve(path === '/contestations/mine' ? contestations : bons),
+    Promise.resolve(path === '/me/contestations' ? contestations : bons),
   );
 }
 
@@ -259,7 +261,7 @@ describe('Portail « Mes équipements » (R-057, R-090)', () => {
 
   it('le suivi des contestations indisponible n’empêche pas d’afficher les bons', async () => {
     vi.mocked(api.get).mockImplementation((path: string) =>
-      path === '/contestations/mine' ? Promise.reject(new Error('panne')) : Promise.resolve(LEA),
+      path === '/me/contestations' ? Promise.reject(new Error('panne')) : Promise.resolve(LEA),
     );
     renderWithProviders(<PortailCollaborateur />);
     expect(await screen.findByText('Vous avez 2 documents à signer.')).toBeInTheDocument();

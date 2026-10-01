@@ -8,9 +8,11 @@ import { BrowserRouter, Route, Routes, useLocation } from 'react-router';
 
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>();
+  const { listViaGet } = await import('@/test/api-mock');
+  const get = vi.fn();
   return {
     ...actual,
-    api: { get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn(), delete: vi.fn(), getBlob: vi.fn(), postForm: vi.fn(), patchForm: vi.fn() },
+    api: { get, getList: listViaGet(get), post: vi.fn(), put: vi.fn(), patch: vi.fn(), delete: vi.fn(), getBlob: vi.fn(), postForm: vi.fn(), patchForm: vi.fn() },
   };
 });
 

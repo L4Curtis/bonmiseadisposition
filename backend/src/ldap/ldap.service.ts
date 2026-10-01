@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import * as ldap from 'ldapjs';
-import { AppConfigService } from '../config/config.service';
+import { ConfigRegistryService } from '../config/config-registry.service';
+import type { ConnectionTestResponse } from '../contracts/admin';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 import { JobTrackerService, JobOutcome } from '../monitoring/job-tracker.service';
@@ -46,24 +47,26 @@ export class LdapService {
   private syncInProgress = false;
 
   constructor(
-    private readonly configService: AppConfigService,
+    private readonly settings: ConfigRegistryService,
     private readonly prisma: PrismaService,
     private readonly jobTracker: JobTrackerService,
     private readonly notificationService: NotificationService,
   ) {}
 
-  async testConnection(): Promise<{ success: boolean; message: string }> {
+  /** Test de connexion de l'écran Configuration : `{ ok, message }`, le
+   *  message d'échec étant traduit pour l'administrateur. */
+  async testConnection(): Promise<ConnectionTestResponse> {
     let client: ldap.Client | null = null;
     try {
       client = await this.createClient();
       await this.bindClient(client);
-      return { success: true, message: 'Connexion LDAP réussie' };
+      return { ok: true, message: 'Connexion à l’annuaire réussie.' };
     } catch (err: unknown) {
       // Le détail technique brut (code TLS Node, message ldapjs...) reste dans
       // les journaux serveur ; l'admin ne voit que le message traduit
       // (translateLdapConnectionError), actionnable sans connaissance TLS.
       this.logger.warn(`Test de connexion LDAP en échec : ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
-      return { success: false, message: translateLdapConnectionError(err) };
+      return { ok: false, message: translateLdapConnectionError(err) };
     } finally {
       // Also on bind failure — otherwise each failed test leaks a TCP connection
       client?.destroy();
@@ -74,19 +77,16 @@ export class LdapService {
     return this.syncStatus;
   }
 
-  // Cron fires every 6 hours; ldap.sync_interval_hours (admin UI) is honoured
-  // for values ABOVE 6h by skipping runs until the interval has elapsed.
+  // Passage toutes les 6 h ; un intervalle configuré (ldap.sync_interval_hours)
+  // de plus de 6 h est respecté en sautant les passages tant qu'il n'est pas écoulé.
   @Cron('0 */6 * * *')
   async scheduledSync() {
     try {
-      const ldapEnabled = await this.configService.get('ldap', 'enabled');
-      const url = await this.configService.get('ldap', 'url');
-      const isDisabled = ldapEnabled === 'false' || !url;
+      const isDisabled = !(await this.settings.getBool('ldap.enabled')) || !(await this.settings.getString('ldap.url'));
 
       if (!isDisabled) {
-        const rawInterval = await this.configService.get('ldap', 'sync_interval_hours');
-        const intervalHours = rawInterval ? parseInt(rawInterval, 10) : 6;
-        if (Number.isFinite(intervalHours) && intervalHours > 6 && this.syncStatus.lastSync) {
+        const intervalHours = await this.settings.getInt('ldap.sync_interval_hours');
+        if (intervalHours > 6 && this.syncStatus.lastSync) {
           const hoursSinceLast = (Date.now() - this.syncStatus.lastSync.getTime()) / (60 * 60 * 1000);
           if (hoursSinceLast < intervalHours - 0.5) {
             // Report volontaire (ldap.sync_interval_hours > 6h configuré par
@@ -136,8 +136,7 @@ export class LdapService {
     let client: ldap.Client | null = null;
 
     try {
-      const ldapEnabled = await this.configService.get('ldap', 'enabled');
-      if (ldapEnabled === 'false') {
+      if (!(await this.settings.getBool('ldap.enabled'))) {
         this.logger.log('LDAP sync skipped — LDAP disabled in configuration');
         return;
       }
@@ -145,12 +144,10 @@ export class LdapService {
       client = await this.createClient();
       await this.bindClient(client);
 
-      const searchBase = await this.configService.get('ldap', 'search_base') || '';
-      // Default AD filter excludes disabled accounts (userAccountControl bit 2)
-      const rawFilter = await this.configService.get('ldap', 'user_filter')
-        || '(&(objectClass=person)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))';
-      this.validateLdapFilter(rawFilter);
-      const filter = rawFilter;
+      const searchBase = (await this.settings.getString('ldap.search_base')) ?? '';
+      // Filtre par défaut du registre : personnes, comptes désactivés exclus.
+      const filter = (await this.settings.getString('ldap.user_filter')) ?? '';
+      this.validateLdapFilter(filter);
 
       const syncStart = new Date();
       const users = await searchLdapUsers(client, searchBase, filter, this.logger);
@@ -215,15 +212,14 @@ export class LdapService {
   }
 
   private async createClient(): Promise<ldap.Client> {
-    const url = await this.configService.get('ldap', 'url');
+    const url = await this.settings.getString('ldap.url');
     if (!url) throw new Error('URL LDAP non configurée');
-    const useSsl = await this.configService.get('ldap', 'use_ssl');
-    return createLdapClient(url, useSsl, this.logger);
+    return createLdapClient(url, await this.settings.getBool('ldap.use_ssl'), this.logger);
   }
 
   private async bindClient(client: ldap.Client): Promise<void> {
-    const bindDn = await this.configService.get('ldap', 'bind_dn');
-    const bindPassword = await this.configService.get('ldap', 'bind_password');
+    const bindDn = await this.settings.getString('ldap.bind_dn');
+    const bindPassword = await this.settings.getString('ldap.bind_password');
     if (!bindDn || !bindPassword) throw new Error('Bind DN ou mot de passe LDAP non configuré');
     return bindLdapClient(client, bindDn, bindPassword);
   }

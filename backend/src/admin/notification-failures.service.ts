@@ -1,21 +1,24 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { toListResponse } from '../common/pagination';
+import type { FailedNotificationsResponse } from '../contracts/admin';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 export const DEFAULT_NOTIFICATION_FAILURES_WINDOW_DAYS = 30;
 const NOTIFICATION_FAILURES_ROW_LIMIT = 100;
 
 /**
- * GET /admin/notifications/failed — migré depuis l'ancien module Reporting
- * (méthode `getFailedNotifications`, supprimée avec le reste du module) :
- * même forme de réponse, désormais avec une fenêtre en jours paramétrable.
- * Un lien de signature en échec ne doit pas rester silencieux.
+ * GET /admin/notifications/failed — emails en échec des `windowDays` derniers
+ * jours, les plus récents d'abord (100 au plus : `truncated` le signale). Un
+ * lien de signature qui n'est pas parti ne doit pas rester silencieux.
  */
 @Injectable()
 export class NotificationFailuresService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getFailedNotifications(windowDays: number = DEFAULT_NOTIFICATION_FAILURES_WINDOW_DAYS) {
+  async getFailedNotifications(
+    windowDays: number = DEFAULT_NOTIFICATION_FAILURES_WINDOW_DAYS,
+  ): Promise<FailedNotificationsResponse> {
     const since = new Date(Date.now() - windowDays * DAY_MS);
     const [count, rows] = await Promise.all([
       this.prisma.notificationLog.count({ where: { status: 'failed', sentAt: { gte: since } } }),
@@ -34,18 +37,21 @@ export class NotificationFailuresService {
       }),
     ]);
 
-    return {
-      count,
-      windowDays,
-      items: rows.map((r) => ({
-        id: r.id,
-        bonId: r.bon?.id ?? null,
-        reference: r.bon?.reference ?? '—',
-        recipient: r.recipientEmail,
-        type: r.type,
-        sentAt: r.sentAt,
-        error: r.errorMessage ?? '',
-      })),
-    };
+    const items = rows.map((r) => ({
+      id: r.id,
+      bonId: r.bon.id,
+      reference: r.bon.reference,
+      recipient: r.recipientEmail,
+      type: r.type,
+      sentAt: r.sentAt.toISOString(),
+      error: r.errorMessage ?? '',
+    }));
+    return toListResponse(items, {
+      total: count,
+      page: 1,
+      limit: NOTIFICATION_FAILURES_ROW_LIMIT,
+      truncated: count > items.length,
+      meta: { windowDays },
+    });
   }
 }

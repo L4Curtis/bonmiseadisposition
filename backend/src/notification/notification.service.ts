@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import type { ReopenedDocument } from '../contracts/contestations';
 import * as nodemailer from 'nodemailer';
-import { AppConfigService } from '../config/config.service';
+import { ConfigRegistryService } from '../config/config-registry.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { TemplatesService } from '../templates/templates.service';
 import { NotificationBon } from '../common/types';
@@ -73,7 +73,7 @@ export class NotificationService {
   private transporterCacheKey: string | null = null;
 
   constructor(
-    private readonly configService: AppConfigService,
+    private readonly settings: ConfigRegistryService,
     private readonly prisma: PrismaService,
     private readonly templatesService: TemplatesService,
     private readonly jobTracker: JobTrackerService,
@@ -84,7 +84,7 @@ export class NotificationService {
   // de configuration reconstruit le transport.
 
   private async getTransporter(): Promise<nodemailer.Transporter | null> {
-    const settings = await readSmtpSettings(this.configService);
+    const settings = await readSmtpSettings(this.settings);
     if (!settings.host) return null;
     const cacheKey = buildTransporterCacheKey(settings);
     if (this.cachedTransporter && this.transporterCacheKey === cacheKey) return this.cachedTransporter;
@@ -96,7 +96,7 @@ export class NotificationService {
   /** URL publique : general.app_url, sinon FRONTEND_URL (voir resolveAppUrl).
    *  En production, une chaîne vide (les deux absents) est journalisée. */
   private async getAppUrl(): Promise<string> {
-    const url = resolveAppUrl(await this.configService.get('general', 'app_url'), process.env);
+    const url = resolveAppUrl(await this.settings.getString('general.app_url'), process.env);
     if (!url) this.logger.error("URL de l'application (general.app_url ou FRONTEND_URL) non configurée en production");
     return url;
   }
@@ -108,7 +108,7 @@ export class NotificationService {
         this.logger.warn(`Email non envoyé (SMTP non configuré) → ${to}: ${subject}`);
         return { ok: false, error: 'SMTP non configuré' };
       }
-      const from = await readFromAddress(this.configService);
+      const from = await readFromAddress(this.settings);
       if (!from) {
         const error = 'Expéditeur SMTP (smtp.from) non configuré';
         this.logger.error(error);
@@ -371,7 +371,7 @@ export class NotificationService {
 
   private async runDailyReminders(): Promise<DailyRemindersOutcome> {
     return runDailyRemindersJob({
-      configService: this.configService,
+      settings: this.settings,
       prisma: this.prisma,
       templatesService: this.templatesService,
       logger: this.logger,
@@ -386,7 +386,7 @@ export class NotificationService {
     try {
       await this.jobTracker.track<RestitutionDueRemindersOutcome>(JOB_KEYS.RESTITUTION_REMINDER, () =>
         runRestitutionDueRemindersJob({
-          configService: this.configService,
+          settings: this.settings,
           prisma: this.prisma,
           logger: this.logger,
           getTransporter: () => this.getTransporter(),

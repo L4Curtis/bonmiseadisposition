@@ -1,30 +1,5 @@
 import { useHostTimeZone } from '../../../common/__tests__/helpers/host-time-zone';
-import {
-  parseNonNegativeInt,
-  getRestitutionWindow,
-} from '../../reminders/restitution-due-reminders';
-
-describe('parseNonNegativeInt', () => {
-  it('returns the fallback when raw is null', () => {
-    expect(parseNonNegativeInt(null, 7)).toBe(7);
-  });
-
-  it('accepts 0 as a valid value (unlike parseDelay)', () => {
-    expect(parseNonNegativeInt('0', 7)).toBe(0);
-  });
-
-  it('parses a positive integer', () => {
-    expect(parseNonNegativeInt('14', 7)).toBe(14);
-  });
-
-  it('falls back for a negative value', () => {
-    expect(parseNonNegativeInt('-1', 7)).toBe(7);
-  });
-
-  it('falls back for a non-numeric value', () => {
-    expect(parseNonNegativeInt('abc', 7)).toBe(7);
-  });
-});
+import { getRestitutionWindow } from '../../reminders/restitution-due-reminders';
 
 describe('getRestitutionWindow', () => {
   useHostTimeZone('UTC');

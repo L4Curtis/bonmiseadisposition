@@ -4,10 +4,10 @@ import type {
   AdminStatusResponse,
   ConfigHealthResponse,
   ConfigHealthSection,
-  ConnectionTestFailure,
-  ConnectionTestSuccess,
+  ConnectionTestResponse,
   FailedNotificationItem,
-  FailedNotificationsResponse,
+  FailedNotificationsMeta,
+  LdapDeactivateAllResponse,
   GeneralConfigValues,
   LdapSyncStatusResponse,
   OkMessageResponse,
@@ -15,8 +15,6 @@ import type {
   RappelsConfigValues,
   SmbFailedExport,
   SmbRetryAllResponse,
-  SmbRetryFailure,
-  SmbRetrySuccess,
   SmbStatusDisabled,
   SmbStatusEnabled,
   SmtpConfigValues,
@@ -27,25 +25,22 @@ import type {
   RetentionRunResult,
   RetentionStatsResponse,
 } from '../../../src/contracts/retention';
-import { notificationType, scheduledJobStatus, userRole } from '../support/common-shapes';
+import { listOf, listWithMeta, notificationType, scheduledJobStatus, userRole } from '../support/common-shapes';
 import { arrayOf, bool, int, isoDate, literal, nullable, num, object, oneOf, optional, str, uuid } from '../support/shape';
 
-export const failedNotifications = object<FailedNotificationsResponse>({
-  count: int,
-  windowDays: int,
-  items: arrayOf(
-    object<FailedNotificationItem>({
-      id: uuid,
-      bonId: uuid,
-      reference: str,
-      recipient: str,
-      type: notificationType,
-      sentAt: isoDate,
-      error: str,
-    }),
-    { minLength: 1 },
-  ),
-});
+export const failedNotifications = listWithMeta(
+  object<FailedNotificationItem>({
+    id: uuid,
+    bonId: uuid,
+    reference: str,
+    recipient: str,
+    type: notificationType,
+    sentAt: isoDate,
+    error: str,
+  }),
+  object<FailedNotificationsMeta>({ windowDays: int }),
+  { minLength: 1 },
+);
 
 export const adminStatus = object<AdminStatusResponse>({
   version: str,
@@ -68,7 +63,7 @@ export const adminStatus = object<AdminStatusResponse>({
   ),
 });
 
-export const ssoDiagnostic = arrayOf(
+export const ssoDiagnostic = listOf(
   object<SsoDiagnosticEntry>({
     at: isoDate,
     user: str,
@@ -91,7 +86,7 @@ export const smbStatus = oneOf(
   }),
 );
 
-export const smbFailedExports = arrayOf(
+export const smbFailedExports = listOf(
   object<SmbFailedExport>({
     id: uuid,
     bonId: uuid,
@@ -104,10 +99,7 @@ export const smbFailedExports = arrayOf(
   }),
 );
 
-export const smbRetryOne = oneOf(
-  object<SmbRetrySuccess>({ success: literal(true) }),
-  object<SmbRetryFailure>({ success: literal(false), error: str }),
-);
+export const smbRetryOne = object<ConnectionTestResponse>({ ok: bool, message: str });
 
 export const smbRetryAll = object<SmbRetryAllResponse>({ retried: int, succeeded: int, failed: int });
 
@@ -147,10 +139,7 @@ export const rappelsConfig = object<RappelsConfigValues>({
   signature_overdue_days: configValue,
 });
 
-export const connectionTest = oneOf(
-  object<ConnectionTestSuccess>({ success: literal(true), message: str }),
-  object<ConnectionTestFailure>({ success: literal(false), message: str }),
-);
+export const connectionTest = object<ConnectionTestResponse>({ ok: bool, message: str });
 
 export const ldapStatus = object<LdapSyncStatusResponse>({
   lastSync: nullable(isoDate),
@@ -163,6 +152,8 @@ export const ldapStatus = object<LdapSyncStatusResponse>({
 });
 
 export const okMessage = object<OkMessageResponse>({ ok: literal(true), message: str });
+
+export const ldapDeactivateAll = object<LdapDeactivateAllResponse>({ ok: literal(true), message: str, deactivated: int });
 
 export const pdfRegenerateMissing = object<PdfRegenerateMissingResponse>({ regenerated: int, failed: int });
 

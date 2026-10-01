@@ -11,6 +11,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
     ...actual,
     api: {
       get: vi.fn(),
+      getList: vi.fn(),
       post: vi.fn(),
       put: vi.fn(),
       patch: vi.fn(),
@@ -29,6 +30,7 @@ const summary = {
   total: 10,
   byCategory: [{ category: 'pc_portable', label: 'PC portable', count: 6 }],
   byFiliale: [{ filialeId: 'f1', name: 'Paris', count: 10 }],
+  overdueReturns: 2,
   overdue: 2,
 };
 
@@ -51,7 +53,9 @@ const listResponse = {
   ],
   total: 1,
   page: 1,
-  limit: 50,
+  limit: 25,
+  truncated: false,
+  meta: { exportLimit: 10000 },
 };
 
 function wrapper({ children }: { children: ReactNode }) {
@@ -83,6 +87,9 @@ function mockApiGet(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  // La liste passe par `getList` ; chaque test décrit les réponses par `get`,
+  // dont les appels restent ainsi relevés au même endroit.
+  vi.mocked(api.getList).mockImplementation((path: string) => api.get(path));
   resetActiveFilialesForTests();
   URL.createObjectURL = vi.fn(() => 'blob:mock-url');
   URL.revokeObjectURL = vi.fn();
@@ -225,7 +232,6 @@ describe('useInventory', () => {
 
   it('filtre « sans numéro de série » : relu depuis l’URL, transmis à la liste et à l’export, effacé par la réinitialisation', async () => {
     mockApiGet();
-    vi.mocked(api.getFile).mockResolvedValue({ blob: new Blob(['a,b'], { type: 'text/csv' }), filename: 'export.csv', truncated: false });
     const { result } = renderHook(() => useInventory(), { wrapper: wrapperAt('/inventaire?sansNumeroSerie=1') });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -233,9 +239,7 @@ describe('useInventory', () => {
     expect(result.current.hasActiveFilters).toBe(true);
     expect(lastListCall()).toContain('sansNumeroSerie=1');
 
-    await act(async () => { await result.current.handleExport(); });
-    const [exportUrl] = vi.mocked(api.getFile).mock.calls.at(-1) as [string];
-    expect(exportUrl).toContain('sansNumeroSerie=1');
+    expect(result.current.exportPath).toContain('sansNumeroSerie=1');
 
     act(() => result.current.resetFilters());
     expect(result.current.missingSerialFilter).toBe(false);
@@ -258,36 +262,55 @@ describe('useInventory', () => {
     expect(result.current.hasActiveFilters).toBe(true);
   });
 
-  it('handleExport télécharge le CSV avec les filtres actifs', async () => {
+  it('exportPath : l’export reprend les filtres actifs, sans pagination', async () => {
     mockApiGet();
-    vi.mocked(api.getFile).mockResolvedValue({ blob: new Blob(['a,b'], { type: 'text/csv' }), filename: 'export.csv', truncated: false });
     const { result } = renderHook(() => useInventory(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     act(() => result.current.setFilialeFilter('f1'));
     await waitFor(() => expect(result.current.filialeFilter).toBe('f1'));
 
-    await act(async () => { await result.current.handleExport(); });
-
-    expect(api.getFile).toHaveBeenCalledWith(expect.stringContaining('filialeId=f1'));
-    expect(result.current.exportLoading).toBe(false);
+    expect(result.current.exportPath).toBe('/reporting/inventory/export?filialeId=f1');
   });
 
-  it('handleExport reflète aussi le tri et le filtre "retards uniquement" actifs', async () => {
+  it('exportPath reflète aussi le tri et le filtre « Retour en retard »', async () => {
     mockApiGet();
-    vi.mocked(api.getFile).mockResolvedValue({ blob: new Blob(['a,b'], { type: 'text/csv' }), filename: 'export.csv', truncated: false });
     const { result } = renderHook(() => useInventory(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     act(() => { result.current.setOverdueFilter(true); result.current.changeSort('dateRestitution'); });
     await waitFor(() => expect(result.current.overdueFilter).toBe(true));
 
-    await act(async () => { await result.current.handleExport(); });
+    expect(result.current.exportPath).toContain('overdue=1');
+    expect(result.current.exportPath).toContain('sort=dateRestitution');
+    expect(result.current.exportPath).toContain('direction=asc');
+  });
 
-    const [exportUrl] = vi.mocked(api.getFile).mock.calls.at(-1) as [string];
-    expect(exportUrl).toContain('overdue=1');
-    expect(exportUrl).toContain('sort=dateRestitution');
-    expect(exportUrl).toContain('direction=asc');
+  it('lit la liste à la forme unique : plafond d’export depuis meta', async () => {
+    mockApiGet();
+    const { result } = renderHook(() => useInventory(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(api.getList).toHaveBeenCalledWith(expect.stringMatching(/^\/reporting\/inventory\?/));
+    expect(result.current.exportLimit).toBe(10000);
+  });
+
+  it('25 lignes par page par défaut ; un autre choix est transmis, mémorisé et ramène en page 1', async () => {
+    localStorage.removeItem('bons-it:lignes-par-page');
+    mockApiGet();
+    const { result } = renderHook(() => useInventory(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.pageSize).toBe(25);
+    expect(lastListCall()).toContain('limit=25');
+
+    act(() => result.current.setPage(2));
+    await waitFor(() => expect(result.current.page).toBe(2));
+    act(() => result.current.setPageSize(50));
+
+    await waitFor(() => expect(lastListCall()).toContain('limit=50'));
+    expect(result.current.page).toBe(1);
+    expect(localStorage.getItem('bons-it:lignes-par-page')).toBe('50');
+    localStorage.removeItem('bons-it:lignes-par-page');
   });
 
   it('démarre sur la vue "equipements" par défaut, absente de l\'URL', async () => {

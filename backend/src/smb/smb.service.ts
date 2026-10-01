@@ -1,9 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import * as fs from 'fs';
 import { writeFile, unlink } from 'fs/promises';
 import * as path from 'path';
-import { AppConfigService } from '../config/config.service';
+import { ConfigRegistryService } from '../config/config-registry.service';
+import type { ConnectionTestResponse, SmbRetryOneResponse } from '../contracts/admin';
 import { PrismaService } from '../prisma/prisma.service';
 import { SmbBon } from '../common/types';
 import { JobTrackerService, JobOutcome } from '../monitoring/job-tracker.service';
@@ -26,7 +27,7 @@ export class SmbService {
   private lastAlertSentAt: Date | null = null;
 
   constructor(
-    private readonly configService: AppConfigService,
+    private readonly settings: ConfigRegistryService,
     private readonly prisma: PrismaService,
     private readonly jobTracker: JobTrackerService,
   ) {}
@@ -43,10 +44,9 @@ export class SmbService {
     filename: string,
     pdfBuffer: Buffer,
   ): Promise<SmbExportResult> {
-    const enabled = await this.configService.get('smb', 'enabled');
-    if (enabled !== 'true') return { success: true, skipped: true };
+    if (!(await this.settings.getBool('smb.enabled'))) return { success: true, skipped: true };
 
-    const smbPath = await this.configService.get('smb', 'path');
+    const smbPath = await this.settings.getString('smb.path');
     if (!smbPath) {
       this.logger.warn('SMB active mais aucun chemin configuré');
       return { success: false, error: 'Aucun chemin configuré' };
@@ -122,56 +122,65 @@ export class SmbService {
   /**
    * Test connection by writing and deleting a test file.
    */
-  async testConnection(): Promise<{ success: boolean; message: string }> {
+  async testConnection(): Promise<ConnectionTestResponse> {
     try {
-      const smbPath = await this.configService.get('smb', 'path');
+      const smbPath = await this.settings.getString('smb.path');
       if (!smbPath) {
-        return { success: false, message: 'Aucun chemin configuré' };
+        return { ok: false, message: 'Aucun chemin de partage renseigné.' };
       }
 
       if (!isSafeSmbExportPath(smbPath)) {
-        return { success: false, message: `Chemin rejeté (répertoire système ou invalide): ${smbPath}` };
+        return { ok: false, message: `Chemin refusé (répertoire système ou invalide) : ${smbPath}` };
       }
 
       // Ne jamais créer la racine du partage : son absence signifie que le
       // partage SMB n'est pas monté, pas qu'il faut créer un dossier local.
       if (!fs.existsSync(smbPath)) {
-        return { success: false, message: `Le chemin d'export n'existe pas ou le partage n'est pas monté : ${smbPath}` };
+        return { ok: false, message: `Le chemin d'export n'existe pas ou le partage n'est pas monté : ${smbPath}` };
       }
 
       const testFile = path.join(smbPath, `.smb-test-${Date.now()}`);
       await writeFile(testFile, 'test');
       await unlink(testFile);
 
-      return { success: true, message: `Accès en écriture vérifié sur ${smbPath}` };
+      return { ok: true, message: `Accès en écriture vérifié sur ${smbPath}` };
     } catch (err) {
-      return { success: false, message: `Pas d'accès en écriture: ${(err as Error).message}` };
+      return { ok: false, message: `Pas d'accès en écriture : ${(err as Error).message}` };
     }
   }
 
   // ─── Monitoring ─────────────────────────────────────────────────────────────
 
   async getStatus(): Promise<SmbStatus> {
-    const enabled = await this.configService.get('smb', 'enabled');
-    if (enabled !== 'true') return { enabled: false };
+    if (!(await this.settings.getBool('smb.enabled'))) return { enabled: false };
 
     const counts = await computeSmbCounts(this.prisma);
     return { enabled: true, ...counts };
   }
 
   async getFailedExports(): Promise<SmbFailedExport[]> {
-    const enabled = await this.configService.get('smb', 'enabled');
-    if (enabled !== 'true') return [];
+    if (!(await this.settings.getBool('smb.enabled'))) return [];
 
     return getFailedSmbExports(this.prisma);
   }
 
   // ─── Retry ──────────────────────────────────────────────────────────────────
 
-  async retryOne(exportId: string): Promise<SmbExportResult> {
-    const enabled = await this.configService.get('smb', 'enabled');
-    if (enabled !== 'true') return { success: false, error: 'SMB non activé' };
+  /**
+   * Relance d'un export depuis l'écran de surveillance : `ok` faux (avec la
+   * cause) quand la relance échoue, 404 si l'export n'existe pas.
+   */
+  async retryOne(exportId: string): Promise<SmbRetryOneResponse> {
+    if (!(await this.settings.getBool('smb.enabled'))) {
+      return { ok: false, message: "La copie des PDF sur le partage réseau n'est pas activée." };
+    }
+    const result = await this.retryRecord(exportId);
+    return result.success
+      ? { ok: true, message: 'Export relancé : le PDF a été copié sur le partage.' }
+      : { ok: false, message: `La relance a échoué : ${result.error ?? 'cause inconnue'}` };
+  }
 
+  private async retryRecord(exportId: string): Promise<SmbExportResult> {
     const record = await this.prisma.smbExport.findUnique({
       where: { id: exportId },
       include: {
@@ -185,7 +194,7 @@ export class SmbService {
       },
     });
 
-    if (!record) return { success: false, error: 'Export introuvable' };
+    if (!record) throw new NotFoundException('Export introuvable');
     if (record.status === 'success') return { success: true };
 
     const snapshot = findMatchingSnapshot(record.bon.pdfSnapshots, record.filename);
@@ -198,8 +207,7 @@ export class SmbService {
   }
 
   async retryAllFailed(): Promise<{ retried: number; succeeded: number; failed: number }> {
-    const enabled = await this.configService.get('smb', 'enabled');
-    if (enabled !== 'true') return { retried: 0, succeeded: 0, failed: 0 };
+    if (!(await this.settings.getBool('smb.enabled'))) return { retried: 0, succeeded: 0, failed: 0 };
 
     const failedExports = await this.prisma.smbExport.findMany({
       where: { status: 'failed', retryCount: { lt: MAX_RETRIES } },
@@ -241,8 +249,7 @@ export class SmbService {
   async cronRetryFailedExports(): Promise<void> {
     try {
       await this.jobTracker.track<void>(JOB_KEYS.SMB_RETRY, async (): Promise<void | JobOutcome> => {
-        const enabled = await this.configService.get('smb', 'enabled');
-        if (enabled !== 'true') return 'skipped';
+        if (!(await this.settings.getBool('smb.enabled'))) return 'skipped';
 
         // Requalify exports stuck in 'pending' (process died between record
         // creation and status update) so they enter the retry loop
@@ -287,7 +294,7 @@ export class SmbService {
     filename: string,
     pdfBuffer: Buffer,
   ): Promise<SmbExportResult> {
-    const smbPath = (await this.configService.get('smb', 'path')) ?? '';
+    const smbPath = (await this.settings.getString('smb.path')) ?? '';
     return retrySmbExport(
       { prisma: this.prisma, logger: this.logger, sanitizeName: this.sanitizeName },
       smbPath,

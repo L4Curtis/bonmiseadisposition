@@ -1,52 +1,37 @@
 import { Logger } from '@nestjs/common';
-import { parseDelay, getTokenValidityDays, regenerateSignatureToken } from '../../reminders/daily-reminders';
+import { getTokenValidityDays, regenerateSignatureToken } from '../../reminders/daily-reminders';
+import { ConfigRegistryService } from '../../../config/config-registry.service';
 import { createMockConfigService } from '../../../common/__tests__/helpers/mock-services';
 import { createMockPrismaService } from '../../../common/__tests__/helpers/mock-prisma';
 import type { Mock } from 'vitest';
 
 const asMock = (fn: unknown): Mock => fn as Mock;
 
-describe('parseDelay', () => {
-  it('returns the parsed value when it is a positive integer', () => {
-    expect(parseDelay('5', 3)).toBe(5);
-  });
-
-  it('returns the fallback when raw is null', () => {
-    expect(parseDelay(null, 3)).toBe(3);
-  });
-
-  it('returns the fallback when raw is not a number', () => {
-    expect(parseDelay('abc', 3)).toBe(3);
-  });
-
-  it('returns the fallback when raw is zero or negative', () => {
-    expect(parseDelay('0', 3)).toBe(3);
-    expect(parseDelay('-2', 3)).toBe(3);
-  });
-});
+/** Registre réel au-dessus du mock de la configuration brute. */
+const registry = (config: ReturnType<typeof createMockConfigService>) => new ConfigRegistryService(config as never, {});
 
 describe('getTokenValidityDays', () => {
   it('defaults to 7 when unconfigured', async () => {
     const configService = createMockConfigService();
-    expect(await getTokenValidityDays(configService as never)).toBe(7);
+    expect(await getTokenValidityDays(registry(configService))).toBe(7);
   });
 
   it('clamps below 1 up to 1', async () => {
     const configService = createMockConfigService();
     configService.set('tokens', 'expiry_days', '0');
-    expect(await getTokenValidityDays(configService as never)).toBe(1);
+    expect(await getTokenValidityDays(registry(configService))).toBe(1);
   });
 
   it('clamps above 30 down to 30', async () => {
     const configService = createMockConfigService();
     configService.set('tokens', 'expiry_days', '90');
-    expect(await getTokenValidityDays(configService as never)).toBe(30);
+    expect(await getTokenValidityDays(registry(configService))).toBe(30);
   });
 
   it('returns the configured value when within range', async () => {
     const configService = createMockConfigService();
     configService.set('tokens', 'expiry_days', '10');
-    expect(await getTokenValidityDays(configService as never)).toBe(10);
+    expect(await getTokenValidityDays(registry(configService))).toBe(10);
   });
 });
 
@@ -60,7 +45,7 @@ describe('regenerateSignatureToken', () => {
 
     const result = await regenerateSignatureToken(
       prisma as never,
-      configService as never,
+      registry(configService),
       logger,
       'bon-1',
       'mise_disposition',

@@ -3,12 +3,14 @@ import { AlertTriangle, ArrowRight, FileText, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/StatusBadge';
-import { useApiResource } from '@/hooks/use-api-resource';
+import { useCallback, useEffect, useState } from 'react';
+import { api } from '@/lib/api';
+import { errorMessage } from '@/lib/errors';
 import { formatDate } from '@/lib/dates';
 import type { SignatureSummary } from '@/lib/bon-helpers';
 import type { BonStatus } from '@/types';
 
-/** Champs lus de `GET /bons/recent` (BonDetail). */
+/** Champs lus de la liste `GET /bons` (une ligne de bon). */
 interface RecentBon {
   id: string;
   reference: string;
@@ -26,14 +28,44 @@ function RecentSkeleton() {
   );
 }
 
+/** Nombre de bons affichés : la première page de la liste (25, la plus petite
+ *  taille admise) est lue, puis coupée. */
+const RECENT_COUNT = 10;
+
+/** Première page de `GET /bons` (les plus récents d'abord), à la forme
+ *  unique des listes ; l'ancienne forme (`bons`) est lue le temps de la vague 3. */
+function useRecentBons() {
+  const [data, setData] = useState<RecentBon[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setError(null);
+    api.getList<RecentBon>('/bons?page=1&limit=25', { signal: controller.signal, legacyKey: 'bons' })
+      .then((list) => {
+        if (!controller.signal.aborted) setData(list.items);
+      })
+      .catch((e: unknown) => {
+        if (!controller.signal.aborted) setError(errorMessage(e, 'Erreur lors du chargement des bons récents'));
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [reloadKey]);
+
+  const reload = useCallback(() => setReloadKey((k) => k + 1), []);
+  return { data, loading, error, reload };
+}
+
 /** Dix derniers bons créés, du plus récent au plus ancien ; la colonne de
  *  date est la date de création (celle du tri). */
 export function RecentBonsCard() {
-  const { data, loading, error, reload } = useApiResource<RecentBon[]>(
-    '/bons/recent?limit=10',
-    'Erreur lors du chargement des bons récents',
-  );
-  const bons = [...(data ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const { data, loading, error, reload } = useRecentBons();
+  const bons = [...(data ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, RECENT_COUNT);
 
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-card card-elevated lg:col-span-2">

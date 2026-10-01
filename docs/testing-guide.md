@@ -367,6 +367,10 @@ Les garde-fous transverses, à ne jamais désactiver :
 | `backend/src/__tests__/sql-real-db.spec.ts`, `backend/src/reporting/__tests__/inventory-sort.real-db.spec.ts` | Les requêtes SQL brutes, les tris et la pagination s'exécutent sur une vraie base (§ 2.6) |
 | `backend/src/auth/__tests__/route-access.spec.ts` | Chaque route déclare qui peut l'appeler (`@Roles` ou `@Public`) ; la table complète route → rôles est comparée à `__snapshots__/route-access.md`, versionnée, pour que tout changement de droits se voie en revue. Après un changement voulu : `npx vitest run src/auth/__tests__/route-access.spec.ts -u` |
 | `backend/src/auth/guards/__tests__/roles.guard.spec.ts` | Le contrôle des rôles, refus par défaut compris |
+| `backend/test/contract/errors.contract.ts` | Toute erreur, sur **toutes** les routes, a la forme unique `{ statusCode, code, message, details? }` : 401 sans session, 403 pour un collaborateur quand la route lui est fermée, 403 `csrf_rejected` pour une écriture sans `X-Requested-With` (voir [api-conventions.md](api-conventions.md)) |
+| `backend/src/common/http/__tests__/deprecated-alias.app.spec.ts` | Les alias dépréciés de l'application sont cohérents ; leur liste est comparée à `__snapshots__/deprecated-aliases.md` (régénérer avec `-u` après un ajout voulu) |
+| `backend/src/audit/__tests__/audit-direct-writes.spec.ts` | Les écritures directes du journal d'audit qui restent à faire passer par `AuditService.record`, listées dans `__snapshots__/audit-direct-writes.md` ; une nouvelle écriture directe fait échouer le test |
+| `backend/src/audit/__tests__/audit-actions.spec.ts` | Toute action écrite dans le code figure au catalogue `AUDIT_ACTIONS`, avec un libellé et une phrase bien formée |
 | `backend/src/auth/__tests__/auth-security.spec.ts` | Révocation des jetons, mot de passe initial de `admin@local`, politique de mot de passe |
 | `backend/src/notification/__tests__/email-xss.spec.ts` | Échappement HTML des valeurs insérées dans les emails |
 | `backend/src/common/__tests__/bon-predicates.spec.ts` | Les prédicats métier partagés (retard de signature, équipement prêté, situation) |
@@ -381,6 +385,9 @@ Le tableau de bord, bon exemple de tests d'indicateurs :
 | `backend/src/kpi/__tests__/kpi-cache.service.spec.ts` | Durée de vie de 60 s, requêtes identiques simultanées calculées une seule fois, éviction |
 | `backend/src/kpi/__tests__/kpi.controller.spec.ts` | Rôles autorisés, clé de cache |
 | `backend/src/kpi/__tests__/kpi-{parc,delais,incidents}.service.spec.ts` | Un fichier par onglet (voir le modèle ci-dessous) |
+| `backend/src/kpi/__tests__/kpi-export-csv.spec.ts`, `kpi-export.controller.spec.ts` | « Exporter ces indicateurs » : contexte (période, filiale, heure de Paris), libellés d'écran, aucun code ni valeur négative, nom du fichier, même cache que l'onglet |
+| `backend/src/kpi/__tests__/kpi-list-envelope.spec.ts`, `backend/src/reporting/__tests__/inventory-envelope.spec.ts` | Forme unique des listes (`/kpi/liste`, inventaire), pagination 25 à 200 refusée hors bornes, `overdueReturns`, plafond d'export abaissable (`INVENTORY_EXPORT_ROW_LIMIT`) |
+| `frontend/src/components/export/__tests__/` | `ExportButton` : annonce « N lignes, filtres » avant, avertissement au-delà du plafond, bandeau après un fichier coupé |
 | `frontend/src/pages/dashboard/__tests__/DashboardPage.test.tsx` | Onglets affichés selon le rôle, choix de l'onglet par `?tab=` |
 | `frontend/src/pages/dashboard/tabs/__tests__/*.test.tsx` | Appel de l'API avec `from`, `to` et `filialeId`, rendu des tuiles et graphiques, erreur avec « Réessayer » |
 | `frontend/src/components/dashboard/charts/__tests__/charts.test.tsx` | Graphiques, avec `ResponsiveContainer` simulé |
@@ -619,7 +626,9 @@ l'application Nest **réelle** par de vraies requêtes HTTP (supertest) et véri
 appelée par le front :
 
 - le **code HTTP** ;
-- la **forme exacte** de la réponse (clés et types, ni plus ni moins) ;
+- la **forme exacte** de la réponse (clés et types, ni plus ni moins) ; une erreur se vérifie avec
+  `expectShape(res.body, apiError)`, une liste avec `listOf(…)` ou `listWithMeta(…)`
+  (`support/common-shapes.ts`) ;
 - les **droits** : 401 sans session, 403 pour chaque rôle non autorisé, accès pour les rôles autorisés.
 
 **Où.**

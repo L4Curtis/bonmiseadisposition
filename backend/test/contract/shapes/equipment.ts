@@ -5,14 +5,12 @@ import type {
   CatalogItem,
   EquipmentHistoryBon,
   EquipmentHistoryEntry,
-  EquipmentHistoryResponse,
+  EquipmentHistoryMeta,
   Pack,
   PackItem,
-  PackRecord,
   SerialConflict,
-  SerialConflictsResponse,
 } from '../../../src/contracts/equipment';
-import { bonStatus, equipmentCategory } from '../support/common-shapes';
+import { bonStatus, equipmentCategory, listOf, listWithMeta } from '../support/common-shapes';
 import { arrayOf, bool, int, isoDate, literal, nullable, object, str, uuid } from '../support/shape';
 
 export const catalogItem = object<CatalogItem>({
@@ -42,7 +40,6 @@ const packRecordFields = {
   updatedAt: isoDate,
 };
 
-export const packRecord = object<PackRecord>(packRecordFields);
 
 const packItem = object<PackItem>({
   id: uuid,
@@ -65,34 +62,30 @@ const historyBon = object<EquipmentHistoryBon>({
   filiale: object<EquipmentHistoryBon['filiale']>({ displayName: str }),
 });
 
-export const equipmentHistory = object<EquipmentHistoryResponse>({
-  items: arrayOf(
-    object<EquipmentHistoryEntry>({
-      equipmentId: uuid,
-      serialNumber: nullable(str),
-      inventoryNumber: nullable(str),
-      label: nullable(str),
-      returnedAt: nullable(isoDate),
-      notReturned: bool,
-      holding: literal('planned', 'handover_to_sign', 'with_collaborateur', 'returned', 'not_returned', 'cancelled', 'closed'),
-      bon: historyBon,
-    }),
-    { minLength: 1 },
-  ),
-  truncated: bool,
-  total: int,
+export const equipmentHistoryEntry = object<EquipmentHistoryEntry>({
+  equipmentId: uuid,
+  serialNumber: nullable(str),
+  inventoryNumber: nullable(str),
+  label: nullable(str),
+  returnedAt: nullable(isoDate),
+  notReturned: bool,
+  holding: literal('planned', 'handover_to_sign', 'with_collaborateur', 'returned', 'not_returned', 'cancelled', 'closed'),
+  bon: historyBon,
 });
 
-export const serialConflicts = object<SerialConflictsResponse>({
-  items: arrayOf(
-    object<SerialConflict>({
-      serialNumber: str,
-      bonId: uuid,
-      bonReference: str,
-      bonStatus: literal('draft', 'sent_mise_dispo', 'active', 'sent_restitution', 'partially_returned', 'contested'),
-      collaborateur: str,
-    }),
-    { minLength: 1 },
-  ),
-  truncated: bool,
-});
+export const equipmentHistory = listWithMeta(
+  equipmentHistoryEntry,
+  object<EquipmentHistoryMeta>({ exportLimit: int }),
+  { minLength: 1 },
+);
+
+export const serialConflicts = listOf(
+  object<SerialConflict>({
+    serialNumber: str,
+    bonId: uuid,
+    bonReference: str,
+    bonStatus: literal('draft', 'sent_mise_dispo', 'active', 'sent_restitution', 'partially_returned', 'contested'),
+    collaborateur: str,
+  }),
+  { minLength: 1 },
+);

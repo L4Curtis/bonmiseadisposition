@@ -5,7 +5,7 @@ import type { InventoryBaseFilters } from '../inventoryFilterParams';
 
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>();
-  return { ...actual, api: { get: vi.fn() } };
+  return { ...actual, api: { get: vi.fn(), getList: vi.fn() } };
 });
 
 import { api } from '@/lib/api';
@@ -24,6 +24,8 @@ const listResponse = {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  // Les listes passent par `getList` ; les réponses sont décrites par `get`.
+  vi.mocked(api.getList).mockImplementation((path: string) => api.get(path));
 });
 
 describe('useCollaborateurDetail', () => {
@@ -41,6 +43,7 @@ describe('useCollaborateurDetail', () => {
     await waitFor(() => expect(result.current.detailFor('u1').loading).toBe(false));
     expect(result.current.detailFor('u1').items).toEqual(listResponse.items);
 
+    expect(api.getList).toHaveBeenCalledTimes(1);
     const [calledUrl] = vi.mocked(api.get).mock.calls[0] as [string];
     expect(calledUrl).toContain('/reporting/inventory?');
     expect(calledUrl).toContain('collaborateurId=u1');

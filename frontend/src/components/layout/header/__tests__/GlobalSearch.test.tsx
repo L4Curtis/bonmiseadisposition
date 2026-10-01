@@ -6,9 +6,11 @@ import { GlobalSearch } from '../GlobalSearch';
 
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>();
+  const { listViaGet } = await import('@/test/api-mock');
+  const get = vi.fn();
   return {
     ...actual,
-    api: { get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn(), delete: vi.fn(), getBlob: vi.fn(), postForm: vi.fn(), patchForm: vi.fn() },
+    api: { get, getList: listViaGet(get), post: vi.fn(), put: vi.fn(), patch: vi.fn(), delete: vi.fn(), getBlob: vi.fn(), postForm: vi.fn(), patchForm: vi.fn() },
   };
 });
 
@@ -20,7 +22,7 @@ describe('GlobalSearch — équipement associé à une correspondance par n° de
   it('affiche l\'équipement et son n° de série quand la saisie correspond à un n° de série', async () => {
     const user = userEvent.setup();
     vi.mocked(api.get).mockResolvedValue({
-      bons: [
+      items: [
         {
           id: 'b1',
           reference: 'BDM-2026-001',
@@ -44,7 +46,7 @@ describe('GlobalSearch — équipement associé à une correspondance par n° de
   it('affiche l\'équipement et son n° d\'inventaire quand la saisie correspond à un n° d\'inventaire', async () => {
     const user = userEvent.setup();
     vi.mocked(api.get).mockResolvedValue({
-      bons: [
+      items: [
         {
           id: 'b1',
           reference: 'BDM-2026-001',
@@ -67,7 +69,7 @@ describe('GlobalSearch — équipement associé à une correspondance par n° de
   it('n\'affiche aucun équipement quand la correspondance vient de la référence/du collaborateur', async () => {
     const user = userEvent.setup();
     vi.mocked(api.get).mockResolvedValue({
-      bons: [
+      items: [
         {
           id: 'b1',
           reference: 'BDM-2026-001',
@@ -104,7 +106,7 @@ describe('GlobalSearch — erreur réseau vs résultat vide', () => {
 
   it('affiche le message "aucun résultat" quand la recherche réussit mais ne retourne rien', async () => {
     const user = userEvent.setup();
-    vi.mocked(api.get).mockResolvedValue({ bons: [] });
+    vi.mocked(api.get).mockResolvedValue({ items: [] });
 
     renderWithProviders(<GlobalSearch />);
     await user.type(screen.getByLabelText('Recherche globale'), 'introuvable');

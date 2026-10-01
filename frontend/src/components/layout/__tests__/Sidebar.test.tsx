@@ -5,10 +5,12 @@ import { Sidebar } from '../Sidebar';
 
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>();
+  const { listViaGet } = await import('@/test/api-mock');
+  const get = vi.fn();
   return {
     ...actual,
     api: {
-      get: vi.fn(),
+      get, getList: listViaGet(get),
       post: vi.fn(),
       put: vi.fn(),
       patch: vi.fn(),
@@ -74,7 +76,7 @@ describe('Sidebar', () => {
     mockView = 'technicien';
     vi.mocked(api.get).mockImplementation((path: string) => {
       if (path.startsWith('/contestations')) {
-        return Promise.resolve({ contestations: [], total: 0, page: 1, limit: 1, openCount: 3 });
+        return Promise.resolve({ items: [], total: 0, page: 1, limit: 25, truncated: false, meta: { openCount: 3 } });
       }
       return Promise.resolve(null);
     });

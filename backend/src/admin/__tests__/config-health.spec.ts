@@ -119,7 +119,12 @@ describe('computeConfigHealth', () => {
   // ─── smtp (pas d'interrupteur) ─────────────────────────────────────────────
 
   describe('smtp', () => {
-    it('incomplet avec le message de conséquence attendu (host/port manquants)', () => {
+    it('configure sans port saisi : le port 587 par défaut s’applique', () => {
+      const rows = [row('smtp', 'host', 'smtp.exemple.fr'), row('smtp', 'from', 'it@exemple.fr')];
+      expect(computeConfigHealth(rows).find((s) => s.key === 'smtp')!.state).toBe('configure');
+    });
+
+    it('incomplet avec le message de conséquence attendu (serveur manquant)', () => {
       const rows = [row('smtp', 'from', 'it@exemple.fr')];
       const smtp = computeConfigHealth(rows).find((s) => s.key === 'smtp')!;
       expect(smtp.state).toBe('incomplet');
@@ -165,6 +170,25 @@ describe('computeConfigHealth', () => {
       expect(rappels.state).toBe('configure');
     });
 
+    it('rappels: actifs quand rien n’a jamais été enregistré (activés par défaut, aucun champ indispensable)', () => {
+      const rappels = computeConfigHealth([]).find((s) => s.key === 'rappels')!;
+      expect(rappels.state).toBe('configure');
+    });
+
+    it('ldap: reste « non configuré » quand rien n’est enregistré, même activé par défaut (l’URL manque)', () => {
+      expect(computeConfigHealth([]).find((s) => s.key === 'ldap')!.state).toBe('non_configure');
+    });
+
+    it('rappels: actifs quand l’interrupteur n’a jamais été enregistré (activé par défaut au registre)', () => {
+      const rappels = computeConfigHealth([row('rappels', 'delay_1', '5')]).find((s) => s.key === 'rappels')!;
+      expect(rappels.state).toBe('configure');
+    });
+
+    it('retention: désactivée quand l’interrupteur n’a jamais été enregistré (désactivée par défaut)', () => {
+      const retention = computeConfigHealth([row('retention', 'anonymize_months', '72')]).find((s) => s.key === 'retention')!;
+      expect(retention.state).toBe('desactive');
+    });
+
     it('rappels: desactive quand explicitement coupé', () => {
       const rappels = computeConfigHealth([row('rappels', 'enabled', 'false')]).find((s) => s.key === 'rappels')!;
       expect(rappels.state).toBe('desactive');
@@ -198,6 +222,12 @@ describe('computeConfigHealth', () => {
       const tokens = computeConfigHealth([]).find((s) => s.key === 'tokens')!;
       expect(tokens.state).toBe('configure');
       expect(tokens.detail).toContain('7 jour');
+    });
+
+    it('annonce la valeur réellement appliquée quand la saisie est hors bornes (ramenée à 30)', () => {
+      const tokens = computeConfigHealth([row('tokens', 'expiry_days', '90')]).find((s) => s.key === 'tokens')!;
+      expect(tokens.detail).toContain('30 jour');
+      expect(tokens.detail).not.toContain('90');
     });
 
     it('configure avec la valeur personnalisée dans le détail', () => {

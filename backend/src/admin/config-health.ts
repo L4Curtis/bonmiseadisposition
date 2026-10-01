@@ -4,22 +4,17 @@
  * exposer un secret — on ne teste jamais que la PRÉSENCE d'une valeur (une
  * chaîne non vide), jamais son contenu déchiffré.
  *
- * Les clés « indispensables » par rubrique sont dérivées des usages réels
- * (ALLOWED_CONFIG_KEYS dans admin.controller.ts, et des services qui lisent
- * ces clés) : une clé avec un repli sûr côté service (ex. tokens.expiry_days,
- * tous les nombres de `retention` et `rappels`) n'est jamais « indispensable »
- * puisque son absence ne casse rien.
+ * Les clés « indispensables » par rubrique sont celles que les services ne
+ * peuvent pas remplacer : un réglage qui a une valeur par défaut au registre
+ * (`config/config-registry.ts` : port SMTP, délais, durées…) n'est jamais
+ * « indispensable », puisque son absence ne casse rien. Les interrupteurs et
+ * la durée des liens sont lus comme les services les lisent (registre :
+ * défaut, bornes).
  */
+import type { ConfigCategory, ConfigHealthSection } from '../contracts/admin';
+import { BooleanConfigKey, configDefinition, resolveConfigValue } from '../config/config-registry';
 
-export type ConfigHealthState = 'configure' | 'incomplet' | 'desactive' | 'non_configure';
-
-export interface ConfigHealthSection {
-  key: string;
-  label: string;
-  state: ConfigHealthState;
-  detail: string;
-  updatedAt: string | null;
-}
+export type { ConfigHealthSection, ConfigHealthState } from '../contracts/admin';
 
 /** Ligne de configuration minimale nécessaire au calcul — jamais la valeur déchiffrée. */
 export interface ConfigHealthRow {
@@ -32,7 +27,7 @@ export interface ConfigHealthRow {
 /** Catégories couvertes par la vue d'ensemble, dans l'ordre du menu de configuration. */
 export const CONFIG_HEALTH_CATEGORIES = [
   'general', 'ldap', 'entra', 'smtp', 'rappels', 'tokens', 'smb', 'timestamp', 'retention',
-] as const;
+] as const satisfies readonly ConfigCategory[];
 
 interface RequiredField {
   key: string;
@@ -47,7 +42,7 @@ interface SectionMessages {
 }
 
 interface SectionRule {
-  key: string;
+  key: ConfigCategory;
   label: string;
   /** Clé de l'interrupteur d'activation, quand la rubrique peut être désactivée. */
   toggleKey?: string;
@@ -95,7 +90,6 @@ const SECTION_RULES: Record<string, SectionRule> = {
     label: 'Email / SMTP',
     required: [
       { key: 'host', label: 'serveur SMTP' },
-      { key: 'port', label: 'port' },
       { key: 'from', label: 'adresse d’expéditeur' },
     ],
     messages: {
@@ -164,17 +158,26 @@ function maxUpdatedAt(rows: ConfigHealthRow[]): string | null {
   return rows.reduce((max, r) => (r.updatedAt > max ? r.updatedAt : max), rows[0].updatedAt).toISOString();
 }
 
+/** Interrupteur tel que les services le lisent : rien de saisi = valeur par défaut. */
+function isSwitchedOn(rule: SectionRule, values: Map<string, string>): boolean {
+  const key = `${rule.key}.${rule.toggleKey}` as BooleanConfigKey;
+  return resolveConfigValue(configDefinition(key), values.get(rule.toggleKey ?? '') ?? null).applied === true;
+}
+
 function computeGenericSection(rule: SectionRule, rows: ConfigHealthRow[]): ConfigHealthSection {
   const updatedAt = maxUpdatedAt(rows);
   const base = { key: rule.key, label: rule.label, updatedAt };
 
-  if (rows.length === 0) {
+  const values = new Map(rows.map((r) => [r.key, r.value ?? '']));
+
+  // Rien d'enregistré : la rubrique fonctionne quand même si elle est active
+  // par défaut et n'a besoin d'aucune saisie (rappels) ; sinon, jamais configurée.
+  const worksByDefault = !!rule.toggleKey && rule.required.length === 0 && isSwitchedOn(rule, values);
+  if (rows.length === 0 && !worksByDefault) {
     return { ...base, state: 'non_configure', detail: rule.messages.nonConfigure };
   }
 
-  const values = new Map(rows.map((r) => [r.key, r.value ?? '']));
-
-  if (rule.toggleKey && values.get(rule.toggleKey) !== 'true') {
+  if (rule.toggleKey && !isSwitchedOn(rule, values)) {
     return { ...base, state: 'desactive', detail: rule.messages.desactive ?? rule.messages.nonConfigure };
   }
 
@@ -214,19 +217,21 @@ function computeGeneralSection(rows: ConfigHealthRow[], frontendUrlEnv?: string)
   };
 }
 
-/** Rubrique « Tokens » : `expiry_days` est bornée et repliée à 7 jours par le
- *  service (voir daily-reminders.ts::getTokenValidityDays) — jamais bloquant,
- *  donc toujours « configuré », avec un détail qui précise la valeur active. */
+/** Rubrique « Tokens » : la durée des liens a un défaut et des bornes au
+ *  registre — jamais bloquante, donc toujours « configurée », avec la valeur
+ *  réellement appliquée dans le détail. */
 function computeTokensSection(rows: ConfigHealthRow[]): ConfigHealthSection {
   const updatedAt = maxUpdatedAt(rows);
-  const row = rows.find((r) => r.key === 'expiry_days' && r.value && r.value.trim() !== '');
+  const stored = rows.find((r) => r.key === 'expiry_days')?.value ?? null;
+  const resolved = resolveConfigValue(configDefinition('tokens.expiry_days'), stored);
   return {
     key: 'tokens',
     label: 'Tokens',
     state: 'configure',
-    detail: row
-      ? `Durée de validité des liens de signature personnalisée (${row.value} jour(s)).`
-      : 'Durée de validité des liens de signature par défaut (7 jours).',
+    detail:
+      resolved.source === 'stored'
+        ? `Durée de validité des liens de signature personnalisée (${resolved.applied} jour(s)).`
+        : `Durée de validité des liens de signature par défaut (${resolved.applied} jours).`,
     updatedAt,
   };
 }
@@ -246,7 +251,7 @@ export function computeConfigHealth(
     const categoryRows = byCategory.get(key) ?? [];
     if (key === 'general') return computeGeneralSection(categoryRows, options.frontendUrlEnv);
     if (key === 'tokens') return computeTokensSection(categoryRows);
-    const rule = SECTION_RULES[key];
+    const rule = SECTION_RULES[key as keyof typeof SECTION_RULES];
     return computeGenericSection(rule, categoryRows);
   });
 }

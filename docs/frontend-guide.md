@@ -16,7 +16,8 @@ et 4 ; tout nouvel écran les utilise d'emblée.
 
 | Besoin | Brique | Fichier |
 |---|---|---|
-| Appeler le serveur | `api.get/post/put/patch/delete`, `api.getFile` | `lib/api.ts` |
+| Appeler le serveur | `api.get/post/put/patch/delete`, `api.getFile`, `api.getList` | `lib/api.ts` |
+| Reconnaître une erreur du serveur | `ApiError.code` / `.details`, `hasErrorCode` | `lib/api.ts` |
 | Revenir à la page demandée après connexion | `safeReturnTo`, `loginPathFor` | `lib/safe-return-to.ts` |
 | Filtres d'une liste dans l'adresse | `useUrlFilters` + `filterField` | `hooks/useUrlFilters.ts` |
 | Pagination 25 / 50 / 100 | `usePagination` | `hooks/usePagination.ts` |
@@ -34,7 +35,14 @@ et 4 ; tout nouvel écran les utilise d'emblée.
 
 Toutes les requêtes vers `/api` passent par `api` : cookies de session, en-tête anti-CSRF
 (`X-Requested-With`), rafraîchissement de la session expirée (une seule fois pour tous les appels simultanés),
-erreurs lisibles (`ApiError` avec `status` et le message du serveur). Aucun écran n'appelle `fetch` directement.
+erreurs lisibles. Aucun écran n'appelle `fetch` directement.
+
+Le serveur répond toute erreur sous la forme `{ statusCode, code, message, details? }`
+([api-conventions.md](api-conventions.md)) : `ApiError` porte `status`, `message` (toujours affichable),
+`code` (identifiant stable, `null` s'il n'y en a pas) et `details`. Un écran **teste le code, jamais le
+texte** : `if (hasErrorCode(e, 'token_recent')) … e.details?.sentAt`. Une liste se lit par
+`api.getList<T>(chemin)`, qui renvoie toujours `{ items, total, page, limit, truncated, meta? }` ; le temps de la
+vague 3, `{ legacyKey: 'bons' }` lit encore l'ancienne forme d'une route qui n'est pas encore passée.
 
 Chaque méthode accepte des options en dernier argument :
 
@@ -161,11 +169,47 @@ await download({
 - Fichier coupé (`truncated`) : une notification « Export incomplet » **reste affichée** jusqu'à ce que
   l'utilisateur la ferme ; `truncated` permet aussi à l'écran de garder un bandeau.
 - Erreur : `showActionError` avec le message du serveur ; `download` renvoie alors `null`.
+- Un **export CSV de liste** passe par `ExportButton` (§ 1.4 bis), pas directement par `useDownload`.
 - Fichier construit dans le navigateur (export JSON des modèles, CSV du catalogue) : `saveBlob(blob, nom)`.
 - Aperçu dans un nouvel onglet (PDF) : `api.getFile(path).then(({ blob }) => …)`. Côté collaborateur, un PDF
   s'**ouvre** dans le navigateur (lecteur intégré du téléphone) et ne se télécharge pas :
   `loadBlobIntoTab` (`pages/signature/lib/documentBlob.ts`), onglet ouvert **avant** tout `await` (sinon Safari
   iOS le bloque).
+
+### 1.4 bis Exports CSV (`components/export/`)
+
+Tout écran qui exporte une liste (bons, inventaire, journal d'audit, historique d'un équipement, filiales,
+utilisateurs, indicateurs du tableau de bord) utilise **`ExportButton`** :
+
+1. **avant** : le clic ouvre une confirmation qui annonce « N équipements à exporter » et « Filtres : Filiale :
+   Paris ; Situation : En cours » ; au-delà du plafond du serveur, elle prévient que le fichier ne contiendra que
+   les N premières lignes (bouton « Exporter les N premières lignes ») ; rien à exporter : bouton désactivé ;
+2. **après** : si le serveur a coupé le fichier (`X-Truncated`), un bandeau « Export incomplet » reste sous le
+   bouton jusqu'à ce que l'utilisateur le ferme ; un fichier complet est confirmé par une notification.
+
+```tsx
+<ExportButton
+  path={`/bons/export?${query}`}                       // mêmes filtres que la liste, sans pagination
+  fallbackFilename={`bons-${todayInParis()}.csv`}
+  filters={[{ label: 'Statut', value: 'En cours' }]}    // filtres actifs EN MOTS D'ÉCRAN
+  count={list.total}                                    // `total` de la liste (null pendant le chargement)
+  limit={list.meta?.exportLimit}                        // plafond annoncé par le serveur
+  itemLabel={{ singular: 'bon', plural: 'bons' }}
+/>
+```
+
+- Nombre de lignes : `count` quand l'écran affiche déjà la liste avec les mêmes filtres ; sinon `loadCount`
+  (`(signal) => Promise<number>`), appelé à l'ouverture (route de comptage, ou `total` d'une page de la liste
+  avec `limit=25`). Un comptage en échec affiche « Nombre de lignes inconnu » sans bloquer l'export.
+  `uncounted` pour un export sans lignes à annoncer (indicateurs).
+- Plafond : `limit`, lu dans la réponse du serveur (`meta.exportLimit`) plutôt qu'écrit en dur.
+- Options : `label` (« Exporter CSV »), `title`, `note` (précision sur le contenu), `errorMessage`, `className`.
+- Briques séparées si l'écran compose autrement : `ExportDialog`, `ExportTruncatedBanner`,
+  `useExportDownload`, et les phrases (`countLabel`, `filtersLabel`, `truncatedMessage`).
+- Branché sur l'inventaire (`pages/Inventaire.tsx`), le tableau de bord (`KpiExportButton`), l'historique d'un
+  équipement (`MaterielHistoryHeader`), les filiales (`FilialesExportButtons`, mêmes filiales que l'écran, avec ou
+  sans images) et les comptes créés à la main (`ManualUsersExportButton`, nombre lu par `GET /users?origin=manual`). Le serveur
+  envoie le fichier par `sendCsv` (nom daté à Paris, `X-Truncated`, en-têtes exposés au navigateur).
 
 ### 1.5 Dates (`lib/dates.ts`)
 
@@ -254,8 +298,8 @@ Copies encore en place :
   `pages/admin/catalogue/useCatalogueFilters.ts`, `pages/admin/email-templates/BonPicker.tsx`,
   `pages/admin/Utilisateurs.tsx`, `pages/inventaire/useInventory.ts`, `pages/bons/create/DuplicateBonButton.tsx`,
   `pages/bons/create/UserAutocomplete.tsx` ;
-- **pagination** : `Utilisateurs.tsx`, `AuditLogs.tsx`, `Contestations.tsx`, `Inventaire.tsx`,
-  `catalogue/CataloguePagination.tsx`, `bons/list/BonsPagination.tsx` ;
+- **pagination** : `Utilisateurs.tsx`, `AuditLogs.tsx`, `Inventaire.tsx`, `catalogue/CataloguePagination.tsx`
+  (la liste des bons et celle des contestations passent par `Pagination`, 25/50/100 lignes) ;
 - **en-tête triable** : `bons/list/SortableHeader.tsx`, `inventaire/InventorySortHeader.tsx`,
   `inventaire/CollaborateurTable.tsx`, `catalogue/CatalogueTable.tsx` ;
 - **libellés** propres à `pages/bons/**` (`bons/detail/types.ts`, `BonAttachments.tsx`, `BonIntegrity.tsx`,
@@ -288,6 +332,21 @@ la direction, les listes qui mènent à des bons sont remplacées par `NO_LIST.d
 (`components/card-grid.ts`) : 3 colonnes sous 1400 px, pour qu'un titre ne se coupe jamais au milieu d'un mot.
 La comparaison à la période précédente dit toujours « contre N sur la période précédente », précédée de l'écart
 en % quand il se calcule. Définitions et listes : `docs/architecture.md` § 9.
+
+### 1.12 Administration : configuration, tests de connexion, journal d'audit
+
+- **Configuration** (`components/admin/ConfigSection.tsx`, `ConfigFields.tsx`) : chaque rubrique lit en plus
+  le registre du serveur (`pages/admin/configuration/useConfigRegistry.ts`, GET `/admin/config/registry`).
+  Sous un champ vide : « Valeur appliquée : 3 (par défaut) » ; sous une saisie hors bornes ou illisible,
+  l'avertissement de ce qui s'applique vraiment (`appliedValue.ts`). Un interrupteur jamais enregistré montre
+  l'état que le serveur applique. Ne mettez jamais une valeur par défaut en `placeholder` : un exemple de
+  saisie seulement.
+- **Tests de connexion et relances** : la réponse est toujours `{ ok, message }` (`ConnectionTestResponse`) ;
+  l'écran affiche `message`, en rouge quand `ok` est faux (`ConfigTestButtons.tsx`, relance d'une copie SMB).
+- **Journal d'audit** (`pages/admin/audit-logs/`) : chaque entrée se lit par la phrase du catalogue
+  (`auditEntry.ts`, `fillAuditSentence`), jamais par les clés brutes de `details`. Les filtres vivent dans
+  l'adresse (`auditFilters.ts`) ; l'export passe par `ExportButton`.
+- **Modèles** : `/email-templates` et `/pdf-templates` (plus sous `/admin`).
 
 ## 2. Retours à l'utilisateur
 

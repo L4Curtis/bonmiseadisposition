@@ -6,7 +6,7 @@ import type { InventoryBaseFilters } from '../inventoryFilterParams';
 
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>();
-  return { ...actual, api: { get: vi.fn() } };
+  return { ...actual, api: { get: vi.fn(), getList: vi.fn() } };
 });
 
 import { api } from '@/lib/api';
@@ -18,7 +18,7 @@ const EMPTY_FILTERS: InventoryBaseFilters = {
 
 const response = {
   items: [
-    { collaborateurId: 'u1', displayName: 'Jean Dupont', email: 'jean@x.fr', department: 'IT', filiale: { id: 'f1', name: 'Paris', displayName: 'Paris' }, active: true, count: 5, overdueCount: 1, oldestDateMiseDisposition: '2026-01-01T00:00:00.000Z', oldestAgeDays: 260 },
+    { collaborateurId: 'u1', displayName: 'Jean Dupont', email: 'jean@x.fr', department: 'IT', filiale: { id: 'f1', name: 'Paris', displayName: 'Paris' }, active: true, count: 5, overdueReturns: 1, overdueCount: 1, oldestDateMiseDisposition: '2026-01-01T00:00:00.000Z', oldestAgeDays: 260 },
   ],
   total: 1,
   page: 1,
@@ -30,12 +30,14 @@ const response = {
  *  testé ne possède pas son propre état de page — il le reçoit de l'appelant). */
 function useHarness(enabled: boolean, filters: InventoryBaseFilters, compteFilter?: '' | 'actif' | 'inactif') {
   const [page, setPage] = useState(1);
-  const collaborateurs = useCollaborateurInventory({ enabled, filters, page, setPage, compteFilter });
+  const collaborateurs = useCollaborateurInventory({ enabled, filters, page, setPage, pageSize: 50, compteFilter });
   return { ...collaborateurs, page, setPage };
 }
 
 beforeEach(() => {
   vi.resetAllMocks();
+  // Les listes passent par `getList` ; les réponses sont décrites par `get`.
+  vi.mocked(api.getList).mockImplementation((path: string) => api.get(path));
 });
 
 describe('useCollaborateurInventory', () => {
@@ -46,7 +48,8 @@ describe('useCollaborateurInventory', () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.items).toEqual(response.items);
     expect(result.current.total).toBe(1);
-    expect(api.get).toHaveBeenCalledWith(expect.stringContaining('/reporting/inventory/by-collaborateur?'));
+    expect(api.getList).toHaveBeenCalledWith(expect.stringContaining('/reporting/inventory/by-collaborateur?'));
+    expect(api.getList).toHaveBeenCalledWith(expect.stringContaining('limit=50'));
   });
 
   it("n'interroge pas l'API quand `enabled` est faux", async () => {
@@ -74,6 +77,21 @@ describe('useCollaborateurInventory', () => {
       expect(lastCall).toContain('search=dell');
       expect(lastCall).toContain('overdue=1');
       expect(lastCall).toContain('sansNumeroSerie=1');
+    });
+  });
+
+  it('recharge quand le filtre « Hors catalogue » change', async () => {
+    vi.mocked(api.get).mockResolvedValue(response);
+    const { result, rerender } = renderHook(({ filters }) => useHarness(true, filters), {
+      initialProps: { filters: EMPTY_FILTERS },
+    });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    rerender({ filters: { ...EMPTY_FILTERS, offCatalogFilter: true } });
+
+    await waitFor(() => {
+      const lastCall = vi.mocked(api.get).mock.calls.at(-1)?.[0] as string;
+      expect(lastCall).toContain('horsCatalogue=1');
     });
   });
 

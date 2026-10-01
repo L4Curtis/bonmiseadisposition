@@ -188,10 +188,10 @@ export function CollaborateurTable({
                       </td>
                       <td className="px-4 py-3.5 text-foreground font-medium">{c.count}</td>
                       <td className="px-4 py-3.5">
-                        {c.overdueCount > 0 ? (
+                        {c.overdueReturns > 0 ? (
                           <span className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-semibold text-destructive">
                             <AlertTriangle className="h-3 w-3" aria-hidden="true" />
-                            {c.overdueCount}
+                            {c.overdueReturns}
                           </span>
                         ) : (
                           <span className="text-muted-foreground">0</span>

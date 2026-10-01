@@ -56,10 +56,9 @@ Le nginx du frontend (`frontend/nginx.conf`) retient ensuite, dans cet ordre, `C
 seulement si le conteneur tourne avec `TRUST_CF_CONNECTING_IP=1` (derrière Cloudflare ; `0` par défaut), puis
 `X-Real-IP`, puis l'adresse de la connexion, et écrase `X-Real-IP` et `X-Forwarded-For` avec cette même
 valeur avant de joindre le backend. Côté backend, la règle commune est `clientIp()`
-(`backend/src/common/http/client-ip.ts`) : l'adresse `req.ip` qu'Express tire de `X-Forwarded-For` avec un seul
-proxy de confiance, celle que voit aussi le limiteur de débit. Les contrôleurs d'authentification, des bons et
-de signature lisent encore `X-Real-IP` directement, jusqu'à leur reprise en vague 3 ; les deux en-têtes portent
-la même adresse. Cette chaîne n'est fiable que si le frontend n'est joignable que par le reverse proxy et si
+(`backend/src/common/http/client-ip.ts`) : l'adresse `req.ip` qu'Express tire de `X-Forwarded-For` avec
+`TRUSTED_PROXY_HOPS` (un) proxy de confiance, celle que voit aussi le limiteur de débit. Les contrôleurs
+d'authentification, des bons et de signature l'utilisent tous ; aucun code ne lit `X-Real-IP` lui-même. Cette chaîne n'est fiable que si le frontend n'est joignable que par le reverse proxy et si
 ce dernier est réglé comme indiqué : le bloc Advanced exact et les trois conditions sont dans
 [deploy/README.md, « Adresse IP des signataires »](../deploy/README.md#adresse-ip-des-signataires).
 
@@ -83,9 +82,12 @@ ce dernier est réglé comme indiqué : le bloc Advanced exact et les trois cond
 
 - **La configuration applicative vit en base**, pas dans des variables d'environnement : table `AppConfig`
   (rubrique + clé), secrets chiffrés en AES-256-GCM, modifiables depuis l'écran d'administration sans
-  redémarrage. Les rubriques et les clés acceptées sont listées dans `ALLOWED_CONFIG_KEYS`
-  (`backend/src/admin/admin.controller.ts`) ; une clé ajoutée là doit avoir un consommateur côté serveur et un
-  champ à l'écran. L'environnement ne porte que le strict nécessaire : `ENCRYPTION_KEY`, `JWT_SECRET`,
+  redémarrage. Chaque réglage est décrit par le **registre** (`backend/src/config/config-registry.ts` : type,
+  bornes, défaut, secret) et lu par `ConfigRegistryService` (`getBool`, `getInt`, `getString`), jamais par une
+  lecture brute ; une valeur hors bornes restée en base est ramenée à la borne, et l'écran le signale. Un
+  réglage ajouté au registre doit avoir un consommateur côté serveur et un champ à l'écran. Chaque
+  enregistrement est tracé au journal (`config_updated` : ancienne et nouvelle valeur, « modifié » seulement
+  pour un secret). L'environnement ne porte que le strict nécessaire : `ENCRYPTION_KEY`, `JWT_SECRET`,
   `DATABASE_URL`, `FRONTEND_URL`, `DEFAULT_ADMIN_PASSWORD` (facultatif), `NODE_ENV`, et `APP_VERSION` /
   `APP_COMMIT` posés par la construction de l'image.
 - **`ENCRYPTION_KEY` ne change jamais.** Elle chiffre les secrets de configuration, les images de signature et
@@ -152,9 +154,12 @@ Chaque règle transversale a un seul emplacement. Un service l'importe, il ne la
 
 | Fichier | Contenu |
 |---|---|
-| `common/dates/paris.ts` | Seule implémentation des dates « à l'heure de Paris ». Fonctions JavaScript : aujourd'hui à Paris, format JJ/MM/AAAA, validation d'une date AAAA-MM-JJ, bornes de jour et de mois, jours écoulés. Fragments `Prisma.sql` équivalents : bornes d'un jour, période, regroupement par jour, semaine ou mois, date du jour |
+| `common/dates/paris.ts` | Seule implémentation des dates « à l'heure de Paris ». Fonctions JavaScript : aujourd'hui à Paris, formats JJ/MM/AAAA (`formatParisDate`) et JJ/MM/AAAA HH:MM (`formatParisDateTimeFr`, exports CSV), validation d'une date AAAA-MM-JJ, bornes de jour et de mois, jours écoulés. Fragments `Prisma.sql` équivalents : bornes d'un jour, période, regroupement par jour, semaine ou mois, date du jour |
 | `common/csv/` | Fabrication des exports : échappement anti-formule, BOM, assemblage (`buildCsv`). `sendCsv(res, { filename, rows, truncated })` pose `Content-Type`, le nom de fichier daté à Paris, `X-Truncated` et `Access-Control-Expose-Headers` |
+| `common/errors/` | Erreur unique de l'API : `AppException(code, message, status, details?)`, filtre global `AllExceptionsFilter`, codes communs et messages français par défaut, erreurs du `ValidationPipe` et des middlewares Express (CSRF, JSON illisible). Voir [api-conventions.md § 1](api-conventions.md#1-erreurs) |
+| `common/pagination/` | Listes : `PaginationQueryDto` (`page` ≥ 1, `limit` ∈ {25, 50, 100}), `toPrismaPage`, `toListResponse` et `toFullListResponse` (forme unique `{ items, total, page, limit, truncated, meta? }`). Voir [api-conventions.md § 2](api-conventions.md#2-listes-et-pagination) |
 | `common/http/client-ip.ts` | Adresse IP du client tracée dans l'audit et les signatures : `req.ip`, celle que voit aussi le limiteur de débit (`trust proxy` = `TRUSTED_PROXY_HOPS`) |
+| `common/http/deprecated-alias.ts` | `@DeprecatedAlias('VERBE /ancien/chemin')` : l'ancien chemin d'une route déplacée reste servi par le même handler, avec `Deprecation` et `Link`, et chaque appel est journalisé. Voir [api-conventions.md § 4](api-conventions.md#4-alias-dépréciés) |
 | `common/storage-paths.ts` | Dossiers de `data/` (logos et cachets, signatures, pièces jointes) et `dataPath()`, qui refuse un chemin sortant de `data/` |
 | `bons/bon-status.ts` | Ordre, libellés et listes nommées des statuts d'un bon : clôturés, en cours de traitement, à signer, annulables, etc. Libellés de la vague 2 : sous-états de « Restitution en cours », issues de contestation, gestes sans signature, motifs d'invalidation d'un lien, civilités (mêmes mots que `frontend/src/domain/labels.ts`) |
 | `common/can-send-link.ts` | La règle unique « peut-on envoyer un lien de signature à ce collaborateur ? » (voir ci-dessous) |
@@ -171,7 +176,7 @@ Vingt modules sont enregistrés dans `AppModule` :
 |---|---|---|
 | `DomainEventsModule` | `common/events/` | Bus d'événements du domaine en mémoire (@nestjs/event-emitter), global |
 | `PrismaModule` | `prisma/` | Client Prisma partagé |
-| `ConfigModule` | `config/` | Paramètres applicatifs en base, chiffrement des secrets (`EncryptionService`), cache de 5 minutes, secrets masqués en lecture |
+| `ConfigModule` | `config/` | Paramètres applicatifs en base, chiffrement des secrets (`EncryptionService`), cache de 5 minutes, secrets masqués en lecture ; registre des réglages (type, bornes, défaut) et lecture typée `ConfigRegistryService.getBool/getInt/getString`, global |
 | `TemplatesModule` | `templates/` | Les 19 modèles d'email : texte par défaut, personnalisation en base, rendu des variables `{{…}}`, aperçu avec un vrai bon |
 | `AuthModule` | `auth/` | SSO Entra ID, compte local et politique de mot de passe, jetons JWT, révocation, gardes `JwtAuthGuard` et `RolesGuard`, rôle recalculé depuis les groupes Entra |
 | `AdminModule` | `admin/` | Paramètres par rubrique et leur état, tests de connexion (LDAP, SMTP, Entra, SMB), synchronisation de l'annuaire, rôle d'un utilisateur, déverrouillage, supervision (exports SMB, emails en échec, tâches planifiées), diagnostic SSO, modèles d'email et PDF |
@@ -182,7 +187,7 @@ Vingt modules sont enregistrés dans `AppModule` :
 | `NotificationModule` | `notification/` | Envoi SMTP, journal des emails (`NotificationLog`), rappels de signature, rappel avant restitution, alertes à l'IT |
 | `SignatureModule` | `signature/` | Liens de signature, signature du collaborateur, signature IT, scellement HMAC, horodatage facultatif, images chiffrées |
 | `BonsModule` | `bons/` | Cœur métier : création, envoi, restitution, non-restitution, équipement retrouvé, clôture, annulation, listes, compteurs, export CSV, PDF d'un bon |
-| `AuditModule` | `audit/` | Lecture, filtres et export du journal d'audit |
+| `AuditModule` | `audit/` | Écriture du journal d'audit (`AuditService.record`, seul point d'écriture, global), catalogue des actions, lecture, filtres et export |
 | `ContestationModule` | `contestation/` | Contestations : création par le collaborateur (route `POST /bons/:id/contestation`), prise en charge, décision Fondée / Non retenue, suivi par le collaborateur, relance de l'IT à 7 jours ouvrés |
 | `AttachmentsModule` | `attachments/` | Pièces jointes d'un bon, chiffrées sur disque |
 | `RetentionModule` | `retention/` | Anonymisation RGPD (plancher de 60 mois, simulation préalable) et purges techniques (liens expirés, journal d'audit, pièces jointes) |
@@ -382,10 +387,13 @@ modifiées sont stockées (`AppConfig`, rubrique `pdf_templates`).
 
 Chaque action significative écrit une ligne `AuditLog` : action en `snake_case` préfixée par l'entité
 (`bon_`, `signed_`, `login_`, `contestation_`…), auteur, bon concerné, adresse IP, agent utilisateur et
-détails en JSON. Toute nouvelle action reçoit son libellé dans
-`frontend/src/pages/admin/audit-logs/actionMeta.ts`. Aujourd'hui, chaque module écrit directement dans la
-table ; un service d'audit unique avec un catalogue d'actions est prévu (vague 3), ainsi que la trace des
-changements de paramètres (sans secret) et des filiales.
+détails en JSON. L'écriture passe par `AuditService.record(action, …)`, qui n'accepte qu'une action du
+**catalogue** `AUDIT_ACTIONS` (`backend/src/contracts/audit-actions.ts`, recopié dans le front) : libellé,
+phrase en français (« Marie Martin a annulé le bon BON-2026-0042 (motif : doublon). »), domaine et ton de
+chaque action. Les écritures directes encore présentes sont listées dans
+`audit/__tests__/__snapshots__/audit-direct-writes.md` ; chaque lot de la vague 3 migre celles de son domaine,
+et trace aussi les changements de paramètres (sans secret) et des filiales. Détails :
+[api-conventions.md § 5](api-conventions.md#5-journal-daudit).
 
 ---
 
@@ -573,7 +581,8 @@ Pour l'IT seulement, la fiche porte aussi deux rappels lus à part (`bons/bon-it
 la contestation », qui ouvre directement sa décision : `/admin/contestations?contestation=<id>` ; étape `correction` :
 Fondée sur une restitution ou un PV et rien corrigé depuis la décision — ni geste de correction au journal,
 ni nouvelle signature IT, ni nouveau lien) et `linkRequest` (le collaborateur a demandé un nouveau lien
-depuis le dernier envoi). Pendant l'étape `correction`, l'action principale devient le geste de correction
+pour le dernier lien envoyé, reconnu par son identifiant). Le bloc « Historique » de la fiche IT lit
+`GET /bons/:id/history` (`bons/bon-history.ts`). Pendant l'étape `correction`, l'action principale devient le geste de correction
 (« Corriger le marquage » pour une restitution, « Équipement retrouvé » pour un PV) au lieu du renvoi.
 Chaque signature de la fiche IT porte `signerName`, le nom du compte de `signerEmail` : « par Thomas
 Girard », comme le PDF (`bons/bon-signer-names.ts`).
@@ -776,10 +785,28 @@ réponse de l'IT), équipements en cartes, signatures dans l'ordre, un document 
 
 ## 7. Carte des routes d'API
 
-État du code à la fin de la vague 1, avant la vague 3. **La vague 3 fait évoluer cette carte** : enveloppe de
-liste unique `{ items, total, page, limit, truncated }`, format d'erreur unique, pagination bornée, verbes
-explicites (par exemple `POST /bons/:id/cancel`), routes regroupées par domaine. Les anciens chemins y restent
-servis comme alias dépréciés et journalisés.
+### Conventions d'API
+
+Les règles communes à toutes les routes sont détaillées dans [api-conventions.md](api-conventions.md). En bref :
+
+- **Erreur unique** : toute erreur répond `{ statusCode, code, message, details? }`. `message` est toujours une
+  chaîne française affichable, `code` un identifiant stable que le front teste (`validation_failed`,
+  `forbidden`, `serial_conflicts`…). On lève `AppException(code, message, status, details?)`.
+- **Liste unique** : `{ items, total, page, limit, truncated, meta? }`, petits référentiels compris ; pagination
+  par `PaginationQueryDto` (`limit` ∈ {25, 50, 100}), valeur hors bornes refusée en 400.
+- **Verbes** : `PATCH` pour une mise à jour partielle, `POST /ressource/:id/<action>` pour une action métier,
+  `DELETE` pour une vraie suppression ; un préfixe par domaine, `/admin` pour les réglages et l'exploitation.
+- **Alias dépréciés** : un ancien chemin reste servi par le même handler (`@DeprecatedAlias`), avec
+  `Deprecation: true` et `Link`, et chaque appel est journalisé.
+- **Journal d'audit** : `AuditService.record` et son catalogue d'actions ; **configuration** : registre et
+  lecture typée ; **adresse du client** : `clientIp(req)` ; **en-têtes de sécurité** : nginx pour l'interface,
+  helmet pour l'API, jamais les deux sur une même réponse.
+
+Ces briques sont en place depuis le début de la vague 3. Les routes y passent domaine par domaine pendant la
+vague : les tableaux ci-dessous décrivent l'état de la fin de la vague 2, les contrats
+(`backend/src/contracts/`) font foi pour la forme exacte de chaque réponse.
+
+### Sources de référence
 
 Deux sources font foi et sont vérifiées par des tests : la table exhaustive route par route,
 `backend/src/auth/__tests__/__snapshots__/route-access.md`, régénérée par `route-access.spec.ts`, et la forme
@@ -815,21 +842,21 @@ les exceptions.
 
 | Verbe | Route | Rôles | Limite | Remarque |
 |---|---|---|---|---|
-| GET | `/bons` | IT | | Liste paginée, projection allégée, avec `subStatus`, `pendingSignature`, `lateness`, `canSendLink`. Filtres `status`, `excludeStatus`, `filialeId`, `search`, `overdue`, `awaitingSignature`, `linkExpired`, `subStatus` (même règle que la fiche), `dateFrom` / `dateTo`, `noReturnDate`, `createdById`, `ids` ; tri `sort` et `order` (une valeur inconnue répond `400`) |
+| GET | `/bons` | IT | | Liste à la forme commune (`limit` 25/50/100), projection allégée, avec `subStatus`, `pendingSignature`, `lateness`, `canSendLink`. Filtres `status`, `excludeStatus`, `filialeId`, `search` (sous-chaîne), `reference` (référence exacte), `overdue`, `awaitingSignature`, `linkExpired`, `subStatus` (même règle que la fiche), `dateFrom` / `dateTo` (mise à disposition), `createdFrom` / `createdTo`, `closedFrom` / `closedTo`, `cancelledFrom` / `cancelledTo` (jours de Paris : mêmes règles que les listes du tableau de bord), `noReturnDate`, `createdById`, `ids` ; tri `sort` et `order` (une valeur inconnue répond `400`). Ancien chemin : `GET /bons/recent` (alias déprécié) |
 | GET | `/bons/stats` | IT | | Compteurs de bons (mêmes prédicats que l'accueil) ; l'onglet Aujourd'hui lit désormais `/kpi/aujourdhui` |
-| GET | `/bons/recent` | IT | | |
 | GET | `/bons/export` | IT | | CSV, mêmes filtres et tri que la liste ; `ids` pour une sélection de 100 bons au plus |
-| GET | `/bons/mes-bons` | tous | | Bons de l'utilisateur connecté, état calculé compris ; jetons du lien signable et du dernier lien expiré |
+| GET | `/me/bons` | tous | | Bons de l'utilisateur connecté (liste complète, coupée à 100), état calculé compris ; jetons du lien signable et du dernier lien expiré. Ancien chemin : `GET /bons/mes-bons` |
 | GET | `/bons/:id` | tous | | Fiche et état calculé (§ 6) ; sans `internalNote`, `linkRefusal`, `availableActions` pour le titulaire |
 | GET | `/bons/:id/send-check` | IT | | Contrôles avant la remise : lignes sans numéro, numéros déjà prêtés |
-| GET | `/bons/:id/notifications` | IT | | Historique des emails du bon |
-| GET | `/bons/:id/integrity` | tous | | Vérification des sceaux |
+| GET | `/bons/:id/history` | IT | | Historique des actions (journal d'audit, phrases du catalogue), du plus ancien au plus récent ; ni IP ni navigateur |
+| GET | `/bons/:id/notifications` | IT | | Historique des emails du bon (liste complète) |
+| GET | `/bons/:id/integrity` | tous | | Vérification des sceaux ; `404` pour un bon inconnu |
 | GET | `/bons/:id/pdf` | tous | | Document PDF : `snapshot=<id>` (un document précis de la liste), `stage` (version en vigueur d'un type), sinon le dernier document signé du `type` |
-| GET | `/bons/:id/pdf-snapshots` | tous | | Les documents, du plus ancien au plus récent (rang par type, version en vigueur, version remplacée et motif). Un compte non IT ne reçoit que ceux qu'il peut garder : jamais une version signée par l'IT seule, ni ici ni par `GET /bons/:id/pdf?snapshot=` |
+| GET | `/bons/:id/pdf-snapshots` | tous | | Les documents (liste complète), du plus ancien au plus récent (rang par type, version en vigueur, version remplacée et motif). Un compte non IT ne reçoit que ceux qu'il peut garder : jamais une version signée par l'IT seule, ni ici ni par `GET /bons/:id/pdf?snapshot=` |
 | GET | `/bons/:id/pdf-snapshots/missing` | IT | | Documents attendus mais absents |
 | POST | `/bons` | IT | | Création ; civilité obligatoire, retenue sur le compte ; `internalNote` facultative |
-| PUT | `/bons/:id` | IT | | Modification d'un brouillon, ou d'un bon envoyé non signé (lien invalidé, nouvelle signature IT exigée) |
-| POST | `/bons/:id/cancel` | IT | | Annulation, `{ reason }` obligatoire pour un bon envoyé ; `DELETE /bons/:id` reste accepté |
+| PATCH | `/bons/:id` | IT | | Modification d'un brouillon, ou d'un bon envoyé non signé (lien invalidé, nouvelle signature IT exigée). Ancien verbe : `PUT` |
+| POST | `/bons/:id/cancel` | IT | | Annulation, `{ reason }` obligatoire pour un bon envoyé. Ancienne forme : `DELETE /bons/:id` (alias déprécié) |
 | POST | `/bons/:id/sign-it` | IT | 10/min | Signature IT |
 | POST | `/bons/:id/send` | IT | | Envoi du lien de remise ; signature IT exigée ; `409 missing_serials` / `serial_conflicts` sauf `confirmMissingSerials` / `confirmSerialConflicts` |
 | POST | `/bons/:id/initiate-inperson` | IT | | Lien au guichet (2 h) du document `type` : `mise_disposition`, `restitution`, `pv_cloture` |
@@ -840,10 +867,10 @@ les exceptions.
 | POST | `/bons/:id/handover-without-signature` | IT | | « Constater la remise sans signature », motif obligatoire |
 | POST | `/bons/:id/close-without-signature` | IT | | « Clôturer sans signature », motif obligatoire |
 | POST | `/bons/:id/close-unilateral` | IT | | Ancien nom des deux gestes précédents (selon le statut) |
-| POST | `/bons/:id/resend` | IT | 5/min | Nouveau lien du document en attente (expiré ou purgé compris) ; signature IT exigée |
+| POST | `/bons/:id/resend` | IT | 5/min | Nouveau lien du document en attente (expiré ou purgé compris) ; signature IT exigée ; `409 token_recent` (date dans `details.sentAt`) sans `force` |
 | POST | `/bons/resend-batch` | IT | 10/min | Renvoi groupé, 10 bons au plus |
 | POST | `/bons/:id/contestation` | tous | | Contestation par le collaborateur du bon |
-| GET, POST | `/bons/:bonId/attachments` | tous | | Pièces jointes : liste, dépôt. Pour le collaborateur, l'étape (`stage`) est déduite du document en attente, et la période de signature est vérifiée sous verrou au moment d'écrire |
+| GET, POST | `/bons/:bonId/attachments` | tous | | Pièces jointes : liste (forme commune, complète), dépôt. Pour le collaborateur, l'étape (`stage`) est déduite du document en attente, et la période de signature est vérifiée sous verrou au moment d'écrire |
 | GET, DELETE | `/bons/:bonId/attachments/:attachmentId` | tous | | Pièce jointe : téléchargement, suppression |
 
 ### Signature (`/api/signature`)
@@ -853,20 +880,21 @@ les exceptions.
 | GET | `/signature/:token` | tous | | Informations du document à signer |
 | GET | `/signature/:token/preview` | tous | 10/min | Aperçu du PDF |
 | POST | `/signature/:token/sign` | tous | 10/min | Signature ; le signataire doit être le collaborateur du bon, sauf en présentiel ; le refus ne cite aucune adresse |
-| POST | `/signature/:token/request-new-link` | tous | 3/min | Lien expiré : prévient l'IT (réponse immédiate, email en arrière-plan) ; une seule alerte par lien, jusqu'au renvoi |
+| POST | `/signature/:token/request-new-link` | tous | 3/min | Lien expiré : prévient l'IT (réponse immédiate, email en arrière-plan) ; une seule alerte par lien, jusqu'au renvoi. Le journal garde l'identifiant du lien visé (`details.signatureId`) : la fiche IT et le portail le comparent au dernier lien, jamais des heures |
 
 ### Contestations (`/api/contestations`)
 
 | Verbe | Route | Rôles | Remarque |
 |---|---|---|---|
-| GET | `/contestations` | IT | Liste, avec le nombre de contestations ouvertes |
-| GET | `/contestations/mine` | tous | Ses propres contestations et leur suivi (sans nom de technicien) |
-| PATCH | `/contestations/:id/review` | IT | Prise en charge : « pris en charge par » |
-| PATCH | `/contestations/:id/resolve` | IT | Décision `{ outcome: 'founded' \| 'not_retained', resolutionMessage }` ; réponse obligatoire pour « Non retenue » |
+| GET | `/contestations` | IT | Liste à la forme commune (`limit` 25/50/100), compteurs dans `meta` |
+| GET | `/me/contestations` | tous | Ses propres contestations et leur suivi (sans nom de technicien). Ancien chemin : `GET /contestations/mine` |
+| POST | `/contestations/:id/review` | IT | Prise en charge : « pris en charge par » ; `409 contestation_already_handled` si un collègue l'a fait. Ancien verbe : `PATCH` |
+| POST | `/contestations/:id/resolve` | IT | Décision `{ outcome: 'founded' \| 'not_retained', resolutionMessage }` ; réponse obligatoire pour « Non retenue ». Ancien verbe : `PATCH` |
 
-`GET /contestations` accepte `status=open,in_review` (« À traiter ») et renvoie, hors filtre, `openCount`
-(nouvelles, pastille du menu), `pendingCount` (non tranchées), `overdueCount` (plus de 7 jours ouvrés) et
-`overdueSince` (seuil de retard calculé par le serveur).
+`GET /contestations` accepte `status=open,in_review` ou `aTraiter=1` (« À traiter ») et renvoie, dans `meta`
+et hors filtre, `openCount` (nouvelles, pastille du menu), `pendingCount` (non tranchées), `overdueCount`
+(plus de 7 jours ouvrés), `overdueAfterDays` et `overdueSince` (seuil de retard calculé par le serveur).
+Une seconde contestation sur un bon déjà contesté répond `409 contestation_already_open`.
 `POST /bons/:id/contestation` est servie par `ContestationController` (même adresse) : le module Bons ne
 dépend plus du module Contestation.
 
@@ -874,89 +902,113 @@ dépend plus du module Contestation.
 
 | Verbe | Route | Rôles | Remarque |
 |---|---|---|---|
-| GET | `/reporting/inventory` | IT, `direction` | Parc prêté, filtré, trié, paginé ; `situation=non_restitue` : les équipements encore non restitués |
-| GET | `/reporting/inventory/summary` | IT, `direction` | Répartition par catégorie et par filiale |
-| GET | `/reporting/inventory/by-collaborateur` | IT, `direction` | Une ligne par personne, plafonnée (champ `truncated` et en-tête `X-Truncated`) |
-| GET | `/reporting/inventory/export` | IT, `direction` | CSV |
+| GET | `/reporting/inventory` | IT, `direction` | Parc prêté, filtré, trié, paginé (forme unique des listes, `limit` 25, 50, 100 ou 200) ; `meta.exportLimit` = plafond de l'export ; `situation=non_restitue` : les équipements encore non restitués |
+| GET | `/reporting/inventory/summary` | IT, `direction` | Répartition par catégorie, par filiale et par situation ; `overdueReturns` (« Retour en retard », ancien nom `overdue` servi pendant la vague 3) |
+| GET | `/reporting/inventory/by-collaborateur` | IT, `direction` | Une ligne par personne (forme unique des listes), plafonnée (`truncated` et en-tête `X-Truncated`) ; `overdueReturns` par personne (ancien nom `overdueCount`) |
+| GET | `/reporting/inventory/export` | IT, `direction` | CSV `inventaire-AAAA-MM-JJ.csv`, mêmes filtres et tri que la liste, coupé à 10 000 lignes (`X-Truncated` ; plafond abaissable par `INVENTORY_EXPORT_ROW_LIMIT` pour la recette) |
 | GET | `/kpi/aujourdhui` | IT | Accueil « Aujourd'hui » : tuiles et sections « À traiter », états du jour, sans cache |
 | GET | `/kpi/parc`, `/kpi/delais`, `/kpi/incidents` | IT, `direction` | Onglets du tableau de bord ; `from`, `to` (AAAA-MM-JJ, Paris), `filialeId` ; cache de 60 s ; champ `asOf` = date des états du jour |
-| GET | `/kpi/liste` | IT | Liste exacte d'un chiffre sur la période (`indicateur`, `from`, `to`, `filialeId`, `page`, `limit`) : `total` = la carte ; sans cache |
+| GET | `/kpi/parc/export`, `/kpi/delais/export`, `/kpi/incidents/export` | IT, `direction` | « Exporter ces indicateurs » : CSV des chiffres de l'onglet, mêmes `from`, `to`, `filialeId` (même cache), `indicateurs-<onglet>-<du>-au-<au>.csv` |
+| GET | `/kpi/liste` | IT | Liste exacte d'un chiffre sur la période (`indicateur`, `from`, `to`, `filialeId`, `page`, `limit` 25 à 200) : forme unique des listes, `meta` = indicateur et période ; `total` = la carte ; sans cache |
 
 ### Catalogue et équipements (`/api/equipment`)
 
 | Verbe | Route | Rôles | Remarque |
 |---|---|---|---|
-| GET | `/equipment/history`, `/equipment/history/export` | IT, `direction` | Historique d'un équipement par n° de série ou d'inventaire, et son CSV |
-| GET | `/equipment/serial-history` | IT | Alias déprécié de `/equipment/history` |
-| GET | `/equipment/serial-conflicts` | IT | Numéros de série déjà prêtés sur un autre bon |
-| GET | `/equipment/catalog`, `/catalog/active`, `/catalog/search`, `/catalog/:id` | IT | Articles |
-| POST, PUT, DELETE | `/equipment/catalog`, `/catalog/:id` | IT | Création, modification, désactivation d'un article |
+| GET | `/equipment/history` | IT, `direction` | Historique d'un équipement par n° de série ou d'inventaire (`q`), liste paginée (`page`, `limit` 25/50/100) ; `meta.exportLimit` annonce le plafond de l'export |
+| GET | `/equipment/history/export` | IT, `direction` | Tout l'historique en CSV, `historique-equipement-AAAA-MM-JJ.csv` (date de Paris), coupé à 5 000 lignes (`X-Truncated`) |
+| GET | `/equipment/serial-history` | IT et direction | Alias déprécié de `/equipment/history` (`@DeprecatedAlias`, mêmes droits que la nouvelle route) |
+| GET | `/equipment/serial-conflicts` | IT | Numéros de série déjà prêtés sur un autre bon (liste en une page ; `truncated` : plus de 50 numéros fournis) |
+| GET | `/equipment/catalog`, `/catalog/:id` | IT | Articles : tout le catalogue en une page (`toFullListResponse`), un article |
+| POST, PUT, DELETE | `/equipment/catalog`, `/catalog/:id` | IT | Création, modification, désactivation d'un article (409 `catalog_item_exists`, `catalog_item_locked`, `catalog_item_in_use`) |
 | POST | `/equipment/catalog/import` | IT | Import CSV |
-| GET | `/equipment/packs`, `/packs/active`, `/packs/:id` | IT | Packs |
-| POST, PUT, DELETE | `/equipment/packs`, `/packs/:id` | IT | Création, modification, désactivation d'un pack |
+| GET | `/equipment/packs`, `/packs/:id` | IT | Packs avec leurs articles : tous en une page, un pack |
+| POST, PUT, DELETE | `/equipment/packs`, `/packs/:id` | IT | Création, modification, désactivation d'un pack (renvoyé avec ses articles) ; 400 `pack_items_unavailable` |
+
+Les routes `/catalog/active`, `/catalog/search` et `/packs/active`, qu'aucun écran n'appelait, ont été retirées
+(vague 3).
 
 ### Utilisateurs (`/api/users`)
 
 | Verbe | Route | Rôles | Remarque |
 |---|---|---|---|
-| GET | `/users/search` | IT | Recherche d'un collaborateur pour le formulaire de bon |
+| GET | `/users/search` | IT | Recherche d'un collaborateur pour le formulaire de bon (15 au plus, `truncated` au-delà) |
 | GET | `/users/:id` | IT | Fiche d'un utilisateur, en lecture |
 | GET | `/users/it-staff` | IT | Comptes IT, pour le filtre « Créé par » de la liste des bons |
-| GET | `/users` | `admin` | Écran Utilisateurs : liste, paginée si `page` est fourni |
+| GET | `/users` | `admin` | Écran Utilisateurs : une seule forme, la liste paginée (`page`, `limit`, `search`, `status` = `active` par défaut, `inactive` ou `all`, `origin` = `manual`, `local` ou `directory`, `role`, `filialeId`) ; `meta.directoryActive` dit si l'annuaire synchronise les comptes |
 | POST | `/users/manual` | `admin` | Création d'un compte manuel, y compris depuis le formulaire de bon |
-| PATCH | `/users/:id/manual` | `admin` | Modification d'un compte manuel |
-| GET | `/users/manual/export`, `/users/manual/import/template` | `admin` | CSV des comptes manuels, modèle d'import |
+| PATCH | `/users/:id/manual` | `admin` | Modification d'un compte manuel (400 `directory_account` pour un compte de l'annuaire) |
+| PATCH | `/users/:id/role` | `admin` | Changement de rôle ; refusé sur soi-même (400 `own_account`) et sur le dernier administrateur actif (409 `last_admin`). Ancien chemin `PATCH /admin/users/:id/role` en alias déprécié |
+| POST | `/users/:id/unlock` | `admin` | Déverrouillage de la connexion locale ; rien n'est effacé du journal. Ancien chemin `POST /admin/users/:id/unlock` en alias déprécié |
+| POST | `/users/:id/deactivate`, `/users/:id/reactivate` | `admin` | Désactivation, réactivation d'un compte (`user_deactivated`, `user_reactivated` au journal). Un compte de l'annuaire ne se désactive ici que si l'annuaire est inactif (409 `directory_active` sinon) |
+| GET | `/users/manual/export`, `/users/manual/import/template` | `admin` | CSV des comptes manuels (`collaborateurs-manuels-AAAA-MM-JJ.csv`, date de Paris), modèle d'import |
 | POST | `/users/manual/import` | `admin` | Import CSV, 500 lignes au plus |
 
 ### Filiales (`/api/filiales`)
 
 | Verbe | Route | Rôles | Limite | Remarque |
 |---|---|---|---|---|
-| GET | `/filiales/active` | IT, `direction` | | Filiales actives, réduites à `{ id, name, displayName, active }`, pour les formulaires et les filtres |
-| GET | `/filiales`, `/filiales/:id` | `admin` | | |
-| POST, PUT, DELETE | `/filiales`, `/filiales/:id` | `admin` | | Création, modification, suppression |
+| GET | `/filiales/active` | IT, `direction` | | Filiales actives, réduites à `{ id, name, displayName, active }`, en une page, pour les formulaires et les filtres |
+| GET | `/filiales`, `/filiales/:id` | `admin` | | Toutes les filiales en une page ; une filiale |
+| POST, PUT, DELETE | `/filiales`, `/filiales/:id` | `admin` | | Création, modification (désactivation et réactivation par `active`), suppression (409 `filiale_in_use` si des bons ou des comptes y sont rattachés ; 409 `filiale_name_taken`) |
 | PATCH | `/filiales/:id/logo`, `/filiales/:id/stamp` | `admin` | 5/min | Dépôt du logo, du cachet de la filiale : PNG ou JPEG seulement, reconnus à leurs octets, les seuls formats que PDFKit dessine |
-| GET | `/filiales/export`, `/filiales/import/template` | `admin` | | CSV (`images=1` pour y joindre logo et cachet), modèle d'import |
+| GET | `/filiales/export`, `/filiales/import/template` | `admin` | | CSV `filiales-AAAA-MM-JJ.csv`, daté à Paris (`images=1` pour y joindre logo et cachet ; `status=active` pour les seules filiales actives, `all` par défaut), modèle d'import |
 | POST | `/filiales/import` | `admin` | | Import CSV, 200 lignes au plus |
 
 Aucune route ne sert les fichiers déposés (logos, cachets) : un cachet ne quitte le serveur qu'imprimé sur un
-PDF.
+PDF. Chaque écriture est tracée au journal d'audit, avec le nom de la filiale : `filiale_created`,
+`filiale_updated` (champs changés), `filiale_deactivated`, `filiale_reactivated`, `filiale_deleted`,
+`filiale_stamp_updated`, `filiale_logo_updated`.
 
 ### Administration (`/api/admin`)
 
-Toutes les routes de ce préfixe sont réservées à `admin`.
+`/admin` ne regroupe que les réglages et l'exploitation (module `admin/` : `config.controller.ts`,
+`admin-ldap.controller.ts`, `admin-smb.controller.ts`, `admin.controller.ts` pour la supervision ; rétention
+dans `retention/`). Toutes ces routes sont réservées à `admin`. Un test de connexion ou une relance qui
+échoue répond 200 `{ ok: false, message }` : le test, lui, a abouti.
 
 | Verbe | Route | Limite | Remarque |
 |---|---|---|---|
-| GET, PUT | `/admin/config/:category` | | Paramètres d'une rubrique, secrets masqués en lecture |
+| GET, PUT | `/admin/config/:category` | | Paramètres d'une rubrique, secrets masqués en lecture ; chaque enregistrement tracé (`config_updated`) |
 | GET | `/admin/config/health` | | État de chaque rubrique, sans aucun secret |
-| POST | `/admin/config/test/ldap`, `/test/smtp`, `/test/entra`, `/test/smb` | | Tests de connexion |
+| GET | `/admin/config/registry` | | Chaque réglage : valeur saisie, défaut, valeur appliquée et sa source ; secrets masqués |
+| POST | `/admin/config/test/ldap`, `/test/smtp`, `/test/entra`, `/test/smb` | 10/min | Tests de connexion : 200 `{ ok, message }` ; un échec donne une phrase française et la première ligne de la réponse du serveur, sans pile ni secret |
 | GET | `/admin/ldap/status` | | État de la dernière synchronisation |
-| POST | `/admin/ldap/sync` | | Synchronisation immédiate |
-| DELETE | `/admin/ldap/users` | | Désactivation des comptes de l'annuaire |
-| PATCH | `/admin/users/:id/role` | | Refusé sur soi-même et sur le dernier administrateur actif |
-| POST | `/admin/users/:id/unlock` | | Déverrouillage d'un compte local |
+| POST | `/admin/ldap/sync` | 5/min | Synchronisation immédiate, en arrière-plan |
+| POST | `/admin/ldap/deactivate-all` | 5/min | Désactivation des comptes de l'annuaire, `{ ok, message, deactivated }` (alias déprécié : `DELETE /admin/ldap/users`) |
 | GET | `/admin/status` | | Version, base, tâches planifiées |
-| GET | `/admin/sso/diagnostic` | | Dernières connexions Microsoft et rôle attribué |
-| GET | `/admin/notifications/failed` | | Emails en échec |
-| GET | `/admin/smb/status`, `/admin/smb/failed` | | Suivi des exports SMB |
-| POST | `/admin/smb/retry/:id`, `/admin/smb/retry-all` | | Relance |
+| GET | `/admin/sso/diagnostic` | | Dernières connexions Microsoft et rôle attribué (liste) |
+| GET | `/admin/notifications/failed` | | Emails en échec (liste, `meta.windowDays`) |
+| GET | `/admin/smb/status`, `/admin/smb/failed` | | Suivi de la copie réseau des PDF |
+| POST | `/admin/smb/retry/:id`, `/admin/smb/retry-all` | 5/min (`retry-all`) | Relance : `{ ok, message }` pour une copie, 400 `smb_disabled` si la copie est désactivée |
 | POST | `/admin/pdf/regenerate-missing` | | Régénération des PDF manquants |
 | GET | `/admin/retention/preview`, `/admin/retention/stats` | | Simulation, volumes purgeables |
-| POST | `/admin/retention/run`, `/admin/retention/purge` | | Anonymisation, purge technique |
-| GET | `/admin/email-templates`, `/export`, `/:id/html`, `/:id/preview` | | Modèles d'email |
-| GET | `/admin/email-templates/preview-bons`, `/admin/email-templates/:id/preview-bon/:bonId` | | Choix d'un vrai bon, aperçu du modèle avec ce bon |
-| PATCH, DELETE | `/admin/email-templates/:id` | | Personnalisation, retour au texte par défaut |
-| POST | `/admin/email-templates/import`, `/admin/email-templates/:id/test`, `/admin/email-templates/:id/test-bon` | | Import, email de test (données d'exemple ou vrai bon) |
-| GET | `/admin/pdf-templates`, `/export`, `/:id/config` | | Modèles de PDF |
-| GET | `/admin/pdf-templates/:id/preview` | 10/min | Aperçu PDF |
-| PATCH, DELETE, POST | `/admin/pdf-templates/:id`, `/admin/pdf-templates/import` | | Personnalisation, réinitialisation, import |
+| POST | `/admin/retention/run`, `/admin/retention/purge` | 5/min | Anonymisation, purge technique |
+
+### Modèles d'email et de PDF (`/api/email-templates`, `/api/pdf-templates`)
+
+Réunis dans `TemplatesModule` (`templates/email-templates.controller.ts`, `pdf/pdf-templates.controller.ts`),
+réservés à `admin`. Les anciens chemins `/api/admin/email-templates/…` et `/api/admin/pdf-templates/…`
+restent servis en alias dépréciés.
+
+| Verbe | Route | Limite | Remarque |
+|---|---|---|---|
+| GET | `/email-templates`, `/export`, `/:id/html`, `/:id/preview` | | Modèles d'email (catalogue en liste) |
+| GET | `/email-templates/preview-bons`, `/email-templates/:id/preview-bon/:bonId` | | Choix d'un vrai bon, aperçu du modèle avec ce bon |
+| PATCH, DELETE | `/email-templates/:id` | | Personnalisation, retour au texte par défaut (`{ ok: true }`) |
+| POST | `/email-templates/import` | 10/min | Import |
+| POST | `/email-templates/:id/test`, `/email-templates/:id/test-bon` | 10/min | Email de test : 200 `{ ok, message }` |
+| GET | `/pdf-templates`, `/export`, `/:id/config` | | Modèles de PDF |
+| GET | `/pdf-templates/:id/preview` | 10/min | Aperçu PDF |
+| PATCH, DELETE | `/pdf-templates/:id` | | Personnalisation, réinitialisation |
+| POST | `/pdf-templates/import` | 10/min | Import |
 
 ### Journal d'audit et sondes
 
 | Verbe | Route | Rôles | Remarque |
 |---|---|---|---|
-| GET | `/audit`, `/audit/actions`, `/audit/export` | `admin` | Journal filtré, liste des actions, CSV |
+| GET | `/audit`, `/audit/actions` | `admin` | Journal filtré et paginé (`user`, `action`, `domain`, `dateFrom`, `dateTo`, `bonId`), actions présentes |
+| GET | `/audit/export` | `admin` | CSV lisible (dates de Paris JJ/MM/AAAA HH:MM, libellés, phrases du catalogue), 10/min |
 | GET | `/health` | public | Le processus répond |
 | GET | `/health/ready` | public | La base répond, sinon `503` |
 
@@ -1048,7 +1100,11 @@ Chacun de ces points a déjà causé un défaut réel, ou justifie un choix qu'i
 - **Cycles d'import** : un cycle transforme silencieusement un type injecté en `undefined`. Les tests
   `di-metadata.spec.ts` charge le code comme la production pour les détecter ; ne
   les contournez pas.
-- Tout corps de requête passe par un DTO validé (`class-validator`), sans champ inconnu accepté.
+- Tout corps de requête passe par un DTO validé (`class-validator`), sans champ inconnu accepté ; les
+  paramètres de requête aussi (`PaginationQueryDto` et ses héritiers).
+- **Erreurs** : lever une exception (`AppException` quand l'écran doit reconnaître le cas), jamais
+  `res.status(…).json(…)` à la main : le filtre global donne à toute erreur la forme unique. Un middleware
+  Express qui refuse une requête passe par `sendError(res, status, code, message)` (`common/errors/`).
 - Un secret masqué que le formulaire renvoie vide ne doit pas écraser la valeur existante (`bulkSetConfig`
   l'ignore).
 
@@ -1153,7 +1209,7 @@ catalogue) n'a rien à lister et le dit aussi. Les listes ne sont pas mises en c
 | Délai entre la demande et la signature | Par document : délai médian (barres et colonne, même valeur), « 9 sur 10 signés en moins de » (90ᵉ centile), part signée sous 48 h et 7 jours avec l'effectif | minutes, heures, jours | période | — |
 | Comment les documents ont été signés | À distance (lien), sur place (présentiel), par une personne mandatée (procuration : un compte ni titulaire ni IT a signé pour le collaborateur ; une signature au guichet devant un technicien n'en est pas une ; comptée aussi dans l'une des deux autres) | signatures | période | `liste=signatures_a_distance`, `signatures_sur_place`, `signatures_mandatees` |
 | Bons par statut | Tous les bons, par statut | bons | état du jour | — |
-| Signatures attendues par document | Remise, restitution ou PV de non-restitution à signer : nombre, attente moyenne depuis la demande, nombre en retard ; totaux = tuiles de l'accueil | bons | état du jour | — |
+| Signatures attendues par document | Remise, restitution ou PV de non-restitution à signer : nombre, attente moyenne depuis la demande, nombre en « Signature en retard » (`overdueSignatures`, ancien nom `overdue` ; total `waiting.overdueSignatures`, ancien nom `overdueTotal`) ; totaux = tuiles de l'accueil | bons | état du jour | — |
 
 ### Onglet Incidents (`GET /kpi/incidents`)
 
@@ -1171,14 +1227,27 @@ catalogue) n'a rien à lister et le dit aussi. Les listes ne sont pas mises en c
 | Rappels automatiques | Rappels envoyés par rang (trois au plus **par document**, comptés depuis sa demande), suivis ou non de la signature du même document ; documents ayant reçu leur 3ᵉ rappel | rappels, documents | période | — |
 | Emails en échec | Emails non envoyés ou rejetés. Un bon sans adresse (signature sur place) n'est pas un échec : statut `skipped`, et les anciennes lignes sans destinataire, exclus | emails | période | IT : `liste=emails_en_echec` |
 
+### Exporter ces indicateurs (Parc, Délais, Incidents)
+
+Chaque onglet exporte ses chiffres (bouton en tête de page, à côté de la période et de la filiale) : un
+tableau à six colonnes (rubrique, indicateur, portée, valeur, période précédente, unité), précédé de lignes
+« Contexte » (onglet, période, période de comparaison, filiale en clair, heure du calcul à Paris). Les
+libellés sont ceux de l'écran, les portées « au JJ/MM/AAAA » (état du jour) ou « du … au … » (flux), les
+nombres décimaux écrits à la française. Construction : `kpi/export/` (un fichier par onglet).
+
 ### Inventaire (`/reporting/inventory`)
 
-Même définition que « Équipements chez les collaborateurs ». Situations (colonne et filtre) : « Remise à
+Même définition que « Équipements chez les collaborateurs ». **Une seule étiquette** de situation par ligne
+(R-103), au lexique : « Remise à
 signer », « En cours », « Contesté », et « Non restitué » (`situation=non_restitue`), qui remplace le parc
 par les équipements encore non restitués (bons clôturés compris, avec le motif de la déclaration pour l'IT ;
 la direction, qui n'ouvre pas les bons, ne reçoit pas ce motif), jamais « en retard ». Filtres de qualité :
 `sansNumeroSerie` (numéro absent, vide ou fait seulement d'espaces), `horsCatalogue`. La recherche porte
 aussi sur la référence du bon. Les prédicats partagés avec les cartes vivent dans `common/bon-predicates.ts`.
+Sous l'étiquette, en sous-lignes : l'étape du bon quand elle précise la situation (« Restitution à signer »
+sous « En cours »), « Retour en retard · N j », le motif d'une non-restitution. L'export annonce avant
+« N équipements, filtres : … » et prévient au-delà de 10 000 lignes ; colonnes du CSV en libellés d'écran
+(« Retour en retard (jours) »), jamais de valeur négative.
 Sur téléphone (moins
 de 768 px), une carte par équipement remplace le tableau. Une date de remise à venir s'affiche « prévu le … » et n'a pas
 d'ancienneté dans le CSV. La fiche d'un équipement (`/materiel/:reference`) prend sa situation au serveur

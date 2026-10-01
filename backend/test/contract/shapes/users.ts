@@ -14,9 +14,9 @@ import type {
   ManualUsersImportResult,
   UnlockUserResponse,
   User,
-  UserPageResponse,
+  UserPageMeta,
 } from '../../../src/contracts/users';
-import { civilite, userRole } from '../support/common-shapes';
+import { civilite, listOf, listWithMeta, userRole } from '../support/common-shapes';
 import { arrayOf, bool, int, isoDate, literal, nullable, object, optional, str, uuid } from '../support/shape';
 import { filialeSummary } from './filiales';
 
@@ -42,14 +42,11 @@ export const user = object<User>({
   updatedAt: isoDate,
 });
 
-export const userPage = object<UserPageResponse>({
-  users: arrayOf(user, { minLength: 1 }),
-  total: int,
-  page: int,
-  limit: int,
-});
+export const userPage = listWithMeta(user, object<UserPageMeta>({ directoryActive: bool }), { minLength: 1 });
 
-export const itStaff = arrayOf(object<ItStaffMember>({ id: uuid, displayName: str }), { minLength: 2 });
+export const userSearch = listOf(user, { minLength: 1 });
+
+export const itStaff = listOf(object<ItStaffMember>({ id: uuid, displayName: str }), { minLength: 2 });
 
 export const manualUsersImportResult = object<ManualUsersImportResult>({
   created: int,
@@ -69,7 +66,7 @@ export const manualUsersImportResult = object<ManualUsersImportResult>({
 
 export const changeUserRole = object<ChangeUserRoleResponse>({ id: uuid, role: userRole, isItStaff: bool });
 
-export const unlockUser = object<UnlockUserResponse>({ unlocked: literal(true), removed: int });
+export const unlockUser = object<UnlockUserResponse>({ unlocked: literal(true), failedAttempts: int });
 
 export const authMe = object<AuthMeResponse>({
   id: uuid,
@@ -84,6 +81,7 @@ export const authMe = object<AuthMeResponse>({
   isItStaff: bool,
   role: userRole,
   isLocalAccount: bool,
+  isManualAccount: bool,
   mustChangePassword: bool,
   passwordChangedAt: nullable(isoDate),
   active: bool,

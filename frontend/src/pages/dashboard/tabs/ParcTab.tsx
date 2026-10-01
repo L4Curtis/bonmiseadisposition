@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router';
-import { Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ChartCard } from '@/components/dashboard/ChartCard';
 import { BreakdownBars } from '@/components/dashboard/BreakdownBars';
@@ -11,7 +10,6 @@ import { useApiResource } from '@/hooks/use-api-resource';
 import { useAuth } from '@/contexts/AuthContext';
 import { isItRole } from '@/lib/roles';
 import { todayInParis } from '@/lib/dates';
-import { CSV_EXPORT_SUCCESS, useDownload } from '@/hooks/useDownload';
 import { usePeriodParams } from '../use-period-params';
 import type { ParcKpiResponse } from '../types/parc';
 import { ParcStatCards } from './parc/ParcStatCards';
@@ -30,8 +28,9 @@ function seriesSubtitle(data: ParcKpiResponse | null): string {
 }
 
 /** Onglet « Parc » (GET /kpi/parc) : équipements chez les collaborateurs
- *  (catégories, filiales, modèles), « Retour en retard », non-restitutions, et
- *  export CSV de l'inventaire. Accessible à l'IT et à la direction (lecture
+ *  (catégories, filiales, modèles), « Retour en retard » et non-restitutions ;
+ *  l'export de ces chiffres est en tête de page (KpiExportButton), celui de
+ *  l'inventaire détaillé sur la page Inventaire. Accessible à l'IT et à la direction (lecture
  *  seule, sans lien vers les bons). Les cartes ouvrent l'inventaire filtré. */
 export function ParcTab() {
   const navigate = useNavigate();
@@ -49,17 +48,6 @@ export function ParcTab() {
     `/kpi/parc?${query}`,
     'Impossible de charger les indicateurs du parc',
   );
-
-  const { download, downloading: exportLoading } = useDownload();
-
-  const handleExport = async (): Promise<void> => {
-    await download({
-      path: `/reporting/inventory/export${filialeId ? `?filialeId=${encodeURIComponent(filialeId)}` : ''}`,
-      fallbackFilename: `inventaire-${todayInParis()}.csv`,
-      errorMessage: "Erreur lors de l'export CSV.",
-      success: CSV_EXPORT_SUCCESS,
-    });
-  };
 
   const categoryData = useMemo(
     () => (data?.loaned.byCategory ?? []).map((c) => ({ key: c.category, label: c.label, value: c.count })),
@@ -134,13 +122,6 @@ export function ParcTab() {
       >
         <ReturnOverdueTable rows={overdueTop} canLinkToBon={isIt} filialeId={filialeId} />
       </ChartCard>
-
-      <div className="flex justify-end">
-        <Button type="button" variant="outline" onClick={handleExport} disabled={exportLoading || loading}>
-          <Download className="mr-1.5 h-3.5 w-3.5" />
-          Exporter l&apos;inventaire{filialeId ? ' de la filiale' : ''} (CSV)
-        </Button>
-      </div>
     </div>
   );
 }

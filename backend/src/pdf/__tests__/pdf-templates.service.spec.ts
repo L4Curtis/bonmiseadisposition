@@ -158,7 +158,7 @@ describe('PdfTemplatesService', () => {
         data: {
           action: 'pdf_template_updated',
           userId: 'user-123',
-          details: { templateId: 'mise_disposition' },
+          details: { templateId: 'mise_disposition', name: 'Bon de mise à disposition' },
         },
       });
     });
@@ -184,7 +184,7 @@ describe('PdfTemplatesService', () => {
         data: {
           action: 'pdf_template_reset',
           userId: 'user-123',
-          details: { templateId: 'mise_disposition' },
+          details: { templateId: 'mise_disposition', name: 'Bon de mise à disposition' },
         },
       });
     });

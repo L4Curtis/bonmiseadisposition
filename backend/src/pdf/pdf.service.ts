@@ -32,6 +32,7 @@ import { COLLAB_SIGNED_SNAPSHOT_TYPES, DocumentRendering, resolveSnapshotRenderi
 import { findSameDocument, isDuplicateDocument, proofSignatureId } from './snapshot-store';
 import { CIVILITE_LABELS } from '../bons/bon-status';
 import { SIGNATURES_DIR, UPLOADS_DIR } from '../common/storage-paths';
+import { writeAuditEntry } from '../audit/audit-record';
 import type { BonForPdf, SigImages } from './pdf-types';
 
 export type { BonForPdf, SigImages, PdfSignature, WithoutSignatureNotice } from './pdf-types';
@@ -195,12 +196,9 @@ export class PdfService {
         data: { bonId: bon.id, type, data: pdf, filename, sha256, signatureId },
         select: { id: true },
       });
-      await tx.auditLog.create({
-        data: {
-          bonId: bon.id,
-          action: 'pdf_snapshot_saved',
-          details: { type, filename, sha256, snapshotId: snapshot.id, signatureId },
-        },
+      await writeAuditEntry(tx, 'pdf_snapshot_saved', {
+        bonId: bon.id,
+        details: { type, filename, sha256, snapshotId: snapshot.id, signatureId },
       });
     });
     this.logger.log(`PDF snapshot ${type} sauvegardé pour le bon ${bon.reference} (sha256=${sha256.slice(0, 12)}…)`);

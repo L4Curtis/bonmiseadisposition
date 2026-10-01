@@ -1,11 +1,4 @@
-/** Formes vérifiées des contrats de src/contracts/inventory.ts et audit.ts. */
-import type {
-  AuditListResponse,
-  AuditLogBonRef,
-  AuditLogEntry,
-  AuditLogResolvedUser,
-  AuditLogUserRelation,
-} from '../../../src/contracts/audit';
+/** Formes vérifiées des contrats de src/contracts/inventory.ts. */
 import type {
   EquipmentSituation,
   InventoryByCollaborateurResponse,
@@ -14,6 +7,7 @@ import type {
   InventoryCollaborateurItem,
   InventoryFiliale,
   InventoryItem,
+  InventoryListMeta,
   InventoryListResponse,
   InventorySituation,
   InventorySummaryResponse,
@@ -21,23 +15,8 @@ import type {
   ParcFilialeCount,
   ParcSituationCount,
 } from '../../../src/contracts/inventory';
-import { bonStatus, enumOf, equipmentCategory } from '../support/common-shapes';
-import {
-  absent,
-  arrayOf,
-  bool,
-  int,
-  isoDate,
-  json,
-  literal,
-  nullable,
-  nullValue,
-  num,
-  object,
-  oneOf,
-  str,
-  uuid,
-} from '../support/shape';
+import { bonStatus, enumOf, equipmentCategory, listOf, listWithMeta } from '../support/common-shapes';
+import { arrayOf, bool, int, isoDate, literal, nullable, num, object, Shape, str, uuid } from '../support/shape';
 
 export const equipmentSituation = enumOf<EquipmentSituation>({
   en_attente_signature: true,
@@ -84,69 +63,37 @@ const inventoryItem = object<InventoryItem>({
   filiale: object<InventoryFiliale>({ id: uuid, name: str, displayName: str }),
 });
 
-export const inventoryList = object<InventoryListResponse>({
-  items: arrayOf(inventoryItem, { minLength: 1 }),
-  total: int,
-  page: int,
-  limit: int,
-});
+/** Forme unique des listes ; le plafond de l'export dans `meta`. */
+export const inventoryList: Shape<InventoryListResponse> = listWithMeta<InventoryItem, InventoryListMeta>(
+  inventoryItem,
+  object<InventoryListMeta>({ exportLimit: int }),
+  { minLength: 1 },
+);
 
 export const inventorySummary = object<InventorySummaryResponse>({
   total: int,
   byCategory: arrayOf(parcCategoryCount, { minLength: 1 }),
   byFiliale: arrayOf(parcFilialeCount, { minLength: 1 }),
   bySituation: arrayOf(parcSituationCount, { minLength: 3 }),
+  overdueReturns: int,
   overdue: int,
   notReturned: int,
 });
 
-export const inventoryByCollaborateur = object<InventoryByCollaborateurResponse>({
-  items: arrayOf(
-    object<InventoryCollaborateurItem>({
-      collaborateurId: uuid,
-      displayName: str,
-      email: nullable(str),
-      department: nullable(str),
-      filiale: nullable(object<InventoryCollaborateurFiliale>({ id: uuid, displayName: str })),
-      active: bool,
-      count: int,
-      overdueCount: int,
-      oldestDateMiseDisposition: isoDate,
-      oldestAgeDays: num,
-    }),
-    { minLength: 1 },
-  ),
-  total: int,
-  page: int,
-  limit: int,
-  truncated: bool,
-});
-
-const auditUser = oneOf(
-  object<AuditLogUserRelation>({ id: uuid, displayName: str, email: nullable(str), resolved: absent }),
-  object<AuditLogResolvedUser>({ id: nullValue, displayName: str, email: str, resolved: literal(true) }),
+/** Forme unique des listes, sans `meta`. */
+export const inventoryByCollaborateur: Shape<InventoryByCollaborateurResponse> = listOf<InventoryCollaborateurItem>(
+  object<InventoryCollaborateurItem>({
+    collaborateurId: uuid,
+    displayName: str,
+    email: nullable(str),
+    department: nullable(str),
+    filiale: nullable(object<InventoryCollaborateurFiliale>({ id: uuid, displayName: str })),
+    active: bool,
+    count: int,
+    overdueReturns: int,
+    overdueCount: int,
+    oldestDateMiseDisposition: isoDate,
+    oldestAgeDays: num,
+  }),
+  { minLength: 1 },
 );
-
-export const auditList = object<AuditListResponse>({
-  logs: arrayOf(
-    object<AuditLogEntry>({
-      id: uuid,
-      bonId: nullable(uuid),
-      userId: nullable(uuid),
-      userEmail: nullable(str),
-      action: str,
-      details: nullable(json),
-      ipAddress: nullable(str),
-      userAgent: nullable(str),
-      createdAt: isoDate,
-      bon: nullable(object<AuditLogBonRef>({ id: uuid, reference: str })),
-      user: nullable(auditUser),
-    }),
-    { minLength: 1 },
-  ),
-  total: int,
-  page: int,
-  limit: int,
-  exportLimit: int,
-  exportTruncated: bool,
-});

@@ -1,3 +1,5 @@
+import { DEFAULT_PAGE_SIZE, PAGE_SIZE_STORAGE_KEY, isPageSize, type PageSize } from '@/hooks/usePagination';
+
 /** Filtres partagés par les deux vues de l'inventaire (par équipement et par
  *  collaborateur), ainsi que par l'export CSV et le détail chargé au dépliage
  *  d'une ligne collaborateur. Isolé de useInventory.ts pour être réutilisé sans
@@ -32,23 +34,23 @@ export function buildBaseFilterEntries(f: InventoryBaseFilters): [string, string
   return entries;
 }
 
-/** Taille de page commune aux deux vues (backend : DEFAULT_PAGE_LIMIT). */
-export const PAGE_LIMIT = 50;
-
-export interface PaginationInfo {
-  totalPages: number;
-  rangeStart: number;
-  rangeEnd: number;
+/** Taille de page choisie par l'utilisateur, commune à toutes les listes
+ *  (même clé de mémorisation que `usePagination`) : 25, 50 ou 100. */
+export function readStoredPageSize(): PageSize {
+  try {
+    const stored = Number(localStorage.getItem(PAGE_SIZE_STORAGE_KEY));
+    return isPageSize(stored) ? stored : DEFAULT_PAGE_SIZE;
+  } catch {
+    // Stockage inaccessible (navigation privée, cookies bloqués) : taille par défaut.
+    return DEFAULT_PAGE_SIZE;
+  }
 }
 
-/** Informations d'affichage de la pagination (« Page X sur Y »,
- *  « Affichage A–B sur N ») — partagées par les deux vues, qui utilisent la
- *  même taille de page mais un total différent (équipements ou
- *  collaborateurs). */
-export function computePaginationInfo(total: number, page: number, limit: number = PAGE_LIMIT): PaginationInfo {
-  return {
-    totalPages: Math.ceil(total / limit),
-    rangeStart: total === 0 ? 0 : (page - 1) * limit + 1,
-    rangeEnd: Math.min(page * limit, total),
-  };
+/** Mémorise le choix dans le navigateur ; sans stockage, il vaut pour la visite. */
+export function storePageSize(size: PageSize): void {
+  try {
+    localStorage.setItem(PAGE_SIZE_STORAGE_KEY, String(size));
+  } catch {
+    // Stockage inaccessible : le choix vaut pour la visite en cours seulement.
+  }
 }

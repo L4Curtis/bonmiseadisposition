@@ -9,6 +9,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../auth/auth-user.interface';
 import { isItRole } from '../common/roles';
+import { sendCsv, TRUNCATED_HEADER } from '../common/csv';
 
 /** Vue « Inventaire du parc prêté » — équipements actuellement entre les
  *  mains des collaborateurs (accès IT : admin + technicien ; lecture seule
@@ -27,16 +28,13 @@ export class InventoryController {
     return this.inventoryService.getSummary();
   }
 
+  /** Export CSV : mêmes filtres et même tri que la liste, sans pagination.
+   *  Fichier `inventaire-AAAA-MM-JJ.csv` (date de Paris) ; `X-Truncated` si
+   *  le plafond (`meta.exportLimit` de la liste) est atteint. */
   @Get('export')
-  async exportCsv(@Query() dto: InventoryQueryDto, @Res() res: Response) {
+  async exportCsv(@Query() dto: InventoryQueryDto, @Res() res: Response): Promise<void> {
     const { csv, truncated } = await this.inventoryService.getExportCsv(dto);
-    const filename = `inventaire-${new Date().toISOString().slice(0, 10)}.csv`;
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    if (truncated) {
-      res.setHeader('X-Truncated', 'true');
-    }
-    res.send(csv);
+    sendCsv(res, { filename: 'inventaire', csv, truncated });
   }
 
   /** Vue « une ligne par personne » de l'inventaire — mêmes filtres/rôles que
@@ -55,7 +53,7 @@ export class InventoryController {
   ) {
     const result = await this.inventoryService.getInventoryByCollaborateur(dto);
     if (result.truncated) {
-      res.setHeader('X-Truncated', 'true');
+      res.setHeader(TRUNCATED_HEADER, 'true');
     }
     return result;
   }

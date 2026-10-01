@@ -6,13 +6,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AccessRule, describeRule, expectAccessRule, IT, IT_AND_DIRECTION, rule } from './support/access';
 import { ContractContext, startContractContext } from './support/context';
 import { DUPLICATE_SERIAL, INVENTORY_NUMBER } from './support/fixtures';
-import { arrayOf, expectShape } from './support/shape';
+import { apiError, listOf } from './support/common-shapes';
+import { expectShape } from './support/shape';
 import {
   catalogImportResult,
   catalogItem,
   equipmentHistory,
   pack,
-  packRecord,
   serialConflicts,
 } from './shapes/equipment';
 
@@ -41,6 +41,18 @@ const ACCESS: readonly AccessRule[] = [
   rule('GET /equipment/serial-conflicts', IT, () => `/equipment/serial-conflicts?serials=${DUPLICATE_SERIAL}`),
 ];
 
+describe('Routes retirées (jamais appelées par l’écran)', () => {
+  it.each(['/equipment/catalog/search?q=Dell', '/equipment/catalog/active', '/equipment/packs/active'])(
+    'GET %s ne renvoie plus de liste',
+    async (path) => {
+      const res = await ctx.http.get(path, 'admin');
+      // `catalog/:id` et `packs/:id` captent désormais ces chemins : identifiant inconnu.
+      expect(res.status).toBe(404);
+      expectShape(res.body, apiError);
+    },
+  );
+});
+
 describe('Droits d’accès', () => {
   it.each(ACCESS.map((a) => [describeRule(a), a] as const))('%s', async (_label, access) => {
     await expectAccessRule(ctx.http, ctx.data, access);
@@ -48,7 +60,7 @@ describe('Droits d’accès', () => {
 });
 
 describe('Conflits de numéros de série', () => {
-  it('GET /equipment/serial-conflicts : enveloppe { items, truncated }, jamais un tableau nu', async () => {
+  it('GET /equipment/serial-conflicts : liste à la forme commune, jamais un tableau nu', async () => {
     const res = await ctx.http.get(`/equipment/serial-conflicts?serials=${DUPLICATE_SERIAL},SN-INCONNU`, 'technician');
     expect(res.status).toBe(200);
     expectShape(res.body, serialConflicts);
@@ -69,25 +81,46 @@ describe('Conflits de numéros de série', () => {
 });
 
 describe('Historique d’un équipement', () => {
-  it.each([DUPLICATE_SERIAL, INVENTORY_NUMBER])('GET /equipment/history?q=%s : { items, truncated, total }', async (q) => {
+  it.each([DUPLICATE_SERIAL, INVENTORY_NUMBER])('GET /equipment/history?q=%s : liste paginée', async (q) => {
     const res = await ctx.http.get(`/equipment/history?q=${encodeURIComponent(q)}`, 'direction');
     expect(res.status).toBe(200);
     expectShape(res.body, equipmentHistory);
+    expect(res.body).toMatchObject({ page: 1, limit: 25, truncated: false, meta: { exportLimit: 5000 } });
   });
 
-  it('GET /equipment/history/export : fichier CSV', async () => {
+  it('GET /equipment/history?page=2 : la page demandée, total inchangé', async () => {
+    const first = await ctx.http.get(`/equipment/history?q=${DUPLICATE_SERIAL}`, 'technician');
+    const second = await ctx.http.get(`/equipment/history?q=${DUPLICATE_SERIAL}&page=2`, 'technician');
+    expect(second.status).toBe(200);
+    expect(second.body).toMatchObject({ page: 2, total: first.body.total });
+  });
+
+  it.each(['limit=200', 'page=0'])('GET /equipment/history?%s : 400 validation_failed', async (query) => {
+    const res = await ctx.http.get(`/equipment/history?q=${DUPLICATE_SERIAL}&${query}`, 'technician');
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('validation_failed');
+  });
+
+  it('GET /equipment/history/export : CSV historique-equipement-AAAA-MM-JJ.csv', async () => {
     const res = await ctx.http.get(`/equipment/history/export?q=${DUPLICATE_SERIAL}`, 'technician');
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toContain('text/csv');
-    expect(res.headers['content-disposition']).toMatch(/^attachment; filename="[^"]+\.csv"$/);
+    expect(res.headers['content-disposition']).toMatch(/^attachment; filename="historique-equipement-\d{4}-\d{2}-\d{2}\.csv"$/);
   });
 });
 
 describe('Catalogue', () => {
-  it('GET /equipment/catalog : tableau nu d’articles, désactivés compris', async () => {
+  it('GET /equipment/catalog : liste complète en une page, articles désactivés compris', async () => {
     const res = await ctx.http.get('/equipment/catalog', 'technician');
     expect(res.status).toBe(200);
-    expectShape(res.body, arrayOf(catalogItem, { minLength: 3 }));
+    expectShape(res.body, listOf(catalogItem, { minLength: 3 }));
+  });
+
+  it('POST /equipment/catalog en double : 409 catalog_item_exists', async () => {
+    const res = await ctx.http.post('/equipment/catalog', 'technician', { category: 'ecran', brand: 'Dell', model: 'P2422H' });
+    expect(res.status).toBe(409);
+    expectShape(res.body, apiError);
+    expect(res.body.code).toBe('catalog_item_exists');
   });
 
   it('POST /equipment/catalog : 201 et l’article créé', async () => {
@@ -126,10 +159,19 @@ describe('Catalogue', () => {
 });
 
 describe('Packs', () => {
-  it('GET /equipment/packs : packs avec leurs articles complets', async () => {
+  it('GET /equipment/packs : packs avec leurs articles complets, en une page', async () => {
     const res = await ctx.http.get('/equipment/packs', 'technician');
     expect(res.status).toBe(200);
-    expectShape(res.body, arrayOf(pack, { minLength: 1 }));
+    expectShape(res.body, listOf(pack, { minLength: 1 }));
+  });
+
+  it('POST /equipment/packs avec un article désactivé : 400 pack_items_unavailable', async () => {
+    const res = await ctx.http.post('/equipment/packs', 'technician', {
+      name: 'Pack refusé',
+      items: [{ catalogItemId: ctx.data.catalog.retiredId, quantity: 1 }],
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('pack_items_unavailable');
   });
 
   it('POST /equipment/packs : 201 et le pack avec ses articles', async () => {
@@ -147,10 +189,14 @@ describe('Packs', () => {
     expectShape(res.body, pack);
   });
 
-  it('DELETE /equipment/packs/:id : le pack désactivé, SANS ses articles', async () => {
-    const created = await ctx.http.post('/equipment/packs', 'admin', { name: 'Pack à désactiver' });
+  it('DELETE /equipment/packs/:id : le pack désactivé, avec ses articles', async () => {
+    const created = await ctx.http.post('/equipment/packs', 'admin', {
+      name: 'Pack à désactiver',
+      items: [{ catalogItemId: ctx.data.catalog.screenId, quantity: 2 }],
+    });
     const res = await ctx.http.delete(`/equipment/packs/${created.body.id}`, 'technician');
     expect(res.status).toBe(200);
-    expectShape(res.body, packRecord);
+    expectShape(res.body, pack);
+    expect(res.body).toMatchObject({ active: false, items: [{ catalogItemId: ctx.data.catalog.screenId, quantity: 2 }] });
   });
 });

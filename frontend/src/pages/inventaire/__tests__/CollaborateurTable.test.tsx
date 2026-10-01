@@ -7,7 +7,7 @@ import type { InventoryBaseFilters } from '../inventoryFilterParams';
 
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>();
-  return { ...actual, api: { get: vi.fn() } };
+  return { ...actual, api: { get: vi.fn(), getList: vi.fn() } };
 });
 
 import { api } from '@/lib/api';
@@ -23,9 +23,10 @@ function makeCollaborateur(overrides: Partial<CollaborateurInventoryItem> = {}):
     displayName: 'Jean Dupont',
     email: 'jean@x.fr',
     department: 'IT',
-    filiale: { id: 'f1', name: 'Paris', displayName: 'Paris' },
+    filiale: { id: 'f1', displayName: 'Paris' },
     active: true,
     count: 5,
+    overdueReturns: 0,
     overdueCount: 0,
     oldestDateMiseDisposition: '2026-01-05T00:00:00.000Z',
     oldestAgeDays: 256,
@@ -48,6 +49,8 @@ const baseProps = {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  // Le détail passe par `getList` ; les réponses sont décrites par `get`.
+  vi.mocked(api.getList).mockImplementation((path: string) => api.get(path));
 });
 
 describe('CollaborateurTable', () => {
@@ -63,11 +66,11 @@ describe('CollaborateurTable', () => {
 
   it('met en évidence le nombre de retards uniquement quand il y en a', () => {
     const { rerender } = renderWithProviders(
-      <CollaborateurTable {...baseProps} items={[makeCollaborateur({ overdueCount: 3 })]} />,
+      <CollaborateurTable {...baseProps} items={[makeCollaborateur({ overdueReturns: 3 })]} />,
     );
     expect(screen.getByText('3')).toBeInTheDocument();
 
-    rerender(<CollaborateurTable {...baseProps} items={[makeCollaborateur({ overdueCount: 0 })]} />);
+    rerender(<CollaborateurTable {...baseProps} items={[makeCollaborateur({ overdueReturns: 0 })]} />);
     expect(screen.getByText('0')).toBeInTheDocument();
   });
 

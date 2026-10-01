@@ -1,5 +1,6 @@
-import { Transform, Type } from 'class-transformer';
-import { IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { IsBoolean, IsIn, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import { LargePaginationQueryDto } from '../../common/pagination';
 import { EquipmentCategory } from '@prisma/client';
 import { INVENTORY_SITUATIONS, InventorySituation } from '../../common/bon-predicates';
 
@@ -72,8 +73,11 @@ export interface InventoryWhereFilters {
 }
 
 /** Query DTO commun à la liste paginée et à l'export CSV de l'inventaire du
- *  parc en circulation (mêmes filtres, cf. InventoryService.buildWhere). */
-export class InventoryQueryDto implements InventoryWhereFilters {
+ *  parc en circulation (mêmes filtres, cf. InventoryService.buildWhere).
+ *  Pagination commune des listes de travail volumineuses : 25, 50, 100 ou
+ *  200 lignes (200 : le détail déplié d'un collaborateur, lu en une page),
+ *  toute autre taille refusée en 400. L'export ignore la pagination. */
+export class InventoryQueryDto extends LargePaginationQueryDto implements InventoryWhereFilters {
   @IsOptional()
   @IsUUID()
   filialeId?: string;
@@ -122,19 +126,6 @@ export class InventoryQueryDto implements InventoryWhereFilters {
   @Transform(trimSearch)
   @MaxLength(200)
   search?: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  page?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(200)
-  limit?: number;
 
   @IsOptional()
   @IsIn(INVENTORY_SORT_FIELDS)

@@ -1,185 +1,214 @@
-import { BadRequestException } from '@nestjs/common';
+import type { Mock } from 'vitest';
 import { AdminController } from '../admin.controller';
-import { AdminService } from '../admin.service';
-import { LdapService } from '../../ldap/ldap.service';
-import { AppConfigService } from '../../config/config.service';
-import { SmbService } from '../../smb/smb.service';
-import { NotificationFailuresService } from '../notification-failures.service';
-import { SsoDiagnosticService } from '../sso-diagnostic.service';
-import { MonitoringService } from '../../monitoring/monitoring.service';
+import { ConfigController } from '../config.controller';
+import { AdminLdapController } from '../admin-ldap.controller';
+import { AdminSmbController } from '../admin-smb.controller';
+import { AppException } from '../../common/errors';
+import { ConfigRegistryService } from '../../config/config-registry.service';
 import { createMockConfigService, createMockSmbService } from '../../common/__tests__/helpers/mock-services';
 import { AuthUser } from '../../auth/auth-user.interface';
-import type { Mock } from 'vitest';
 
-describe('AdminController', () => {
+const adminUser: AuthUser = {
+  id: 'admin-1',
+  samAccountName: 'admin.livio',
+  displayName: 'Admin Livio',
+  email: 'admin@livio.fr',
+  department: null,
+  company: null,
+  title: null,
+  filialeId: null,
+  filiale: null,
+  isItStaff: true,
+  role: 'admin',
+  isLocalAccount: false,
+  mustChangePassword: false,
+  active: true,
+};
+
+/** Requête Express minimale : adresse du client et navigateur. */
+const request = { ip: '10.0.0.5', get: (name: string) => (name === 'user-agent' ? 'Chrome' : undefined) } as never;
+
+describe('AdminController (supervision)', () => {
+  let notificationFailures: { getFailedNotifications: Mock };
+  let monitoring: { getAdminStatus: Mock };
+  let sso: { getRecent: Mock };
   let controller: AdminController;
-  let adminService: {
-    bulkSetConfig: Mock;
-    getConfigSection: Mock;
-    changeUserRole: Mock;
-    ensureNonLocalAdminExists: Mock;
-    getConfigHealth: Mock;
-  };
-  let ldapService: { validateLdapFilter: Mock };
-  let configService: ReturnType<typeof createMockConfigService>;
-  let smbService: ReturnType<typeof createMockSmbService>;
-  let notificationFailuresService: { getFailedNotifications: Mock };
-  let monitoringService: { getAdminStatus: Mock };
-
-  const adminUser: AuthUser = {
-    id: 'admin-1',
-    samAccountName: 'admin.livio',
-    displayName: 'Admin Livio',
-    email: 'admin@livio.fr',
-    department: null,
-    company: null,
-    title: null,
-    filialeId: null,
-    filiale: null,
-    isItStaff: true,
-    role: 'admin',
-    isLocalAccount: false,
-    mustChangePassword: false,
-    active: true,
-  };
 
   beforeEach(() => {
-    adminService = {
-      bulkSetConfig: vi.fn().mockResolvedValue(undefined),
-      getConfigSection: vi.fn().mockResolvedValue({}),
-      changeUserRole: vi.fn().mockResolvedValue({ id: 'user-2', role: 'direction', isItStaff: false }),
-      ensureNonLocalAdminExists: vi.fn().mockResolvedValue(undefined),
-      getConfigHealth: vi.fn().mockResolvedValue({ sections: [] }),
-    };
-    ldapService = { validateLdapFilter: vi.fn() };
-    configService = createMockConfigService();
-    smbService = createMockSmbService();
-    notificationFailuresService = {
-      getFailedNotifications: vi.fn().mockResolvedValue({ count: 0, windowDays: 30, items: [] }),
-    };
-    monitoringService = {
-      getAdminStatus: vi.fn().mockResolvedValue({
-        version: 'dev', commit: 'dev', uptimeSeconds: 0, database: 'ok', jobs: [],
-      }),
-    };
+    notificationFailures = { getFailedNotifications: vi.fn().mockResolvedValue({ items: [] }) };
+    monitoring = { getAdminStatus: vi.fn().mockResolvedValue({ version: 'dev', jobs: [] }) };
+    sso = { getRecent: vi.fn().mockResolvedValue([{ user: 'Marie' }]) };
+    controller = new AdminController(notificationFailures as never, sso as never, monitoring as never);
+  });
 
-    controller = new AdminController(
-      adminService as unknown as AdminService,
-      ldapService as unknown as LdapService,
-      configService as unknown as AppConfigService,
-      smbService as unknown as SmbService,
-      notificationFailuresService as unknown as NotificationFailuresService,
-      { getRecent: vi.fn().mockResolvedValue([]) } as unknown as SsoDiagnosticService,
-      monitoringService as unknown as MonitoringService,
+  it('transmet la fenêtre de jours validée par le DTO', async () => {
+    await controller.getFailedNotifications({ days: 7 });
+    expect(notificationFailures.getFailedNotifications).toHaveBeenCalledWith(7);
+  });
+
+  it('renvoie l’état de l’application tel que le calcule la supervision', async () => {
+    await expect(controller.getStatus()).resolves.toEqual({ version: 'dev', jobs: [] });
+  });
+
+  it('renvoie le diagnostic SSO à la forme de liste unique', async () => {
+    await expect(controller.getSsoDiagnostic({ limit: 5 })).resolves.toEqual({
+      items: [{ user: 'Marie' }],
+      total: 1,
+      page: 1,
+      limit: 1,
+      truncated: false,
+    });
+    expect(sso.getRecent).toHaveBeenCalledWith(5);
+  });
+});
+
+describe('ConfigController', () => {
+  let settings: { getHealth: Mock; getSection: Mock; update: Mock };
+  let registry: { describe: Mock };
+  let connectionTests: { testSmtp: Mock; testEntra: Mock };
+  let ldap: { testConnection: Mock };
+  let smb: ReturnType<typeof createMockSmbService>;
+  let controller: ConfigController;
+
+  beforeEach(() => {
+    settings = {
+      getHealth: vi.fn().mockResolvedValue({ sections: [] }),
+      getSection: vi.fn().mockResolvedValue({ host: 'smtp.exemple.fr' }),
+      update: vi.fn().mockResolvedValue(undefined),
+    };
+    registry = { describe: vi.fn().mockResolvedValue([{ key: 'tokens.expiry_days', appliedValue: 7 }]) };
+    connectionTests = {
+      testSmtp: vi.fn().mockResolvedValue({ ok: true, message: 'ok' }),
+      testEntra: vi.fn().mockResolvedValue({ ok: false, message: 'refusé' }),
+    };
+    ldap = { testConnection: vi.fn().mockResolvedValue({ ok: false, message: 'Serveur injoignable' }) };
+    smb = createMockSmbService();
+    controller = new ConfigController(
+      settings as never,
+      registry as never,
+      connectionTests as never,
+      ldap as never,
+      smb as never,
     );
   });
 
-  // ─── status (lot A5, supervision) ───────────────────────────────────────────
-
-  describe('getStatus', () => {
-    it('délègue à MonitoringService.getAdminStatus() et renvoie son résultat tel quel', async () => {
-      const status = {
-        version: '1.2.3', commit: 'abc1234', uptimeSeconds: 42, database: 'ok' as const,
-        jobs: [{ job: 'ldap-sync', label: 'Synchronisation LDAP', schedule: 'toutes les 6 h', lastStartedAt: null, lastFinishedAt: null, lastStatus: null, lastError: null, lastDurationMs: null, late: false }],
-      };
-      monitoringService.getAdminStatus.mockResolvedValue(status);
-
-      const result = await controller.getStatus();
-
-      expect(monitoringService.getAdminStatus).toHaveBeenCalled();
-      expect(result).toEqual(status);
+  it('renvoie le registre à la forme de liste unique', async () => {
+    await expect(controller.getRegistry()).resolves.toEqual({
+      items: [{ key: 'tokens.expiry_days', appliedValue: 7 }],
+      total: 1,
+      page: 1,
+      limit: 1,
+      truncated: false,
     });
   });
 
-  // ─── setConfig — rappels.signature_overdue_days ───────────────────────────────
-
-  describe('setConfig — rappels.signature_overdue_days', () => {
-    it('refuse 0 (min 1)', async () => {
-      await expect(
-        controller.setConfig('rappels', { signature_overdue_days: '0' }, adminUser),
-      ).rejects.toThrow(BadRequestException);
-      expect(adminService.bulkSetConfig).not.toHaveBeenCalled();
-    });
-
-    it('refuse une valeur non entière', async () => {
-      await expect(
-        controller.setConfig('rappels', { signature_overdue_days: 'abc' }, adminUser),
-      ).rejects.toThrow(BadRequestException);
-    });
-
-    it('accepte une valeur >= 1', async () => {
-      await controller.setConfig('rappels', { signature_overdue_days: '3' }, adminUser);
-
-      expect(adminService.bulkSetConfig).toHaveBeenCalledWith(
-        'rappels',
-        expect.objectContaining({ signature_overdue_days: '3' }),
-        [],
-        adminUser.id,
-      );
+  it('enregistre une rubrique avec l’auteur, son adresse et son navigateur', async () => {
+    await expect(controller.setSection('smtp', { host: 'smtp.exemple.fr' }, adminUser, request)).resolves.toEqual({ ok: true });
+    expect(settings.update).toHaveBeenCalledWith('smtp', { host: 'smtp.exemple.fr' }, {
+      id: 'admin-1',
+      ip: '10.0.0.5',
+      userAgent: 'Chrome',
     });
   });
 
-  // ─── setConfig — entra.direction_group_id ──────────────────────────────────────
+  it('lit une rubrique et l’état de santé', async () => {
+    await expect(controller.getSection('smtp')).resolves.toEqual({ host: 'smtp.exemple.fr' });
+    await expect(controller.getHealth()).resolves.toEqual({ sections: [] });
+  });
 
-  describe('setConfig — entra.direction_group_id', () => {
-    it('accepte la clé direction_group_id (nouvelle clé autorisée)', async () => {
-      await controller.setConfig('entra', { direction_group_id: 'grp-direction' }, adminUser);
+  it('renvoie le résultat des tests de connexion sous un seul nom de champ (`ok`)', async () => {
+    await expect(controller.testLdap()).resolves.toEqual({ ok: false, message: 'Serveur injoignable' });
+    await expect(controller.testEntra()).resolves.toEqual({ ok: false, message: 'refusé' });
+    await expect(controller.testSmtp({ testEmail: '' })).resolves.toEqual({ ok: true, message: 'ok' });
+    expect(connectionTests.testSmtp).toHaveBeenCalledWith(undefined);
+    await controller.testSmb();
+    expect(smb.testConnection).toHaveBeenCalled();
+  });
+});
 
-      expect(adminService.bulkSetConfig).toHaveBeenCalledWith(
-        'entra',
-        expect.objectContaining({ direction_group_id: 'grp-direction' }),
-        ['client_secret'],
-        adminUser.id,
-      );
+describe('AdminLdapController', () => {
+  let ldapService: { getSyncStatus: Mock; syncUsers: Mock };
+  let ldapAdmin: { deactivateAll: Mock };
+  let controller: AdminLdapController;
+
+  beforeEach(() => {
+    ldapService = {
+      getSyncStatus: vi.fn().mockReturnValue({ lastSync: new Date('2026-10-01T08:00:00Z'), lastSyncSuccess: true }),
+      syncUsers: vi.fn().mockResolvedValue(undefined),
+    };
+    ldapAdmin = { deactivateAll: vi.fn().mockResolvedValue({ deactivated: 2 }) };
+    controller = new AdminLdapController(ldapService as never, ldapAdmin as never);
+  });
+
+  it('renvoie l’état de la dernière synchronisation, date en ISO', () => {
+    expect(controller.getStatus()).toMatchObject({ lastSync: '2026-10-01T08:00:00.000Z', lastSyncSuccess: true });
+  });
+
+  it('lance la synchronisation sans l’attendre', () => {
+    expect(controller.triggerSync()).toEqual({ ok: true, message: "Synchronisation de l'annuaire lancée." });
+    expect(ldapService.syncUsers).toHaveBeenCalled();
+  });
+
+  it('désactive les comptes de l’annuaire et dit combien, dans `deactivated` et dans le message', async () => {
+    await expect(controller.deactivateAll(adminUser, request)).resolves.toEqual({
+      ok: true,
+      message: "2 comptes de l'annuaire désactivés.",
+      deactivated: 2,
+    });
+    expect(ldapAdmin.deactivateAll).toHaveBeenCalledWith('admin-1', '10.0.0.5');
+  });
+
+  it('le dit quand il n’y avait rien à désactiver', async () => {
+    ldapAdmin.deactivateAll.mockResolvedValue({ deactivated: 0 });
+    await expect(controller.deactivateAll(adminUser, request)).resolves.toMatchObject({
+      message: "Aucun compte de l'annuaire à désactiver.",
+      deactivated: 0,
+    });
+  });
+});
+
+describe('AdminSmbController', () => {
+  let config: ReturnType<typeof createMockConfigService>;
+  let smb: ReturnType<typeof createMockSmbService>;
+  let controller: AdminSmbController;
+
+  beforeEach(() => {
+    config = createMockConfigService();
+    smb = createMockSmbService();
+    controller = new AdminSmbController(smb as never, new ConfigRegistryService(config as never, {}));
+  });
+
+  it('refuse les relances quand la copie réseau est désactivée (400 smb_disabled)', async () => {
+    await expect(controller.retryOne('00000000-0000-4000-8000-000000000000')).rejects.toBeInstanceOf(AppException);
+    await expect(controller.retryAll()).rejects.toBeInstanceOf(AppException);
+    expect(smb.retryOne).not.toHaveBeenCalled();
+  });
+
+  it('relance quand la copie réseau est activée', async () => {
+    await config.set('smb', 'enabled', 'true');
+    smb.retryOne.mockResolvedValue({ ok: false, message: 'La relance a échoué : partage non monté' });
+
+    await expect(controller.retryOne('00000000-0000-4000-8000-000000000000')).resolves.toEqual({
+      ok: false,
+      message: 'La relance a échoué : partage non monté',
+    });
+    await expect(controller.retryAll()).resolves.toEqual({ retried: 0, succeeded: 0, failed: 0 });
+  });
+
+  it('renvoie l’état et les exports en échec, dates en ISO', async () => {
+    smb.getStatus.mockResolvedValue({ enabled: true, total: 3, success: 2, failed: 1, pending: 0, lastSuccessAt: new Date('2026-10-01T08:00:00Z') });
+    smb.getFailedExports.mockResolvedValue([
+      { id: 'e1', createdAt: new Date('2026-10-01T07:00:00Z'), lastAttemptAt: null, bonReference: 'BON-2026-0001' },
+    ]);
+
+    await expect(controller.getStatus()).resolves.toMatchObject({ enabled: true, lastSuccessAt: '2026-10-01T08:00:00.000Z' });
+    await expect(controller.getFailed()).resolves.toMatchObject({
+      items: [{ id: 'e1', createdAt: '2026-10-01T07:00:00.000Z', lastAttemptAt: null }],
+      total: 1,
     });
   });
 
-  // ─── getConfigHealth ────────────────────────────────────────────────────────────
-
-  describe('getConfigHealth', () => {
-    it('délègue à adminService.getConfigHealth', async () => {
-      const sections = [{ key: 'smtp', label: 'Email / SMTP', state: 'configure', detail: 'ok', updatedAt: null }];
-      adminService.getConfigHealth.mockResolvedValue({ sections });
-
-      const result = await controller.getConfigHealth();
-
-      expect(adminService.getConfigHealth).toHaveBeenCalled();
-      expect(result).toEqual({ sections });
-    });
-  });
-
-  // ─── changeUserRole ────────────────────────────────────────────────────────────
-
-  describe('changeUserRole', () => {
-    it('délègue à adminService.changeUserRole avec l’acteur courant', async () => {
-      const result = await controller.changeUserRole('user-2', { role: 'direction' }, adminUser);
-
-      expect(adminService.changeUserRole).toHaveBeenCalledWith('user-2', 'direction', { id: 'admin-1' });
-      expect(result).toEqual({ id: 'user-2', role: 'direction', isItStaff: false });
-    });
-  });
-
-  // ─── getFailedNotifications ────────────────────────────────────────────────────
-
-  describe('getFailedNotifications', () => {
-    it('utilise 30 jours par défaut', async () => {
-      await controller.getFailedNotifications();
-      expect(notificationFailuresService.getFailedNotifications).toHaveBeenCalledWith(30);
-    });
-
-    it('borne la fenêtre à 365 jours au maximum', async () => {
-      await controller.getFailedNotifications('9999');
-      expect(notificationFailuresService.getFailedNotifications).toHaveBeenCalledWith(365);
-    });
-
-    it('borne la fenêtre à 1 jour au minimum', async () => {
-      await controller.getFailedNotifications('-5');
-      expect(notificationFailuresService.getFailedNotifications).toHaveBeenCalledWith(1);
-    });
-
-    it('retombe sur 30 jours pour une valeur non numérique', async () => {
-      await controller.getFailedNotifications('abc');
-      expect(notificationFailuresService.getFailedNotifications).toHaveBeenCalledWith(30);
-    });
+  it('ne renvoie aucun compteur quand la copie est désactivée', async () => {
+    await expect(controller.getStatus()).resolves.toEqual({ enabled: false });
   });
 });

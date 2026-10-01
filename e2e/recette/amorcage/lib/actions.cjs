@@ -126,9 +126,10 @@ async function lienExpire(session, token) {
 /** Contestations « À traiter » et seuil de retard (`overdueSince`) calculé par l'application. */
 async function contestationsATraiter(ctx) {
   const liste = exiger(await ctx.sessions.admin.get('/contestations?aTraiter=1&limit=100'),
-    ['contestations', 'overdueSince'], 'GET /contestations?aTraiter=1');
-  for (const c of liste.contestations) exiger(c, ['bonId', 'createdAt'], 'GET /contestations (contestations[])');
-  return liste;
+    ['items', 'meta'], 'GET /contestations?aTraiter=1');
+  exiger(liste.meta, ['overdueSince'], 'GET /contestations (meta)');
+  for (const c of liste.items) exiger(c, ['bonId', 'createdAt'], 'GET /contestations (items[])');
+  return { contestations: liste.items, overdueSince: liste.meta.overdueSince };
 }
 
 /** Fait régénérer par l'application les PDF de preuve absents ; rend { regenerated, failed }. */
@@ -301,7 +302,7 @@ async function annuler(ctx, bon, par, motif = MOTIF_ANNULATION_PAR_DEFAUT) {
 
 /** Modification d'un bon (brouillon, ou envoyé et pas encore signé), champs du formulaire. */
 async function modifierBon(ctx, bon, par, changements) {
-  exiger(await ctx.sessions[par].put(`/bons/${bon.id}`, changements), ['id', 'status'], 'PUT /bons/:id');
+  exiger(await ctx.sessions[par].patch(`/bons/${bon.id}`, changements), ['id', 'status'], 'PATCH /bons/:id');
 }
 
 /** Le collaborateur conteste `document` ; le serveur doit retenir ce même document. */
@@ -323,9 +324,9 @@ async function contester(ctx, bon, collaborateur, document, message) {
 async function trancherContestation(ctx, bon, par, outcome, reponse) {
   const id = ctx.contestations.get(bon.id);
   if (!id) throw new Error(`${bon.reference} : aucune contestation créée par l'amorçage`);
-  await ctx.sessions[par].patch(`/contestations/${id}/review`);
-  const decision = await ctx.sessions[par].patch(`/contestations/${id}/resolve`, { outcome, resolutionMessage: reponse });
-  return exiger(decision, ['outcome', 'replacementBon', 'reopenedDocument'], 'PATCH /contestations/:id/resolve');
+  await ctx.sessions[par].post(`/contestations/${id}/review`);
+  const decision = await ctx.sessions[par].post(`/contestations/${id}/resolve`, { outcome, resolutionMessage: reponse });
+  return exiger(decision, ['outcome', 'replacementBon', 'reopenedDocument'], 'POST /contestations/:id/resolve');
 }
 
 /** Le collaborateur ouvre son lien expiré (reçu dans Mailpit) et clique « Demander un nouveau lien ». */

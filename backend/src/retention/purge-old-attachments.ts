@@ -4,6 +4,7 @@ import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { closedBeforeWhere } from './closed-before';
 import { ATTACHMENTS_DIR } from '../common/storage-paths';
+import { writeAuditEntry } from '../audit/audit-record';
 
 export interface PurgeOldAttachmentsDeps {
   prisma: PrismaService;
@@ -47,9 +48,7 @@ export async function purgeOldAttachments(deps: PurgeOldAttachmentsDeps, cutoff:
   }
 
   if (count > 0) {
-    await prisma.auditLog.create({
-      data: { action: 'attachments_purged', details: { count } },
-    });
+    await writeAuditEntry(prisma, 'attachments_purged', { details: { count } });
     logger.log(
       `Purge pièces jointes anciennes : ${count} fichier(s) supprimé(s) (cutoff ${cutoff.toISOString().slice(0, 10)})`,
     );

@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { Prisma } from '@prisma/client';
 import { LdapService } from '../ldap.service';
-import { AppConfigService } from '../../config/config.service';
+import { ConfigRegistryService } from '../../config/config-registry.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationService } from '../../notification/notification.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
@@ -67,7 +67,7 @@ describe('LdapService', () => {
       providers: [
         LdapService,
         { provide: PrismaService, useValue: prisma },
-        { provide: AppConfigService, useValue: configService },
+        { provide: ConfigRegistryService, useValue: new ConfigRegistryService(configService as never, {}) },
         { provide: JobTrackerService, useValue: jobTracker },
         { provide: NotificationService, useValue: notificationService },
       ],
@@ -182,7 +182,7 @@ describe('LdapService', () => {
 
       const result = await service.testConnection();
 
-      expect(result).toEqual({ success: true, message: 'Connexion LDAP réussie' });
+      expect(result).toEqual({ ok: true, message: 'Connexion à l’annuaire réussie.' });
       expect(ldapMock.createClient).toHaveBeenCalled();
       expect(mockClient.destroy).toHaveBeenCalled();
     });
@@ -196,7 +196,7 @@ describe('LdapService', () => {
       const result = await service.testConnection();
 
       expect(result).toEqual({
-        success: false,
+        ok: false,
         message: expect.stringContaining('Connection refused'),
       });
     });
@@ -215,7 +215,7 @@ describe('LdapService', () => {
 
       const result = await service.testConnection();
 
-      expect(result.success).toBe(false);
+      expect(result.ok).toBe(false);
       expect(result.message).toContain('NODE_EXTRA_CA_CERTS');
       expect(result.message).not.toContain('unable to verify the first certificate');
     });
@@ -275,7 +275,7 @@ describe('LdapService', () => {
 
       const result = await service.testConnection();
 
-      expect(result.success).toBe(false);
+      expect(result.ok).toBe(false);
       expect(result.message).toContain('ldaps://');
       expect(ldapMock.createClient).not.toHaveBeenCalled();
     });

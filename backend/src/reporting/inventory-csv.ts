@@ -9,7 +9,7 @@ const HEADERS: readonly string[] = [
   'Collaborateur', 'Email', 'Service', 'Filiale',
   'Référence bon', 'Statut bon', 'Situation',
   'Date mise à disposition', 'Ancienneté (jours)',
-  'Date restitution prévue', 'Retard (jours)',
+  'Date restitution prévue', 'Retour en retard (jours)',
 ];
 
 /**

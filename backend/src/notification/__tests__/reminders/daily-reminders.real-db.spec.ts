@@ -13,6 +13,7 @@
  * au test, pourtant éligible, n'est pas touché.
  */
 import { randomUUID } from 'crypto';
+import { ConfigRegistryService } from '../../../config/config-registry.service';
 import { Logger } from '@nestjs/common';
 import type { Prisma, SignatureType } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -41,7 +42,10 @@ describeDb('runDailyReminders — base réelle (transaction annulée)', () => {
   }
 
   const deps = (f: Fixture, withScope = true) => ({
-    configService: { get: async (c: string, k: string) => config[`${c}.${k}`] ?? null } as never,
+    settings: new ConfigRegistryService(
+      { get: async (c: string, k: string) => config[`${c}.${k}`] ?? null } as never,
+      {},
+    ),
     prisma: f.tx as unknown as PrismaService,
     templatesService: { renderTemplate: async (_id: string, vars: Record<string, string>) => JSON.stringify(vars) } as never,
     logger: new Logger('test-rappels'),

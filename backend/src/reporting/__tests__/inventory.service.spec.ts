@@ -186,7 +186,7 @@ describe('InventoryService', () => {
   });
 
   describe('getInventory — pagination et mapping', () => {
-    it('applique page=1/limit=50 par défaut', async () => {
+    it('applique page=1/limit=25 par défaut (taille commune des listes)', async () => {
       (prisma.bonEquipment.findMany as Mock).mockResolvedValue([]);
       (prisma.bonEquipment.count as Mock).mockResolvedValue(0);
 
@@ -194,23 +194,19 @@ describe('InventoryService', () => {
 
       const call = (prisma.bonEquipment.findMany as Mock).mock.calls[0][0];
       expect(call.skip).toBe(0);
-      expect(call.take).toBe(50);
+      expect(call.take).toBe(25);
       expect(result.page).toBe(1);
-      expect(result.limit).toBe(50);
+      expect(result.limit).toBe(25);
     });
 
-    it('calcule skip à partir de page/limit et plafonne limit à 200', async () => {
+    it('calcule skip à partir de page/limit (bornes vérifiées par le DTO, en 400)', async () => {
       (prisma.bonEquipment.findMany as Mock).mockResolvedValue([]);
       (prisma.bonEquipment.count as Mock).mockResolvedValue(0);
 
-      await service.getInventory({ page: 3, limit: 20 });
-      let call = (prisma.bonEquipment.findMany as Mock).mock.calls[0][0];
-      expect(call.skip).toBe(40);
-      expect(call.take).toBe(20);
-
-      await service.getInventory({ page: 1, limit: 9999 as never });
-      call = (prisma.bonEquipment.findMany as Mock).mock.calls[1][0];
-      expect(call.take).toBe(200);
+      await service.getInventory({ page: 3, limit: 50 });
+      const call = (prisma.bonEquipment.findMany as Mock).mock.calls[0][0];
+      expect(call.skip).toBe(100);
+      expect(call.take).toBe(50);
     });
 
     it('mappe chaque ligne vers la forme attendue par le frontend', async () => {
@@ -472,6 +468,7 @@ describe('InventoryService', () => {
           { situation: 'en_circulation', label: SITUATION_LABELS.en_circulation, count: 0 },
           { situation: 'en_litige', label: SITUATION_LABELS.en_litige, count: 0 },
         ],
+        overdueReturns: 0,
         overdue: 0,
         notReturned: 0,
       });
@@ -506,7 +503,7 @@ describe('InventoryService', () => {
       expect(dataLine.split(';')[situationColumnIndex]).toBe('"Remise à signer"');
     });
 
-    it('ajoute les colonnes « Ancienneté (jours) » et « Retard (jours) », calculées depuis `now`', async () => {
+    it('ajoute les colonnes « Ancienneté (jours) » et « Retour en retard (jours) », calculées depuis `now`', async () => {
       const now = new Date('2026-09-18T10:00:00.000Z');
       (prisma.bonEquipment.findMany as Mock).mockResolvedValue([
         makeRow({
@@ -523,13 +520,13 @@ describe('InventoryService', () => {
       const cols = headerLine.split(';');
 
       expect(cols).toContain('"Ancienneté (jours)"');
-      expect(cols).toContain('"Retard (jours)"');
+      expect(cols).toContain('"Retour en retard (jours)"');
       const values = dataLine.split(';');
       expect(values[cols.indexOf('"Ancienneté (jours)"')]).toBe('"17"');
-      expect(values[cols.indexOf('"Retard (jours)"')]).toBe('"8"');
+      expect(values[cols.indexOf('"Retour en retard (jours)"')]).toBe('"8"');
     });
 
-    it('laisse la colonne « Retard (jours) » vide quand la restitution n\'est pas en retard', async () => {
+    it('laisse la colonne « Retour en retard (jours) » vide quand la restitution n\'est pas en retard', async () => {
       const now = new Date('2026-09-18T10:00:00.000Z');
       (prisma.bonEquipment.findMany as Mock).mockResolvedValue([
         makeRow({
@@ -541,10 +538,10 @@ describe('InventoryService', () => {
       const [headerLine, dataLine] = csv.slice(1).split('\n');
       const cols = headerLine.split(';');
 
-      expect(dataLine.split(';')[cols.indexOf('"Retard (jours)"')]).toBe('""');
+      expect(dataLine.split(';')[cols.indexOf('"Retour en retard (jours)"')]).toBe('""');
     });
 
-    it('laisse « Retard (jours) » vide pour un équipement non restitué : il n’est plus attendu', async () => {
+    it('laisse « Retour en retard (jours) » vide pour un équipement non restitué : il n’est plus attendu', async () => {
       const now = new Date('2026-09-18T10:00:00.000Z');
       (prisma.bonEquipment.findMany as Mock).mockResolvedValue([
         makeRow({
@@ -560,7 +557,7 @@ describe('InventoryService', () => {
       const values = dataLine.split(';');
 
       expect(values[cols.indexOf('"Situation"')]).toBe('"Non restitué"');
-      expect(values[cols.indexOf('"Retard (jours)"')]).toBe('""');
+      expect(values[cols.indexOf('"Retour en retard (jours)"')]).toBe('""');
     });
 
     it("laisse l'ancienneté vide pour une remise prévue dans le futur (jamais « '-3 »)", async () => {

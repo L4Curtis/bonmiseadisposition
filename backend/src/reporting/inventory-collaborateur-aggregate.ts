@@ -42,6 +42,10 @@ export interface CollaborateurInventoryItem {
    *  pastille « Compte désactivé » et le filtre `?compte=`. */
   active: boolean;
   count: number;
+  /** Équipements en « Retour en retard » (date de restitution prévue
+   *  dépassée, hors non restitués). */
+  overdueReturns: number;
+  /** @deprecated Même valeur que `overdueReturns`, servie pendant la vague 3. */
   overdueCount: number;
   oldestDateMiseDisposition: Date;
   oldestAgeDays: number;
@@ -85,7 +89,7 @@ export function groupInventoryByCollaborateur(
     const oldestRow = groupRows.reduce((oldest, row) =>
       row.bon.dateMiseDisposition < oldest.bon.dateMiseDisposition ? row : oldest,
     );
-    const overdueCount = groupRows.filter(
+    const overdueReturns = groupRows.filter(
       (row) => !row.notReturned && row.bon.dateRestitution !== null && row.bon.dateRestitution < overdueCutoff,
     ).length;
 
@@ -97,7 +101,8 @@ export function groupInventoryByCollaborateur(
       filiale,
       active: collaborateur.active,
       count: groupRows.length,
-      overdueCount,
+      overdueReturns,
+      overdueCount: overdueReturns,
       oldestDateMiseDisposition: oldestRow.bon.dateMiseDisposition,
       oldestAgeDays: parisDaysSince(oldestRow.bon.dateMiseDisposition, now),
     };

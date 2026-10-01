@@ -2,6 +2,8 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppConfigService } from '../config/config.service';
+import { ConfigRegistryService } from '../config/config-registry.service';
+import { AuditService } from '../audit/audit.service';
 import { AttachmentsService } from '../attachments/attachments.service';
 import { JobTrackerService, JobOutcome } from '../monitoring/job-tracker.service';
 import { JOB_KEYS } from '../monitoring/job-registry';
@@ -12,9 +14,6 @@ import { computeRetentionStats, RetentionStats } from './retention-stats';
 import { closedBeforeWhere } from './closed-before';
 import { PARIS_TIME_ZONE } from '../common/dates/paris';
 
-const DEFAULT_ANONYMIZE_MONTHS = 60; // 5 ans par défaut — plancher légal RGPD
-const ANONYMIZE_MONTHS_FLOOR = 60; // Plancher légal : aucune config ne peut descendre en dessous
-const DEFAULT_ATTACHMENT_MONTHS = 24; // Purge indépendante des pièces jointes (défaut raisonnable, non légalement fixé)
 const DRY_RUN_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24h
 
 export interface RetentionResult {
@@ -35,7 +34,10 @@ export interface RetentionResult {
  * effacer. La ligne du bon subsiste (référence, dates, statut, modèles
  * d'équipement) comme enregistrement statistique anonyme.
  *
- * Désactivé par défaut (config 'retention'.enabled = 'true' pour activer).
+ * Désactivé par défaut (`retention.enabled`). Les durées viennent du registre
+ * de configuration : une valeur hors bornes y est ramenée à la borne — en
+ * particulier, l'anonymisation ne descend jamais sous le plancher légal de 60
+ * mois, même si une ancienne saisie (« 3 ») est restée en base.
  */
 @Injectable()
 export class RetentionService {
@@ -44,29 +46,11 @@ export class RetentionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: AppConfigService,
+    private readonly settings: ConfigRegistryService,
+    private readonly audit: AuditService,
     private readonly attachments: AttachmentsService,
     private readonly jobTracker: JobTrackerService,
   ) {}
-
-  /**
-   * Lit une durée en mois depuis la config 'retention'.<key>, avec un
-   * plancher optionnel (ex: le plancher légal de 60 mois pour
-   * anonymize_months) : toute valeur — configurée OU par défaut — en dessous
-   * du plancher est relevée, avec un avertissement (une faute de saisie du
-   * type "3" ne doit jamais détruire des preuves à 3 mois).
-   */
-  private async getMonths(key: string, fallback: number, floor?: number): Promise<number> {
-    const raw = await this.config.get('retention', key);
-    const parsed = raw === null ? NaN : parseInt(raw, 10);
-    let months = !Number.isFinite(parsed) || parsed < 1 ? fallback : Math.min(600, parsed); // borne haute 50 ans
-    if (floor !== undefined && months < floor) {
-      this.logger.warn(
-        `retention.${key} = ${months} mois est inférieur au plancher légal de ${floor} mois — ${floor} mois appliqués`,
-      );
-      months = floor;
-    }
-    return months;
-  }
 
   private cutoffDate(months: number): Date {
     const d = new Date();
@@ -92,12 +76,12 @@ export class RetentionService {
 
   /** Prévisualisation : combien de bons seraient anonymisés (aucune modification). */
   async preview(): Promise<RetentionResult> {
-    const months = await this.getMonths('anonymize_months', DEFAULT_ANONYMIZE_MONTHS, ANONYMIZE_MONTHS_FLOOR);
+    const months = await this.settings.getInt('retention.anonymize_months');
     const cutoff = this.cutoffDate(months);
     const eligible = await this.prisma.bon.count({
       where: { AND: [closedBeforeWhere(cutoff), { anonymizedAt: null }] },
     });
-    const attachmentMonths = await this.getMonths('attachment_months', DEFAULT_ATTACHMENT_MONTHS);
+    const attachmentMonths = await this.settings.getInt('retention.attachment_months');
     const oldAttachmentsPurged = await this.countOldAttachments(this.cutoffDate(attachmentMonths));
     return {
       eligible,
@@ -137,11 +121,11 @@ export class RetentionService {
       }
     }
 
-    const months = await this.getMonths('anonymize_months', DEFAULT_ANONYMIZE_MONTHS, ANONYMIZE_MONTHS_FLOOR);
+    const months = await this.settings.getInt('retention.anonymize_months');
     const cutoff = this.cutoffDate(months);
     const eligible = await this.findEligible(cutoff);
 
-    const attachmentMonths = await this.getMonths('attachment_months', DEFAULT_ATTACHMENT_MONTHS);
+    const attachmentMonths = await this.settings.getInt('retention.attachment_months');
     const attachmentCutoff = this.cutoffDate(attachmentMonths);
 
     if (dryRun) {
@@ -186,17 +170,14 @@ export class RetentionService {
       );
     }
 
-    await this.prisma.auditLog.create({
-      data: {
-        userEmail: triggeredByEmail ?? null,
-        action: 'retention_run',
-        details: {
-          trigger,
-          anonymized,
-          purgedTokens,
-          purgedAttachments: attachmentsPurged + oldAttachmentsPurged,
-          dryRun: false,
-        },
+    await this.audit.record('retention_run', {
+      actorEmail: triggeredByEmail ?? null,
+      details: {
+        trigger,
+        anonymized,
+        purgedTokens,
+        purgedAttachments: attachmentsPurged + oldAttachmentsPurged,
+        dryRun: false,
       },
     });
 
@@ -224,8 +205,7 @@ export class RetentionService {
   async cronRetention(): Promise<void> {
     try {
       await this.jobTracker.track<void>(JOB_KEYS.RETENTION, async (): Promise<void | JobOutcome> => {
-        const enabled = await this.config.get('retention', 'enabled');
-        if (enabled !== 'true') return 'skipped';
+        if (!(await this.settings.getBool('retention.enabled'))) return 'skipped';
         this.logger.log('Cron rétention RGPD : démarrage');
         const result = await this.run(false, undefined, 'cron');
         this.logger.log(
@@ -250,21 +230,19 @@ export class RetentionService {
   /**
    * Supprime les signatures dont le token est expiré depuis plus de N jours et
    * qui n'ont jamais été signées (tokens abandonnés).
-   * Config 'retention'.expired_tokens_days (défaut 30).
+   * Réglage `retention.expired_tokens_days` (30 par défaut).
    */
   async purgeExpiredTokens(): Promise<number> {
-    const daysStr = await this.config.get('retention', 'expired_tokens_days');
-    const days = parseInt(daysStr || '30', 10);
+    const days = await this.settings.getInt('retention.expired_tokens_days');
     return purgeExpiredTokensPure(this.prisma, this.logger, days);
   }
 
   /**
    * Supprime les logs d'audit plus anciens que N années.
-   * Config 'retention'.audit_logs_years (défaut 5).
+   * Réglage `retention.audit_logs_years` (5 par défaut).
    */
   async purgeOldAuditLogs(): Promise<number> {
-    const yearsStr = await this.config.get('retention', 'audit_logs_years');
-    const years = parseInt(yearsStr || '5', 10);
+    const years = await this.settings.getInt('retention.audit_logs_years');
     return purgeOldAuditLogsPure(this.prisma, this.logger, years);
   }
 
@@ -279,12 +257,9 @@ export class RetentionService {
 
   /** Statistiques de rétention technique pour le dashboard admin. */
   async getRetentionStats(): Promise<RetentionStats> {
-    const daysStr = await this.config.get('retention', 'expired_tokens_days');
-    const yearsStr = await this.config.get('retention', 'audit_logs_years');
-    const enabled = await this.config.get('retention', 'enabled');
-
-    const days = parseInt(daysStr || '30', 10);
-    const years = parseInt(yearsStr || '5', 10);
+    const days = await this.settings.getInt('retention.expired_tokens_days');
+    const years = await this.settings.getInt('retention.audit_logs_years');
+    const enabled = await this.settings.getBool('retention.enabled');
 
     const tokenCutoff = new Date();
     tokenCutoff.setDate(tokenCutoff.getDate() - days);
@@ -292,11 +267,11 @@ export class RetentionService {
     const auditCutoff = new Date();
     auditCutoff.setFullYear(auditCutoff.getFullYear() - years);
 
-    const attachmentMonths = await this.getMonths('attachment_months', DEFAULT_ATTACHMENT_MONTHS);
+    const attachmentMonths = await this.settings.getInt('retention.attachment_months');
     const attachmentCutoff = this.cutoffDate(attachmentMonths);
 
     return computeRetentionStats(this.prisma, (c) => this.countOldAttachments(c), {
-      enabled: enabled === 'true',
+      enabled,
       expiredTokensDays: days,
       auditLogsYears: years,
       attachmentMonths,

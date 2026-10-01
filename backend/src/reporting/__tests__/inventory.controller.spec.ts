@@ -2,6 +2,7 @@ import { Response } from 'express';
 import { InventoryController } from '../inventory.controller';
 import { InventoryService } from '../inventory.service';
 import { InventoryByCollaborateurQueryDto } from '../dto/inventory-by-collaborateur-query.dto';
+import type { InventoryQueryDto } from '../dto/inventory-query.dto';
 import type { AuthUser } from '../../auth/auth-user.interface';
 
 /**
@@ -62,15 +63,52 @@ describe('InventoryController — liste, selon le rôle', () => {
 
   it('garde le motif de non-restitution pour l’IT', async () => {
     for (const role of ['admin', 'technician'] as const) {
-      const body = await buildController().getInventory({}, { role } as AuthUser);
+      const body = await buildController().getInventory({} as InventoryQueryDto, { role } as AuthUser);
       expect(body.items[0].notReturnedReason).toBe('Perdu en déplacement');
     }
   });
 
   it('retire le motif de non-restitution pour la direction, sans toucher au reste', async () => {
-    const body = await buildController().getInventory({}, { role: 'direction' } as AuthUser);
+    const body = await buildController().getInventory({} as InventoryQueryDto, { role: 'direction' } as AuthUser);
     expect(body.items[0]).toEqual({ ...item, notReturnedReason: null });
     expect(body.total).toBe(1);
     expect(item.notReturnedReason).toBe('Perdu en déplacement');
+  });
+});
+
+/** Export : envoyé par `sendCsv`, comme tous les exports (nom daté à Paris,
+ *  en-têtes lisibles par le navigateur, `X-Truncated` si le fichier est coupé). */
+describe('InventoryController — export CSV', () => {
+  const buildResponse = () => {
+    const headers: Record<string, string> = {};
+    const sent: string[] = [];
+    const res = {
+      setHeader: (k: string, v: string) => { headers[k] = v; },
+      append: (k: string, v: string) => { headers[k] = headers[k] ? `${headers[k]}, ${v}` : v; },
+      send: (body: string) => { sent.push(body); },
+    } as unknown as Response;
+    return { res, headers, sent };
+  };
+
+  const exportWith = async (truncated: boolean) => {
+    const service = { getExportCsv: vi.fn().mockResolvedValue({ csv: 'contenu', truncated }) };
+    const controller = new InventoryController(service as unknown as InventoryService);
+    const response = buildResponse();
+    await controller.exportCsv({} as never, response.res);
+    return response;
+  };
+
+  it('nomme le fichier « inventaire-AAAA-MM-JJ.csv » et expose ses en-têtes au navigateur', async () => {
+    const { headers, sent } = await exportWith(false);
+    expect(headers['Content-Type']).toBe('text/csv; charset=utf-8');
+    expect(headers['Content-Disposition']).toMatch(/^attachment; filename="inventaire-\d{4}-\d{2}-\d{2}\.csv"$/);
+    expect(headers['Access-Control-Expose-Headers']).toContain('X-Truncated');
+    expect(headers['X-Truncated']).toBeUndefined();
+    expect(sent).toEqual(['contenu']);
+  });
+
+  it('signale un fichier coupé par `X-Truncated: true`', async () => {
+    const { headers } = await exportWith(true);
+    expect(headers['X-Truncated']).toBe('true');
   });
 });

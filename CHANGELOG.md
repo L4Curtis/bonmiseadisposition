@@ -4,6 +4,53 @@ Historique des évolutions notables de l'application. Les entrées les plus réc
 
 ---
 
+## 2026-10-02 — Refonte, vague 3 : messages, listes, exports, journal et configuration
+
+### Partout dans l'application
+- **Messages d'erreur clairs** : toutes les erreurs ont la même forme et un message en français, plus précis sur les
+  écrans de gestion (nom déjà pris, filiale encore utilisée, article utilisé dans un pack, action sur un bon annulé…).
+  Un test de connexion ou une relance qui échoue l'affiche en une phrase, avec sa cause, sans mot de passe.
+- **Listes de 25, 50 ou 100 lignes** : bons, contestations, utilisateurs, inventaire, historique d'un équipement
+  (choix mémorisé pour les bons et les contestations).
+- **Exports annoncés** : avant de télécharger, l'application dit combien de lignes le fichier contiendra, avec quels
+  filtres, et prévient s'il dépasse le plafond. Si le fichier a été coupé, un bandeau « Export incomplet » reste
+  affiché jusqu'à ce qu'on le ferme. Fichiers nommés et datés à l'heure de Paris (`historique-equipement-…`,
+  `filiales-…`, `collaborateurs-manuels-…`).
+- **Anciennes adresses encore servies** : les pages restées ouvertes sur l'ancienne version continuent de fonctionner
+  le temps de la transition ; chaque appel est noté pour savoir quand retirer ces anciennes adresses.
+
+### Bons, contestations et tableau de bord
+- **Historique d'un bon** : la fiche montre qui a fait quoi et quand, en phrases claires, sur ordinateur comme sur
+  téléphone.
+- Les liens du tableau de bord (bons créés, clôturés ou annulés sur une période, un bon précis) ouvrent la liste
+  exacte, filtre affiché en pastille.
+- « Exporter ces indicateurs » sur les onglets Parc, Délais et Incidents : le fichier contient les mêmes chiffres que
+  l'écran, pour la période et la filiale choisies.
+- Quand un collègue a déjà pris en charge ou tranché une contestation, l'écran dit qui et quelle décision.
+- Une demande de nouveau lien n'est plus jamais confondue avec un lien déjà renvoyé.
+- Inventaire : une seule étiquette de situation par ligne ; le retard et l'étape du bon apparaissent dessous.
+
+### Journal d'audit
+- **Journal lisible** : chaque ligne est une phrase en français ; les filtres restent dans l'adresse de la page ;
+  l'export CSV donne des dates françaises.
+- **Filiales au journal** : création, modification, désactivation, suppression, logo et cachet, avec le nom de la
+  filiale.
+- Chaque changement de paramètre est inscrit (ancienne → nouvelle valeur, « activé » / « désactivé ») ; un mot de
+  passe n'y figure jamais, il est noté « modifié ».
+- Déverrouiller un compte n'efface plus rien du journal.
+
+### Configuration et comptes
+- **Valeurs appliquées** : chaque réglage laissé vide affiche la valeur réellement utilisée, par exemple « Valeur
+  appliquée : 3 (par défaut) ». Une valeur hors limites est ramenée à la borne la plus proche et l'écran le signale.
+  Le seuil « Signature en retard » suit exactement la valeur affichée.
+- **Désactivation d'un compte AD** : quand l'annuaire Active Directory n'est pas synchronisé, l'administrateur peut
+  désactiver puis réactiver lui-même le compte d'une personne partie, après confirmation ; sa session est coupée
+  immédiatement et l'action est inscrite au journal. L'écran Utilisateurs montre aussi les comptes désactivés.
+- Tests de connexion et emails de test limités à 10 par minute ; un mot de passe masqué renvoyé tel quel n'écrase plus
+  le vrai.
+
+---
+
 ## 2026-09-27 — Refonte, vague 2 : le cycle de vie d'un bon, les documents et le mobile
 
 ### Fiche d'un bon et parcours de l'IT

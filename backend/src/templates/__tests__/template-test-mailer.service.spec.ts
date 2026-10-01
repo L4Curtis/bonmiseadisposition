@@ -50,7 +50,7 @@ describe('TemplateTestMailerService', () => {
       expect.stringContaining('Rappel'),
       '<html>apercu</html>',
     );
-    expect(result).toEqual({ success: true, message: expect.stringContaining('admin@livio.fr') });
+    expect(result).toEqual({ ok: true, message: expect.stringContaining('admin@livio.fr') });
   });
 
   it('records the action in the audit log on success', async () => {
@@ -72,7 +72,7 @@ describe('TemplateTestMailerService', () => {
 
     const result = await service.sendTest('reminder', 'admin@livio.fr');
 
-    expect(result).toEqual({ success: false, message: 'SMTP non configuré' });
+    expect(result).toEqual({ ok: false, message: 'SMTP non configuré' });
   });
 
   it('records the failed attempt in the audit log too', async () => {

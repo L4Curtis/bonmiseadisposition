@@ -175,20 +175,23 @@ export function buildLoanDuration(current: LoanDurationAggregate, previous: Loan
 
 export function buildWaiting(thresholdDays: number, rows: readonly WaitingRow[]): KpiWaiting {
   const byStep = new Map(rows.map((r) => [r.step, r]));
-  const steps: KpiWaitingStep[] = WORKFLOW_STEP_ORDER.map((step) => {
+  const steps: Omit<KpiWaitingStep, 'overdue'>[] = WORKFLOW_STEP_ORDER.map((step) => {
     const row = byStep.get(step);
     return {
       step,
       label: WAITING_STEP_LABELS[step],
       count: toNumber(row?.count),
       avgAgeDays: row?.avgAgeDays == null ? null : toNumber(row.avgAgeDays),
-      overdue: toNumber(row?.overdue),
+      overdueSignatures: toNumber(row?.overdue),
     };
   });
+  const overdueSignatures = steps.reduce((sum, s) => sum + s.overdueSignatures, 0);
 
+  // `overdue` et `overdueTotal` : anciens noms, même valeur, servis pendant la vague 3.
   return {
     thresholdDays,
-    overdueTotal: steps.reduce((sum, s) => sum + s.overdue, 0),
-    steps,
+    overdueSignatures,
+    overdueTotal: overdueSignatures,
+    steps: steps.map((s) => ({ ...s, overdue: s.overdueSignatures })),
   };
 }

@@ -2,16 +2,17 @@ import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { api } from '@/lib/api';
 import { errorMessage } from '@/lib/errors';
-import { todayInParis } from '@/lib/dates';
-import { CSV_EXPORT_SUCCESS, useDownload } from '@/hooks/useDownload';
 import { useActiveFiliales } from '@/hooks/use-active-filiales';
-import { buildBaseFilterEntries, PAGE_LIMIT, type InventoryBaseFilters } from './inventoryFilterParams';
+import type { PageSize } from '@/hooks/usePagination';
+import {
+  buildBaseFilterEntries, readStoredPageSize, storePageSize, type InventoryBaseFilters,
+} from './inventoryFilterParams';
 import { INVENTORY_SORT_FIELDS } from './types';
 import type {
   CompteFilter,
   InventoryItem,
+  InventoryListMeta,
   InventorySituation,
-  InventoryListResponse,
   InventorySort,
   InventorySortField,
   InventorySummary,
@@ -70,8 +71,9 @@ const SEARCH_DEBOUNCE_MS = 300;
  * État + chargement de la page Inventaire : résumé (tuiles), bascule de vue
  * (par équipement / par collaborateur, cf. InventoryViewToggle), liste paginée
  * par équipement avec filtres et tri synchronisés dans l'URL (filialeId,
- * category, search, sansNumeroSerie, horsCatalogue, sort/direction, page, vue), et export CSV
- * (mêmes filtres, même tri). La vue « par collaborateur » a son propre
+ * category, search, sansNumeroSerie, horsCatalogue, sort/direction, page, vue),
+ * taille de page au choix (25, 50, 100, mémorisée), et chemin de l'export CSV
+ * (mêmes filtres, même tri) pour `ExportButton`. La vue « par collaborateur » a son propre
  * chargement (useCollaborateurInventory) mais partage ces mêmes filtres.
  * Isolé de la présentation pour rester testable indépendamment.
  */
@@ -117,7 +119,9 @@ export function useInventory() {
   const [sort, setSortState] = useState<InventorySort | null>(() =>
     readSort(searchParams.get('sort'), searchParams.get('direction')),
   );
-  const { download, downloading: exportLoading } = useDownload();
+  const [pageSize, setPageSizeState] = useState<PageSize>(readStoredPageSize);
+  /** Plafond de l'export annoncé par le serveur (`meta.exportLimit` de la liste). */
+  const [exportLimit, setExportLimit] = useState<number | undefined>(undefined);
 
   const setView = (value: InventoryView) => { setViewState(value); setPage(1); };
   const setFilialeFilter = (value: string) => { setFilialeFilterState(value); setPage(1); };
@@ -127,6 +131,8 @@ export function useInventory() {
   const setMissingSerialFilter = (value: boolean) => { setMissingSerialFilterState(value); setPage(1); };
   const setOffCatalogFilter = (value: boolean) => { setOffCatalogFilterState(value); setPage(1); };
   const setCompteFilter = (value: CompteFilter) => { setCompteFilterState(value); setPage(1); };
+  /** Nombre de lignes par page (25, 50 ou 100), mémorisé pour toutes les listes. */
+  const setPageSize = (size: PageSize) => { setPageSizeState(size); storePageSize(size); setPage(1); };
 
   /** Clic sur l'en-tête d'une colonne : une nouvelle colonne part en
    *  croissant, la colonne déjà triée change de sens. Sans tri choisi, la
@@ -200,14 +206,15 @@ export function useInventory() {
     let ignore = false;
     const params = new URLSearchParams(filterEntries);
     params.set('page', String(page));
-    params.set('limit', String(PAGE_LIMIT));
+    params.set('limit', String(pageSize));
 
     api
-      .get<InventoryListResponse>(`/reporting/inventory?${params}`)
+      .getList<InventoryItem, InventoryListMeta>(`/reporting/inventory?${params}`)
       .then((data) => {
         if (ignore) return;
         setItems(data.items);
         setTotal(data.total);
+        if (data.meta) setExportLimit(data.meta.exportLimit);
       })
       .catch((e: unknown) => {
         if (ignore) return;
@@ -223,21 +230,27 @@ export function useInventory() {
       ignore = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- setSearchParams change à chaque navigation : l'ajouter relancerait la requête en boucle.
-  }, [filialeFilter, categoryFilter, situationFilter, search, overdueFilter, missingSerialFilter, offCatalogFilter, compteFilter, sort, page, reloadKey, view]);
+  }, [filialeFilter, categoryFilter, situationFilter, search, overdueFilter, missingSerialFilter, offCatalogFilter, compteFilter, sort, page, pageSize, reloadKey, view]);
 
-  const handleExport = async (): Promise<void> => {
-    const params = new URLSearchParams(
-      buildFilterEntries({
-        filialeFilter, categoryFilter, situationFilter, search, overdueFilter, missingSerialFilter, offCatalogFilter, sort,
-      }),
-    );
-    await download({
-      path: `/reporting/inventory/export?${params}`,
-      fallbackFilename: `inventaire-${todayInParis()}.csv`,
-      errorMessage: "Erreur lors de l'export CSV.",
-      success: CSV_EXPORT_SUCCESS,
-    });
-  };
+  // Export : mêmes filtres et même tri que la liste par équipement, sans
+  // pagination ; une ligne par équipement quelle que soit la vue.
+  const exportQuery = new URLSearchParams(
+    buildFilterEntries({
+      filialeFilter, categoryFilter, situationFilter, search, overdueFilter, missingSerialFilter, offCatalogFilter, sort,
+    }),
+  ).toString();
+  const exportPath = `/reporting/inventory/export${exportQuery ? `?${exportQuery}` : ''}`;
+
+  /** Nombre d'équipements que contiendra l'export, quand la vue affichée
+   *  n'en donne pas le total (vue par collaborateur) : `total` d'une page de
+   *  la liste par équipement, mêmes filtres. Relève aussi le plafond. */
+  const loadExportCount = useCallback(async (signal: AbortSignal): Promise<number> => {
+    const params = new URLSearchParams(exportQuery);
+    params.set('limit', '25');
+    const data = await api.getList<InventoryItem, InventoryListMeta>(`/reporting/inventory?${params}`, { signal });
+    if (data.meta) setExportLimit(data.meta.exportLimit);
+    return data.total;
+  }, [exportQuery]);
 
   const hasActiveFilters = !!(
     filialeFilter || categoryFilter || situationFilter || search || overdueFilter || missingSerialFilter
@@ -254,6 +267,8 @@ export function useInventory() {
     total,
     page,
     setPage,
+    pageSize,
+    setPageSize,
     loading,
     loadError,
     retry,
@@ -280,8 +295,9 @@ export function useInventory() {
     searchInput,
     setSearchInput,
     resetFilters,
-    exportLoading,
-    handleExport,
+    exportPath,
+    exportLimit,
+    loadExportCount,
     hasActiveFilters,
     baseFilters,
   };

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { errorMessage } from '@/lib/errors';
 import { buildBaseFilterEntries, type InventoryBaseFilters } from './inventoryFilterParams';
-import type { InventoryItem, InventoryListResponse } from './types';
+import type { InventoryItem, InventoryListMeta } from './types';
 
 interface CollaborateurDetailState {
   items: InventoryItem[];
@@ -12,8 +12,8 @@ interface CollaborateurDetailState {
 
 const EMPTY_DETAIL: CollaborateurDetailState = { items: [], loading: false, error: null };
 /** Un seul collaborateur dépasse rarement quelques dizaines d'équipements ;
- *  200 (plafond accepté par l'API) couvre largement le cas réel sans paginer
- *  le détail déplié. */
+ *  200 (la plus grande page admise par l'inventaire, `LargePaginationQueryDto`)
+ *  couvre largement le cas réel sans paginer le détail déplié. */
 const DETAIL_LIMIT = 200;
 
 /**
@@ -33,7 +33,8 @@ export function useCollaborateurDetail(filters: InventoryBaseFilters) {
   useEffect(() => {
     setExpandedIds(new Set());
     setDetailById({});
-  }, [filters.filialeFilter, filters.categoryFilter, filters.situationFilter, filters.search, filters.overdueFilter, filters.missingSerialFilter]);
+  }, [filters.filialeFilter, filters.categoryFilter, filters.situationFilter, filters.search, filters.overdueFilter, filters.missingSerialFilter,
+    filters.offCatalogFilter]);
 
   function loadDetail(collaborateurId: string) {
     setDetailById((prev) => ({ ...prev, [collaborateurId]: { items: [], loading: true, error: null } }));
@@ -43,7 +44,7 @@ export function useCollaborateurDetail(filters: InventoryBaseFilters) {
     params.set('limit', String(DETAIL_LIMIT));
 
     api
-      .get<InventoryListResponse>(`/reporting/inventory?${params}`)
+      .getList<InventoryItem, InventoryListMeta>(`/reporting/inventory?${params}`)
       .then((data) => {
         setDetailById((prev) => ({ ...prev, [collaborateurId]: { items: data.items, loading: false, error: null } }));
       })

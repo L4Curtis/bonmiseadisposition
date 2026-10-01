@@ -61,7 +61,7 @@ function overdueSignaturesHref(filialeId: string | null): string {
 function delayCards(data: DelaisKpiResponse, isIt: boolean, filialeId: string | null): CardDef[] {
   const scope = periodLabel(data.period);
   const remise = data.sendToSignature.mise_disposition;
-  const overdue = data.waiting.overdueTotal;
+  const overdue = data.waiting.overdueSignatures;
   return [
     {
       key: 'creationToSend', label: 'Délai entre création et envoi', value: data.creationToSend.medianHours, format: 'hours',

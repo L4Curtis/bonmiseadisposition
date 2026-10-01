@@ -88,11 +88,11 @@ export function delaisFixture(): DelaisKpiResponse {
     signatureMode: { inPerson: compared(2, 1), remote: compared(9, 8), proxy: compared(1, 0) },
     loanDuration: { count: 5, avgDays: compared(40, 35), medianDays: compared(38, 30) },
     waiting: {
-      thresholdDays: 10, overdueTotal: 3,
+      thresholdDays: 10, overdueSignatures: 3,
       steps: [
-        { step: 'mise_disposition', label: 'Remise à signer', count: 5, avgAgeDays: 4, overdue: 2 },
-        { step: 'restitution', label: 'Restitution à signer', count: 3, avgAgeDays: 12, overdue: 1 },
-        { step: 'pv_cloture', label: 'PV de non-restitution à signer', count: 0, avgAgeDays: null, overdue: 0 },
+        { step: 'mise_disposition', label: 'Remise à signer', count: 5, avgAgeDays: 4, overdueSignatures: 2 },
+        { step: 'restitution', label: 'Restitution à signer', count: 3, avgAgeDays: 12, overdueSignatures: 1 },
+        { step: 'pv_cloture', label: 'PV de non-restitution à signer', count: 0, avgAgeDays: null, overdueSignatures: 0 },
       ],
     },
   };

@@ -23,10 +23,12 @@ vi.setConfig({ testTimeout: 30000 });
 
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>();
+  const { listViaGet } = await import('@/test/api-mock');
+  const get = vi.fn();
   return {
     ...actual,
     api: {
-      get: vi.fn(),
+      get, getList: listViaGet(get),
       post: vi.fn(),
       put: vi.fn(),
       patch: vi.fn(),
@@ -161,7 +163,7 @@ describe('Titre de l’onglet', () => {
 describe('« Mes équipements » à l’adresse /mes-equipements (R5)', () => {
   beforeEach(() => {
     vi.mocked(api.get).mockImplementation((path: string) =>
-      Promise.resolve(path.startsWith('/bons/mes-bons') || path.startsWith('/contestations/mine') ? [] : null),
+      Promise.resolve(path.startsWith('/me/bons') || path.startsWith('/me/contestations') ? [] : null),
     );
   });
 

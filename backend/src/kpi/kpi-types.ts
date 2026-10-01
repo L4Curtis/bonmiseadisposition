@@ -198,11 +198,17 @@ export interface KpiWaitingStep {
   label: string;
   count: number;
   avgAgeDays: number | null;
+  /** « Signature en retard » à cette étape (bons). */
+  overdueSignatures: number;
+  /** @deprecated Ancien nom de `overdueSignatures`, servi pendant la vague 3. */
   overdue: number;
 }
 
 export interface KpiWaiting {
   thresholdDays: number;
+  /** « Signature en retard » : somme des étapes (bons). */
+  overdueSignatures: number;
+  /** @deprecated Ancien nom de `overdueSignatures`, servi pendant la vague 3. */
   overdueTotal: number;
   steps: KpiWaitingStep[];
 }

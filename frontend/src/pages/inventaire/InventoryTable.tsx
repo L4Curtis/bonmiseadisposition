@@ -1,17 +1,16 @@
 import { Link } from 'react-router';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { StatusBadge } from '@/components/StatusBadge';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/useMediaQuery';
 import { formatDate } from '@/lib/dates';
 import { ageLabel } from '@/pages/dashboard/lib/kpi-scope';
-import { AlertTriangle, Boxes, X } from 'lucide-react';
+import { Boxes, X } from 'lucide-react';
 import { equipmentOverdueDays } from './dateMetrics';
 import { filledSerial } from './serial';
 import { InventorySortHeader } from './InventorySortHeader';
 import { InventoryRowActions } from './InventoryRowActions';
-import { SITUATION_CLASSES } from './situationStyles';
+import { SituationCell } from './SituationCell';
 import { InventoryCardList } from './InventoryCardList';
 import type { InventoryItem, InventorySort, InventorySortField } from './types';
 
@@ -182,37 +181,21 @@ export function InventoryTable({
                       {it.filiale.displayName}
                     </td>
                     <td className="px-4 py-3.5">
-                      <span
-                        className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${SITUATION_CLASSES[it.situation]}`}
-                      >
-                        {it.situationLabel}
-                      </span>
-                      {it.notReturnedReason && (
-                        <div className="mt-1 text-[11px] text-muted-foreground">{it.notReturnedReason}</div>
-                      )}
-                      {retardJours !== null && (
-                        <div className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-destructive">
-                          <AlertTriangle className="h-3 w-3" aria-hidden="true" />
-                          {`Retard ${retardJours} j`}
-                        </div>
-                      )}
+                      <SituationCell item={it} />
                     </td>
                     <td className="px-4 py-3.5">
                       {canLinkToBon ? (
                         <Link
                           to={`/bons/${it.bonId}`}
-                          className="inline-block bg-muted text-foreground/80 font-mono text-xs font-medium px-2 py-0.5 rounded hover:underline"
+                          className="inline-block whitespace-nowrap bg-muted text-foreground/80 font-mono text-xs font-medium px-2 py-0.5 rounded hover:underline"
                         >
                           {it.bonReference}
                         </Link>
                       ) : (
-                        <span className="inline-block bg-muted text-foreground/80 font-mono text-xs font-medium px-2 py-0.5 rounded">
+                        <span className="inline-block whitespace-nowrap bg-muted text-foreground/80 font-mono text-xs font-medium px-2 py-0.5 rounded">
                           {it.bonReference}
                         </span>
                       )}
-                      <div className="mt-1">
-                        <StatusBadge status={it.bonStatus} />
-                      </div>
                     </td>
                     <td className="px-4 py-3.5 hidden lg:table-cell whitespace-nowrap">
                       <div className="text-muted-foreground">{formatDate(it.dateMiseDisposition)}</div>

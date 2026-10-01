@@ -15,6 +15,7 @@ La documentation est rangée par lecteur, avec une seule source par sujet :
 |---|---|
 | [README](../README.md) | Ce qu'est l'application, démarrage rapide d'un poste de développement, outils de la base de dev |
 | [Architecture](architecture.md) | Vue d'ensemble, vocabulaire, modules du backend, structure du frontend, rôles et droits, cycle de vie d'un bon, carte des routes d'API, pièges connus |
+| [Conventions d'API](api-conventions.md) | Forme unique des erreurs et des listes, pagination, verbes, alias dépréciés, journal d'audit, registre de configuration, adresse du client, en-têtes de sécurité |
 | [Conventions du frontend](frontend-guide.md) | Appels d'API, listes, dates, libellés, formulaires, accessibilité, mobile |
 | [Tests](testing-guide.md) | Tests unitaires backend et frontend, base réelle, contrat HTTP, bout en bout |
 | [Guide du testeur](../e2e/recette/GUIDE-TESTEUR.md) | Banc de recette jetable (`bmad-recette`) : démarrage, comptes par rôle, jeu de données, gabarit Playwright, format du rapport |
@@ -38,6 +39,7 @@ La documentation est rangée par lecteur, avec une seule source par sujet :
 | Qui a le droit de faire quoi ? | [Architecture, § 5](architecture.md#5-rôles-et-droits) ; route par route : [`route-access.md`](../backend/src/auth/__tests__/__snapshots__/route-access.md), tenu à jour par un test ; règles : [Sécurité](security.md) |
 | Comment un bon passe-t-il d'un statut à l'autre ? | [Architecture, § 6](architecture.md#6-cycle-de-vie-dun-bon) |
 | Quelle route, pour quels rôles ? | [Architecture, § 7](architecture.md#7-carte-des-routes-dapi) |
+| Quelle forme pour une erreur, une liste ? Comment déplacer une route ? | [Conventions d'API](api-conventions.md) |
 | Quels pièges éviter (SQL, fuseau horaire, migrations) ? | [Architecture, § 8](architecture.md#8-pièges-connus-et-conventions) |
 | Quel mot employer à l'écran ? | [Architecture, § 2](architecture.md#2-vocabulaire) |
 | Comment écrire et lancer un test ? | [Tests](testing-guide.md) |

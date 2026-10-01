@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { resetActiveFilialesForTests } from '@/hooks/use-active-filiales';
 import { DashboardPage } from '../DashboardPage';
@@ -11,6 +11,8 @@ vi.mock('@/lib/api', async (importOriginal) => {
     ...actual,
     api: {
       get: vi.fn(),
+      getList: vi.fn(),
+      getFile: vi.fn(),
       post: vi.fn(),
       put: vi.fn(),
       patch: vi.fn(),
@@ -21,6 +23,9 @@ vi.mock('@/lib/api', async (importOriginal) => {
     },
   };
 });
+
+// Le téléchargement lui-même (lien temporaire) n'existe pas dans jsdom.
+vi.mock('@/lib/download', () => ({ saveBlob: vi.fn() }));
 
 import { api } from '@/lib/api';
 
@@ -49,9 +54,11 @@ beforeEach(() => {
   vi.resetAllMocks();
   resetActiveFilialesForTests();
   mockRole = 'admin';
+  // Les listes passent par `getList` ; les réponses sont décrites par `get`.
+  vi.mocked(api.getList).mockImplementation((path: string) => api.get(path));
   vi.mocked(api.get).mockImplementation((path: string) => {
+    if (path.startsWith('/bons?')) return Promise.resolve({ items: [], total: 0, page: 1, limit: 25, truncated: false });
     if (path.startsWith('/kpi/aujourdhui')) return Promise.resolve(todayFixture());
-    if (path.startsWith('/bons/recent')) return Promise.resolve([]);
     if (path.startsWith('/filiales/active')) return Promise.resolve([]);
     return Promise.resolve(null);
   });
@@ -97,18 +104,64 @@ describe('DashboardPage', () => {
     expect(screen.queryByText(/à traiter, le parc/)).not.toBeInTheDocument();
   });
 
+  describe('« Exporter ces indicateurs » (un export par onglet)', () => {
+    beforeEach(() => {
+      mockRole = 'direction';
+      vi.mocked(api.get).mockImplementation((path: string) => {
+        if (path.startsWith('/filiales/active')) return Promise.resolve([{ id: 'f1', name: 'nord', displayName: 'Bâtir Nord' }]);
+        return new Promise(() => {});
+      });
+      vi.mocked(api.getFile).mockResolvedValue({ blob: new Blob(['a']), filename: 'indicateurs.csv', truncated: false });
+    });
+
+    it.each([
+      ['parc', 'Parc'],
+      ['delais', 'Délais'],
+      ['incidents', 'Incidents'],
+    ])('onglet %s : annonce l’onglet, la période et la filiale, puis exporte avec elles', async (tab, label) => {
+      const { user } = renderWithProviders(<DashboardPage />, {
+        route: `/dashboard?tab=${tab}&from=2026-08-27&to=2026-09-25&filialeId=f1`,
+      });
+
+      await user.click(await screen.findByRole('button', { name: 'Exporter ces indicateurs' }));
+      const dialog = await screen.findByRole('dialog');
+      await waitFor(() => expect(dialog).toHaveTextContent(
+        `Filtres : Onglet : ${label} ; Période : du 27/08/2026 au 25/09/2026 ; Filiale : Bâtir Nord`,
+      ));
+      expect(api.getFile).not.toHaveBeenCalled();
+
+      await user.click(within(dialog).getByRole('button', { name: /^Exporter$/ }));
+      await waitFor(() => expect(api.getFile).toHaveBeenCalledWith(
+        `/kpi/${tab}/export?from=2026-08-27&to=2026-09-25&filialeId=f1`,
+      ));
+    });
+
+    it('« Aujourd’hui » n’a pas d’export d’indicateurs', async () => {
+      mockRole = 'admin';
+      vi.mocked(api.get).mockImplementation((path: string) => {
+        if (path.startsWith('/kpi/aujourdhui')) return Promise.resolve(todayFixture());
+            if (path.startsWith('/filiales/active')) return Promise.resolve([]);
+        return Promise.resolve(null);
+      });
+      renderWithProviders(<DashboardPage />);
+      await screen.findByText('Signatures attendues');
+      expect(screen.queryByRole('button', { name: 'Exporter ces indicateurs' })).not.toBeInTheDocument();
+    });
+  });
+
   describe('liste d’un chiffre (?liste=…)', () => {
     const listResponse = {
-      indicateur: 'bons_annules',
-      period: { from: '2026-08-27', to: '2026-09-25' },
       items: [{
         id: 'b1', bonId: 'b1', reference: 'BON-2026-0012', status: 'cancelled', collaborateur: 'Léa Martin',
         filiale: 'Bâtir Nord', at: '2026-09-20T08:30:00.000Z', detail: 'Doublon',
       }],
-      total: 1, page: 1, limit: 50,
+      total: 1, page: 1, limit: 50, truncated: false,
+      meta: { indicateur: 'bons_annules', period: { from: '2026-08-27', to: '2026-09-25' } },
     };
 
     beforeEach(() => {
+      // La liste passe par `getList` ; les réponses sont décrites par `get`.
+      vi.mocked(api.getList).mockImplementation((path: string) => api.get(path));
       vi.mocked(api.get).mockImplementation((path: string) => {
         if (path.startsWith('/kpi/liste')) return Promise.resolve(listResponse);
         if (path.startsWith('/filiales/active')) return Promise.resolve([]);

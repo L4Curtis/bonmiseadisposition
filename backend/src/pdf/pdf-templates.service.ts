@@ -3,6 +3,7 @@ import { instanceToPlain, plainToInstance } from 'class-transformer';
 import { validateSync } from 'class-validator';
 import { AppConfigService } from '../config/config.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { writeAuditEntry } from '../audit/audit-record';
 import { UpdatePdfTemplateDto } from './dto/update-pdf-template.dto';
 import {
   DEFAULT_CONFIGS,
@@ -73,12 +74,9 @@ export class PdfTemplatesService {
     const json = JSON.stringify(config);
     await this.configService.set(CATEGORY, id, json, { updatedById });
 
-    await this.prisma.auditLog.create({
-      data: {
-        action: 'pdf_template_updated',
-        userId: updatedById ?? null,
-        details: { templateId: id },
-      },
+    await writeAuditEntry(this.prisma, 'pdf_template_updated', {
+      actorId: updatedById ?? null,
+      details: { templateId: id, name: this.getTemplateById(id).name },
     });
 
     this.logger.log(`Modèle PDF "${id}" mis à jour par ${updatedById ?? 'inconnu'}`);
@@ -89,12 +87,9 @@ export class PdfTemplatesService {
     await this.prisma.appConfig.deleteMany({ where: { category: CATEGORY, key: id } });
     this.configService.invalidateCache(CATEGORY, id);
 
-    await this.prisma.auditLog.create({
-      data: {
-        action: 'pdf_template_reset',
-        userId: userId ?? null,
-        details: { templateId: id },
-      },
+    await writeAuditEntry(this.prisma, 'pdf_template_reset', {
+      actorId: userId ?? null,
+      details: { templateId: id, name: this.getTemplateById(id).name },
     });
 
     this.logger.log(`Modèle PDF "${id}" réinitialisé par ${userId ?? 'inconnu'}`);
@@ -147,12 +142,9 @@ export class PdfTemplatesService {
     }
 
     if (imported > 0) {
-      await this.prisma.auditLog.create({
-        data: {
-          action: 'pdf_templates_imported',
-          userId: updatedById ?? null,
-          details: { imported, skipped },
-        },
+      await writeAuditEntry(this.prisma, 'pdf_templates_imported', {
+        actorId: updatedById ?? null,
+        details: { imported, skipped },
       });
     }
 

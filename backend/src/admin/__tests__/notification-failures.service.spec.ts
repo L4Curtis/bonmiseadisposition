@@ -28,14 +28,15 @@ describe('NotificationFailuresService', () => {
         type: 'reminder',
         sentAt: new Date('2026-09-11T08:00:00Z'),
         errorMessage: null,
-        bon: null,
+        bon: { id: 'bon-2', reference: 'BON-2026-0002' },
       },
     ]);
 
     const result = await service.getFailedNotifications();
 
-    expect(result.count).toBe(2);
-    expect(result.windowDays).toBe(30);
+    expect(result.total).toBe(2);
+    expect(result.truncated).toBe(false);
+    expect(result.meta).toEqual({ windowDays: 30 });
     expect(result.items).toEqual([
       {
         id: 'nl-1',
@@ -43,16 +44,16 @@ describe('NotificationFailuresService', () => {
         reference: 'BON-2026-0001',
         recipient: 'jean.dupont@exemple.fr',
         type: 'mise_dispo_request',
-        sentAt: new Date('2026-09-10T08:00:00Z'),
+        sentAt: '2026-09-10T08:00:00.000Z',
         error: 'SMTP timeout',
       },
       {
         id: 'nl-2',
-        bonId: null,
-        reference: '—',
+        bonId: 'bon-2',
+        reference: 'BON-2026-0002',
         recipient: 'marie.martin@exemple.fr',
         type: 'reminder',
-        sentAt: new Date('2026-09-11T08:00:00Z'),
+        sentAt: '2026-09-11T08:00:00.000Z',
         error: '',
       },
     ]);
@@ -81,6 +82,15 @@ describe('NotificationFailuresService', () => {
 
     const result = await service.getFailedNotifications();
 
-    expect(result.windowDays).toBe(30);
+    expect(result.meta).toEqual({ windowDays: 30 });
+  });
+
+  it('signale une liste tronquée quand la fenêtre compte plus d’échecs que la page n’en montre', async () => {
+    prisma.notificationLog.count.mockResolvedValue(250);
+    prisma.notificationLog.findMany.mockResolvedValue([]);
+
+    const result = await service.getFailedNotifications(7);
+
+    expect(result).toMatchObject({ total: 250, limit: 100, truncated: true, meta: { windowDays: 7 } });
   });
 });

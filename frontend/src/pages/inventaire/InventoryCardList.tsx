@@ -1,12 +1,10 @@
 import { Link } from 'react-router';
-import { AlertTriangle } from 'lucide-react';
-import { StatusBadge } from '@/components/StatusBadge';
 import { cn } from '@/lib/utils';
 import { formatDate } from '@/lib/dates';
 import { equipmentOverdueDays } from './dateMetrics';
 import { filledSerial } from './serial';
 import { InventoryRowActions } from './InventoryRowActions';
-import { SITUATION_CLASSES } from './situationStyles';
+import { SituationCell } from './SituationCell';
 import type { InventoryItem } from './types';
 
 interface InventoryCardListProps {
@@ -33,18 +31,7 @@ function InventoryCard({ item, canLinkToBon }: { item: InventoryItem; canLinkToB
         </div>
         <InventoryRowActions item={item} canLinkToBon={canLinkToBon} touch />
       </div>
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${SITUATION_CLASSES[item.situation]}`}>
-          {item.situationLabel}
-        </span>
-        {retardJours !== null && (
-          <span className="flex items-center gap-1 text-[11px] font-semibold text-destructive">
-            <AlertTriangle className="h-3 w-3" aria-hidden="true" />
-            {`Retard ${retardJours} j`}
-          </span>
-        )}
-        {item.notReturnedReason && <span className="text-[11px] text-muted-foreground">{item.notReturnedReason}</span>}
-      </div>
+      <SituationCell item={item} />
       <p className="text-sm text-foreground/80">
         {item.collaborateur.displayName}
         <span className="text-xs text-muted-foreground"> · {item.filiale.displayName}</span>
@@ -57,7 +44,6 @@ function InventoryCard({ item, canLinkToBon }: { item: InventoryItem; canLinkToB
         ) : (
           reference
         )}
-        <StatusBadge status={item.bonStatus} />
         <span>{`remis le ${formatDate(item.dateMiseDisposition)}`}</span>
         {item.dateRestitution && <span>{`retour prévu le ${formatDate(item.dateRestitution)}`}</span>}
       </div>

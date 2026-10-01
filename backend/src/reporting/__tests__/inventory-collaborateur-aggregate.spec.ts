@@ -81,9 +81,9 @@ describe('groupInventoryByCollaborateur', () => {
 });
 
 describe('sortCollaborateurGroups', () => {
-  const alice = { collaborateurId: 'u-2', displayName: 'Alice Martin', email: null, department: null, filiale: null, active: true, count: 5, overdueCount: 0, oldestDateMiseDisposition: new Date('2026-03-01'), oldestAgeDays: 10 };
-  const jean = { collaborateurId: 'u-1', displayName: 'Jean Dupont', email: null, department: null, filiale: null, active: true, count: 5, overdueCount: 0, oldestDateMiseDisposition: new Date('2026-01-05'), oldestAgeDays: 100 };
-  const zoe = { collaborateurId: 'u-3', displayName: 'Zoé Petit', email: null, department: null, filiale: null, active: true, count: 9, overdueCount: 2, oldestDateMiseDisposition: new Date('2026-06-01'), oldestAgeDays: 5 };
+  const alice = { collaborateurId: 'u-2', displayName: 'Alice Martin', email: null, department: null, filiale: null, active: true, count: 5, overdueReturns: 0, overdueCount: 0, oldestDateMiseDisposition: new Date('2026-03-01'), oldestAgeDays: 10 };
+  const jean = { collaborateurId: 'u-1', displayName: 'Jean Dupont', email: null, department: null, filiale: null, active: true, count: 5, overdueReturns: 0, overdueCount: 0, oldestDateMiseDisposition: new Date('2026-01-05'), oldestAgeDays: 100 };
+  const zoe = { collaborateurId: 'u-3', displayName: 'Zoé Petit', email: null, department: null, filiale: null, active: true, count: 9, overdueReturns: 2, overdueCount: 2, oldestDateMiseDisposition: new Date('2026-06-01'), oldestAgeDays: 5 };
 
   it('trie par "count" décroissant par défaut, égalité départagée par ordre alphabétique du nom', () => {
     const result = sortCollaborateurGroups([alice, jean, zoe]);

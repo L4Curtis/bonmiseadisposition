@@ -9,6 +9,10 @@ describe('sanitizeAuditDetails', () => {
     expect(result).toEqual({ bonId: 'bon-1' });
   });
 
+  it('retire l’adresse du compte visé (targetEmail)', () => {
+    expect(sanitizeAuditDetails({ targetEmail: 'marie@livio.fr', from: 'collaborator' })).toEqual({ from: 'collaborator' });
+  });
+
   it('returns the original value unchanged when no PII key is present (cas limite)', () => {
     const details = { bonId: 'bon-1', count: 3 };
 

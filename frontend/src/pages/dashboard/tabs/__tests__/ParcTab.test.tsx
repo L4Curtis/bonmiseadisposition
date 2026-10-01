@@ -174,12 +174,11 @@ describe('ParcTab', () => {
     expect(screen.queryByRole('link', { name: /Ouvrir le bon/ })).not.toBeInTheDocument();
   });
 
-  it('exporte le CSV de l’inventaire avec le filtre filiale courant', async () => {
+  it('n’exporte plus l’inventaire : l’onglet exporte ses indicateurs (en tête de page)', async () => {
     mockGet('/kpi/parc', parcFixture());
-    vi.mocked(api.getFile).mockResolvedValue({ blob: new Blob(['a'], { type: 'text/csv' }), filename: 'export.csv', truncated: false });
-    const { user } = renderWithProviders(<ParcTab />, { route: `${ROUTE}&filialeId=f1` });
-    await user.click(await screen.findByRole('button', { name: /Exporter l'inventaire de la filiale \(CSV\)/ }));
-    expect(api.getFile).toHaveBeenCalledWith('/reporting/inventory/export?filialeId=f1');
+    renderWithProviders(<ParcTab />, { route: `${ROUTE}&filialeId=f1` });
+    await screen.findByText('Modèles les plus prêtés');
+    expect(screen.queryByRole('button', { name: /Exporter l'inventaire/ })).not.toBeInTheDocument();
   });
 
   it('montre une erreur avec « Réessayer »', async () => {

@@ -1,5 +1,6 @@
 import { Search, ScanBarcode, Tag, UserX, X } from 'lucide-react';
 import type { Filiale } from '@/types';
+import { LATENESS_LABELS } from '@/domain/labels';
 import type { CompteFilter, InventoryCategorySummary, InventorySituationSummary } from './types';
 
 interface InventoryFiltersProps {
@@ -134,11 +135,13 @@ export function InventoryFilters({
 
       {overdueFilter && (
         <button
+          type="button"
           onClick={onClearOverdue}
-          className="inline-flex items-center gap-1 rounded-full border border-destructive/30 bg-destructive/10 px-2.5 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/15"
+          aria-label={`Retirer le filtre « ${LATENESS_LABELS.return} »`}
+          className="inline-flex min-h-11 items-center gap-1 rounded-full border border-destructive/30 bg-destructive/10 px-2.5 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/15 sm:min-h-0"
         >
-          Retards uniquement
-          <X className="h-3 w-3" />
+          {LATENESS_LABELS.return}
+          <X className="h-3 w-3" aria-hidden="true" />
         </button>
       )}
 

@@ -5,10 +5,12 @@ import { createMemoryRouter, RouterProvider, useLocation } from 'react-router';
 
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>();
+  const { listViaGet } = await import('@/test/api-mock');
+  const get = vi.fn();
   return {
     ...actual,
     api: {
-      get: vi.fn(),
+      get, getList: listViaGet(get),
       post: vi.fn(),
       put: vi.fn(),
       patch: vi.fn(),

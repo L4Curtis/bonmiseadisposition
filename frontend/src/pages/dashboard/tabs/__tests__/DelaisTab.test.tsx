@@ -170,7 +170,7 @@ describe('DelaisTab', () => {
     mockGet('/kpi/delais', delaisFixture());
     renderWithProviders(<DelaisTab />, { route: ROUTE });
     const table = await screen.findByRole('table', { name: 'Signatures attendues par document' });
-    expect(within(table).getByText('En retard (plus de 10 j)')).toBeInTheDocument();
+    expect(within(table).getByText('Signature en retard (plus de 10 j)')).toBeInTheDocument();
     expect(within(table).getByText('Remise à signer')).toBeInTheDocument();
   });
 });

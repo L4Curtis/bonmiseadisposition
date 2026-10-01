@@ -2,6 +2,8 @@ import { BadRequestException } from '@nestjs/common';
 import { RetentionService } from '../retention.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
 import { createMockConfigService, createMockJobTrackerService } from '../../common/__tests__/helpers/mock-services';
+import { ConfigRegistryService } from '../../config/config-registry.service';
+import { AuditService } from '../../audit/audit.service';
 import type { Mock } from 'vitest';
 import * as fsPromisesModule from 'fs/promises';
 
@@ -23,7 +25,14 @@ describe('RetentionService', () => {
     config = createMockConfigService();
     attachments = { purgeForBon: vi.fn().mockResolvedValue(2) };
     jobTracker = createMockJobTrackerService();
-    service = new RetentionService(prisma as never, config as never, attachments as never, jobTracker as never);
+    service = new RetentionService(
+      prisma as never,
+      config as never,
+      new ConfigRegistryService(config as never, {}),
+      new AuditService(prisma as never),
+      attachments as never,
+      jobTracker as never,
+    );
 
     // Modèles utilisés par anonymizeBon / purgeOldAttachments non présents (ou
     // sans défaut) dans le mock Prisma partagé — complétés ici localement.
@@ -152,6 +161,11 @@ describe('RetentionService', () => {
       expect(prisma.contestation.updateMany).toHaveBeenCalledWith({
         where: { bonId: 'b1' },
         data: { message: '[anonymisé]' },
+      });
+      // La réponse de l'équipe à la contestation peut nommer le collaborateur.
+      expect(prisma.contestation.updateMany).toHaveBeenCalledWith({
+        where: { bonId: 'b1', resolutionMessage: { not: null } },
+        data: { resolutionMessage: '[anonymisé]' },
       });
       // FK userId réassignée vers le compte technique (pas seulement le texte) :
       // Contestation/AuditLog chargés avec `include: user` ailleurs réexposeraient
@@ -339,9 +353,7 @@ describe('RetentionService', () => {
 
   describe('anonymize_months — plancher légal (60 mois)', () => {
     it('raises a below-floor configured value to 60 months', async () => {
-      asMock(config.get).mockImplementation((cat: string, key: string) =>
-        Promise.resolve(key === 'anonymize_months' ? '3' : null),
-      );
+      await config.set('retention', 'anonymize_months', '3');
       asMock(prisma.bon.count).mockResolvedValue(0);
 
       const r = await service.preview();
@@ -385,9 +397,7 @@ describe('RetentionService', () => {
 
   describe('getRetentionStats', () => {
     it('includes the attachment retention config and purgeable count', async () => {
-      asMock(config.get).mockImplementation((cat: string, key: string) =>
-        Promise.resolve(key === 'attachment_months' ? '18' : null),
-      );
+      await config.set('retention', 'attachment_months', '18');
       asMock(prisma.attachment.count).mockResolvedValue(7);
 
       const stats = await service.getRetentionStats();

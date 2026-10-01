@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { MonitoringService } from '../monitoring.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { AppConfigService } from '../../config/config.service';
+import { ConfigRegistryService } from '../../config/config-registry.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
 import { createMockConfigService } from '../../common/__tests__/helpers/mock-services';
 import { JOB_REGISTRY } from '../job-registry';
@@ -22,7 +22,7 @@ describe('MonitoringService', () => {
       providers: [
         MonitoringService,
         { provide: PrismaService, useValue: prisma },
-        { provide: AppConfigService, useValue: configService },
+        { provide: ConfigRegistryService, useValue: new ConfigRegistryService(configService as never, {}) },
       ],
     }).compile();
 
@@ -171,6 +171,26 @@ describe('MonitoringService', () => {
 
       // Repli 6h → seuil 12h ; 13h > 12h → en retard
       expect(status.jobs.find((j) => j.job === 'ldap-sync')?.late).toBe(true);
+    });
+
+    it('ne la déclare pas en retard avant 12 h quand l’intervalle configuré est plus court que le passage de 6 h', async () => {
+      configService.set('ldap', 'sync_interval_hours', '1');
+      prisma.scheduledJobRun.findMany.mockResolvedValue([
+        {
+          job: 'ldap-sync',
+          lastStartedAt: new Date(Date.now() - 7 * 60 * 60 * 1000),
+          lastFinishedAt: new Date(Date.now() - 7 * 60 * 60 * 1000),
+          lastStatus: 'success',
+          lastError: null,
+          lastDurationMs: 1000,
+          updatedAt: new Date(),
+        },
+      ]);
+
+      const status = await service.getAdminStatus();
+
+      // Passage réel toutes les 6 h : seuil 12 h, pas 2 h.
+      expect(status.jobs.find((j) => j.job === 'ldap-sync')?.late).toBe(false);
     });
 
     it("n'affecte pas le seuil des autres tâches", async () => {

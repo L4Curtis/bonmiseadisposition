@@ -6,6 +6,7 @@ import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { AttachmentsService } from '../attachments/attachments.service';
 import { sanitizeAuditDetails } from './audit-sanitizer';
+import { writeAuditEntry } from '../audit/audit-record';
 import { SIGNATURES_DIR } from '../common/storage-paths';
 
 const ANONYMIZED_EMAIL = 'anonymise@rgpd.local';
@@ -117,7 +118,12 @@ export async function anonymizeBon(
       data: { recipientEmail: ANONYMIZED_EMAIL },
     });
 
+    // Texte du collaborateur et réponse de l'équipe : tous deux peuvent le nommer.
     await tx.contestation.updateMany({ where: { bonId }, data: { message: '[anonymisé]' } });
+    await tx.contestation.updateMany({
+      where: { bonId, resolutionMessage: { not: null } },
+      data: { resolutionMessage: '[anonymisé]' },
+    });
     await tx.smbExport.updateMany({ where: { bonId }, data: { filename: 'anonymise.pdf' } });
 
     // Journaux d'audit liés au bon : IP/UA systématiquement purgés ; l'email
@@ -156,13 +162,10 @@ export async function anonymizeBon(
       },
     });
 
-    await tx.auditLog.create({
-      data: {
-        bonId,
-        userEmail: triggeredByEmail ?? null,
-        action: 'bon_anonymized',
-        details: { reason: 'retention_rgpd' },
-      },
+    await writeAuditEntry(tx, 'bon_anonymized', {
+      bonId,
+      actorEmail: triggeredByEmail ?? null,
+      details: { reason: 'retention_rgpd' },
     });
   });
 

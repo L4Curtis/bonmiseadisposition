@@ -60,12 +60,14 @@ export interface WaitingStep {
   label: string;
   count: number;
   avgAgeDays: number | null;
-  overdue: number;
+  /** « Signature en retard » à cette étape (bons). */
+  overdueSignatures: number;
 }
 
 export interface Waiting {
   thresholdDays: number;
-  overdueTotal: number;
+  /** « Signature en retard » : somme des étapes (bons). */
+  overdueSignatures: number;
   steps: WaitingStep[];
 }
 

@@ -4,11 +4,7 @@ export interface SmbExportResult {
   error?: string;
 }
 
-export interface SmbStatus {
-  enabled: boolean;
-  total?: number;
-  success?: number;
-  failed?: number;
-  pending?: number;
-  lastSuccessAt?: Date | null;
-}
+/** État de la copie réseau : aucun compteur quand elle est désactivée. */
+export type SmbStatus =
+  | { enabled: false }
+  | { enabled: true; total: number; success: number; failed: number; pending: number; lastSuccessAt: Date | null };

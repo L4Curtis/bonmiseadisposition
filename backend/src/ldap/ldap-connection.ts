@@ -19,10 +19,10 @@ import * as ldap from 'ldapjs';
  * incohérence dangereuse : l'URL suffit à chiffrer, tlsOptions ci-dessous
  * s'applique quand même.
  */
-export function buildLdapClientOptions(url: string, useSsl: string | null): ldap.ClientOptions {
+export function buildLdapClientOptions(url: string, useSsl: boolean): ldap.ClientOptions {
   const isLdapsUrl = /^ldaps:\/\//i.test(url);
 
-  if (useSsl === 'true' && !isLdapsUrl) {
+  if (useSsl && !isLdapsUrl) {
     throw new Error(
       "Configuration LDAP incohérente : SSL/TLS est activé mais l'URL LDAP ne commence pas par « ldaps:// ». " +
       'Utilisez une URL de la forme ldaps://<FQDN du contrôleur de domaine>:636.',
@@ -42,7 +42,7 @@ export function buildLdapClientOptions(url: string, useSsl: string | null): ldap
 
 /** Crée le client ldapjs et attache un handler d'erreur (les erreurs de
  *  connexion réelles remontent via le callback de bind()). */
-export function createLdapClient(url: string, useSsl: string | null, logger: Logger): ldap.Client {
+export function createLdapClient(url: string, useSsl: boolean, logger: Logger): ldap.Client {
   const client = ldap.createClient(buildLdapClientOptions(url, useSsl));
 
   // Always attach an error handler to prevent unhandled 'error' event crashes.

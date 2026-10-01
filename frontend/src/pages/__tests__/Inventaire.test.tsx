@@ -10,6 +10,8 @@ vi.mock('@/lib/api', async (importOriginal) => {
     ...actual,
     api: {
       get: vi.fn(),
+      getList: vi.fn(),
+      getFile: vi.fn(),
       post: vi.fn(),
       put: vi.fn(),
       patch: vi.fn(),
@@ -52,6 +54,7 @@ const summary = {
     { situation: 'en_circulation', label: 'En circulation', count: 7 },
     { situation: 'en_litige', label: 'En litige', count: 0 },
   ],
+  overdueReturns: 2,
   overdue: 2,
 };
 
@@ -76,7 +79,9 @@ const listResponse = {
   ],
   total: 1,
   page: 1,
-  limit: 50,
+  limit: 25,
+  truncated: false,
+  meta: { exportLimit: 10000 },
 };
 
 const collaborateurResponse = {
@@ -88,6 +93,7 @@ const collaborateurResponse = {
       department: null,
       filiale: { id: 'f1', name: 'Paris', displayName: 'Paris' },
       count: 3,
+      overdueReturns: 1,
       overdueCount: 1,
       oldestDateMiseDisposition: '2026-01-01T00:00:00.000Z',
       oldestAgeDays: 260,
@@ -113,6 +119,8 @@ beforeEach(() => {
   resetActiveFilialesForTests();
   mockRole = 'technician';
   mockApiGet();
+  // Les listes passent par `getList` ; les réponses sont décrites par `get`.
+  vi.mocked(api.getList).mockImplementation((path: string) => api.get(path));
 });
 
 describe('InventairePage', () => {
@@ -153,7 +161,7 @@ describe('InventairePage', () => {
         .at(-1);
       expect(lastCall).toContain('overdue=1');
     });
-    expect(await screen.findByText('Retards uniquement')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Retirer le filtre « Retour en retard »' })).toBeInTheDocument();
   });
 
   it('cliquer sur la tuile « Remise à signer » filtre la liste sur cette situation', async () => {
@@ -183,7 +191,7 @@ describe('InventairePage', () => {
 
     renderWithProviders(<InventairePage />);
 
-    expect(await screen.findByText(/Retard \d+ j/)).toBeInTheDocument();
+    expect(await screen.findByText(/^Retour en retard · \d+ j$/)).toBeInTheDocument();
   });
 
   it('bascule vers la vue « Par collaborateur » au clic et charge le regroupement', async () => {
@@ -234,13 +242,42 @@ describe('InventairePage', () => {
     expect(screen.getByRole('tab', { name: 'Par collaborateur' })).toHaveAttribute('data-state', 'active');
   });
 
-  it('précise que l\'export CSV reste au détail par équipement quand la vue collaborateur est active', async () => {
-    const { user } = renderWithProviders(<InventairePage />);
+  it('avant l’export, annonce le nombre d’équipements et les filtres actifs', async () => {
+    const { user } = renderWithProviders(<InventairePage />, { route: '/inventaire?overdue=1' });
     await screen.findByText('Jean Dupont');
 
-    await user.click(screen.getByRole('tab', { name: 'Par collaborateur' }));
+    await user.click(screen.getByRole('button', { name: 'Exporter CSV' }));
 
-    expect(await screen.findByText(/Export au détail par équipement, filtres actifs\./)).toBeInTheDocument();
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('1 équipement à exporter.');
+    expect(dialog).toHaveTextContent('Filtres : Retour en retard : oui');
+    expect(api.getFile).not.toHaveBeenCalled();
+  });
+
+  it('vue par collaborateur : l’export reste par équipement, leur nombre est lu à l’ouverture', async () => {
+    const { user } = renderWithProviders(<InventairePage />);
+    await screen.findByText('Jean Dupont');
+    await user.click(screen.getByRole('tab', { name: 'Par collaborateur' }));
+    await waitFor(() => screen.getByText('Équipements'));
+
+    await user.click(screen.getByRole('button', { name: 'Exporter CSV' }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('Une ligne par équipement, même dans la vue par collaborateur.');
+    await waitFor(() => expect(dialog).toHaveTextContent('1 équipement à exporter.'));
+  });
+
+  it('liste en échec : le nombre est dit inconnu, l’export reste possible (pas de faux « 0 »)', async () => {
+    vi.mocked(api.getList).mockRejectedValue(new Error('réseau'));
+    const { user } = renderWithProviders(<InventairePage />);
+    await screen.findByText(/réseau/);
+
+    await user.click(screen.getByRole('button', { name: 'Exporter CSV' }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('Nombre de lignes inconnu');
+    expect(dialog).not.toHaveTextContent('rien à exporter');
+    expect(screen.getByRole('button', { name: /^Exporter$/ })).toBeEnabled();
   });
 
   describe('listes ouvertes par les cartes du tableau de bord', () => {

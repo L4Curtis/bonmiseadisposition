@@ -75,8 +75,8 @@ export function InventorySummaryCards({
       />
       <FilterCard active={overdueActive} onClick={onOverdueClick} label={`Filtrer : ${LATENESS_LABELS.return}`}>
         <KpiCard
-          icon={AlertTriangle} label={LATENESS_LABELS.return} value={summary.overdue} unit={UNITS.equipments}
-          tone={summary.overdue > 0 ? 'danger' : 'default'} detail="date de restitution prévue dépassée"
+          icon={AlertTriangle} label={LATENESS_LABELS.return} value={summary.overdueReturns} unit={UNITS.equipments}
+          tone={summary.overdueReturns > 0 ? 'danger' : 'default'} detail="date de restitution prévue dépassée"
         />
       </FilterCard>
       <FilterCard active={signatureWaitingActive} onClick={onSignatureWaitingClick} label={`Filtrer : ${BON_STATUS_LABELS.sent_mise_dispo}`}>

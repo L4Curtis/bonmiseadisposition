@@ -16,6 +16,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
     ...actual,
     api: {
       get: vi.fn(),
+      getList: vi.fn(),
       post: vi.fn(),
       put: vi.fn(),
       patch: vi.fn(),
@@ -56,12 +57,23 @@ beforeEach(() => {
   mockRole = 'technician';
 });
 
-function mockApi(today = todayFixture()) {
+function mockApi(today = todayFixture(), recent: unknown[] = []) {
   vi.mocked(api.get).mockImplementation((path: string) => {
     if (path.startsWith('/kpi/aujourdhui')) return Promise.resolve(today);
-    if (path.startsWith('/bons/recent')) return Promise.resolve([]);
     return Promise.resolve(null);
   });
+  vi.mocked(api.getList).mockImplementation((path: string) =>
+    path.startsWith('/bons?')
+      ? Promise.resolve({ items: recent, total: recent.length, page: 1, limit: 25, truncated: false })
+      : Promise.reject(new Error(`liste inattendue : ${path}`)));
+}
+
+function recentBon(i: number) {
+  return {
+    id: `b${i}`, reference: `BON-2026-${String(i).padStart(4, '0')}`, status: 'active',
+    createdAt: `2026-09-${String(i).padStart(2, '0')}T08:00:00.000Z`, collaborateur: { displayName: `Personne ${i}` },
+    signatures: [],
+  };
 }
 
 function linkTo(name: RegExp): HTMLElement {
@@ -149,7 +161,17 @@ describe('TodayTab', () => {
     expect(navigateMock).toHaveBeenCalledWith('/bons?excludeStatus=cancelled,archived&filialeId=f1');
   });
 
+  it('« Bons récents » : première page de GET /bons (25), les dix plus récents affichés', async () => {
+    mockApi(todayFixture(), Array.from({ length: 12 }, (_, i) => recentBon(i + 1)));
+    renderWithProviders(<TodayTab />);
+
+    expect(await screen.findByText('BON-2026-0012')).toBeInTheDocument();
+    expect(screen.queryByText('BON-2026-0002')).not.toBeInTheDocument();
+    expect(api.getList).toHaveBeenCalledWith('/bons?page=1&limit=25', expect.objectContaining({ legacyKey: 'bons' }));
+  });
+
   it("montre une erreur avec « Réessayer » si l'accueil ne se charge pas", async () => {
+    mockApi();
     vi.mocked(api.get).mockImplementation((path: string) =>
       path.startsWith('/kpi/aujourdhui') ? Promise.reject(new Error('boom')) : Promise.resolve([]));
     renderWithProviders(<TodayTab />);

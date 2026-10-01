@@ -2,10 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { BonStatus } from '../../contracts/common';
-import type { KpiListItem, KpiListResponse } from '../../contracts/kpi';
+import type { KpiListItem, KpiListMeta, KpiListResponse } from '../../contracts/kpi';
+import { DEFAULT_PAGE_SIZE, toListResponse, toPrismaPage } from '../../common/pagination';
 import { resolvePeriod } from '../kpi-period';
 import { toNumber } from '../kpi-sql';
-import { KPI_LIST_DEFAULT_LIMIT, KPI_LIST_MAX_LIMIT } from '../dto/kpi-list-query.dto';
 import { KpiListKey, listSourceSql } from './kpi-list-sources';
 
 export interface KpiListQuery {
@@ -83,7 +83,8 @@ export class KpiListService {
     const period = resolvePeriod(query);
     const range = { from: period.from, to: period.to };
     const page = query.page ?? 1;
-    const limit = Math.min(query.limit ?? KPI_LIST_DEFAULT_LIMIT, KPI_LIST_MAX_LIMIT);
+    const limit = query.limit ?? DEFAULT_PAGE_SIZE;
+    const { skip, take } = toPrismaPage({ page, limit });
     const source = listSourceSql(query.indicateur, range, query.filialeId);
 
     const [countRows, rows] = await Promise.all([
@@ -96,18 +97,17 @@ export class KpiListService {
         JOIN users u ON u.id = b.collaborateur_id
         JOIN filiales f ON f.id = b.filiale_id
         ORDER BY src.at DESC, src.row_id
-        LIMIT ${limit} OFFSET ${(page - 1) * limit}
+        LIMIT ${take} OFFSET ${skip}
       `),
     ]);
 
-    return {
-      indicateur: query.indicateur,
-      period: range,
-      items: rows.map((row) => toItem(query.indicateur, row)),
+    const meta: KpiListMeta = { indicateur: query.indicateur, period: range };
+    return toListResponse(rows.map((row) => toItem(query.indicateur, row)), {
       total: toNumber(countRows[0]?.count),
       page,
       limit,
-    };
+      meta,
+    });
   }
 }
 

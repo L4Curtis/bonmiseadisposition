@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { writeAuditEntry } from '../audit/audit-record';
 import { PrismaService } from '../prisma/prisma.service';
 
 // Garde-fou anti désactivation massive (LOT C bug #7) : au-delà de ce ratio ET
@@ -53,11 +54,8 @@ export async function deactivateAbsentLdapUsers(
       `LDAP sync: désactivation annulée — ${toDeactivate}/${activeLdapAccounts} comptes ` +
       `(${Math.round(ratio * 100)}%) seraient désactivés`,
     );
-    await prisma.auditLog.create({
-      data: {
-        action: 'ldap_sync_aborted',
-        details: { toDeactivate, total: activeLdapAccounts, ratio },
-      },
+    await writeAuditEntry(prisma, 'ldap_sync_aborted', {
+      details: { toDeactivate, total: activeLdapAccounts, ratio },
     }).catch((auditErr: unknown) => {
       logger.error(`Audit ldap_sync_aborted non journalisé: ${(auditErr as Error).message}`);
     });
