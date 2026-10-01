@@ -272,10 +272,10 @@ describe('Filtre de liste par sous-état (liste = calcul de la fiche)', () => {
       for (const { id } of partial) {
         if ((await itDetail(ctx, id)).subStatus === wanted) expected.push(id);
       }
-      const listed = list.body.bons.map((b: { id: string }) => b.id).sort();
+      const listed = list.body.items.map((b: { id: string }) => b.id).sort();
       expect(listed).toEqual(expected.sort());
       expect(list.body.total).toBe(expected.length);
-      for (const bon of list.body.bons) expect(bon.subStatus).toBe(wanted);
+      for (const bon of list.body.items) expect(bon.subStatus).toBe(wanted);
     },
   );
 

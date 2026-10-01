@@ -10,6 +10,7 @@ import { emitPvClotureIfDue } from './bon-cloture';
 import { ClientTrace, saveItSignatureWithTrace } from './bon-it-signature';
 import { computeBonFacts, equipmentReturnState, lastSignedRestitutionAt } from './bon-facts';
 import { pendingDocument, statusAfterReturnChange } from './state-machine';
+import { writeAuditEntry } from '../../audit/audit-record';
 
 /**
  * Restitution : marquage des équipements rendus, annulation d'un marquage,
@@ -87,13 +88,9 @@ export async function initiateRestitution(
     await applyReturnChange(tx, id, true);
   });
   if (undoIds.length > 0) {
-    await ctx.prisma.auditLog.create({
-      data: { bonId: id, userId: actorId, action: 'return_marking_undone', details: { equipmentIds: undoIds, inPerson } },
-    });
+    await writeAuditEntry(ctx.prisma, 'return_marking_undone', { actorId, bonId: id, details: { equipmentIds: undoIds, inPerson } });
   }
-  await ctx.prisma.auditLog.create({
-    data: { bonId: id, userId: actorId, action: 'restitution_initiated', details: { equipmentIds: ids, inPerson } },
-  });
+  await writeAuditEntry(ctx.prisma, 'restitution_initiated', { actorId, bonId: id, details: { equipmentIds: ids, inPerson } });
 }
 
 const NOT_UNDOABLE =
@@ -132,9 +129,7 @@ export async function undoReturn(
     await invalidateItSignatures(tx, id, 'restitution', 'return_corrected', signedAt);
     await applyReturnChange(tx, id, true);
   });
-  await ctx.prisma.auditLog.create({
-    data: { bonId: id, userId: actorId, action: 'return_marking_undone', details: { equipmentIds: ids } },
-  });
+  await writeAuditEntry(ctx.prisma, 'return_marking_undone', { actorId, bonId: id, details: { equipmentIds: ids } });
 }
 
 /**
@@ -169,9 +164,7 @@ export async function declareNotReturned(
         'Certains équipements sélectionnés ne sont pas chez le collaborateur (déjà rendus ou déjà déclarés).',
       );
     }
-    await tx.auditLog.create({
-      data: { bonId: id, userId: actorId, action: 'declare_not_returned', details: { equipmentIds: ids, reason } },
-    });
+    await writeAuditEntry(tx, 'declare_not_returned', { actorId, bonId: id, details: { equipmentIds: ids, reason } });
     await applyReturnChange(tx, id, false);
   });
 

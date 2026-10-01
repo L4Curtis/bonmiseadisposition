@@ -3,6 +3,8 @@ import { useSearchParams } from 'react-router';
 import { api } from '@/lib/api';
 import { errorMessage } from '@/lib/errors';
 import { useActiveFiliales } from '@/hooks/use-active-filiales';
+import { DEFAULT_PAGE_SIZE, isPageSize, PAGE_SIZE_STORAGE_KEY, type PageSize } from '@/hooks/usePagination';
+import type { BonListMeta } from '@/contracts/bons';
 import type { Bon } from './types';
 import { IN_PROGRESS_EXCLUDE, IN_PROGRESS_OPTION_VALUE } from './statusFilterOptions';
 import {
@@ -18,7 +20,25 @@ import {
 } from './bonsListQuery';
 import { loadRememberedQuery, saveRememberedQuery } from './rememberedQuery';
 
-export const LIST_PAGE_SIZE = 20;
+/** Nombre de lignes choisi (25, 50 ou 100), mémorisé dans le navigateur et
+ *  commun à toutes les listes (même clé que `usePagination`). */
+function readPageSize(): PageSize {
+  try {
+    const stored = Number(window.localStorage.getItem(PAGE_SIZE_STORAGE_KEY));
+    return isPageSize(stored) ? stored : DEFAULT_PAGE_SIZE;
+  } catch {
+    // Stockage inaccessible (navigation privée) : taille par défaut.
+    return DEFAULT_PAGE_SIZE;
+  }
+}
+
+function writePageSize(size: PageSize): void {
+  try {
+    window.localStorage.setItem(PAGE_SIZE_STORAGE_KEY, String(size));
+  } catch {
+    // Stockage inaccessible : le choix vaut pour la visite en cours.
+  }
+}
 
 type FilterPatch = Partial<Omit<BonsListQuery, 'page'>>;
 
@@ -41,9 +61,12 @@ export function useBonsListParams() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState<BonsListQuery>(() => initialQuery(searchParams));
   const [searchInput, setSearchInput] = useState(query.search);
+  const [pageSize, setPageSizeState] = useState<PageSize>(readPageSize);
 
   const [bons, setBons] = useState<Bon[]>([]);
   const [total, setTotal] = useState(0);
+  // Plafond de l'export annoncé par le serveur (`meta.exportLimit`).
+  const [exportLimit, setExportLimit] = useState<number | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -79,7 +102,7 @@ export function useBonsListParams() {
     saveRememberedQuery(toRememberedParams(query));
   }, [query]);
 
-  const apiParams = useMemo(() => toApiParams(query, LIST_PAGE_SIZE).toString(), [query]);
+  const apiParams = useMemo(() => toApiParams(query, pageSize).toString(), [query, pageSize]);
 
   useEffect(() => {
     setLoading(true);
@@ -88,11 +111,12 @@ export function useBonsListParams() {
     // changés entre-temps) — la dernière requête lancée doit toujours gagner.
     let ignore = false;
     api
-      .get<{ bons: Bon[]; total: number }>(`/bons?${apiParams}`)
+      .getList<Bon, BonListMeta>(`/bons?${apiParams}`)
       .then((data) => {
         if (ignore) return;
-        setBons(data.bons);
+        setBons(data.items);
         setTotal(data.total);
+        setExportLimit(data.meta?.exportLimit);
       })
       .catch((e: unknown) => {
         if (ignore) return;
@@ -114,6 +138,13 @@ export function useBonsListParams() {
 
   const setPage = useCallback((next: number | ((page: number) => number)) => {
     setQuery((q) => ({ ...q, page: Math.max(1, typeof next === 'function' ? next(q.page) : next) }));
+  }, []);
+
+  /** Change le nombre de lignes (mémorisé) et revient à la page 1. */
+  const setPageSize = useCallback((size: PageSize) => {
+    setPageSizeState(size);
+    writePageSize(size);
+    setQuery((q) => ({ ...q, page: 1 }));
   }, []);
 
   /** Remplace tout l'état (vue rapide) ; la saisie de recherche suit. */
@@ -147,16 +178,15 @@ export function useBonsListParams() {
     }
   }, [updateFilters]);
 
-  const totalPages = Math.ceil(total / LIST_PAGE_SIZE);
-  const rangeStart = total === 0 ? 0 : (query.page - 1) * LIST_PAGE_SIZE + 1;
-  const rangeEnd = Math.min(query.page * LIST_PAGE_SIZE, total);
-
   return {
     query,
     bons,
     total,
+    exportLimit,
     page: query.page,
     setPage,
+    pageSize,
+    setPageSize,
     loading,
     loadError,
     filiales,
@@ -178,9 +208,6 @@ export function useBonsListParams() {
     statusSelectValue,
     handleStatusSelect,
     reload: () => setReloadKey((k) => k + 1),
-    totalPages,
     hasActiveFilters: queryHasFilters(query),
-    rangeStart,
-    rangeEnd,
   };
 }

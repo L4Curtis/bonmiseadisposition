@@ -61,8 +61,8 @@ describe('Contestation d’une restitution, puis Fondée : la fiche guide la cor
   });
 
   it('prise en charge : toujours à trancher, avec le nom de qui l’a prise', async () => {
-    const reviewed = await ctx.http.patch(`/contestations/${contestationId}/review`, 'technician', {});
-    expect(reviewed.status, JSON.stringify(reviewed.body)).toBe(200);
+    const reviewed = await ctx.http.post(`/contestations/${contestationId}/review`, 'technician', {});
+    expect(reviewed.status, JSON.stringify(reviewed.body)).toBe(201);
     const detail = await itDetail(ctx, bonId);
     expect(detail.contestation).toMatchObject({
       stage: 'open', reviewedBy: { displayName: ctx.data.people.technician.displayName },
@@ -77,11 +77,11 @@ describe('Contestation d’une restitution, puis Fondée : la fiche guide la cor
   });
 
   it('Fondée : « corriger le marquage » devient l’action principale, avec le motif rappelé', async () => {
-    const resolved = await ctx.http.patch(`/contestations/${contestationId}/resolve`, 'admin', {
+    const resolved = await ctx.http.post(`/contestations/${contestationId}/resolve`, 'admin', {
       outcome: 'founded',
       resolutionMessage: 'Nous corrigeons la restitution.',
     });
-    expect(resolved.status, JSON.stringify(resolved.body)).toBe(200);
+    expect(resolved.status, JSON.stringify(resolved.body)).toBe(201);
 
     const detail = await itDetail(ctx, bonId);
     expectShape(detail, bonDetail);
@@ -117,6 +117,19 @@ describe('Demande de nouveau lien du collaborateur (S26)', () => {
     const resent = await ctx.http.post(`/bons/${bon.id}/resend`, 'technician', {});
     expect(resent.status, JSON.stringify(resent.body)).toBe(201);
     expect((await itDetail(ctx, bon.id)).linkRequest).toBeNull();
+
+    // Le lien renvoyé expire à son tour : une nouvelle demande alerte de nouveau
+    // l'IT et revient sur la fiche (le lien visé est reconnu par son identifiant).
+    const second = await latestLink(ctx, bon.id);
+    await ctx.prisma.signature.update({ where: { id: second.id }, data: { tokenExpiresAt: new Date(Date.now() - 60_000) } });
+    const askedAgain = await ctx.http.post(`/signature/${second.token}/request-new-link`, 'collaborator', {});
+    expect(askedAgain.body.status).toBe('requested');
+    expect((await itDetail(ctx, bon.id)).linkRequest).toMatchObject({ documentType: 'restitution' });
+    const entry = await ctx.prisma.auditLog.findFirstOrThrow({
+      where: { bonId: bon.id, action: 'signature_link_requested' },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect(entry.details).toMatchObject({ signatureId: second.id });
   });
 });
 

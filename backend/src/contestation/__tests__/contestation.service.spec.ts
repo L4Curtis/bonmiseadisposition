@@ -3,7 +3,7 @@
  * écrit, dans quel ordre, et ce qui n'est PAS fait. Le comportement de bout
  * en bout (base réelle, HTTP) est vérifié par test/contract/contestations.contract.ts.
  */
-import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import type { Mock } from 'vitest';
 import { ContestationService } from '../contestation.service';
 import { NotificationService } from '../../notification/notification.service';
@@ -105,13 +105,16 @@ describe('ContestationService', () => {
     it('bon qui a changé de statut entre la lecture et l’écriture : 409', async () => {
       setup('active');
       prisma.bon.updateMany.mockResolvedValue({ count: 0 });
-      await expect(service.create(BON_ID, USER_ID, 'Motif')).rejects.toBeInstanceOf(ConflictException);
+      await expect(service.create(BON_ID, USER_ID, 'Motif')).rejects.toMatchObject({ status: 409, code: 'conflict' });
     });
 
     it('contestation déjà en cours : 409', async () => {
       setup('active');
       prisma.contestation.findFirst.mockResolvedValue({ id: 'c-0' });
-      await expect(service.create(BON_ID, USER_ID, 'Motif')).rejects.toBeInstanceOf(ConflictException);
+      await expect(service.create(BON_ID, USER_ID, 'Motif')).rejects.toMatchObject({
+        status: 409,
+        code: 'contestation_already_open',
+      });
     });
 
     it('bon introuvable : 404', async () => {
@@ -238,17 +241,25 @@ describe('ContestationService', () => {
       expect(prisma.bon.update).toHaveBeenCalledWith({ where: { id: BON_ID }, data: { status: 'active' } });
     });
 
-    it('déjà tranchée : 409, le bon n’est pas touché', async () => {
+    it('déjà tranchée : 409 qui dit qui l’a tranchée et comment, le bon n’est pas touché', async () => {
       setup('active');
       prisma.contestation.updateMany.mockResolvedValue({ count: 0 });
-      await expect(service.resolve('c-1', TECH_ID, 'founded')).rejects.toBeInstanceOf(ConflictException);
+      prisma.contestation.findUniqueOrThrow.mockResolvedValue({
+        status: 'rejected', outcome: 'not_retained', reviewedBy: { displayName: 'Marc Petit' }, resolvedBy: { displayName: 'Inès Roy' },
+      });
+      await expect(service.resolve('c-1', TECH_ID, 'founded')).rejects.toMatchObject({
+        status: 409,
+        code: 'contestation_already_handled',
+        message: 'Cette contestation a déjà été tranchée par Inès Roy (« Non retenue »).',
+        details: { status: 'rejected', outcome: 'not_retained', by: 'Inès Roy' },
+      });
       expect(prisma.bon.update).not.toHaveBeenCalled();
     });
 
     it('bon qui n’est plus « Contesté » : 409, pas de remplaçant', async () => {
       setup('active');
       prisma.bon.findUnique.mockResolvedValue({ status: 'archived' });
-      await expect(service.resolve('c-1', TECH_ID, 'founded')).rejects.toBeInstanceOf(ConflictException);
+      await expect(service.resolve('c-1', TECH_ID, 'founded')).rejects.toMatchObject({ status: 409, code: 'conflict' });
       expect(replacement.createReplacementBon).not.toHaveBeenCalled();
     });
 
@@ -275,12 +286,28 @@ describe('ContestationService', () => {
       expect(call.data).not.toHaveProperty('resolvedById');
     });
 
-    it('introuvable : 404 ; déjà prise en charge : 409', async () => {
+    it('introuvable : 404 ; déjà prise en charge : 409 qui nomme le collègue', async () => {
       prisma.contestation.updateMany.mockResolvedValue({ count: 0 });
-      prisma.contestation.count.mockResolvedValueOnce(0);
+      prisma.contestation.findUnique.mockResolvedValueOnce(null);
       await expect(service.markInReview('c-x', TECH_ID)).rejects.toBeInstanceOf(NotFoundException);
-      prisma.contestation.count.mockResolvedValueOnce(1);
-      await expect(service.markInReview('c-1', TECH_ID)).rejects.toBeInstanceOf(ConflictException);
+      prisma.contestation.findUnique.mockResolvedValueOnce({
+        status: 'in_review', outcome: null, reviewedBy: { displayName: 'Marc Petit' }, resolvedBy: null,
+      });
+      await expect(service.markInReview('c-1', TECH_ID)).rejects.toMatchObject({
+        status: 409,
+        code: 'contestation_already_handled',
+        message: 'Cette contestation est déjà prise en charge par Marc Petit.',
+        details: { status: 'in_review', outcome: null, by: 'Marc Petit' },
+      });
+    });
+
+    it('déjà tranchée, auteur inconnu : le message reste juste, sans nom', async () => {
+      prisma.contestation.updateMany.mockResolvedValue({ count: 0 });
+      prisma.contestation.findUnique.mockResolvedValueOnce({ status: 'resolved', outcome: 'founded', reviewedBy: null, resolvedBy: null });
+      await expect(service.markInReview('c-1', TECH_ID)).rejects.toMatchObject({
+        message: 'Cette contestation a déjà été tranchée (« Fondée »).',
+        details: { status: 'resolved', outcome: 'founded', by: null },
+      });
     });
   });
 });

@@ -7,6 +7,7 @@ import { assertActionAllowed } from './bon-guards';
 import { invalidatePendingLinks } from './bon-links';
 import { applyReturnChange } from './bon-restitution';
 import { ClientTrace, saveItSignatureWithTrace } from './bon-it-signature';
+import { writeAuditEntry } from '../../audit/audit-record';
 
 /**
  * L'IT retrouve des équipements déclarés non restitués.
@@ -40,9 +41,7 @@ export async function markFound(
     if (marked.count !== ids.length) {
       throw new BadRequestException('Certains équipements sélectionnés ne sont pas déclarés non restitués sur ce bon.');
     }
-    await tx.auditLog.create({
-      data: { bonId: id, userId: actorId, action: 'mark_found', details: { equipmentIds: ids, wasArchived } },
-    });
+    await writeAuditEntry(tx, 'mark_found', { actorId, bonId: id, details: { equipmentIds: ids, wasArchived } });
     if (!wasArchived) {
       await invalidatePendingLinks(tx, id, 'replaced');
       await applyReturnChange(tx, id, true);

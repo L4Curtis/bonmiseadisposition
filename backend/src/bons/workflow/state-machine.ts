@@ -137,7 +137,7 @@ export function subStatus(f: BonFacts): BonSubStatus | null {
 /** Motif du refus d'une action, ou null si elle est permise maintenant. */
 export function actionBlockedReason(action: BonActionName, f: BonFacts): string | null {
   const rule = BON_ACTION_RULES[action];
-  if (!isBonStatusIn(f.status, rule.from)) return statusRefusal(action);
+  if (!isBonStatusIn(f.status, rule.from)) return statusRefusal(action, f.status);
   const guardReason = rule.guard?.(f) ?? null;
   if (guardReason) return guardReason;
   if (rule.sendsEmail && !f.canSendLink) return f.linkRefusalMessage ?? 'Aucun lien ne peut être envoyé au collaborateur.';
@@ -163,7 +163,12 @@ const STATUS_REFUSALS: Readonly<Partial<Record<BonActionName, string>>> = Object
   close_without_signature: 'La clôture sans signature ne concerne qu’une restitution ou un PV à signer.',
 });
 
-function statusRefusal(action: BonActionName): string {
+/** Un bon annulé n'accepte plus rien : on le dit tel quel, plutôt que la
+ *  règle de l'action (« … une fois la remise signée » serait faux). */
+const CANCELLED_REFUSAL = 'Ce bon est annulé : plus aucune action n’est possible.';
+
+function statusRefusal(action: BonActionName, status: BonFacts['status']): string {
+  if (status === 'cancelled') return CANCELLED_REFUSAL;
   return STATUS_REFUSALS[action] ?? 'Cette action n’est pas possible dans l’état actuel du bon.';
 }
 

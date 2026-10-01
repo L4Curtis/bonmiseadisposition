@@ -10,7 +10,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AccessRule, describeRule, expectAccessRule, IT, rule } from './support/access';
-import { nestError } from './support/common-shapes';
+import { apiError } from './support/common-shapes';
 import { ContractContext, startContractContext } from './support/context';
 import { DUPLICATE_SERIAL } from './support/fixtures';
 import { expectShape } from './support/shape';
@@ -47,6 +47,7 @@ const SIGNATURE_PNG =
 
 const ACCESS: readonly AccessRule[] = [
   rule('POST /bons', IT),
+  rule('PATCH /bons/:id', IT, (d) => `/bons/${d.bons.draft.id}`),
   rule('PUT /bons/:id', IT, (d) => `/bons/${d.bons.draft.id}`),
   rule('DELETE /bons/:id', IT, (d) => `/bons/${d.bons.draft.id}`),
   rule('POST /bons/:id/send', IT, (d) => `/bons/${d.bons.draft.id}/send`),
@@ -99,8 +100,8 @@ describe('Parcours d’un bon, de la création à la contestation', () => {
   // La réservation du brouillon (bons/workflow/bon-crud.ts) doit réellement
   // écrire la ligne : une réservation qui n'écrit rien compte 0 ligne et
   // ferait répondre 409 « plus un brouillon » à toute modification.
-  it('PUT /bons/:id sur un brouillon : 200, la fiche modifiée, équipements remplacés', async () => {
-    const res = await ctx.http.put(`/bons/${bonId}`, 'technician', {
+  it('PATCH /bons/:id sur un brouillon : 200, la fiche modifiée, équipements remplacés', async () => {
+    const res = await ctx.http.patch(`/bons/${bonId}`, 'technician', {
       notes: 'Livraison au siège',
       equipments: [
         { catalogItemId: ctx.data.catalog.laptopId, serialNumber: DUPLICATE_SERIAL },
@@ -114,10 +115,19 @@ describe('Parcours d’un bon, de la création à la contestation', () => {
     expect(res.body.equipments).toHaveLength(2);
   });
 
-  it('PUT /bons/:id sur un bon déjà signé : 400', async () => {
-    const res = await ctx.http.put(`/bons/${ctx.data.bons.active.id}`, 'technician', { notes: 'Refusé' });
+  it('PUT /bons/:id (ancien verbe) : même traitement, avec Deprecation et Link', async () => {
+    const res = await ctx.http.put(`/bons/${bonId}`, 'technician', { notes: 'Livraison au siège, bureau 12' });
+    expect(res.status).toBe(200);
+    expectShape(res.body, bonDetail);
+    expect(res.body.notes).toBe('Livraison au siège, bureau 12');
+    expect(res.headers.deprecation).toBe('true');
+    expect(res.headers.link).toBe(`</api/bons/${bonId}>; rel="successor-version"`);
+  });
+
+  it('PATCH /bons/:id sur un bon déjà signé : 400', async () => {
+    const res = await ctx.http.patch(`/bons/${ctx.data.bons.active.id}`, 'technician', { notes: 'Refusé' });
     expect(res.status).toBe(400);
-    expectShape(res.body, nestError);
+    expectShape(res.body, apiError);
   });
 
   it('POST /bons/:id/sign-it : 201, { ok, bon, signature }', async () => {
@@ -129,10 +139,11 @@ describe('Parcours d’un bon, de la création à la contestation', () => {
     expectShape(res.body, signIt);
   });
 
-  it('POST /bons/:id/send avec un numéro déjà en circulation : 409 { code, conflicts }, sans statusCode', async () => {
+  it('POST /bons/:id/send avec un numéro déjà en circulation : 409 serial_conflicts à la forme d’erreur unique, numéros dans details', async () => {
     const res = await ctx.http.post(`/bons/${bonId}/send`, 'technician');
     expect(res.status).toBe(409);
     expectShape(res.body, serialConflictsError);
+    expect(res.body.details.conflicts[0].serialNumber).toBe(DUPLICATE_SERIAL);
   });
 
   it('POST /bons/:id/send en confirmant les conflits : 201 et la fiche envoyée', async () => {
@@ -142,7 +153,7 @@ describe('Parcours d’un bon, de la création à la contestation', () => {
     expect(res.body.status).toBe('sent_mise_dispo');
   });
 
-  it('POST /bons/:id/resend moins d’une heure après l’envoi : 409 { code: token_recent, sentAt }', async () => {
+  it('POST /bons/:id/resend moins d’une heure après l’envoi : 409 token_recent, date d’envoi dans details', async () => {
     const res = await ctx.http.post(`/bons/${bonId}/resend`, 'technician');
     expect(res.status).toBe(409);
     expectShape(res.body, tokenRecentError);
@@ -187,19 +198,40 @@ describe('Parcours d’un bon, de la création à la contestation', () => {
     contestationId = res.body.id;
   });
 
-  it('PATCH /contestations/:id/review : prise en charge', async () => {
-    const res = await ctx.http.patch(`/contestations/${contestationId}/review`, 'technician');
-    expect(res.status).toBe(200);
+  it('POST /contestations/:id/review : prise en charge', async () => {
+    const res = await ctx.http.post(`/contestations/${contestationId}/review`, 'technician');
+    expect(res.status).toBe(201);
     expectShape(res.body, reviewContestation);
   });
 
-  it('PATCH /contestations/:id/resolve (rejet) : contestation close, bon rétabli', async () => {
+  it('PATCH /contestations/:id/review (ancien verbe) une seconde fois : 409 contestation_already_handled', async () => {
+    const res = await ctx.http.patch(`/contestations/${contestationId}/review`, 'technician');
+    expect(res.status).toBe(409);
+    expectShape(res.body, apiError);
+    expect(res.body.code).toBe('contestation_already_handled');
+    expect(res.headers.deprecation).toBe('true');
+  });
+
+  it('PATCH /contestations/:id/resolve (ancien verbe, rejet) : contestation close, bon rétabli', async () => {
     const res = await ctx.http.patch(`/contestations/${contestationId}/resolve`, 'technician', {
       outcome: 'not_retained',
       resolutionMessage: 'Numéro vérifié sur le matériel.',
     });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(201);
     expectShape(res.body, resolveContestation);
+    expect(res.headers.link).toBe(`</api/contestations/${contestationId}/resolve>; rel="successor-version"`);
+  });
+
+  it('GET /bons/:id/history : le parcours se lit dans l’ordre, phrase par phrase', async () => {
+    const res = await ctx.http.get(`/bons/${bonId}/history`, 'technician');
+    expect(res.status).toBe(200);
+    const actions = (res.body.items as { action: string }[]).map((e) => e.action);
+    expect(actions[0]).toBe('bon_created');
+    for (const step of ['signed_it_cachet', 'bon_sent_with_serial_conflicts', 'bon_sent',
+      'signed_mise_disposition', 'bon_contested', 'contestation_rejected']) {
+      expect(actions).toContain(step);
+    }
+    expect(actions.indexOf('bon_sent')).toBeLessThan(actions.indexOf('signed_mise_disposition'));
   });
 });
 
@@ -264,13 +296,29 @@ describe('Actions sur les bons du jeu de données', () => {
       reason: 'Motif suffisamment long pour la validation.',
     });
     expect(res.status).toBe(400);
-    expectShape(res.body, nestError);
+    expectShape(res.body, apiError);
   });
 
-  it('DELETE /bons/:id : 200 et la fiche annulée', async () => {
-    const res = await ctx.http.delete(`/bons/${ctx.data.bons.draft.id}`, 'technician');
-    expect(res.status).toBe(200);
+  it('DELETE /bons/:id (ancienne forme de l’annulation) : servi par POST /bons/:id/cancel, avec Deprecation', async () => {
+    const { draft } = ctx.data.bons;
+    const res = await ctx.http.delete(`/bons/${draft.id}`, 'technician');
+    expect(res.status).toBe(201);
     expectShape(res.body, bonDetail);
     expect(res.body.status).toBe('cancelled');
+    expect(res.headers.deprecation).toBe('true');
+    expect(res.headers.link).toBe(`</api/bons/${draft.id}/cancel>; rel="successor-version"`);
+  });
+
+  it('GET /bons?cancelledFrom= : le bon annulé aujourd’hui figure dans la période d’annulation', async () => {
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Paris' }).format(new Date());
+    const res = await ctx.http.get(`/bons?cancelledFrom=${today}&cancelledTo=${today}`, 'technician');
+    expect(res.status).toBe(200);
+    expect(res.body.items.map((b: { id: string }) => b.id)).toContain(ctx.data.bons.draft.id);
+  });
+
+  it('POST /bons/:id/cancel sur un bon envoyé sans motif : 400 à la forme unique', async () => {
+    const res = await ctx.http.post(`/bons/${ctx.data.bons.sentRestitution.id}/cancel`, 'technician', {});
+    expect(res.status).toBe(400);
+    expectShape(res.body, apiError);
   });
 });

@@ -1,12 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
-import { AppConfigService } from '../../config/config.service';
 import { NotificationService } from '../../notification/notification.service';
 import { JobTrackerService } from '../../monitoring/job-tracker.service';
 import { TemplatesService } from '../../templates/templates.service';
 import { JOB_KEYS } from '../../monitoring/job-registry';
 import { OverdueAlertOutcome, runContestationOverdueAlerts } from './run-overdue-alerts';
+import { ConfigRegistryService } from '../../config/config-registry.service';
 
 /**
  * Tâche planifiée « Relance des contestations non traitées » : les jours
@@ -19,7 +19,7 @@ export class ContestationOverdueService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly configService: AppConfigService,
+    private readonly settings: ConfigRegistryService,
     private readonly notificationService: NotificationService,
     private readonly jobTracker: JobTrackerService,
     private readonly templatesService: TemplatesService,
@@ -41,7 +41,7 @@ export class ContestationOverdueService {
     return runContestationOverdueAlerts(
       {
         prisma: this.prisma,
-        configService: this.configService,
+        settings: this.settings,
         notificationService: this.notificationService,
         templatesService: this.templatesService,
         logger: this.logger,

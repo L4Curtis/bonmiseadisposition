@@ -3,7 +3,6 @@ import type { SignatureInvalidationReason } from '@prisma/client';
 import * as fs from 'fs';
 import { PrismaService } from '../prisma/prisma.service';
 import { EncryptionService } from '../config/encryption.service';
-import { AppConfigService } from '../config/config.service';
 import { TimestampService } from './timestamp.service';
 import { PdfService } from '../pdf/pdf.service';
 import { SmbService } from '../smb/smb.service';
@@ -31,6 +30,8 @@ import {
 } from './signature-file-store';
 import { computeSignatureIntegrity } from './seal';
 import { SIGNATURES_DIR } from '../common/storage-paths';
+import { bonNotFoundError } from '../bons/bon-errors';
+import { ConfigRegistryService } from '../config/config-registry.service';
 
 /**
  * Façade fine : chaque méthode publique délègue à un module dédié sous
@@ -44,7 +45,6 @@ import { SIGNATURES_DIR } from '../common/storage-paths';
 export class SignatureService {
   private readonly logger = new Logger(SignatureService.name);
   private readonly UPLOADS_DIR = SIGNATURES_DIR;
-  private readonly DEFAULT_TOKEN_VALIDITY_DAYS = 7;
   // Décision produit : un lien présentiel (signature recueillie en direct sur
   // tablette) est bien plus court-vécu qu'un lien envoyé par email — 2h suffisent
   // largement pour le rendez-vous et limitent la fenêtre d'exposition du token.
@@ -53,7 +53,7 @@ export class SignatureService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly encryption: EncryptionService,
-    private readonly configService: AppConfigService,
+    private readonly settings: ConfigRegistryService,
     private readonly timestampService: TimestampService,
     private readonly pdfService: PdfService,
     private readonly smbService: SmbService,
@@ -86,8 +86,7 @@ export class SignatureService {
     return generateTokenImpl(
       {
         prisma: this.prisma,
-        configService: this.configService,
-        defaultTokenValidityDays: this.DEFAULT_TOKEN_VALIDITY_DAYS,
+        settings: this.settings,
         inPersonTokenValidityHours: this.IN_PERSON_TOKEN_VALIDITY_HOURS,
       },
       bonId,
@@ -203,6 +202,8 @@ export class SignatureService {
         orderBy: { signedAt: 'asc' },
       }),
     ]);
+    // Bon inconnu : 404, et non une vérification « réussie » sans signature.
+    if (!bon) throw bonNotFoundError();
 
     // Un bon anonymisé (RGPD, cf. retention.service) a perdu les champs PII
     // (email…) qui entrent dans le sceau : celui-ci n'est alors plus

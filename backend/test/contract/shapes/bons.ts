@@ -11,10 +11,12 @@ import type {
   BonForSignature,
   BonFiliale,
   BonForSignatureEquipment,
+  BonHistoryEntry,
   BonIntegrityResponse,
   BonLateness,
   BonListEquipment,
   BonListItem,
+  BonListMeta,
   BonListPendingSignature,
   BonListResponse,
   BonLinkRequest,
@@ -54,6 +56,9 @@ import {
   civilite,
   enumOf,
   equipmentCategory,
+  errorMessage,
+  listOf,
+  listWithMeta,
   notificationStatus,
   notificationType,
   pdfSnapshotType,
@@ -69,6 +74,7 @@ import {
   nullable,
   object,
   oneOf,
+  type Shape,
   optional,
   str,
   uuid,
@@ -305,12 +311,11 @@ const bonListItem = object<BonListItem>({
   canSendLink: optional(bool),
 });
 
-export const bonList = object<BonListResponse>({
-  bons: arrayOf(bonListItem, { minLength: 1 }),
-  total: int,
-  page: int,
-  limit: int,
-});
+export const bonList: Shape<BonListResponse> = listWithMeta(
+  bonListItem,
+  object<BonListMeta>({ exportLimit: int }),
+  { minLength: 1 },
+);
 
 export const bonStats = object<BonStatsResponse>({
   waitingSignature: int,
@@ -323,7 +328,6 @@ export const bonStats = object<BonStatsResponse>({
   byFiliale: arrayOf(object<BonStatsFiliale>({ id: uuid, name: str, count: int }), { minLength: 1 }),
 });
 
-export const recentBons = arrayOf(bonDetail, { minLength: 1 });
 
 const portalSignature = object<PortalSignature>({
   ...safeSignatureFields,
@@ -331,12 +335,12 @@ const portalSignature = object<PortalSignature>({
   inPersonPending: optional(literal(true)),
 });
 
-export const myBons = arrayOf(
+export const myBons = listOf(
   object<PortalBon>({ ...bonDetailBaseFields, equipments: arrayOf(bonEquipment), signatures: arrayOf(portalSignature) }),
   { minLength: 1 },
 );
 
-export const bonNotifications = arrayOf(
+export const bonNotifications = listOf(
   object<BonNotificationLog>({
     id: uuid,
     bonId: uuid,
@@ -369,7 +373,7 @@ export const bonIntegrity = object<BonIntegrityResponse>({
   ),
 });
 
-export const pdfSnapshots = arrayOf(
+export const pdfSnapshots = listOf(
   object<PdfSnapshotInfo>({
     id: str,
     type: pdfSnapshotType,
@@ -387,6 +391,20 @@ export const pdfSnapshots = arrayOf(
 );
 
 export const missingPdfSnapshots = object<MissingPdfSnapshotsResponse>({ missing: arrayOf(pdfSnapshotType) });
+
+/** Historique d'un bon : phrase du catalogue, jamais d'IP ni de navigateur. */
+export const bonHistory = listOf(
+  object<BonHistoryEntry>({
+    id: uuid,
+    at: isoDate,
+    action: str,
+    label: str,
+    tone: literal('action', 'success', 'warning', 'failure', 'technical'),
+    sentence: str,
+    actorName: nullable(str),
+  }),
+  { minLength: 1 },
+);
 
 export const initiateInPerson = object<InitiateInPersonResponse>({ bon: bonDetail, token: str });
 
@@ -424,18 +442,31 @@ export const resendBatch = object<ResendBatchResponse>({
   failed: int,
 });
 
+/** 409 des bons : forme d'erreur unique, données dans `details`. */
+const serialConflictList = arrayOf(object<SendSerialConflict>({ serialNumber: str, bonReference: str }), { minLength: 1 });
+
 export const serialConflictsError = object<SerialConflictsErrorBody>({
+  statusCode: int,
   code: literal('serial_conflicts'),
-  conflicts: arrayOf(object<SendSerialConflict>({ serialNumber: str, bonReference: str }), { minLength: 1 }),
+  message: errorMessage,
+  details: object<SerialConflictsErrorBody['details']>({ conflicts: serialConflictList }),
 });
 
-export const tokenRecentError = object<TokenRecentErrorBody>({ code: literal('token_recent'), sentAt: isoDate });
+export const tokenRecentError = object<TokenRecentErrorBody>({
+  statusCode: int,
+  code: literal('token_recent'),
+  message: errorMessage,
+  details: object<TokenRecentErrorBody['details']>({ sentAt: isoDate }),
+});
 
 const missingSerialLine = object<MissingSerialLine>({ equipmentId: uuid, position: int, label: str });
+const missingSerialLines = arrayOf(missingSerialLine, { minLength: 1 });
 
 export const missingSerialsError = object<MissingSerialsErrorBody>({
+  statusCode: int,
   code: literal('missing_serials'),
-  lines: arrayOf(missingSerialLine, { minLength: 1 }),
+  message: errorMessage,
+  details: object<MissingSerialsErrorBody['details']>({ lines: missingSerialLines }),
 });
 
 export const sendChecks = object<SendChecksResponse>({

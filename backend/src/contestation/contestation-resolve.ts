@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Logger } from '@nestjs/common';
 import type { BonStatus, ContestationOutcome, Prisma, SignatureType } from '@prisma/client';
 import { BON_REFERENCE_TX_OPTIONS } from '../common/bon-reference';
 import { INVALIDATED_TOKEN_SENTINEL } from '../common/bon-predicates';
@@ -10,6 +10,13 @@ import {
   CONTESTATION_PEOPLE_INCLUDE,
   PENDING_CONTESTATION_STATUSES,
 } from './contestation-selects';
+import { writeAuditEntry } from '../audit/audit-record';
+import {
+  HANDLED_CONTESTATION_SELECT,
+  contestationAlreadyHandledError,
+  contestationNotFoundError,
+  contestationStaleError,
+} from './contestation-errors';
 
 export interface ResolveContestationDeps {
   prisma: PrismaService;
@@ -115,30 +122,30 @@ async function applyDecision(
       resolutionMessage: input.resolutionMessage,
     },
   });
-  if (claimed.count === 0) throw new ConflictException('Cette contestation est déjà tranchée.');
+  if (claimed.count === 0) {
+    const current = await tx.contestation.findUniqueOrThrow({ where: { id: contestation.id }, select: HANDLED_CONTESTATION_SELECT });
+    throw contestationAlreadyHandledError(current);
+  }
 
   // Lecture fraîche, dans la transaction : le bon a pu changer entre-temps.
   const fresh = await tx.bon.findUnique({ where: { id: contestation.bonId }, select: { status: true } });
-  if (fresh?.status !== 'contested') throw new ConflictException("Ce bon n'est plus au statut contesté.");
+  if (fresh?.status !== 'contested') throw contestationStaleError("Ce bon n'est plus au statut contesté.");
 
   const restoredStatus = statusToRestore(contestation.previousBonStatus);
   await tx.bon.update({ where: { id: contestation.bonId }, data: { status: restoredStatus } });
 
   const correction = founded ? await correctFoundedBon(deps, tx, contestation, input.actorId, now) : null;
 
-  await tx.auditLog.create({
-    data: {
-      bonId: contestation.bonId,
-      userId: input.actorId,
-      action: founded ? 'contestation_resolved' : 'contestation_rejected',
-      details: {
-        contestationId: contestation.id,
-        outcome: input.outcome,
-        resolutionMessage: input.resolutionMessage,
-        restoredStatus,
-        replacementBonId: correction?.kind === 'replacement' ? correction.replacement.id : null,
-        reopenedDocument: correction?.kind === 'reopened' ? correction.document : null,
-      },
+  await writeAuditEntry(tx, founded ? 'contestation_resolved' : 'contestation_rejected', {
+    actorId: input.actorId,
+    bonId: contestation.bonId,
+    details: {
+      contestationId: contestation.id,
+      outcome: input.outcome,
+      resolutionMessage: input.resolutionMessage,
+      restoredStatus,
+      replacementBonId: correction?.kind === 'replacement' ? correction.replacement.id : null,
+      reopenedDocument: correction?.kind === 'reopened' ? correction.document : null,
     },
   });
   return correction;
@@ -170,7 +177,7 @@ export async function resolveContestation(deps: ResolveContestationDeps, input: 
       user: { select: { id: true, displayName: true, email: true } },
     },
   });
-  if (!contestation) throw new NotFoundException('Contestation introuvable');
+  if (!contestation) throw contestationNotFoundError();
 
   // BON_REFERENCE_TX_OPTIONS : la création d'un remplaçant numérote un bon sous
   // verrou, ce qui peut dépasser le délai par défaut d'une transaction Prisma.

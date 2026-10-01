@@ -43,6 +43,13 @@ describe('garde des actions du cycle de vie', () => {
       .toBe('Un bon ne peut plus être annulé une fois la remise signée.');
   });
 
+  it('bon déjà annulé : le refus le dit, au lieu de la règle de l’action', () => {
+    expect(refusalOf(() => assertActionAllowed(row({ status: 'cancelled' }), 'cancel', NOW)))
+      .toBe('Ce bon est annulé : plus aucune action n’est possible.');
+    expect(refusalOf(() => assertActionAllowed(row({ status: 'cancelled' }), 'send', NOW)))
+      .toBe('Ce bon est annulé : plus aucune action n’est possible.');
+  });
+
   it('refuse une action dont la condition propre n’est pas remplie', () => {
     const allReturned = row({
       status: 'partially_returned',

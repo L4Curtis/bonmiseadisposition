@@ -1,4 +1,4 @@
-import { ConflictException } from '@nestjs/common';
+import { AppException } from '../../../common/errors';
 import type { PrismaService } from '../../../prisma/prisma.service';
 import { createMockPrismaService, type MockPrismaService } from '../../../common/__tests__/helpers/mock-prisma';
 import {
@@ -95,10 +95,11 @@ describe('contrôles avant la remise', () => {
     const bon: CheckedBon = { id: 'bon-1', equipments: [UNLABELLED] };
     const refusal = await assertSendChecksConfirmed(asPrisma(prisma), bon, {}).catch((err: unknown) => err);
 
-    expect(refusal).toBeInstanceOf(ConflictException);
-    expect((refusal as ConflictException).getResponse()).toEqual({
+    expect(refusal).toBeInstanceOf(AppException);
+    expect(refusal).toMatchObject({
+      status: 409,
       code: 'missing_serials',
-      lines: [{ equipmentId: 'eq-4', position: 1, label: 'Équipement' }],
+      details: { lines: [{ equipmentId: 'eq-4', position: 1, label: 'Équipement' }] },
     });
     await expect(assertSendChecksConfirmed(asPrisma(prisma), bon, { confirmMissingSerials: true }))
       .resolves.toMatchObject({ missingSerials: [{ equipmentId: 'eq-4' }] });
@@ -110,9 +111,10 @@ describe('contrôles avant la remise', () => {
     const refusal = await assertSendChecksConfirmed(asPrisma(prisma), bon, { confirmMissingSerials: true })
       .catch((err: unknown) => err);
 
-    expect((refusal as ConflictException).getResponse()).toEqual({
+    expect(refusal).toMatchObject({
+      status: 409,
       code: 'serial_conflicts',
-      conflicts: [{ serialNumber: 'SN-001', bonReference: 'BON-2026-0007' }],
+      details: { conflicts: [{ serialNumber: 'SN-001', bonReference: 'BON-2026-0007' }] },
     });
     await expect(assertSendChecksConfirmed(asPrisma(prisma), bon, { confirmSerialConflicts: true })).resolves.toBeDefined();
   });

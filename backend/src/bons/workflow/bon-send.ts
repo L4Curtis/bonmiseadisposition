@@ -9,6 +9,7 @@ import { assertItSigned, issueEmailLink, issueInPersonLink } from './bon-links';
 import { assertSendChecksConfirmed, auditConfirmedChecks, SendConfirmations } from './bon-send-checks';
 import { emitPvClotureIfDue } from './bon-cloture';
 import { pendingDocument } from './state-machine';
+import { writeAuditEntry } from '../../audit/audit-record';
 
 /**
  * Remise d'un bon (brouillon → « Remise à signer ») et liens au guichet.
@@ -26,7 +27,7 @@ async function markHandoverRequested(ctx: BonsWorkflowContext, id: string, actor
     data: { status: 'sent_mise_dispo', awaitingSince: new Date() },
   });
   if (transition.count === 0) throw statusChangedMeanwhile();
-  await ctx.prisma.auditLog.create({ data: { bonId: id, userId: actorId, action: 'bon_sent', details: { inPerson } } });
+  await writeAuditEntry(ctx.prisma, 'bon_sent', { actorId, bonId: id, details: { inPerson } });
 }
 
 /** Contrôles communs aux deux voies de remise, AVANT toute écriture. */

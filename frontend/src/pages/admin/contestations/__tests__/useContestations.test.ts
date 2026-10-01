@@ -7,11 +7,11 @@ import { useContestations } from '../useContestations';
 
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>();
-  return { ...actual, api: { get: vi.fn(), patch: vi.fn() } };
+  return { ...actual, api: { getList: vi.fn(), post: vi.fn() } };
 });
 vi.mock('@/hooks/use-toast', () => ({ toast: vi.fn() }));
 
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import { toast } from '@/hooks/use-toast';
 
 const contestation = {
@@ -24,18 +24,15 @@ const contestation = {
   user: { id: 'u1', displayName: 'Jean Dupont', email: 'jean@example.com' },
 } as ContestationListItem;
 
-function response(overrides: Record<string, unknown> = {}) {
+/** Réponse de GET /contestations : liste commune, compteurs dans `meta`. */
+function response() {
   return {
-    contestations: [contestation],
+    items: [contestation],
     total: 1,
     page: 1,
     limit: 25,
-    openCount: 1,
-    pendingCount: 1,
-    overdueCount: 0,
-    overdueAfterDays: 7,
-    overdueSince: '2026-09-16T07:00:00.000Z',
-    ...overrides,
+    truncated: false,
+    meta: { openCount: 1, pendingCount: 1, overdueCount: 0, overdueAfterDays: 7, overdueSince: '2026-09-16T07:00:00.000Z' },
   };
 }
 
@@ -51,33 +48,34 @@ function renderAt(url = '/admin/contestations') {
 
 describe('useContestations', () => {
   it('ouvre sur « À traiter » avec le prédicat de la tuile de l’accueil (aTraiter=1)', async () => {
-    vi.mocked(api.get).mockResolvedValue(response());
+    vi.mocked(api.getList).mockResolvedValue(response());
     const { result } = renderAt();
     await waitFor(() => expect(result.current.list.loading).toBe(false));
     expect(result.current.list.filter).toBe('pending');
-    expect(api.get).toHaveBeenCalledWith(expect.stringContaining('aTraiter=1'));
-    expect(api.get).toHaveBeenCalledWith(expect.not.stringContaining('status='));
-    expect(result.current.list.data?.pendingCount).toBe(1);
+    expect(api.getList).toHaveBeenCalledWith(expect.stringContaining('aTraiter=1'));
+    expect(api.getList).toHaveBeenCalledWith(expect.not.stringContaining('status='));
+    expect(result.current.list.data?.meta?.pendingCount).toBe(1);
+    expect(api.getList).toHaveBeenCalledWith(expect.stringContaining('limit=25'));
   });
 
   it('lien de la tuile (?aTraiter=1) : « À traiter », même requête que la tuile', async () => {
-    vi.mocked(api.get).mockResolvedValue(response());
+    vi.mocked(api.getList).mockResolvedValue(response());
     const { result } = renderAt('/admin/contestations?aTraiter=1');
     await waitFor(() => expect(result.current.list.loading).toBe(false));
     expect(result.current.list.filter).toBe('pending');
-    expect(api.get).toHaveBeenLastCalledWith(expect.stringContaining('aTraiter=1'));
+    expect(api.getList).toHaveBeenLastCalledWith(expect.stringContaining('aTraiter=1'));
   });
 
   it('le filtre vit dans l’adresse : lien partagé, retour arrière', async () => {
-    vi.mocked(api.get).mockResolvedValue(response());
+    vi.mocked(api.getList).mockResolvedValue(response());
     const { result } = renderAt('/admin/contestations?filtre=non-retenues');
     await waitFor(() => expect(result.current.list.loading).toBe(false));
     expect(result.current.list.filter).toBe('not_retained');
-    expect(api.get).toHaveBeenLastCalledWith(expect.stringContaining('status=rejected'));
+    expect(api.getList).toHaveBeenLastCalledWith(expect.stringContaining('status=rejected'));
   });
 
   it('changer de filtre revient à la page 1, l’écrit dans l’adresse ; « Toutes » n’envoie aucun filtre', async () => {
-    vi.mocked(api.get).mockResolvedValue(response());
+    vi.mocked(api.getList).mockResolvedValue(response());
     const { result } = renderAt('/admin/contestations?aTraiter=1');
     await waitFor(() => expect(result.current.list.loading).toBe(false));
 
@@ -85,17 +83,17 @@ describe('useContestations', () => {
     act(() => result.current.list.setFilter('founded'));
     expect(result.current.list.page).toBe(1);
     expect(result.current.location.search).toBe('?filtre=fondees');
-    await waitFor(() => expect(api.get).toHaveBeenLastCalledWith(expect.stringContaining('status=resolved')));
+    await waitFor(() => expect(api.getList).toHaveBeenLastCalledWith(expect.stringContaining('status=resolved')));
 
     act(() => result.current.list.setFilter('all'));
-    await waitFor(() => expect(api.get).toHaveBeenLastCalledWith(expect.not.stringMatching(/status=|aTraiter=/)));
+    await waitFor(() => expect(api.getList).toHaveBeenLastCalledWith(expect.not.stringMatching(/status=|aTraiter=/)));
 
     act(() => result.current.list.setFilter('pending'));
     expect(result.current.location.search).toBe('');
   });
 
   it('lien « Traiter la contestation » de la fiche (?contestation=<id>) : la décision s’ouvre, le paramètre disparaît', async () => {
-    vi.mocked(api.get).mockResolvedValue(response());
+    vi.mocked(api.getList).mockResolvedValue(response());
     const { result } = renderAt('/admin/contestations?contestation=c1');
     await waitFor(() => expect(result.current.list.deciding?.id).toBe('c1'));
     expect(result.current.location.search).toBe('');
@@ -103,22 +101,22 @@ describe('useContestations', () => {
   });
 
   it('?contestation=<id> absente de la liste : rien ne s’ouvre, le paramètre disparaît quand même', async () => {
-    vi.mocked(api.get).mockResolvedValue(response());
+    vi.mocked(api.getList).mockResolvedValue(response());
     const { result } = renderAt('/admin/contestations?contestation=inconnue');
     await waitFor(() => expect(result.current.location.search).toBe(''));
     expect(result.current.list.deciding).toBeNull();
   });
 
   it('une panne n’est pas une liste vide', async () => {
-    vi.mocked(api.get).mockRejectedValue(new Error('boom'));
+    vi.mocked(api.getList).mockRejectedValue(new Error('boom'));
     const { result } = renderAt();
     await waitFor(() => expect(result.current.list.loadError).toBe('boom'));
     expect(result.current.list.data).toBeNull();
   });
 
-  it('prise en charge : PATCH, message de confirmation, puis rechargement', async () => {
-    vi.mocked(api.get).mockResolvedValue(response());
-    vi.mocked(api.patch).mockResolvedValue(undefined);
+  it('prise en charge : POST, message de confirmation, puis rechargement', async () => {
+    vi.mocked(api.getList).mockResolvedValue(response());
+    vi.mocked(api.post).mockResolvedValue(undefined);
     const { result } = renderAt();
     await waitFor(() => expect(result.current.list.loading).toBe(false));
 
@@ -126,9 +124,53 @@ describe('useContestations', () => {
       await result.current.list.handleReview(contestation);
     });
 
-    expect(api.patch).toHaveBeenCalledWith('/contestations/c1/review');
+    expect(api.post).toHaveBeenCalledWith('/contestations/c1/review');
     expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Contestation prise en charge' }));
-    expect(api.get).toHaveBeenCalledTimes(2);
+    expect(api.getList).toHaveBeenCalledTimes(2);
     expect(result.current.list.reviewingId).toBeNull();
+  });
+
+  it('prise en charge déjà faite par un collègue (409 contestation_already_handled) : message neutre et liste rechargée', async () => {
+    vi.mocked(api.getList).mockResolvedValue(response());
+    vi.mocked(api.post).mockRejectedValue(
+      new ApiError(409, 'Cette contestation est déjà prise en charge par Marc Petit.', {
+        statusCode: 409,
+        code: 'contestation_already_handled',
+        message: 'Cette contestation est déjà prise en charge par Marc Petit.',
+        details: { status: 'in_review', outcome: null, by: 'Marc Petit' },
+      }),
+    );
+    const { result } = renderAt();
+    await waitFor(() => expect(result.current.list.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.list.handleReview(contestation);
+    });
+
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Déjà prise en charge',
+      description: 'Cette contestation est déjà prise en charge par Marc Petit.',
+    }));
+    expect(api.getList).toHaveBeenCalledTimes(2);
+  });
+  it('contestation tranchée entre-temps : le titre le dit, le message nomme qui et comment', async () => {
+    const message = 'Cette contestation a déjà été tranchée par Inès Roy (« Fondée »).';
+    vi.mocked(api.getList).mockResolvedValue(response());
+    vi.mocked(api.post).mockRejectedValue(
+      new ApiError(409, message, {
+        statusCode: 409,
+        code: 'contestation_already_handled',
+        message,
+        details: { status: 'resolved', outcome: 'founded', by: 'Inès Roy' },
+      }),
+    );
+    const { result } = renderAt();
+    await waitFor(() => expect(result.current.list.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.list.handleReview(contestation);
+    });
+
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Contestation déjà tranchée', description: message }));
   });
 });

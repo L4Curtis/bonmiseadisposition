@@ -1,4 +1,4 @@
-import { ConflictException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { ContestationOutcome } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notification/notification.service';
@@ -8,6 +8,7 @@ import { ContestationListFilters, findContestations, findMyContestations } from 
 import { CONTESTATION_BON_WITH_STATUS, CONTESTATION_PEOPLE_INCLUDE } from './contestation-selects';
 import type { ContestableDocument } from './contested-document';
 import { BON_CORRECTOR, BonCorrector } from './bon-correction.port';
+import { HANDLED_CONTESTATION_SELECT, contestationAlreadyHandledError, contestationNotFoundError } from './contestation-errors';
 
 /**
  * Contestations : le collaborateur conteste un document de son bon, l'équipe
@@ -48,9 +49,9 @@ export class ContestationService {
       data: { status: 'in_review', reviewedById: reviewerId, reviewedAt: new Date() },
     });
     if (claimed.count === 0) {
-      const exists = await this.prisma.contestation.count({ where: { id } });
-      if (!exists) throw new NotFoundException('Contestation introuvable');
-      throw new ConflictException('Cette contestation est déjà prise en charge ou tranchée.');
+      const current = await this.prisma.contestation.findUnique({ where: { id }, select: HANDLED_CONTESTATION_SELECT });
+      if (!current) throw contestationNotFoundError();
+      throw contestationAlreadyHandledError(current);
     }
     return this.prisma.contestation.findUniqueOrThrow({
       where: { id },

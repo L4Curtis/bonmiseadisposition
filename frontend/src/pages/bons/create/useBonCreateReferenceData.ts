@@ -20,14 +20,12 @@ export function useBonCreateReferenceData() {
       // Mutualisé/mis en cache 60 s via useActiveFiliales — partagé avec les
       // autres formulaires/filtres qui affichent la même liste.
       getActiveFiliales(),
-      api.get<CatalogItem[]>('/equipment/catalog').then((d) =>
-        Array.isArray(d) ? d : []
-      ),
-      api.get<Pack[]>('/equipment/packs'),
+      api.getList<CatalogItem>('/equipment/catalog').then((list) => list.items),
+      api.getList<Pack>('/equipment/packs').then((list) => list.items),
     ]).then(([f, items, p]) => {
       setFiliales(f);
-      setAllCatalogItems(Array.isArray(items) ? items : []);
-      setPacks(Array.isArray(p) ? p : []);
+      setAllCatalogItems(items);
+      setPacks(p);
     }).catch(() => {
       // Sans filiales/catalogue le formulaire est inutilisable : le signaler
       setInitError(true);

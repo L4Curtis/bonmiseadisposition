@@ -70,29 +70,33 @@ export function Pagination({
           </label>
         )}
 
-        <Button
-          variant="outline"
-          size="sm"
-          className={TOUCH}
-          disabled={page <= 1}
-          onClick={() => onPageChange(page - 1)}
-          aria-label="Page précédente"
-        >
-          <ChevronLeft className="h-4 w-4" aria-hidden="true" />
-          <span className="hidden sm:inline">Précédent</span>
-        </Button>
-        <span className="px-1 text-sm text-muted-foreground">{`Page ${page} sur ${totalPages}`}</span>
-        <Button
-          variant="outline"
-          size="sm"
-          className={TOUCH}
-          disabled={page >= totalPages}
-          onClick={() => onPageChange(page + 1)}
-          aria-label="Page suivante"
-        >
-          <span className="hidden sm:inline">Suivant</span>
-          <ChevronRight className="h-4 w-4" aria-hidden="true" />
-        </Button>
+        {/* Précédent, « Page x sur y » et Suivant restent sur une même ligne :
+            sur un téléphone, seul le choix du nombre de lignes passe dessous. */}
+        <div role="group" aria-label="Changer de page" className="flex shrink-0 flex-nowrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className={TOUCH}
+            disabled={page <= 1}
+            onClick={() => onPageChange(page - 1)}
+            aria-label="Page précédente"
+          >
+            <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+            <span className="hidden sm:inline">Précédent</span>
+          </Button>
+          <span className="whitespace-nowrap px-1 text-sm text-muted-foreground">{`Page ${page} sur ${totalPages}`}</span>
+          <Button
+            variant="outline"
+            size="sm"
+            className={TOUCH}
+            disabled={page >= totalPages}
+            onClick={() => onPageChange(page + 1)}
+            aria-label="Page suivante"
+          >
+            <span className="hidden sm:inline">Suivant</span>
+            <ChevronRight className="h-4 w-4" aria-hidden="true" />
+          </Button>
+        </div>
       </div>
     </nav>
   );

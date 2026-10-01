@@ -16,7 +16,7 @@ export function useBonCreators(): BonCreator[] {
 
   useEffect(() => {
     let ignore = false;
-    api.get<BonCreator[]>('/users/it-staff')
+    api.getList<BonCreator>('/users/it-staff').then((list) => list.items)
       .then((staff) => {
         if (ignore) return;
         const sorted = staff

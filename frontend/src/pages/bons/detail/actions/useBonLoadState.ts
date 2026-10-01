@@ -16,11 +16,9 @@ export function useBonLoadState(id: string | undefined, isItStaff: boolean) {
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pdfSnapshots, setPdfSnapshots] = useState<PdfSnapshotInfo[]>([]);
-  // Types de snapshot attendus mais absents. Contrat backend confirmé : GET
-  // /bons/:id/pdf-snapshots reste un tableau (le portail collaborateur en
-  // dépend, ne pas le changer) ; la liste des manquants vit sur une route
-  // séparée GET /bons/:id/pdf-snapshots/missing → { missing: string[] },
-  // appelée uniquement pour l'IT (voir `isItStaff` ci-dessus).
+  // Types de document attendus mais absents : route séparée
+  // GET /bons/:id/pdf-snapshots/missing → { missing }, appelée uniquement
+  // pour l'IT (voir `isItStaff` ci-dessus).
   const [missingSnapshots, setMissingSnapshots] = useState<string[]>([]);
   const [regeneratingSnapshots, setRegeneratingSnapshots] = useState(false);
   const [notifLogs, setNotifLogs] = useState<NotificationLog[]>([]);
@@ -33,8 +31,8 @@ export function useBonLoadState(id: string | undefined, isItStaff: boolean) {
   }, []);
 
   const loadSnapshots = (bonId: string) => {
-    api.get<PdfSnapshotInfo[]>(`/bons/${bonId}/pdf-snapshots`)
-      .then(setPdfSnapshots)
+    api.getList<PdfSnapshotInfo>(`/bons/${bonId}/pdf-snapshots`)
+      .then((list) => setPdfSnapshots(list.items))
       .catch(() => setPdfSnapshots([]));
 
     // Route séparée, IT uniquement : un collaborateur consultant son bon
@@ -69,8 +67,8 @@ export function useBonLoadState(id: string | undefined, isItStaff: boolean) {
   };
 
   const loadNotifLogs = (bonId: string) => {
-    api.get<NotificationLog[]>(`/bons/${bonId}/notifications`)
-      .then(setNotifLogs)
+    api.getList<NotificationLog>(`/bons/${bonId}/notifications`)
+      .then((list) => setNotifLogs(list.items))
       .catch(() => setNotifLogs([]));
   };
 

@@ -27,7 +27,9 @@
  * formes de `test/contract/shapes/`.
  */
 import type {
+  ApiErrorBody,
   BonStatus,
+  ListResponse,
   Civilite,
   SignatureInvalidationReason,
   EquipmentCategory,
@@ -38,6 +40,7 @@ import type {
   PdfSnapshotType,
   SignatureType,
 } from './common';
+import type { AuditActionTone } from './audit-actions';
 import type { CatalogItem } from './equipment';
 import type { Filiale } from './filiales';
 
@@ -86,7 +89,7 @@ export interface PendingSignature {
   expiresAt: IsoDateTime | null;
   /** Le collaborateur a demandé un nouveau lien depuis l'envoi du dernier :
    *  date de sa demande (l'IT a été prévenue une fois, ne la réalertez pas),
-   *  `null` sinon. Renseigné par `GET /bons/mes-bons` et `GET /bons/:id`. */
+   *  `null` sinon. Renseigné par `GET /me/bons` et `GET /bons/:id`. */
   newLinkRequestedAt?: IsoDateTime | null;
 }
 
@@ -438,12 +441,31 @@ export interface BonListItem {
   canSendLink?: boolean;
 }
 
-/** GET /api/bons — liste paginée et filtrée (IT). `limit` est plafonné à 100. */
-export interface BonListResponse {
-  bons: BonListItem[];
-  total: number;
-  page: number;
-  limit: number;
+/**
+ * GET /api/bons — liste paginée et filtrée (IT), à la forme commune des
+ * listes. `limit` vaut 25, 50 ou 100 (25 par défaut) ; une autre valeur est
+ * refusée (400). Filtres : `status`, `excludeStatus`, `filialeId`, `search`
+ * (sous-chaîne), `reference` (référence exacte), `overdue`,
+ * `awaitingSignature`, `linkExpired`, `subStatus`, `dateFrom`/`dateTo` (mise à
+ * disposition), `createdFrom`/`createdTo`, `closedFrom`/`closedTo`,
+ * `cancelledFrom`/`cancelledTo` (jours de Paris, bornes incluses : mêmes
+ * règles que les chiffres du tableau de bord), `noReturnDate`, `createdById`,
+ * `ids` ; tri `sort`/`order`.
+ *
+ * `GET /api/bons/export` (CSV, mêmes filtres et même tri, plus `ids` pour une
+ * sélection ; fichier `bons-export-AAAA-MM-JJ.csv` daté à Paris) est coupé à
+ * `meta.exportLimit` lignes, `X-Truncated: true` alors posé.
+ *
+ * `GET /api/bons/recent` en est l'ancien chemin (alias déprécié) : les
+ * derniers bons créés sont la première page du tri par défaut.
+ */
+export type BonListResponse = ListResponse<BonListItem, BonListMeta>;
+
+/** `meta` de GET /api/bons. */
+export interface BonListMeta {
+  /** Plafond de lignes de `GET /api/bons/export` : l'écran prévient avant
+   *  l'export que le fichier sera coupé (`X-Truncated`). */
+  exportLimit: number;
 }
 
 // ─── Tableau de bord ──────────────────────────────────────────────────────────
@@ -468,8 +490,6 @@ export interface BonStatsResponse {
   byFiliale: BonStatsFiliale[];
 }
 
-/** GET /api/bons/recent?limit= — derniers bons créés (10 par défaut, 50 au plus). */
-export type RecentBonsResponse = BonDetail[];
 
 // ─── Portail collaborateur ────────────────────────────────────────────────────
 
@@ -493,11 +513,12 @@ export interface PortalBon extends Omit<BonDetail, 'signatures' | BonItOnlyField
   signatures: PortalSignature[];
 }
 
-/** GET /api/bons/mes-bons — bons du collaborateur connecté, hors brouillons et
- *  annulés, du plus récent au plus ancien (100 au plus), avec l'état calculé
- *  vu par le titulaire (sous-état, document en attente, `replacedBy`, état
- *  de chaque équipement). */
-export type MyBonsResponse = PortalBon[];
+/** GET /api/me/bons (ancien chemin : /api/bons/mes-bons) — bons du
+ *  collaborateur connecté, hors brouillons et annulés, du plus récent au plus
+ *  ancien, avec l'état calculé vu par le titulaire (sous-état, document en
+ *  attente, `replacedBy`, état de chaque équipement). Liste complète, coupée
+ *  à 100 bons (`truncated`). */
+export type MyBonsResponse = ListResponse<PortalBon>;
 
 // ─── Historique, intégrité, documents ─────────────────────────────────────────
 
@@ -516,8 +537,9 @@ export interface BonNotificationLog {
   documentType: LinkSignatureType | null;
 }
 
-/** GET /api/bons/:id/notifications — emails du bon, du plus récent au plus ancien. */
-export type BonNotificationsResponse = BonNotificationLog[];
+/** GET /api/bons/:id/notifications — emails du bon, du plus récent au plus
+ *  ancien (liste complète). */
+export type BonNotificationsResponse = ListResponse<BonNotificationLog>;
 
 /** Contrôle du sceau HMAC d'une signature signée (signature/seal.ts). */
 export interface SignatureIntegrity {
@@ -533,7 +555,8 @@ export interface SignatureIntegrity {
   signedAt: IsoDateTime | null;
 }
 
-/** GET /api/bons/:id/integrity — vérification des sceaux des signatures. */
+/** GET /api/bons/:id/integrity — vérification des sceaux des signatures
+ *  (404 `not_found` pour un bon inconnu). */
 export interface BonIntegrityResponse {
   allValid: boolean;
   anonymized: boolean;
@@ -574,8 +597,35 @@ export interface PdfSnapshotInfo {
 }
 
 /** GET /api/bons/:id/pdf-snapshots — TOUS les documents enregistrés, du plus
- *  ancien au plus récent (ordre de production, puis identifiant). */
-export type PdfSnapshotsResponse = PdfSnapshotInfo[];
+ *  ancien au plus récent (ordre de production, puis identifiant) ; le
+ *  collaborateur ne reçoit que ceux qu'il peut garder. Liste complète. */
+export type PdfSnapshotsResponse = ListResponse<PdfSnapshotInfo>;
+
+/**
+ * Une action de l'historique d'un bon (GET /api/bons/:id/history), lue dans
+ * le journal d'audit et racontée avec la phrase du catalogue
+ * (`audit-actions.ts`). Aucune donnée technique : ni adresse IP, ni
+ * navigateur, ni le contenu brut de l'entrée.
+ */
+export interface BonHistoryEntry {
+  id: string;
+  /** Moment de l'action. */
+  at: IsoDateTime;
+  /** Clé de l'action (catalogue `AUDIT_ACTIONS`). */
+  action: string;
+  /** Libellé court (« Bon envoyé ») ; « Action non répertoriée » hors catalogue. */
+  label: string;
+  tone: AuditActionTone;
+  /** Phrase complète (« Marie Martin a annulé le bon BON-2026-0042 (motif : …). »). */
+  sentence: string;
+  /** Auteur : nom du compte, à défaut son email ; `null` pour une tâche planifiée. */
+  actorName: string | null;
+}
+
+/** GET /api/bons/:id/history — historique des actions du bon, du plus ancien
+ *  au plus récent (IT seulement). Au-delà de 200 actions, les plus récentes
+ *  (`truncated`). */
+export type BonHistoryResponse = ListResponse<BonHistoryEntry>;
 
 /** GET /api/bons/:id/pdf-snapshots/missing — documents attendus (signature
  *  signée) mais absents. */
@@ -588,11 +638,13 @@ export interface MissingPdfSnapshotsResponse {
 /** POST /api/bons — création d'un brouillon (201). */
 export type CreateBonResponse = BonDetail;
 
-/** PUT /api/bons/:id — modification d'un brouillon. */
+/** PATCH /api/bons/:id (ancien verbe : PUT) — modification d'un brouillon, ou
+ *  d'un bon envoyé pas encore signé (nouvelle signature IT, nouveau lien). */
 export type UpdateBonResponse = BonDetail;
 
 /** POST /api/bons/:id/cancel — annulation (le bon passe « Annulé »), motif
- *  obligatoire pour un bon envoyé ; DELETE /api/bons/:id reste accepté. */
+ *  obligatoire pour un bon envoyé. DELETE /api/bons/:id en est l'ancienne
+ *  forme (alias déprécié). */
 export type CancelBonResponse = BonDetail;
 
 /** POST /api/bons/:id/handover-without-signature — « Constater la remise sans
@@ -717,24 +769,26 @@ export interface SendSerialConflict {
   bonReference: string;
 }
 
-/** POST /api/bons/:id/send — 409 sans `statusCode` : numéros de série déjà en
- *  circulation ; renvoyer avec `{ confirmSerialConflicts: true }` pour passer outre. */
-export interface SerialConflictsErrorBody {
-  code: 'serial_conflicts';
-  conflicts: SendSerialConflict[];
+/** Codes d'erreur propres aux bons (en plus de `CommonApiErrorCode`). */
+export type BonErrorCode = 'serial_conflicts' | 'missing_serials' | 'token_recent';
+
+/** POST /api/bons/:id/send — 409 : numéros de série déjà en circulation ;
+ *  renvoyer avec `{ confirmSerialConflicts: true }` pour passer outre. */
+export interface SerialConflictsErrorBody
+  extends ApiErrorBody<'serial_conflicts', { conflicts: SendSerialConflict[] }> {
+  details: { conflicts: SendSerialConflict[] };
 }
 
-/** POST /api/bons/:id/send et initiate-inperson — 409 sans `statusCode` : des
- *  lignes n'ont ni numéro de série ni numéro d'inventaire ; renvoyer avec
+/** POST /api/bons/:id/send et initiate-inperson — 409 : des lignes n'ont ni
+ *  numéro de série ni numéro d'inventaire ; renvoyer avec
  *  `{ confirmMissingSerials: true }` pour passer outre (tracé dans l'audit). */
-export interface MissingSerialsErrorBody {
-  code: 'missing_serials';
-  lines: MissingSerialLine[];
+export interface MissingSerialsErrorBody
+  extends ApiErrorBody<'missing_serials', { lines: MissingSerialLine[] }> {
+  details: { lines: MissingSerialLine[] };
 }
 
-/** POST /api/bons/:id/resend — 409 sans `statusCode` : un lien a été envoyé il
- *  y a moins d'une heure ; renvoyer avec `{ force: true }` pour confirmer. */
-export interface TokenRecentErrorBody {
-  code: 'token_recent';
-  sentAt: IsoDateTime;
+/** POST /api/bons/:id/resend — 409 : un lien a été envoyé il y a moins d'une
+ *  heure ; renvoyer avec `{ force: true }` pour confirmer. */
+export interface TokenRecentErrorBody extends ApiErrorBody<'token_recent', { sentAt: IsoDateTime }> {
+  details: { sentAt: IsoDateTime };
 }

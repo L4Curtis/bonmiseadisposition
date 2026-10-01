@@ -43,8 +43,8 @@ function useAttachments(bonId: string) {
   const [loaded, setLoaded] = useState(false);
   const reload = useCallback(() => {
     api
-      .get<Attachment[]>(`/bons/${bonId}/attachments`)
-      .then(setItems)
+      .getList<Attachment>(`/bons/${bonId}/attachments`)
+      .then((list) => setItems(list.items))
       .catch(() => setItems([]))
       .finally(() => setLoaded(true));
   }, [bonId]);

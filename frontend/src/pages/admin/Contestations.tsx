@@ -1,7 +1,7 @@
 import { AlertOctagon } from 'lucide-react';
 import { Pagination } from '@/components/list';
 import { cn } from '@/lib/utils';
-import { CONTESTATIONS_PAGE_SIZE, useContestations } from './contestations/useContestations';
+import { contestationCounters, useContestations } from './contestations/useContestations';
 import { ContestationsTable } from './contestations/ContestationsTable';
 import { ResolveDialog } from './contestations/ResolveDialog';
 import { CONTESTATION_FILTERS } from './contestations/contestation-meta';
@@ -36,6 +36,7 @@ function Counters({ openCount, pendingCount, overdueCount, overdueAfterDays }: {
 export function ContestationsPage() {
   const list = useContestations();
   const { data } = list;
+  const counters = contestationCounters(data);
 
   return (
     <div className="space-y-4">
@@ -45,10 +46,10 @@ export function ContestationsPage() {
         </h1>
         {data && (
           <Counters
-            openCount={data.openCount}
-            pendingCount={data.pendingCount}
-            overdueCount={data.overdueCount}
-            overdueAfterDays={data.overdueAfterDays}
+            openCount={counters.openCount}
+            pendingCount={counters.pendingCount}
+            overdueCount={counters.overdueCount}
+            overdueAfterDays={counters.overdueAfterDays}
           />
         )}
       </div>
@@ -73,8 +74,8 @@ export function ContestationsPage() {
       </div>
 
       <ContestationsTable
-        contestations={data?.contestations}
-        overdueSince={data?.overdueSince ?? null}
+        contestations={data?.items}
+        overdueSince={data?.meta?.overdueSince ?? null}
         loading={list.loading}
         loadError={list.loadError}
         onRetry={list.load}
@@ -86,9 +87,10 @@ export function ContestationsPage() {
       {data && (
         <Pagination
           page={list.page}
-          pageSize={CONTESTATIONS_PAGE_SIZE}
+          pageSize={list.pagination.pageSize}
           total={data.total}
           onPageChange={list.setPage}
+          onPageSizeChange={list.pagination.setPageSize}
           itemLabel={{ singular: 'contestation', plural: 'contestations' }}
         />
       )}

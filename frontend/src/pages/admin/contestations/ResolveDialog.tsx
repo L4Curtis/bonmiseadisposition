@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import type { ContestationOutcome } from '@/contracts/common';
 import type { ContestationListItem, ResolveContestationResponse } from '@/contracts/contestations';
 import { CONTESTATION_OUTCOME_LABELS } from '@/domain/labels';
-import { api } from '@/lib/api';
+import { api, hasErrorCode } from '@/lib/api';
 import { errorMessage } from '@/lib/errors';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
@@ -80,7 +80,7 @@ export function ResolveDialog({ contestation, open, onOpenChange, onSuccess }: R
     setLoading(true);
     setError('');
     try {
-      const result = await api.patch<ResolveContestationResponse>(`/contestations/${contestation.id}/resolve`, {
+      const result = await api.post<ResolveContestationResponse>(`/contestations/${contestation.id}/resolve`, {
         outcome,
         resolutionMessage: message.trim() || undefined,
       });
@@ -97,6 +97,14 @@ export function ResolveDialog({ contestation, open, onOpenChange, onSuccess }: R
       const path = outcome === 'founded' ? correctionPath(result) : null;
       if (path) navigate(path);
     } catch (e: unknown) {
+      if (hasErrorCode(e, 'contestation_already_handled')) {
+        // Tranchée entre-temps par un collègue : la fenêtre se ferme sur la
+        // liste à jour plutôt que de garder une décision devenue impossible.
+        handleClose(false);
+        toast({ title: 'Contestation déjà tranchée', description: e.message });
+        onSuccess();
+        return;
+      }
       setError(errorMessage(e, 'Erreur lors de la décision'));
     } finally {
       setLoading(false);

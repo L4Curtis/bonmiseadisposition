@@ -3,8 +3,7 @@ import {
   Get,
   HttpCode,
   Post,
-  Put,
-  Delete,
+  Patch,
   Body,
   Param,
   Query,
@@ -15,9 +14,8 @@ import {
 import { Throttle } from '@nestjs/throttler';
 import { Response, Request } from 'express';
 import { BonsService } from './bons.service';
-import { PdfService } from '../pdf/pdf.service';
+import { BonDocumentsService, BonPdfFile } from './bon-documents.service';
 import { SignatureService } from '../signature/signature.service';
-import { PrismaService } from '../prisma/prisma.service';
 import { CreateBonDto, UpdateBonDto } from './dto/bon.dto';
 import { QueryBonsDto, toBonListQuery } from './dto/query-bons.dto';
 import {
@@ -38,9 +36,10 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles, ALL_ROLES } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth-user.interface';
-import { verifyCollaboratorAccess as verifyCollaboratorAccessImpl } from './bons-access';
 import { isItRole } from '../common/roles';
 import { clientIp } from '../common/http/client-ip';
+import { DeprecatedAlias } from '../common/http/deprecated-alias';
+import { sendCsv } from '../common/csv/send-csv';
 import type { ClientTrace } from './workflow/bon-it-signature';
 
 /** Poste du technicien (adresse IP selon la règle unique, navigateur) :
@@ -48,23 +47,23 @@ import type { ClientTrace } from './workflow/bon-it-signature';
 function clientTrace(req: Request): ClientTrace {
   return { ip: clientIp(req), userAgent: req.headers['user-agent'] ?? 'unknown' };
 }
-import { assertValidPdfQuery, resolveBonPdf } from './bons-pdf-lookup';
-import { renderReadyPv } from './bons-ready-pv';
-import { computeMissingPdfSnapshotTypes } from './bons-missing-snapshots';
-import { listBonDocuments } from '../pdf/snapshot-list';
-import type { DocumentAudience } from '../pdf/snapshot-audience';
 
-/** Public des documents : l'IT voit tout l'historique, un autre compte
- *  seulement les documents qu'il peut garder. */
-function documentAudience(user: AuthUser): DocumentAudience {
-  return isItRole(user.role) ? 'it' : 'collaborator';
+/** Envoie un PDF en pièce jointe. */
+function sendPdf(res: Response, file: BonPdfFile): void {
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+  res.send(file.data);
 }
 
 /**
  * Bons : réservés à l'IT (admin, technicien), sauf les routes « propriétaire »
- * — ses propres bons, leurs PDF — ouvertes à tout rôle
- * connecté, car chacun peut recevoir du matériel. Sur ces routes-là,
- * verifyCollaboratorAccess limite un compte non IT à SES bons.
+ * — la fiche, ses PDF, ses documents, l'intégrité — ouvertes à tout rôle
+ * connecté, car chacun peut recevoir du matériel : un compte non IT n'y voit
+ * que SES bons (BonDocumentsService.assertCanRead). Les bons de la personne
+ * connectée sont servis par `GET /me/bons` (me.controller.ts).
+ *
+ * Le contrôleur ne lit pas la base : les services le font (BonsService pour le
+ * cycle de vie, BonDocumentsService pour les documents et l'accès).
  */
 @Controller('bons')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -72,27 +71,11 @@ function documentAudience(user: AuthUser): DocumentAudience {
 export class BonsController {
   constructor(
     private readonly bonsService: BonsService,
-    private readonly pdfService: PdfService,
+    private readonly documents: BonDocumentsService,
     private readonly signatureService: SignatureService,
-    private readonly prisma: PrismaService,
   ) {}
 
-  // ─── Routes propriétaire (tout rôle connecté, limité à ses propres bons) ────
-
-  @Get('mes-bons')
-  @Roles(...ALL_ROLES)
-  getMyBons(@CurrentUser() user: AuthUser) {
-    return this.bonsService.findByCollaborateur(user.id);
-  }
-
-  /** POST /bons/:id/resend — IT renvoie le lien de signature
-   *  (pas de @UseGuards(ThrottlerGuard) local : le guard global compte déjà
-   *  la requête — l'ajouter ici double-comptait la même requête). */
-  @Post(':id/resend')
-  @Throttle({ default: { limit: 5, ttl: 60000 } })
-  resend(@Param('id') id: string, @Body() body: { force?: boolean }, @CurrentUser() user: AuthUser) {
-    return this.bonsService.resendSignatureLink(id, user.id, body?.force === true);
-  }
+  // ─── Routes statiques (avant les routes paramétrées) ───────────────────────
 
   /** POST /bons/resend-batch — relance groupée depuis la liste des bons (au
    *  plus MAX_RESEND_BATCH bons par appel, traités l'un après l'autre ; voir
@@ -105,39 +88,37 @@ export class BonsController {
     return this.bonsService.resendSignatureLinks(dto.ids, user.id, dto.force === true);
   }
 
-  // Static routes BEFORE parameterized routes
   @Get('stats')
   getStats() {
     return this.bonsService.getStats();
   }
 
-  @Get('recent')
-  getRecent(@Query('limit') limit?: string) {
-    const parsed = limit ? parseInt(limit, 10) : 10;
-    const safeLimit = Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 50) : 10;
-    return this.bonsService.getRecentBons(safeLimit);
-  }
-
+  /** GET /bons/export — mêmes filtres et même tri que GET /bons (liste
+   *  affichée), plus `ids` pour l'export d'une sélection ; page et limit sont
+   *  ignorés. Coupé au plafond annoncé par la liste (`meta.exportLimit`),
+   *  `X-Truncated` alors posé ; fichier daté du jour à Paris. */
   @Get('export')
   async exportCsv(@Query() dto: QueryBonsDto, @Res() res: Response) {
-    // Mêmes filtres et même tri que GET /bons (liste affichée), plus `ids`
-    // pour l'export d'une sélection ; page/limit sont ignorés ici.
     const { csv, truncated } = await this.bonsService.getExportData(toBonListQuery(dto));
-    const filename = `bons-export-${new Date().toISOString().slice(0, 10)}.csv`;
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    if (truncated) res.setHeader('X-Truncated', 'true');
-    res.send(csv);
+    sendCsv(res, { csv, filename: dto.ids?.length ? 'bons-selection' : 'bons-export', truncated });
   }
 
+  /** GET /bons — liste paginée et filtrée, à la forme commune des listes ;
+   *  `meta.exportLimit` annonce le plafond de l'export. Les « bons récents »
+   *  de l'accueil en sont la première page (tri par défaut : les plus
+   *  récents d'abord) : `GET /bons/recent` y mène. */
   @Get()
+  @DeprecatedAlias('GET /bons/recent')
   findAll(@Query() dto: QueryBonsDto) {
-    return this.bonsService.findAll({
-      ...toBonListQuery(dto),
-      page: dto.page ?? 1,
-      limit: Math.min(dto.limit ?? 20, 100),
-    });
+    return this.bonsService.findAll({ ...toBonListQuery(dto), page: dto.page, limit: dto.limit });
   }
+
+  @Post()
+  create(@Body() dto: CreateBonDto, @CurrentUser() user: AuthUser) {
+    return this.bonsService.create(dto, user.id);
+  }
+
+  // ─── Fiche et lectures d'un bon ────────────────────────────────────────────
 
   /** GET /bons/:id — fiche : l'IT voit tout ; le collaborateur titulaire ne
    *  reçoit ni la « Note interne IT », ni le refus d'envoi, ni les actions,
@@ -145,8 +126,15 @@ export class BonsController {
   @Get(':id')
   @Roles(...ALL_ROLES)
   async findOne(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    await this.verifyCollaboratorAccess(id, user);
+    await this.documents.assertCanRead(id, user);
     return this.bonsService.detail(id, isItRole(user.role) ? 'it' : 'holder');
+  }
+
+  /** GET /bons/:id/history — qui a fait quoi, et quand (journal d'audit,
+   *  phrases du catalogue), du plus ancien au plus récent. IT seulement. */
+  @Get(':id/history')
+  history(@Param('id') id: string) {
+    return this.bonsService.history(id);
   }
 
   /** GET /bons/:id/send-check — contrôles avant la remise (R-003), à montrer
@@ -161,26 +149,69 @@ export class BonsController {
     return this.bonsService.getNotificationLogs(id);
   }
 
-  @Post()
-  create(@Body() dto: CreateBonDto, @CurrentUser() user: AuthUser) {
-    return this.bonsService.create(dto, user.id);
+  /** GET /bons/:id/integrity — vérifie les sceaux HMAC des signatures (preuve
+   *  d'intégrité : détecte toute altération directe en base). 404 pour un bon
+   *  inconnu. */
+  @Get(':id/integrity')
+  @Roles(...ALL_ROLES)
+  async getIntegrity(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    await this.documents.assertCanRead(id, user);
+    return this.signatureService.verifyBonIntegrity(id);
   }
 
-  /** PUT /bons/:id — brouillon, ou bon envoyé pas encore signé (le lien est
+  /** GET /bons/:id/pdf-snapshots — les documents du bon, du plus ancien au
+   *  plus récent (un document par signature, jamais écrasé) : tous pour l'IT,
+   *  ceux qu'il peut garder pour le collaborateur. */
+  @Get(':id/pdf-snapshots')
+  @Roles(...ALL_ROLES)
+  getPdfSnapshots(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.documents.documents(id, user);
+  }
+
+  /** GET /bons/:id/pdf-snapshots/missing — documents attendus (une signature
+   *  signée existe) mais absents, régénérables via
+   *  POST /admin/pdf/regenerate-missing. */
+  @Get(':id/pdf-snapshots/missing')
+  getMissingPdfSnapshots(@Param('id') id: string) {
+    return this.documents.missingDocuments(id);
+  }
+
+  @Get(':id/pdf')
+  @Roles(...ALL_ROLES)
+  async getPdf(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+    @Res() res: Response,
+    @Query('type') type: 'mise_disposition' | 'restitution' = 'mise_disposition',
+    @Query('stage') stage?: string,
+    @Query('snapshot') snapshot?: string,
+  ) {
+    sendPdf(res, await this.documents.pdf(id, user, { type, stage, snapshot }));
+  }
+
+  /** GET /bons/:id/pdf/pv-pret — IT seulement : le PV de non-restitution
+   *  déjà certifié par la signature IT mais pas encore émis (équipements
+   *  encore dehors), généré à la volée, rien n'est enregistré (bons-ready-pv.ts). */
+  @Get(':id/pdf/pv-pret')
+  async getReadyPv(@Param('id') id: string, @Res() res: Response) {
+    sendPdf(res, await this.documents.readyPv(id));
+  }
+
+  // ─── Cycle de vie ──────────────────────────────────────────────────────────
+
+  /** PATCH /bons/:id — brouillon, ou bon envoyé pas encore signé (le lien est
    *  alors invalidé : nouvelle signature IT puis nouveau lien). */
-  @Put(':id')
+  @Patch(':id')
+  @DeprecatedAlias('PUT /bons/:id')
   update(@Param('id') id: string, @Body() dto: UpdateBonDto, @CurrentUser() user: AuthUser) {
     return this.bonsService.update(id, dto, user.id);
   }
 
-  /** POST /bons/:id/cancel — annulation, motif obligatoire pour un bon envoyé. */
+  /** POST /bons/:id/cancel — annulation, motif obligatoire pour un bon envoyé.
+   *  Un bon annulé n'est pas supprimé : `DELETE /bons/:id` en est l'ancienne
+   *  forme (alias déprécié). */
   @Post(':id/cancel')
-  cancelWithReason(@Param('id') id: string, @Body() dto: CancelBonDto, @CurrentUser() user: AuthUser) {
-    return this.bonsService.cancel(id, user.id, dto.reason);
-  }
-
-  /** DELETE /bons/:id — ancienne forme de l'annulation (motif dans le corps). */
-  @Delete(':id')
+  @DeprecatedAlias('DELETE /bons/:id')
   cancel(@Param('id') id: string, @Body() dto: CancelBonDto, @CurrentUser() user: AuthUser) {
     return this.bonsService.cancel(id, user.id, dto?.reason);
   }
@@ -188,6 +219,15 @@ export class BonsController {
   @Post(':id/send')
   send(@Param('id') id: string, @Body() dto: SendConfirmationsDto, @CurrentUser() user: AuthUser) {
     return this.bonsService.send(id, user.id, dto ?? {});
+  }
+
+  /** POST /bons/:id/resend — IT renvoie le lien de signature
+   *  (pas de @UseGuards(ThrottlerGuard) local : le guard global compte déjà
+   *  la requête — l'ajouter ici double-comptait la même requête). */
+  @Post(':id/resend')
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  resend(@Param('id') id: string, @Body() body: { force?: boolean }, @CurrentUser() user: AuthUser) {
+    return this.bonsService.resendSignatureLink(id, user.id, body?.force === true);
   }
 
   /** POST /bons/:id/initiate-restitution — marque les équipements rendus
@@ -229,6 +269,18 @@ export class BonsController {
     return this.bonsService.closeWithoutSignature(id, user.id, dto.reason);
   }
 
+  /** POST /bons/:id/close-unilateral — ancien nom des deux gestes sans
+   *  signature, gardé pour compatibilité : « Constater la remise » depuis
+   *  « Remise à signer », « Clôturer » sinon. */
+  @Post(':id/close-unilateral')
+  closeUnilateral(
+    @Param('id') id: string,
+    @Body() dto: CloseUnilateralDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.bonsService.closeUnilaterally(id, user.id, dto.reason.trim());
+  }
+
   @Post(':id/declare-not-returned')
   declareNotReturned(
     @Param('id') id: string,
@@ -249,106 +301,6 @@ export class BonsController {
     @Req() req: Request,
   ) {
     return this.bonsService.markFound(id, dto.equipmentIds, user.id, dto.signatureDataUrl, clientTrace(req));
-  }
-
-  /** GET /bons/:id/integrity — vérifie les sceaux HMAC des signatures (preuve
-   *  d'intégrité : détecte toute altération directe en base). */
-  @Get(':id/integrity')
-  @Roles(...ALL_ROLES)
-  async getIntegrity(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    await this.verifyCollaboratorAccess(id, user);
-    return this.signatureService.verifyBonIntegrity(id);
-  }
-
-  /** GET /bons/:id/pdf-snapshots — les documents du bon, du plus ancien au
-   *  plus récent (un document par signature, jamais écrasé), en tableau nu lu
-   *  tel quel par la fiche IT (tous) et le portail (ceux que le collaborateur
-   *  peut garder). Les documents manquants ont leur route séparée ci-dessous. */
-  @Get(':id/pdf-snapshots')
-  @Roles(...ALL_ROLES)
-  async getPdfSnapshots(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    await this.verifyCollaboratorAccess(id, user);
-    return listBonDocuments(this.prisma, id, documentAudience(user));
-  }
-
-  /** GET /bons/:id/pdf-snapshots/missing — types de snapshot attendus (une
-   *  signature signée existe) mais absents de PdfSnapshot, ex. échec silencieux
-   *  d'un generateAndSave passé (cf. audit pdf_snapshot_failed). Régénérable
-   *  via POST /admin/pdf/regenerate-missing. */
-  @Get(':id/pdf-snapshots/missing')
-  async getMissingPdfSnapshots(@Param('id') id: string) {
-    const bon = await this.bonsService.findOne(id);
-    const [signedSignatures, existingSnapshots] = await Promise.all([
-      this.prisma.signature.findMany({ where: { bonId: id, signed: true }, select: { type: true, pdfType: true } }),
-      this.prisma.pdfSnapshot.findMany({ where: { bonId: id }, select: { type: true } }),
-    ]);
-    const existingTypes = new Set(existingSnapshots.map((s) => s.type as string));
-    const missing = computeMissingPdfSnapshotTypes(signedSignatures, existingTypes, bon.status);
-    return { missing };
-  }
-
-  @Get(':id/pdf')
-  @Roles(...ALL_ROLES)
-  async getPdf(
-    @Param('id') id: string,
-    @CurrentUser() user: AuthUser,
-    @Res() res: Response,
-    @Query('type') type: 'mise_disposition' | 'restitution' = 'mise_disposition',
-    @Query('stage') stage?: string,
-    @Query('snapshot') snapshot?: string,
-  ) {
-    await this.verifyCollaboratorAccess(id, user);
-    assertValidPdfQuery(type, stage, snapshot);
-    const bon = await this.bonsService.findOne(id);
-
-    const resolved = await resolveBonPdf(this.prisma, bon, type, stage, snapshot, documentAudience(user));
-    if (resolved) {
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename="${resolved.filename}"`);
-      return res.send(resolved.data);
-    }
-
-    // Generate on-the-fly. BON_SELECT no longer exposes signatureImagePath, so
-    // fetch the full signature records here (internal use only).
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="bon-${bon.reference}.pdf"`);
-    const fullSignatures = await this.prisma.signature.findMany({ where: { bonId: bon.id } });
-    // Passer les signatures COMPLÈTES (email/IP/UA) pour que le certificat de
-    // preuve soit identique à celui du snapshot stocké (même rendu, même hash).
-    const pdf = await this.pdfService.generateBonPdf({ ...bon, signatures: fullSignatures }, null, type);
-    res.send(pdf);
-  }
-
-  /** GET /bons/:id/pdf/pv-pret — IT seulement : le PV de non-restitution
-   *  déjà certifié par la signature IT mais pas encore émis (équipements
-   *  encore dehors), généré à la volée, rien n'est enregistré (bons-ready-pv.ts). */
-  @Get(':id/pdf/pv-pret')
-  async getReadyPv(@Param('id') id: string, @Res() res: Response) {
-    const bon = await this.bonsService.findOne(id);
-    const { filename, data } = await renderReadyPv({ prisma: this.prisma, pdfService: this.pdfService }, bon);
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    return res.send(data);
-  }
-
-  /** Routes propriétaire : un compte non IT ne voit que ses propres bons ;
-   *  admins et techniciens ont un accès transverse (modèle « IT centrale »,
-   *  décision produit 2026-06-11). Implémentation dans bons-access.ts.
-   *  Inutile sur les routes réservées à l'IT, où elle ne vérifierait rien. */
-  private async verifyCollaboratorAccess(bonId: string, user: AuthUser): Promise<void> {
-    return verifyCollaboratorAccessImpl(this.prisma, bonId, user);
-  }
-
-  /** POST /bons/:id/close-unilateral — ancien nom des deux gestes sans
-   *  signature, gardé pour compatibilité : « Constater la remise » depuis
-   *  « Remise à signer », « Clôturer » sinon. */
-  @Post(':id/close-unilateral')
-  closeUnilateral(
-    @Param('id') id: string,
-    @Body() dto: CloseUnilateralDto,
-    @CurrentUser() user: AuthUser,
-  ) {
-    return this.bonsService.closeUnilaterally(id, user.id, dto.reason.trim());
   }
 
   @Post(':id/sign-it')

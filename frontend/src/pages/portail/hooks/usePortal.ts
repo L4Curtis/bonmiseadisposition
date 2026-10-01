@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { LinkSignatureType, MyBonsResponse, PortalBon } from '@/contracts/bons';
-import type { MyContestation, MyContestationsResponse } from '@/contracts/contestations';
+import type { LinkSignatureType, PortalBon } from '@/contracts/bons';
+import type { MyContestation } from '@/contracts/contestations';
 import { api } from '@/lib/api';
 import { errorMessage } from '@/lib/errors';
 import { toast } from '@/hooks/use-toast';
@@ -37,10 +37,14 @@ export function usePortal(): UsePortalReturn {
   const reload = useCallback(() => {
     setLoading(true);
     setLoadError(null);
-    const contestationsRequest = api.get<MyContestationsResponse>('/contestations/mine').catch(() => []);
-    Promise.all([api.get<MyBonsResponse>('/bons/mes-bons'), contestationsRequest])
+    // Le suivi des contestations est un plus : son échec ne vide pas le portail.
+    const contestationsRequest = api
+      .getList<MyContestation>('/me/contestations')
+      .then((list) => list.items)
+      .catch(() => [] as MyContestation[]);
+    Promise.all([api.getList<PortalBon>('/me/bons'), contestationsRequest])
       .then(([myBons, mine]) => {
-        setBons(myBons);
+        setBons(myBons.items);
         setContestations(mine);
       })
       .catch((e: unknown) => {

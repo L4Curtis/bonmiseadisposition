@@ -4,6 +4,7 @@ import { BON_REFERENCE_TX_OPTIONS, generateBonReference } from '../../common/bon
 import { DOMAIN_EVENTS } from '../../common/events';
 import { BonStatusList, isBonStatusIn } from '../bon-status';
 import { BonsWorkflowContext } from './bon-context';
+import { writeAuditEntry } from '../../audit/audit-record';
 
 /**
  * Remplacement d'un bon après une contestation « Fondée » (décision du 24/09,
@@ -76,21 +77,15 @@ export async function createReplacementBon(
       select: { id: true, reference: true },
     });
     const context = { contestationId: request.contestationId ?? null };
-    await client.auditLog.create({
-      data: {
-        bonId: replacement.id,
-        userId: request.actorId,
-        action: 'bon_created',
-        details: { replacesBonId: original.id, replaces: original.reference, ...context },
-      },
+    await writeAuditEntry(client, 'bon_created', {
+      actorId: request.actorId,
+      bonId: replacement.id,
+      details: { replacesBonId: original.id, replaces: original.reference, ...context },
     });
-    await client.auditLog.create({
-      data: {
-        bonId: original.id,
-        userId: request.actorId,
-        action: 'bon_corrected',
-        details: { correctedTo: replacement.reference, newBonId: replacement.id, ...context },
-      },
+    await writeAuditEntry(client, 'bon_corrected', {
+      actorId: request.actorId,
+      bonId: original.id,
+      details: { correctedTo: replacement.reference, newBonId: replacement.id, ...context },
     });
     return replacement;
   };
@@ -121,12 +116,9 @@ export async function closeReplacedOriginal(ctx: BonsWorkflowContext, replacemen
       where: { bonId: original.id, signed: false, type: { not: 'it_cachet' }, tokenExpiresAt: { gt: new Date(1000) } },
       data: { tokenExpiresAt: new Date(0), invalidatedAt: now, invalidatedReason: 'replaced' },
     });
-    await tx.auditLog.create({
-      data: {
-        bonId: original.id,
-        action: 'bon_replaced',
-        details: { replacementBonId: replacement.id, replacement: replacement.reference },
-      },
+    await writeAuditEntry(tx, 'bon_replaced', {
+      bonId: original.id,
+      details: { replacementBonId: replacement.id, replacement: replacement.reference },
     });
     return true;
   });

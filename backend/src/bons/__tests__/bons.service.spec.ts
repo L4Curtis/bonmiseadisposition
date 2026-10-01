@@ -28,6 +28,7 @@ import {
 import { collaboratorUser, technicianUser, manualAccountUser } from '../../common/__tests__/fixtures/user.fixtures';
 import { BonStatus } from '../../common/types';
 import { BON_LIST_SELECT } from '../queries/bon-list-select';
+import { ConfigRegistryService } from '../../config/config-registry.service';
 
 // Vraie image PNG 1x1 valide (magic bytes corrects) — assertPngDataUrl (LOT A1
 // correction #6) rejette désormais un faux base64 comme l'ancien 'abc123'.
@@ -86,6 +87,7 @@ describe('BonsService', () => {
         { provide: PdfService, useValue: pdfService },
         { provide: SmbService, useValue: smbService },
         { provide: AppConfigService, useValue: configService },
+        { provide: ConfigRegistryService, useValue: new ConfigRegistryService(configService as never) },
         { provide: DomainEventsPublisher, useValue: { publish: vi.fn().mockResolvedValue(undefined) } },
       ],
     }).compile();
@@ -120,7 +122,7 @@ describe('BonsService', () => {
 
       const result = await service.findByCollaborateur(userId);
 
-      const sig = result[0].signatures[0] as { token?: string; inPersonPending?: boolean };
+      const sig = result.items[0].signatures[0] as { token?: string; inPersonPending?: boolean };
       expect(sig.token).toBeUndefined();
       expect(sig.inPersonPending).toBe(true);
     });
@@ -138,7 +140,7 @@ describe('BonsService', () => {
 
       const result = await service.findByCollaborateur(userId);
 
-      const sig = result[0].signatures[0] as { token?: string; inPersonPending?: boolean };
+      const sig = result.items[0].signatures[0] as { token?: string; inPersonPending?: boolean };
       expect(sig.token).toBe('remote-token');
       expect(sig.inPersonPending).toBeUndefined();
     });

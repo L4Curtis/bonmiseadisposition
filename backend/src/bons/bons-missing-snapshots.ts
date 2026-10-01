@@ -1,3 +1,4 @@
+import type { PdfSnapshotType } from '../contracts/common';
 import { RESTITUTION_PHASE_BON_STATUSES, isBonStatusIn } from './bon-status';
 
 /**
@@ -5,15 +6,14 @@ import { RESTITUTION_PHASE_BON_STATUSES, isBonStatusIn } from './bon-status';
  * attendus (une signature signée existe) mais absents de PdfSnapshot, ex.
  * échec silencieux d'un generateAndSave passé (cf. audit pdf_snapshot_failed).
  *
- * Extrait de BonsController.getMissingPdfSnapshots sans changement de
- * comportement — fonction pure, sans accès base de données.
+ * Fonction pure, sans accès base de données (BonDocumentsService lit la base).
  */
 export function computeMissingPdfSnapshotTypes(
   signedSignatures: { type: string; pdfType: string | null }[],
   existingTypes: Set<string>,
   bonStatus: string,
-): string[] {
-  const expectedTypes = new Set<string>();
+): PdfSnapshotType[] {
+  const expectedTypes = new Set<PdfSnapshotType>();
   for (const sig of signedSignatures) {
     if (sig.type === 'mise_disposition') expectedTypes.add('signature_collab_mise_disposition');
     else if (sig.type === 'restitution') expectedTypes.add('signature_collab_restitution');

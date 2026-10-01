@@ -5,10 +5,12 @@ import { DuplicateBonButton } from '../DuplicateBonButton';
 
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>();
+  const { listViaGet } = await import('@/test/api-mock');
+  const get = vi.fn();
   return {
     ...actual,
     api: {
-      get: vi.fn(),
+      get, getList: listViaGet(get),
       post: vi.fn(),
       put: vi.fn(),
       patch: vi.fn(),
@@ -47,7 +49,7 @@ describe('DuplicateBonButton — C3, repartir d\'un bon existant', () => {
     const user = userEvent.setup();
     const onImport = vi.fn();
     vi.mocked(api.get).mockResolvedValue({
-      bons: [
+      items: [
         {
           id: 'b1',
           reference: 'BON-2026-0010',
@@ -81,7 +83,7 @@ describe('DuplicateBonButton — C3, repartir d\'un bon existant', () => {
 
   it('affiche "Aucun bon trouvé" quand la recherche ne renvoie rien', async () => {
     const user = userEvent.setup();
-    vi.mocked(api.get).mockResolvedValue({ bons: [] });
+    vi.mocked(api.get).mockResolvedValue({ items: [] });
 
     render(<DuplicateBonButton onImport={vi.fn()} />);
     await user.click(screen.getByRole('button', { name: /repartir d'un bon existant/i }));

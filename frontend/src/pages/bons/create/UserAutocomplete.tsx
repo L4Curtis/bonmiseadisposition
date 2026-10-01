@@ -37,7 +37,7 @@ export function UserAutocomplete({
     if (query.length < 2) { setResults([]); return; }
     let ignore = false;
     const t = setTimeout(() => {
-      api.get<UserResult[]>(`/users/search?q=${encodeURIComponent(query)}`)
+      api.getList<UserResult>(`/users/search?q=${encodeURIComponent(query)}`).then((list) => list.items)
         .then((res) => { if (!ignore) setResults(res); })
         .catch(() => { if (!ignore) setResults([]); });
     }, 250);

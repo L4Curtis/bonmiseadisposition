@@ -57,9 +57,9 @@ export type LinkFollowUp = 'link_sent' | 'in_person' | 'link_coming' | 'none';
 export interface SignatureExpiredResponse {
   status: 'expired';
   reference: string;
-  /** Dernière demande de nouveau lien pour ce bon depuis l'envoi de ce lien,
-   *  ou `null`. Facultatif le temps de la vague 2, obligatoire ensuite. */
-  newLinkRequestedAt?: IsoDateTime | null;
+  /** Date de la demande de nouveau lien faite pour CE lien (reconnue par
+   *  l'identifiant du lien, enregistré dans le journal), ou `null`. */
+  newLinkRequestedAt: IsoDateTime | null;
 }
 
 /** Signature du lien, en attente : jamais le cachet IT, jamais signée. */
@@ -123,9 +123,9 @@ export interface SignDocumentResponse extends OkResponse {
  *  (message sans aucune adresse) ; 404 si le jeton est inconnu. */
 export interface RequestNewLinkResponse extends OkResponse {
   /** `requested` : l'équipe vient d'être prévenue ; `already_requested` : une
-   *  demande existe déjà pour ce lien (tant que l'IT ne l'a pas renvoyé),
-   *  l'équipe n'est pas réalertée ; `requestedAt` est alors la date de cette
-   *  première demande. */
+   *  demande existe déjà pour ce lien (tant que l'IT ne l'a pas renvoyé : un
+   *  renvoi crée un autre lien), l'équipe n'est pas réalertée ; `requestedAt`
+   *  est alors la date de cette première demande. */
   status: 'requested' | 'already_requested';
   requestedAt: IsoDateTime;
 }

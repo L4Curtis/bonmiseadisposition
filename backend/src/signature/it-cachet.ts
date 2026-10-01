@@ -7,8 +7,9 @@ import { assertPngDataUrl } from '../common/signature-data-url';
 import { BON_FOR_SIGNATURE_SELECT } from './select-shape';
 import { buildSealPayload } from './seal';
 import { saveSignatureFile } from './signature-file-store';
-import { generatePdfSnapshot, PdfSnapshotDeps } from './pdf-snapshot';
+import { generatePdfSnapshot, PdfSnapshotDeps, recordSnapshotFailure } from './pdf-snapshot';
 import { NON_SIGNABLE_BON_STATUSES, isBonStatusIn } from '../bons/bon-status';
+import { writeAuditEntry } from '../audit/audit-record';
 
 /** Document d'une signature IT (`Signature.pdfType`) : le PDF qui la porte. */
 export type ItSignatureDocument = 'mise_disposition' | 'restitution' | 'pv_cloture' | 'avenant';
@@ -152,16 +153,12 @@ export async function signItCachet(
     data: { seal: itSeal, sealedAt: signedAt },
   });
 
-  // Audit log
-  await deps.prisma.auditLog.create({
-    data: {
-      bonId,
-      userEmail: signerEmail,
-      action: 'signed_it_cachet',
-      details: { currentStatus: bon.status, document },
-      ipAddress: signerIp,
-      userAgent: signerUserAgent,
-    },
+  await writeAuditEntry(deps.prisma, 'signed_it_cachet', {
+    actorEmail: signerEmail,
+    bonId,
+    details: { currentStatus: bon.status, document },
+    ip: signerIp,
+    userAgent: signerUserAgent,
   });
 
   deps.logger.log(`Bon ${bon.reference} — signature IT (${document}) par ${signerEmail}`);
@@ -179,13 +176,7 @@ export async function signItCachet(
   } catch (err) {
     const message = (err as Error).message;
     deps.logger.error(`Échec du PDF de la signature IT (signature conservée): ${message}`);
-    await deps.prisma.auditLog
-      .create({
-        data: { bonId, action: 'pdf_snapshot_failed', details: { type: itSnapshotType, error: message } },
-      })
-      .catch((auditErr: unknown) =>
-        deps.logger.error(`Échec écriture audit log pdf_snapshot_failed: ${(auditErr as Error).message}`),
-      );
+    await recordSnapshotFailure(deps.prisma, deps.logger, { bonId, type: itSnapshotType, message });
   }
 
   return { ok: true, bon: sanitizeBonForResponse(updatedBon), signature: toSafeSignature(itSig as unknown as Record<string, unknown>) };

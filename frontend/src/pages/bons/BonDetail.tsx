@@ -17,6 +17,7 @@ import { readyPvOf } from './detail/pdf-documents';
 import { BonAttachments } from './detail/BonAttachments';
 import { BonIntegrity } from './detail/BonIntegrity';
 import { BonNotificationLogs } from './detail/BonNotificationLogs';
+import { BonHistory } from './detail/BonHistory';
 import { BonModals } from './detail/BonModals';
 import type { BonFiche } from './detail/types';
 
@@ -139,6 +140,9 @@ export function BonDetailPage() {
         onDownloadReadyPv={actions.downloadReadyPv}
       />
       {bon.signatures?.some((s) => s.signed) && <BonIntegrity bonId={bon.id} />}
+      {isItStaff && (
+        <BonHistory bonId={bon.id} refreshKey={`${bon.updatedAt}|${bon.status}|${bon.signatures?.length ?? 0}`} />
+      )}
       {isItStaff && <BonNotificationLogs logs={notifLogs} />}
       <BonModals bon={bon} actions={actions} />
     </div>

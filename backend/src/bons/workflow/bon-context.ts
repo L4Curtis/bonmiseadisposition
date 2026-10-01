@@ -6,6 +6,8 @@ import { PdfService } from '../../pdf/pdf.service';
 import { SmbService } from '../../smb/smb.service';
 import { AppConfigService } from '../../config/config.service';
 import { DomainEventsPublisher } from '../../common/events';
+import { ConfigRegistryService } from '../../config/config-registry.service';
+import { recordSnapshotFailure } from '../../signature/pdf-snapshot';
 
 /**
  * Dépendances explicites partagées par les étapes du cycle de vie d'un bon
@@ -19,6 +21,8 @@ export interface BonsWorkflowContext {
   pdfService: PdfService;
   smbService: SmbService;
   configService: AppConfigService;
+  /** Lecture typée des réglages (registre de configuration). */
+  settings: ConfigRegistryService;
   /** Publication des événements du domaine (emails des gestes du cycle de
    *  vie, remplacement d'un bon), toujours APRÈS la transaction. */
   events: DomainEventsPublisher;
@@ -49,23 +53,15 @@ export async function generateAndSaveSnapshot(
     ctx.logger.error(
       `Échec génération/sauvegarde du snapshot PDF [${snapshotType}] pour le bon ${bonId} (action déjà effectuée, non bloquant) : ${message}`,
     );
-    await ctx.prisma.auditLog
-      .create({
-        data: { bonId, action: 'pdf_snapshot_failed', details: { type: snapshotType, error: message } },
-      })
-      .catch(() => undefined);
+    await recordSnapshotFailure(ctx.prisma, ctx.logger, { bonId, type: snapshotType, message });
     return null;
   }
 }
 
-/** Durée de validité (jours) du token pv_cloture — même réglage admin-
- *  configurable que SignatureService.generateToken (tokens.expiry_days),
- *  dupliqué ici car nécessaire à l'intérieur du verrou advisory de
- *  emitPvClotureIfDue (voir ce commentaire pour le pourquoi). */
-export async function getPvTokenValidityDays(ctx: BonsWorkflowContext): Promise<number> {
-  const DEFAULT_DAYS = 7;
-  const raw = await ctx.configService.get('tokens', 'expiry_days');
-  const parsed = raw === null ? NaN : parseInt(raw, 10);
-  if (!Number.isFinite(parsed)) return DEFAULT_DAYS;
-  return Math.min(30, Math.max(1, parsed));
+/** Durée de validité (jours) d'un lien émis sous le verrou des liens du bon
+ *  (PV de non-restitution, renvoi) : réglage `tokens.expiry_days` du
+ *  registre, 1 à 30 jours, 7 par défaut (une saisie hors bornes est ramenée à
+ *  la borne). */
+export function getPvTokenValidityDays(ctx: BonsWorkflowContext): Promise<number> {
+  return ctx.settings.getInt('tokens.expiry_days');
 }

@@ -14,6 +14,7 @@ import { assertActionAllowed, statusChangedMeanwhile } from './bon-guards';
 import { invalidateItSignatures, invalidatePendingLinks } from './bon-links';
 import { blankToNull, rememberCivilite } from './bon-crud';
 import { documentChanges } from './bon-document-diff';
+import { writeAuditEntry } from '../../audit/audit-record';
 
 /**
  * Modification d'un bon : brouillon, ou bon envoyé mais pas encore signé
@@ -59,9 +60,7 @@ export async function updateBon(ctx: BonsWorkflowContext, id: string, dto: Updat
 
   await rememberCivilite(ctx, (data.collaborateurId as string | undefined) ?? bon.collaborateurId, data.civilite as Civilite | undefined);
   if (renewsRequest) {
-    await ctx.prisma.auditLog.create({
-      data: { bonId: id, userId: actorId, action: 'bon_modified_after_send', details: { fields: changes } },
-    });
+    await writeAuditEntry(ctx.prisma, 'bon_modified_after_send', { actorId, bonId: id, details: { fields: changes } });
   }
 }
 

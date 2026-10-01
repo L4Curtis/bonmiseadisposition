@@ -3,6 +3,7 @@ import { CANCELLABLE_BON_STATUSES } from '../bon-status';
 import { findBonDetailOrThrow } from '../queries/bon-where';
 import { BonsWorkflowContext } from './bon-context';
 import { assertActionAllowed, requireReason, statusChangedMeanwhile } from './bon-guards';
+import { writeAuditEntry } from '../../audit/audit-record';
 
 /** Motif enregistré pour un brouillon abandonné sans motif saisi. */
 const DRAFT_ABANDONED = 'Brouillon abandonné';
@@ -34,9 +35,7 @@ export async function cancelBon(ctx: BonsWorkflowContext, id: string, actorId: s
       data: { tokenExpiresAt: new Date(0), invalidatedAt: now, invalidatedReason: 'cancelled' },
     });
   });
-  await ctx.prisma.auditLog.create({
-    data: { bonId: id, userId: actorId, action: 'bon_cancelled', details: { previousStatus: bon.status, reason } },
-  });
+  await writeAuditEntry(ctx.prisma, 'bon_cancelled', { actorId, bonId: id, details: { previousStatus: bon.status, reason } });
   await ctx.events.publish(DOMAIN_EVENTS.bonCancelled, {
     bonId: id, bonReference: bon.reference, actorId, occurredAt: now, previousStatus: bon.status, reason,
   });

@@ -8,6 +8,7 @@ const HOUR = 60 * 60 * 1000;
 
 function expiredLink(overrides: Record<string, unknown> = {}) {
   return {
+    id: 'sig-1',
     type: 'restitution',
     signed: false,
     isInPerson: false,
@@ -19,11 +20,16 @@ function expiredLink(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function makeDeps(link: unknown, lastRequest: Date | null = null) {
+/** Demande déjà tracée dans le journal, pour le lien expiré `signatureId`. */
+function recorded(createdAt: Date, signatureId?: string) {
+  return { createdAt, details: { documentType: 'restitution', ...(signatureId ? { signatureId } : {}) } };
+}
+
+function makeDeps(link: unknown, requests: ReturnType<typeof recorded>[] = []) {
   const prisma = {
     signature: { findUnique: vi.fn().mockResolvedValue(link) },
     auditLog: {
-      findFirst: vi.fn().mockResolvedValue(lastRequest ? { createdAt: lastRequest } : null),
+      findMany: vi.fn().mockResolvedValue(requests),
       create: vi.fn().mockResolvedValue({}),
     },
     $transaction: vi.fn(),
@@ -38,15 +44,15 @@ const LEA = { email: 'lea@livio.fr', id: 'user-lea' };
 /** Base simulée dont le verrou de bon (`pg_advisory_xact_lock`) fait
  *  vraiment attendre la transaction suivante jusqu'à la fin de la première. */
 function makeLockingDeps(link: unknown) {
-  const rows: { createdAt: Date }[] = [];
+  const rows: ReturnType<typeof recorded>[] = [];
   let tail: Promise<void> = Promise.resolve();
   const prisma = {
     signature: { findUnique: vi.fn().mockResolvedValue(link) },
     auditLog: {
-      findFirst: vi.fn(async () => rows[0] ?? null),
-      create: vi.fn(async ({ data }: { data: { createdAt: Date } }) => {
+      findMany: vi.fn(async () => [...rows]),
+      create: vi.fn(async ({ data }: { data: { details: { signatureId: string } } }) => {
         await new Promise((resolve) => setTimeout(resolve, 5));
-        rows.push({ createdAt: data.createdAt });
+        rows.push(recorded(new Date(), data.details.signatureId));
         return {};
       }),
     },
@@ -72,14 +78,20 @@ function makeLockingDeps(link: unknown) {
 }
 
 describe('requestNewLink', () => {
-  it('prévient l’IT et trace la demande', async () => {
+  it('prévient l’IT et trace la demande, avec l’identifiant du lien expiré', async () => {
     const { deps, alertIt, prisma } = makeDeps(expiredLink());
     const result = await requestNewLink(deps, 'tok', LEA);
     expect(result.status).toBe('requested');
     expect(alertIt).toHaveBeenCalledWith(expect.objectContaining({ bonId: 'bon-1', documentType: 'restitution', requesterEmail: 'lea@livio.fr' }));
-    expect(prisma.auditLog.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ action: LINK_REQUEST_AUDIT_ACTION, bonId: 'bon-1' }) }),
-    );
+    expect(prisma.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: LINK_REQUEST_AUDIT_ACTION,
+        bonId: 'bon-1',
+        userId: 'user-lea',
+        userEmail: 'lea@livio.fr',
+        details: expect.objectContaining({ documentType: 'restitution', signatureId: 'sig-1' }),
+      }),
+    });
   });
 
   it('deux demandes simultanées : une seule alerte à l’IT (demande sérialisée par bon)', async () => {
@@ -91,16 +103,25 @@ describe('requestNewLink', () => {
 
   it('une seule alerte par lien en attente, même des jours après : « déjà demandé », sans nouvel email', async () => {
     const earlier = new Date(Date.now() - 3 * 24 * HOUR);
-    const link = expiredLink();
-    const { deps, alertIt, prisma } = makeDeps(link, earlier);
+    const { deps, alertIt, prisma } = makeDeps(expiredLink(), [recorded(earlier, 'sig-1')]);
     const result = await requestNewLink(deps, 'tok', LEA);
     expect(result).toEqual({ ok: true, status: 'already_requested', requestedAt: earlier });
     expect(alertIt).not.toHaveBeenCalled();
-    // Demandes comptées depuis l’émission de CE lien : un lien renvoyé par
-    // l’IT (nouvelle signature) permet une nouvelle demande.
-    expect(prisma.auditLog.findFirst).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ createdAt: { gte: link.createdAt } }),
-    }));
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it('une demande faite pour un lien précédent n’empêche pas de redemander pour le lien renvoyé', async () => {
+    // Datée APRÈS l’émission du lien (horloges décalées) : seul l’identifiant compte.
+    const { deps, alertIt } = makeDeps(expiredLink(), [recorded(new Date(), 'sig-0')]);
+    const result = await requestNewLink(deps, 'tok', LEA);
+    expect(result.status).toBe('requested');
+    expect(alertIt).toHaveBeenCalledTimes(1);
+  });
+
+  it('demande enregistrée avant l’identifiant du lien : reconnue par sa date', async () => {
+    const earlier = new Date(Date.now() - 3 * 24 * HOUR);
+    const { deps } = makeDeps(expiredLink(), [recorded(earlier)]);
+    expect((await requestNewLink(deps, 'tok', LEA)).status).toBe('already_requested');
   });
 
   it('refuse un autre compte, sans révéler l’adresse du destinataire', async () => {
@@ -124,6 +145,45 @@ describe('requestNewLink', () => {
   it('bon clôturé : plus rien à signer', async () => {
     const { deps } = makeDeps(expiredLink({ bon: { ...expiredLink().bon, status: 'archived' } }));
     await expect(requestNewLink(deps, 'tok', LEA)).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
+describe('demande, renvoi, nouvelle demande — journal partagé entre les étapes', () => {
+  /** Base simulée qui garde réellement les demandes écrites : chaque étape
+   *  relit ce que la précédente a enregistré. `links` = liens par jeton. */
+  function statefulDeps(links: Record<string, ReturnType<typeof expiredLink>>) {
+    const rows: ReturnType<typeof recorded>[] = [];
+    const prisma = {
+      signature: { findUnique: vi.fn(async ({ where }: { where: { token: string } }) => links[where.token] ?? null) },
+      auditLog: {
+        findMany: vi.fn(async () => [...rows].reverse()),
+        create: vi.fn(async ({ data }: { data: { details: { signatureId: string } } }) => {
+          rows.push(recorded(new Date(), data.details.signatureId));
+          return {};
+        }),
+      },
+      $transaction: vi.fn(),
+    };
+    prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) => fn({ ...prisma, $executeRaw: vi.fn() }));
+    const alertIt = vi.fn();
+    return { rows, alertIt, deps: { prisma: prisma as never, alertIt } };
+  }
+
+  it('une alerte par lien : la demande sur le lien renvoyé alerte de nouveau, sa répétition non', async () => {
+    // Le lien renvoyé est émis APRÈS la première demande, mais l’horloge du
+    // journal a pris de l’avance : seule la comparaison par identifiant tient.
+    const first = expiredLink({ id: 'sig-1', createdAt: new Date(Date.now() - 10 * 24 * HOUR) });
+    const resent = expiredLink({ id: 'sig-2', createdAt: new Date(Date.now() - 2 * HOUR) });
+    const { rows, alertIt, deps } = statefulDeps({ old: first, fresh: resent });
+
+    expect((await requestNewLink(deps, 'old', LEA)).status).toBe('requested');
+    expect((await requestNewLink(deps, 'old', LEA)).status).toBe('already_requested');
+    rows[0] = recorded(new Date(Date.now() + HOUR), 'sig-1');
+
+    expect((await requestNewLink(deps, 'fresh', LEA)).status).toBe('requested');
+    expect((await requestNewLink(deps, 'fresh', LEA)).status).toBe('already_requested');
+    expect(alertIt).toHaveBeenCalledTimes(2);
+    expect(rows.map((r) => (r.details as { signatureId: string }).signatureId)).toEqual(['sig-1', 'sig-2']);
   });
 });
 
@@ -152,18 +212,24 @@ describe('document d’une signature IT (pdfType)', () => {
 });
 
 describe('attachNewLinkRequests — « Nouveau lien demandé le … » dans le portail', () => {
-  const bon = (id: string, sentAt: string | null) => ({ id, pendingSignature: sentAt === null ? null : { sentAt } });
+  const sig = (id: string, createdAt: string) => ({ id, type: 'restitution', signed: false, createdAt });
+  const bon = (id: string, signatures: ReturnType<typeof sig>[]) => ({
+    id,
+    signatures,
+    pendingSignature: signatures.length === 0 ? null : { type: 'restitution' as const, sentAt: signatures[signatures.length - 1].createdAt },
+  });
 
-  it('date de la demande faite depuis l’envoi du dernier lien ; rien pour une demande antérieure au renvoi', async () => {
+  it('date de la demande qui vise le dernier lien ; rien pour une demande faite avant le renvoi', async () => {
     const findMany = vi.fn().mockResolvedValue([
-      { bonId: 'b1', createdAt: new Date('2026-09-27T10:00:00Z') },
-      { bonId: 'b2', createdAt: new Date('2026-09-20T10:00:00Z') },
+      { bonId: 'b1', createdAt: new Date('2026-09-27T10:00:00Z'), details: { signatureId: 's1' } },
+      // Demande pour le premier lien de b2, datée après le renvoi (horloges décalées).
+      { bonId: 'b2', createdAt: new Date('2026-09-26T10:00:00Z'), details: { signatureId: 's2' } },
     ]);
     const prisma = { auditLog: { findMany } } as never;
     const [b1, b2, b3] = await attachNewLinkRequests(prisma, [
-      bon('b1', '2026-09-20T08:00:00.000Z'),
-      bon('b2', '2026-09-25T08:00:00.000Z'), // renvoyé par l’IT après la demande
-      bon('b3', null),
+      bon('b1', [sig('s1', '2026-09-20T08:00:00.000Z')]),
+      bon('b2', [sig('s2', '2026-09-20T08:00:00.000Z'), sig('s3', '2026-09-27T08:00:00.000Z')]),
+      bon('b3', []),
     ]);
     expect(b1.pendingSignature).toMatchObject({ newLinkRequestedAt: '2026-09-27T10:00:00.000Z' });
     expect(b2.pendingSignature).toMatchObject({ newLinkRequestedAt: null });

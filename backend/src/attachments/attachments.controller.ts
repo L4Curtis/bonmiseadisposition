@@ -24,6 +24,7 @@ import { AuthUser } from '../auth/auth-user.interface';
 import { isItRole } from '../common/roles';
 import { verifyCollaboratorAccess } from '../bons/bons-access';
 import { COLLAB_ATTACHMENT_WINDOW_STATUSES, HOLDER_UPLOAD_REFUSED_MESSAGE } from './holder-upload';
+import { toFullListResponse } from '../common/pagination';
 
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 
@@ -46,7 +47,7 @@ export class AttachmentsController {
   @Get()
   async list(@Param('bonId') bonId: string, @CurrentUser() user: AuthUser) {
     await this.verifyAccess(bonId, user);
-    return this.attachments.list(bonId);
+    return toFullListResponse(await this.attachments.list(bonId));
   }
 
   @Post()

@@ -8,7 +8,9 @@ import { ConfirmModal } from './detail/ConfirmModal';
 import { useBonsListParams } from './list/useBonsListParams';
 import { BonsFilters } from './list/BonsFilters';
 import { BonsTable } from './list/BonsTable';
-import { BonsPagination } from './list/BonsPagination';
+import { Pagination } from '@/components/list';
+import { ExportButton } from '@/components/export';
+import { todayInParis } from '@/lib/dates';
 import { QuickViewsBar } from './list/QuickViewsBar';
 import { BulkActionsBar } from './list/BulkActionsBar';
 import { BulkResendDialog } from './list/BulkResendDialog';
@@ -19,6 +21,8 @@ import { useBonsSelection } from './list/useBonsSelection';
 import { useResendLinks } from './list/useResendLinks';
 import { canResendLink } from './list/resendEligibility';
 import { formatTimeAgo } from './list/relativeTime';
+import { bonsExportFilters } from './list/exportFilters';
+import { toExportParams } from './list/bonsListQuery';
 import type { Bon } from './list/types';
 
 const NOT_RESENDABLE_REASON = 'Pas en attente de signature par email';
@@ -100,11 +104,19 @@ export function BonsListPage() {
         onAdvancedChange={list.updateFilters}
         currentUserId={user?.id}
         creators={creators}
-        exportLoading={exportLoading}
-        onExport={() => { void exportCsv(); }}
+        exportControl={
+          <ExportButton
+            path={`/bons/export?${toExportParams(query)}`}
+            fallbackFilename={`bons-export-${todayInParis()}.csv`}
+            filters={bonsExportFilters(query, { filiales: list.filiales, creators, currentUserId: user?.id })}
+            count={list.loading ? null : list.total}
+            limit={list.exportLimit}
+            itemLabel={{ singular: 'bon', plural: 'bons' }}
+          />
+        }
         hasActiveFilters={list.hasActiveFilters}
         onResetFilters={list.resetFilters}
-        onClearExcludeStatus={() => list.setExcludeStatus('')}
+        onClearFilter={list.updateFilters}
       />
 
       {selection.selectedIds.size > 0 && (
@@ -135,17 +147,14 @@ export function BonsListPage() {
         resendBusy={resend.rowLoadingId !== null || bulkBusy}
       />
 
-      {list.total > 0 && (
-        <BonsPagination
-          total={list.total}
-          page={list.page}
-          totalPages={list.totalPages}
-          rangeStart={list.rangeStart}
-          rangeEnd={list.rangeEnd}
-          onPrevPage={() => list.setPage((p) => p - 1)}
-          onNextPage={() => list.setPage((p) => p + 1)}
-        />
-      )}
+      <Pagination
+        page={list.page}
+        pageSize={list.pageSize}
+        total={list.total}
+        onPageChange={list.setPage}
+        onPageSizeChange={list.setPageSize}
+        itemLabel={{ singular: 'bon', plural: 'bons' }}
+      />
 
       {/* Même confirmation que la fiche : lien envoyé il y a moins d'une heure */}
       {resend.confirmation && (

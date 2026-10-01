@@ -4,6 +4,7 @@ import { createMockPrismaService } from '../../common/__tests__/helpers/mock-pri
 import { createMockEncryptionService } from '../../common/__tests__/helpers/mock-services';
 import type { Mock } from 'vitest';
 import * as fsPromisesModule from 'fs/promises';
+import { AuditService } from '../../audit/audit.service';
 
 vi.mock('fs', () => ({ existsSync: vi.fn().mockReturnValue(true), mkdirSync: vi.fn() }));
 vi.mock('fs/promises', () => ({
@@ -27,7 +28,7 @@ describe('AttachmentsService', () => {
   beforeEach(() => {
     prisma = createMockPrismaService();
     encryption = createMockEncryptionService();
-    service = new AttachmentsService(prisma as never, encryption as never);
+    service = new AttachmentsService(prisma as never, encryption as never, new AuditService(prisma as never));
     (prisma.bon.findUnique as Mock).mockResolvedValue({ id: 'b1', reference: 'BMD-1', anonymizedAt: null });
     (prisma.attachment.create as Mock).mockImplementation(({ data }) =>
       Promise.resolve({ id: 'att-1', createdAt: new Date(), ...data }),

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { MyBonsResponse, PdfSnapshotInfo, PdfSnapshotsResponse } from '@/contracts/bons';
-import type { MyContestation, MyContestationsResponse } from '@/contracts/contestations';
+import type { PdfSnapshotInfo, PortalBon } from '@/contracts/bons';
+import type { MyContestation } from '@/contracts/contestations';
 import { api } from '@/lib/api';
 import { errorMessage } from '@/lib/errors';
 import { toast } from '@/hooks/use-toast';
@@ -37,8 +37,8 @@ interface DetailData {
 async function loadDetail(id: string): Promise<DetailData> {
   const [bon, myBons, mine] = await Promise.all([
     api.get<CollaboratorBon>(`/bons/${id}`),
-    api.get<MyBonsResponse>('/bons/mes-bons').catch(() => []),
-    api.get<MyContestationsResponse>('/contestations/mine').catch(() => []),
+    api.getList<PortalBon>('/me/bons').then((list) => list.items).catch(() => [] as PortalBon[]),
+    api.getList<MyContestation>('/me/contestations').then((list) => list.items).catch(() => [] as MyContestation[]),
   ]);
   const portalBon = myBons.find((b) => b.id === id);
   // Document en attente du bon, à signer, en cours de correction ou en attente
@@ -66,8 +66,8 @@ export function useBonDetailCollaborateur(id: string | undefined): UseBonDetailC
       .then((detail) => {
         setData(detail);
         api
-          .get<PdfSnapshotsResponse>(`/bons/${id}/pdf-snapshots`)
-          .then(setPdfSnapshots)
+          .getList<PdfSnapshotInfo>(`/bons/${id}/pdf-snapshots`)
+          .then((list) => setPdfSnapshots(list.items))
           .catch(() => setPdfSnapshots([]));
       })
       .catch((e: unknown) => setLoadError(errorMessage(e, 'Erreur lors du chargement du bon')))

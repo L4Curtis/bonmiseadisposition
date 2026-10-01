@@ -19,6 +19,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles, ALL_ROLES } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth-user.interface';
+import { clientIp } from '../common/http/client-ip';
 
 /**
  * Signature par jeton (lien reçu par email, ou tablette en présentiel). Une
@@ -79,11 +80,8 @@ export class SignatureController {
     @CurrentUser() user: AuthUser,
     @Req() req: Request,
   ) {
-    // Use X-Real-IP (set by nginx to $remote_addr) — cannot be spoofed by clients
-    const ip =
-      (req.headers['x-real-ip'] as string)?.trim() ??
-      req.socket?.remoteAddress ??
-      'unknown';
+    // Adresse du signataire selon la règle unique (common/http/client-ip.ts).
+    const ip = clientIp(req);
     const userAgent = req.headers['user-agent'] ?? 'unknown';
 
     // L'email de confirmation suit l'événement `signature.signed`

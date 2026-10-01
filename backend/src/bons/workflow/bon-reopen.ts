@@ -5,6 +5,7 @@ import { BonsWorkflowContext } from './bon-context';
 import { computeBonFacts, lastSignedRestitutionAt } from './bon-facts';
 import { invalidateItSignatures, invalidatePendingLinks } from './bon-links';
 import { pendingDocument } from './state-machine';
+import { writeAuditEntry } from '../../audit/audit-record';
 
 /** Documents qu'une contestation Fondée fait corriger sur le bon lui-même. */
 export type CorrectableDocument = 'restitution' | 'pv_cloture';
@@ -48,9 +49,7 @@ export async function reopenForCorrection(
       await invalidateItSignatures(db, bonId, 'restitution', 'contested', lastSignedRestitutionAt(bon.signatures));
     }
     await db.bon.update({ where: { id: bonId }, data: { awaitingSince: new Date() }, select: { id: true } });
-    await db.auditLog.create({
-      data: { bonId, userId: actorId, action: 'bon_reopened_for_correction', details: { document } },
-    });
+    await writeAuditEntry(db, 'bon_reopened_for_correction', { actorId, bonId, details: { document } });
   };
   if (tx) await run(tx);
   else await ctx.prisma.$transaction(run);

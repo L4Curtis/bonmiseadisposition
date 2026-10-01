@@ -59,12 +59,12 @@ describe('toRememberedParams', () => {
 
 describe('toApiParams / toExportParams', () => {
   it('envoie toujours tri, page et limite à l’API', () => {
-    const params = toApiParams({ ...DEFAULT_LIST_QUERY, overdue: true }, 20);
+    const params = toApiParams({ ...DEFAULT_LIST_QUERY, overdue: true }, 50);
     expect(params.get('overdue')).toBe('1');
     expect(params.get('sort')).toBe('createdAt');
     expect(params.get('order')).toBe('desc');
     expect(params.get('page')).toBe('1');
-    expect(params.get('limit')).toBe('20');
+    expect(params.get('limit')).toBe('50');
   });
 
   it('exporte les filtres et le tri courants, sans pagination', () => {
@@ -117,5 +117,27 @@ describe('filtre par sous-état (section « Restitution partielle à signer » d
     const q = parse(new URLSearchParams('subStatus=partial_restitution_to_sign'));
     expect(api(q, 25).get('subStatus')).toBe('partial_restitution_to_sign');
     expect(parse(new URLSearchParams('subStatus=nimporte')).subStatus).toBe('');
+  });
+});
+
+describe('référence exacte et périodes d’événement (liens du tableau de bord)', () => {
+  it('lit la référence (en majuscules) et ignore un texte qui n’en est pas une', () => {
+    expect(parse('reference=bon-2026-0042').reference).toBe('BON-2026-0042');
+    expect(parse('reference=0042').reference).toBe('');
+  });
+
+  it('lit les périodes de création, de clôture et d’annulation ; une date mal formée est ignorée', () => {
+    const q = parse('createdFrom=2026-09-01&createdTo=2026-09-30&closedFrom=2026-09-02&cancelledTo=2026-09-03&closedTo=30/09/2026');
+    expect(q).toMatchObject({
+      createdFrom: '2026-09-01', createdTo: '2026-09-30', closedFrom: '2026-09-02', closedTo: '', cancelledTo: '2026-09-03',
+    });
+  });
+
+  it('les garde dans l’adresse, les envoie à l’API et à l’export, et les compte comme filtres actifs', () => {
+    const q = { ...DEFAULT_LIST_QUERY, reference: 'BON-2026-0042', closedFrom: '2026-09-01', closedTo: '2026-09-30' };
+    expect(toUrlParams(q).toString()).toBe('reference=BON-2026-0042&closedFrom=2026-09-01&closedTo=2026-09-30');
+    expect(toApiParams(q, 25).get('closedFrom')).toBe('2026-09-01');
+    expect(toExportParams(q).get('reference')).toBe('BON-2026-0042');
+    expect(hasActiveFilters(q)).toBe(true);
   });
 });

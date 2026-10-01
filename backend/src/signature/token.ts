@@ -29,14 +29,6 @@ export function unusableLinkMessage(
   return LINK_INVALIDATION_MESSAGES[effectiveInvalidationReason(sig.invalidatedReason, bonStatus)];
 }
 
-/** Clamp de la validité configurée (tokens.expiry_days) dans [1, 30], avec
- *  repli sur `defaultDays` si la valeur brute est absente ou non numérique. */
-export function clampTokenValidityDays(raw: string | null, defaultDays: number): number {
-  const parsed = raw === null ? NaN : parseInt(raw, 10);
-  if (!Number.isFinite(parsed)) return defaultDays;
-  return Math.min(30, Math.max(1, parsed));
-}
-
 /**
  * Date d'expiration d'un nouveau lien : un lien présentiel (guichet) expire
  * après `inPersonValidityHours`, indépendamment de la validité configurable en

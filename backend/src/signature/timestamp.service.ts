@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as crypto from 'crypto';
-import { AppConfigService } from '../config/config.service';
+import { ConfigRegistryService } from '../config/config-registry.service';
 
 export interface TimestampResult {
   token: string; // base64 du TimeStampResp (RFC 3161)
@@ -23,15 +23,14 @@ export class TimestampService {
   private readonly logger = new Logger(TimestampService.name);
   private readonly TIMEOUT_MS = 5000;
 
-  constructor(private readonly config: AppConfigService) {}
+  constructor(private readonly settings: ConfigRegistryService) {}
 
   /** Demande un jeton d'horodatage sur un hash hex SHA-256. null si désactivé/échec. */
   async timestamp(sha256Hex: string): Promise<TimestampResult | null> {
     if (!/^[0-9a-f]{64}$/i.test(sha256Hex)) return null;
 
-    const enabled = await this.config.get('timestamp', 'enabled');
-    if (enabled !== 'true') return null;
-    const tsaUrl = (await this.config.get('timestamp', 'tsa_url'))?.trim();
+    if (!(await this.settings.getBool('timestamp.enabled'))) return null;
+    const tsaUrl = (await this.settings.getString('timestamp.tsa_url'))?.trim();
     if (!tsaUrl || !/^https?:\/\//i.test(tsaUrl)) {
       this.logger.warn('Horodatage activé mais tsa_url absente/invalide — ignoré');
       return null;

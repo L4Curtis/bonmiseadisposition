@@ -13,6 +13,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { lockHolderUploadStage } from './holder-upload';
 import { EncryptionService } from '../config/encryption.service';
 import { ATTACHMENTS_DIR } from '../common/storage-paths';
+import { AuditService } from '../audit/audit.service';
 
 export interface UploadedFile {
   buffer: Buffer;
@@ -80,6 +81,7 @@ export class AttachmentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly encryption: EncryptionService,
+    private readonly audit: AuditService,
   ) {
     if (!fs.existsSync(this.UPLOADS_DIR)) {
       fs.mkdirSync(this.UPLOADS_DIR, { recursive: true });
@@ -217,19 +219,12 @@ export class AttachmentsService {
 
   private async auditUpload(created: Attachment, user: { id?: string; email?: string }): Promise<void> {
     const { id, bonId, stage, filename, mimeType, size, sha256 } = created;
-    await this.prisma.auditLog
-      .create({
-        data: {
-          bonId,
-          userId: user.id ?? null,
-          userEmail: user.email ?? null,
-          action: 'attachment_uploaded',
-          details: { attachmentId: id, stage, filename, mimeType, size, sha256 },
-        },
-      })
-      .catch((err) =>
-        this.logger.warn(`Audit non journalisé (attachment_uploaded, attachmentId=${id}): ${(err as Error).message}`),
-      );
+    await this.audit.recordSafely('attachment_uploaded', {
+      actorId: user.id ?? null,
+      actorEmail: user.email ?? null,
+      bonId,
+      details: { attachmentId: id, stage, filename, mimeType, size, sha256 },
+    });
   }
 
   async download(bonId: string, attachmentId: string): Promise<{ buffer: Buffer; filename: string; mimeType: string }> {
@@ -269,19 +264,12 @@ export class AttachmentsService {
     }
     await this.prisma.attachment.delete({ where: { id: attachmentId } });
 
-    await this.prisma.auditLog
-      .create({
-        data: {
-          bonId,
-          userId: user.id ?? null,
-          userEmail: user.email ?? null,
-          action: 'attachment_deleted',
-          details: { attachmentId, filename: att.filename },
-        },
-      })
-      .catch((err) =>
-        this.logger.warn(`Audit non journalisé (attachment_deleted, attachmentId=${attachmentId}): ${(err as Error).message}`),
-      );
+    await this.audit.recordSafely('attachment_deleted', {
+      actorId: user.id ?? null,
+      actorEmail: user.email ?? null,
+      bonId,
+      details: { attachmentId, filename: att.filename },
+    });
 
     this.logger.log(`Pièce jointe ${attachmentId} supprimée du bon ${bonId} par ${user.email ?? 'inconnu'}`);
     return { ok: true };

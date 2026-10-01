@@ -1,7 +1,8 @@
 import type { BonStatus, ContestationOutcome, SignatureType } from '@prisma/client';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { BonContestationNotice, BonLinkRequest, LinkSignatureType } from '../contracts/bons';
-import { LINK_REQUEST_AUDIT_ACTION } from '../signature/link-request';
+import { lastLinkRequest, requestTargetsLink } from '../signature/link-request';
+import type { LinkRequestRecord } from '../signature/link-request';
 import type { FactsBon, FactsSignature } from './workflow/bon-facts';
 import { computeBonFacts, latestUnsignedLink } from './workflow/bon-facts';
 import { pendingDocument } from './workflow/state-machine';
@@ -95,15 +96,18 @@ export function contestationNotice(
   return corrected ? null : toNotice(row, 'correction');
 }
 
-/** Demande de nouveau lien postérieure au dernier lien du document en attente. */
+/** Demande de nouveau lien qui vise le dernier lien du document en attente :
+ *  tant que l'IT n'a pas renvoyé ce document (un renvoi crée un autre lien),
+ *  la fiche la rappelle. Le lien visé est reconnu par son identifiant, jamais
+ *  par une comparaison d'heures (voir requestTargetsLink). */
 export function linkRequestNotice(
-  requestedAt: Date | null,
+  request: LinkRequestRecord | null,
   bon: NoticeBonState,
 ): BonLinkRequest | null {
-  if (!requestedAt || !bon.pendingDocument) return null;
+  if (!request || !bon.pendingDocument) return null;
   const latest = latestUnsignedLink(bon.signatures, bon.pendingDocument);
-  if (latest && time(latest.createdAt) > requestedAt.getTime()) return null;
-  return { requestedAt: requestedAt.toISOString(), documentType: bon.pendingDocument };
+  if (latest && !requestTargetsLink(request, latest)) return null;
+  return { requestedAt: request.createdAt.toISOString(), documentType: bon.pendingDocument };
 }
 
 /** Rappels de la fiche IT d'un bon. */
@@ -137,13 +141,7 @@ export async function loadBonItNotices(
   };
   const [contestation, lastRequest] = await Promise.all([
     prisma.contestation.findFirst({ where: { bonId }, orderBy: { createdAt: 'desc' }, select: CONTESTATION_SELECT }),
-    bon.pendingDocument
-      ? prisma.auditLog.findFirst({
-          where: { bonId, action: LINK_REQUEST_AUDIT_ACTION },
-          orderBy: { createdAt: 'desc' },
-          select: { createdAt: true },
-        })
-      : Promise.resolve(null),
+    bon.pendingDocument ? lastLinkRequest(prisma, bonId) : Promise.resolve(null),
   ]);
   const since = contestation?.resolvedAt ?? null;
   const corrections = since && bon.status !== 'contested'
@@ -154,6 +152,6 @@ export async function loadBonItNotices(
     : [];
   return {
     contestation: contestationNotice(contestation, bon, corrections.map((c) => c.createdAt)),
-    linkRequest: linkRequestNotice(lastRequest?.createdAt ?? null, bon),
+    linkRequest: linkRequestNotice(lastRequest, bon),
   };
 }

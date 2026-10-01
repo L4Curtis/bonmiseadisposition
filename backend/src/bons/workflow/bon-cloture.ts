@@ -10,6 +10,7 @@ import { ClientTrace, saveItSignatureWithTrace } from './bon-it-signature';
 import { computeBonFacts } from './bon-facts';
 import { pendingDocument } from './state-machine';
 import { lockBonLinks } from './bon-links';
+import { writeAuditEntry } from '../../audit/audit-record';
 
 /** Options d'émission du PV. */
 export interface EmitPvOptions {
@@ -94,13 +95,10 @@ export async function emitPvClotureIfDue(
       .sendPvClotureRequest({ ...detail, collaborateurEmail: recipient.email }, claimed.token)
       .catch((err: unknown) => logger.error(`Email du PV (${detail.reference}) : ${String(err)}`));
   }
-  await prisma.auditLog.create({
-    data: {
-      bonId,
-      userId: actorId ?? null,
-      action: 'pv_cloture_emitted',
-      details: { notReturnedCount: detail.equipments.filter((e) => e.notReturned).length, emailSent: !!claimed.token },
-    },
+  await writeAuditEntry(prisma, 'pv_cloture_emitted', {
+    actorId,
+    bonId,
+    details: { notReturnedCount: detail.equipments.filter((e) => e.notReturned).length, emailSent: !!claimed.token },
   });
   logger.log(`Bon ${detail.reference} — PV de non-restitution émis${claimed.token ? ' et envoyé' : ' (signature au guichet)'}`);
   return true;

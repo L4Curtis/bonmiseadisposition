@@ -1,7 +1,9 @@
-import { ConflictException } from '@nestjs/common';
 import type { MissingSerialLine, SendChecksResponse, SendSerialConflict } from '../../contracts/bons';
 import { PrismaService } from '../../prisma/prisma.service';
 import { findSerialConflicts } from '../../equipment/equipment-serial';
+import { writeAuditEntry } from '../../audit/audit-record';
+import type { AuditWriter } from '../../audit/audit-record';
+import { missingSerialsError, serialConflictsError } from '../bon-errors';
 
 /**
  * Contrôles à faire AVANT la remise d'un bon, par email comme au guichet
@@ -71,39 +73,34 @@ export async function assertSendChecksConfirmed(
 ): Promise<SendChecksResponse> {
   const checks = await computeSendChecks(prisma, bon);
   if (checks.missingSerials.length > 0 && !confirmations.confirmMissingSerials) {
-    throw new ConflictException({ code: 'missing_serials', lines: checks.missingSerials });
+    throw missingSerialsError(checks.missingSerials);
   }
   if (checks.serialConflicts.length > 0 && !confirmations.confirmSerialConflicts) {
-    throw new ConflictException({ code: 'serial_conflicts', conflicts: checks.serialConflicts });
+    throw serialConflictsError(checks.serialConflicts);
   }
   return checks;
 }
 
-/** Trace dans l'audit les contrôles passés outre, sur confirmation de l'IT. */
+/** Trace dans l'audit les contrôles passés outre, sur confirmation de l'IT
+ *  (dans la transaction de la remise quand l'appelant en tient une). */
 export async function auditConfirmedChecks(
-  prisma: PrismaService,
+  writer: AuditWriter,
   bonId: string,
   actorId: string | null,
   checks: SendChecksResponse,
 ): Promise<void> {
   if (checks.missingSerials.length > 0) {
-    await prisma.auditLog.create({
-      data: {
-        bonId,
-        userId: actorId,
-        action: 'bon_sent_without_serial',
-        details: { lines: checks.missingSerials.map(({ position, label }) => ({ position, label })) },
-      },
+    await writeAuditEntry(writer, 'bon_sent_without_serial', {
+      actorId,
+      bonId,
+      details: { lines: checks.missingSerials.map(({ position, label }) => ({ position, label })) },
     });
   }
   if (checks.serialConflicts.length > 0) {
-    await prisma.auditLog.create({
-      data: {
-        bonId,
-        userId: actorId,
-        action: 'bon_sent_with_serial_conflicts',
-        details: { conflicts: checks.serialConflicts.map((c) => ({ ...c })) },
-      },
+    await writeAuditEntry(writer, 'bon_sent_with_serial_conflicts', {
+      actorId,
+      bonId,
+      details: { conflicts: checks.serialConflicts.map((c) => ({ ...c })) },
     });
   }
 }

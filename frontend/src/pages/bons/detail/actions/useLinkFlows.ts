@@ -1,4 +1,4 @@
-import { ApiError } from '@/lib/api';
+import { hasErrorCode } from '@/lib/api';
 import { toast } from '@/hooks/use-toast';
 import { showActionError } from '@/lib/errors';
 import type { LinkSignatureType, SendChecksResponse } from '@/contracts';
@@ -110,12 +110,11 @@ export function useLinkFlows(deps: FlowDeps) {
       reload();
       return true;
     } catch (e: unknown) {
-      if (e instanceof ApiError && e.status === 409) {
-        const body = e.body as { code?: string; sentAt?: string } | undefined;
-        if (body?.code === 'token_recent' && body.sentAt) {
-          setDialog({ kind: 'resend-confirm', sentAt: body.sentAt });
-          return true;
-        }
+      // Lien envoyé il y a moins d'une heure : on demande confirmation.
+      const sentAt = hasErrorCode(e, 'token_recent') ? e.details?.sentAt : undefined;
+      if (typeof sentAt === 'string') {
+        setDialog({ kind: 'resend-confirm', sentAt });
+        return true;
       }
       showActionError(e, 'Erreur lors du renvoi du lien');
       return false;

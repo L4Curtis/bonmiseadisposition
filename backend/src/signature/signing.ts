@@ -16,9 +16,11 @@ import { effectiveInvalidationReason } from './link-invalidation';
 import { buildSealPayload } from './seal';
 import { getNextBonStatus } from './status-transition';
 import { saveSignatureFile } from './signature-file-store';
-import { generatePdfSnapshot, PdfSnapshotDeps } from './pdf-snapshot';
+import { generatePdfSnapshot, PdfSnapshotDeps, recordSnapshotFailure } from './pdf-snapshot';
 import { LINK_INVALIDATION_MESSAGES, NON_SIGNABLE_BON_STATUSES, isBonStatusIn } from '../bons/bon-status';
 import { isItRole } from '../common/roles';
+import { writeAuditEntry } from '../audit/audit-record';
+import type { AuditAction } from '../audit/audit-actions';
 
 export interface SignDeps {
   prisma: PrismaService;
@@ -47,6 +49,13 @@ const COLLAB_SNAPSHOT_TYPES: Readonly<Record<LinkDocumentType, string>> = Object
   mise_disposition: 'signature_collab_mise_disposition',
   restitution: 'signature_collab_restitution',
   pv_cloture: 'cloture_equipements_manquants',
+});
+
+/** Document signé par le collaborateur → action du journal d'audit. */
+const SIGNED_DOCUMENT_ACTIONS: Readonly<Record<LinkDocumentType, AuditAction>> = Object.freeze({
+  mise_disposition: 'signed_mise_disposition',
+  restitution: 'signed_restitution',
+  pv_cloture: 'signed_pv_cloture',
 });
 
 type SignableSignature = Signature & { bon: Awaited<ReturnType<typeof loadBonForSignature>> };
@@ -211,14 +220,14 @@ function runSignTransaction(
     });
     if (statusUpdate.count === 0) throw new ConflictException('Le statut du bon a changé entre-temps, veuillez réessayer');
 
-    await tx.auditLog.create({
-      data: {
-        bonId: sig.bon.id, userEmail: signer.signerEmail, action: `signed_${sig.type}`, ipAddress: signer.signerIp,
-        userAgent: signer.signerUserAgent,
-        details: {
-          isInPerson: sig.isInPerson, signedByProxy, titulaireEmail: sig.bon.collaborateurEmail,
-          mentionLuApprouve: signer.mentionLuApprouve, newStatus,
-        },
+    await writeAuditEntry(tx, SIGNED_DOCUMENT_ACTIONS[sig.type as LinkDocumentType], {
+      actorEmail: signer.signerEmail,
+      bonId: sig.bon.id,
+      ip: signer.signerIp,
+      userAgent: signer.signerUserAgent,
+      details: {
+        isInPerson: sig.isInPerson, signedByProxy, titulaireEmail: sig.bon.collaborateurEmail,
+        mentionLuApprouve: signer.mentionLuApprouve, newStatus,
       },
     });
     return { updatedSig, previousStatus: fresh.bon.status, newStatus, seal };
@@ -245,11 +254,7 @@ async function saveSignedDocument(deps: SignDeps, bon: Awaited<ReturnType<typeof
   } catch (err) {
     const message = (err as Error).message;
     deps.logger.error(`Échec génération snapshot PDF (signature conservée): ${message}`);
-    await deps.prisma.auditLog
-      .create({ data: { bonId: bon.id, action: 'pdf_snapshot_failed', details: { type: snapshotType, error: message } } })
-      .catch((auditErr: unknown) =>
-        deps.logger.error(`Échec écriture audit log pdf_snapshot_failed: ${(auditErr as Error).message}`),
-      );
+    await recordSnapshotFailure(deps.prisma, deps.logger, { bonId: bon.id, type: snapshotType, message });
   }
 }
 

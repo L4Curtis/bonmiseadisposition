@@ -21,6 +21,8 @@ export interface FactsEquipment {
 
 /** Signature telle que la lit la machine à états. */
 export interface FactsSignature {
+  /** Identifiant du lien (absent dans les calculs qui n'en ont pas besoin). */
+  readonly id?: string;
   readonly type: string;
   readonly signed: boolean;
   readonly signedAt: Date | string | null;

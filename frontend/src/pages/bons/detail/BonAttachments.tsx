@@ -55,8 +55,8 @@ export function BonAttachments({ bonId, canManage, defaultStage = 'general' }: B
   const load = () => {
     setLoading(true);
     api
-      .get<Attachment[]>(`/bons/${bonId}/attachments`)
-      .then(setItems)
+      .getList<Attachment>(`/bons/${bonId}/attachments`)
+      .then((list) => setItems(list.items))
       .catch(() => setItems([]))
       .finally(() => setLoading(false));
   };

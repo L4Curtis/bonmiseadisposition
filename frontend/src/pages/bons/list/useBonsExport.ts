@@ -3,6 +3,7 @@ import { api } from '@/lib/api';
 import { showActionError } from '@/lib/errors';
 import { toast } from '@/hooks/use-toast';
 import { toExportParams, type BonsListQuery } from './bonsListQuery';
+import { todayInParis } from '@/lib/dates';
 
 function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
@@ -13,8 +14,9 @@ function downloadBlob(blob: Blob, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
-/** Export CSV de la liste : tous les bons filtrés, ou la seule sélection
- *  (`ids`), toujours dans l'ordre de tri affiché. */
+/** Export CSV de la sélection de la liste (`ids`, 100 bons au plus : jamais
+ *  coupé), dans l'ordre de tri affiché. L'export de toute la liste filtrée
+ *  passe par ExportButton (annonce du nombre de lignes, bandeau si coupé). */
 export function useBonsExport(query: BonsListQuery) {
   const [exportLoading, setExportLoading] = useState(false);
 
@@ -22,7 +24,7 @@ export function useBonsExport(query: BonsListQuery) {
     setExportLoading(true);
     try {
       const blob = await api.getBlob(`/bons/export?${toExportParams(query, ids)}`);
-      const day = new Date().toISOString().slice(0, 10);
+      const day = todayInParis();
       downloadBlob(blob, ids?.length ? `bons-selection-${day}.csv` : `bons-export-${day}.csv`);
       toast({
         title: 'Export réussi',

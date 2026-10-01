@@ -331,7 +331,7 @@ export function useBonCreateForm() {
         isEditing,
       });
       if (isEditing) {
-        await api.put(`/bons/${editBonId}`, payload);
+        await api.patch(`/bons/${editBonId}`, payload);
         // Bon déjà envoyé : son lien ne vaut plus ; la fiche enchaîne tout de
         // suite la signature IT puis le nouveau lien (action principale).
         navigate(editStatus === 'sent_mise_dispo' ? `/bons/${editBonId}?action=suite` : `/bons/${editBonId}`);

@@ -1,9 +1,10 @@
-import { Search, Download, X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { BON_STATUS_LABELS, type BonStatus, type Filiale } from '@/types';
+import type { ReactNode } from 'react';
+import { Search, X } from 'lucide-react';
+import type { Filiale } from '@/types';
 import { STATUS_OPTIONS } from './statusFilterOptions';
 import { SORT_FIELDS, type BonsListQuery, type SortField, type SortOrder } from './bonsListQuery';
 import { BonsAdvancedFilters, type BonsAdvancedFiltersProps } from './BonsAdvancedFilters';
+import { ActiveFilterChips, activeFilterChips, type FilterChip } from './ActiveFilterChips';
 
 /** Libellés du sélecteur de tri (utile sur petit écran, où plusieurs colonnes
  *  triables sont masquées, et pour la date de création, sans colonne). */
@@ -33,16 +34,17 @@ export interface BonsFiltersProps {
   readonly onAdvancedChange: BonsAdvancedFiltersProps['onChange'];
   readonly currentUserId: string | undefined;
   readonly creators: BonsAdvancedFiltersProps['creators'];
-  readonly exportLoading: boolean;
-  readonly onExport: () => void;
+  /** Bouton d'export de la liste (annonce avant, bandeau après : ExportButton). */
+  readonly exportControl: ReactNode;
   readonly hasActiveFilters: boolean;
   readonly onResetFilters: () => void;
-  readonly onClearExcludeStatus: () => void;
+  /** Retire un filtre montré en pastille (référence, période, exclusions). */
+  readonly onClearFilter: (patch: FilterChip['clear']) => void;
 }
 
 /** Barre de filtres de la liste des bons (recherche, statut, filiale, tri,
- *  export), filtres avancés, et chip du filtre « En cours » hérité du tableau
- *  de bord (non représenté par un champ). */
+ *  export), filtres avancés, et pastilles des filtres venus d'un lien sans
+ *  champ à l'écran (référence exacte, périodes du tableau de bord, exclusions). */
 export function BonsFilters({
   query,
   searchInput,
@@ -57,11 +59,10 @@ export function BonsFilters({
   onAdvancedChange,
   currentUserId,
   creators,
-  exportLoading,
-  onExport,
+  exportControl,
   hasActiveFilters,
   onResetFilters,
-  onClearExcludeStatus,
+  onClearFilter,
 }: BonsFiltersProps) {
   // « En cours » a son option dans le select statut ; une autre combinaison
   // d'exclusions (lien bricolé) n'en a pas, d'où la chip.
@@ -134,24 +135,7 @@ export function BonsFilters({
           )))}
         </select>
 
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onExport}
-          disabled={exportLoading}
-          className="border-border text-muted-foreground hover:text-foreground"
-        >
-          {exportLoading ? (
-            <span
-              className="h-3.5 w-3.5 mr-1.5 animate-spin motion-reduce:animate-none rounded-full border-2 border-muted border-t-muted-foreground"
-              role="status"
-              aria-label="Export en cours"
-            />
-          ) : (
-            <Download className="mr-1.5 h-3.5 w-3.5" />
-          )}
-          Exporter CSV
-        </Button>
+        {exportControl}
 
         {hasActiveFilters && (
           <button
@@ -171,21 +155,7 @@ export function BonsFilters({
         creators={creators}
       />
 
-      {showExcludeChip && (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
-            Statuts exclus : {query.excludeStatus.split(',').map((s) => BON_STATUS_LABELS[s as BonStatus] ?? s).join(', ')}
-            <button
-              type="button"
-              onClick={onClearExcludeStatus}
-              className="hover:text-foreground transition-colors"
-              aria-label="Retirer l’exclusion de statuts"
-            >
-              <X className="h-3 w-3" />
-            </button>
-          </span>
-        </div>
-      )}
+      <ActiveFilterChips chips={activeFilterChips(query, showExcludeChip)} onClear={onClearFilter} />
     </div>
   );
 }

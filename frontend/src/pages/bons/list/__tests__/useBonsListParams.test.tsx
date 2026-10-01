@@ -8,10 +8,12 @@ import { resetActiveFilialesForTests } from '@/hooks/use-active-filiales';
 
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>();
+  const { listViaGet } = await import('@/test/api-mock');
+  const get = vi.fn();
   return {
     ...actual,
     api: {
-      get: vi.fn(),
+      get, getList: listViaGet(get),
       post: vi.fn(),
       put: vi.fn(),
       patch: vi.fn(),
@@ -35,7 +37,7 @@ beforeEach(() => {
   resetActiveFilialesForTests();
   vi.mocked(api.get).mockImplementation((path: string) => {
     if (path.startsWith('/filiales/active')) return Promise.resolve([]);
-    if (path.startsWith('/bons?')) return Promise.resolve({ bons: [], total: 0 });
+    if (path.startsWith('/bons?')) return Promise.resolve({ items: [], total: 0, page: 1, limit: 25, truncated: false });
     return Promise.reject(new Error(`unexpected GET ${path}`));
   });
 });
@@ -162,3 +164,26 @@ function lastListCall(): string | undefined {
   const calls = vi.mocked(api.get).mock.calls.filter(([p]) => p.startsWith('/bons?'));
   return calls[calls.length - 1]?.[0];
 }
+
+describe('useBonsListParams — nombre de lignes par page', () => {
+  it('25 par défaut ; 50 choisi : mémorisé, envoyé à l’API, retour à la page 1', async () => {
+    const { result } = renderHook(() => useBonsListParams(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(lastListCall()).toContain('limit=25');
+
+    act(() => result.current.setPage(3));
+    act(() => result.current.setPageSize(50));
+
+    await waitFor(() => expect(lastListCall()).toContain('limit=50'));
+    expect(lastListCall()).toContain('page=1');
+    expect(window.localStorage.getItem('bons-it:lignes-par-page')).toBe('50');
+  });
+
+  it('reprend le choix mémorisé à l’ouverture', async () => {
+    window.localStorage.setItem('bons-it:lignes-par-page', '100');
+    const { result } = renderHook(() => useBonsListParams(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.pageSize).toBe(100);
+    expect(lastListCall()).toContain('limit=100');
+  });
+});

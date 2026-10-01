@@ -34,6 +34,8 @@ const FIRST_CLICK_ORDER: Record<SortField, SortOrder> = {
 
 export interface BonsListQuery {
   readonly search: string;
+  /** Référence exacte (BON-AAAA-NNNN) : un seul bon, jamais ses voisins. */
+  readonly reference: string;
   /** Un statut ou une liste « a,b,c ». */
   readonly status: string;
   readonly excludeStatus: string;
@@ -50,6 +52,14 @@ export interface BonsListQuery {
   readonly dateTo: string;
   readonly noReturnDate: boolean;
   readonly createdById: string;
+  /** Créés / clôturés / annulés sur une période (jours de Paris, AAAA-MM-JJ,
+   *  bornes incluses) : liens des listes du tableau de bord. */
+  readonly createdFrom: string;
+  readonly createdTo: string;
+  readonly closedFrom: string;
+  readonly closedTo: string;
+  readonly cancelledFrom: string;
+  readonly cancelledTo: string;
   readonly sort: SortField;
   readonly order: SortOrder;
   readonly page: number;
@@ -57,6 +67,7 @@ export interface BonsListQuery {
 
 export const DEFAULT_LIST_QUERY: BonsListQuery = {
   search: '',
+  reference: '',
   status: '',
   excludeStatus: '',
   filialeId: '',
@@ -68,12 +79,25 @@ export const DEFAULT_LIST_QUERY: BonsListQuery = {
   dateTo: '',
   noReturnDate: false,
   createdById: '',
+  createdFrom: '',
+  createdTo: '',
+  closedFrom: '',
+  closedTo: '',
+  cancelledFrom: '',
+  cancelledTo: '',
   sort: 'createdAt',
   order: 'desc',
   page: 1,
 };
 
 const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const REFERENCE_PATTERN = /^BON-\d{4}-\d{4,}$/i;
+
+/** Périodes d'événement lues et écrites telles quelles dans l'adresse. */
+export const EVENT_DAY_KEYS = [
+  'createdFrom', 'createdTo', 'closedFrom', 'closedTo', 'cancelledFrom', 'cancelledTo',
+] as const;
+export type EventDayKey = (typeof EVENT_DAY_KEYS)[number];
 
 function isSortField(value: string | null): value is SortField {
   return value !== null && (SORT_FIELDS as readonly string[]).includes(value);
@@ -90,6 +114,16 @@ function readSubStatus(params: URLSearchParams): string {
   return Object.prototype.hasOwnProperty.call(BON_SUB_STATUS_LABELS, value) ? value : '';
 }
 
+/** Référence de bon lue dans l'adresse ; autre chose est ignoré (pas de 400). */
+function readReference(params: URLSearchParams): string {
+  const value = (params.get('reference') ?? '').trim();
+  return REFERENCE_PATTERN.test(value) ? value.toUpperCase() : '';
+}
+
+function readEventDays(params: URLSearchParams): Record<EventDayKey, string> {
+  return Object.fromEntries(EVENT_DAY_KEYS.map((key) => [key, readDay(params, key)])) as Record<EventDayKey, string>;
+}
+
 function readFlag(params: URLSearchParams, key: string): boolean {
   const value = params.get(key);
   return value === '1' || value === 'true';
@@ -104,6 +138,7 @@ export function parseListQuery(params: URLSearchParams): BonsListQuery {
   const pageParam = Number(params.get('page'));
   return {
     search: params.get('search') ?? '',
+    reference: readReference(params),
     status: params.get('status') ?? '',
     excludeStatus: params.get('excludeStatus') ?? '',
     filialeId: params.get('filialeId') ?? '',
@@ -115,6 +150,7 @@ export function parseListQuery(params: URLSearchParams): BonsListQuery {
     dateTo: readDay(params, 'dateTo'),
     noReturnDate: readFlag(params, 'noReturnDate'),
     createdById: params.get('createdById') ?? '',
+    ...readEventDays(params),
     sort: isSortField(sortParam) ? sortParam : DEFAULT_LIST_QUERY.sort,
     order: orderParam === 'asc' || orderParam === 'desc' ? orderParam : DEFAULT_LIST_QUERY.order,
     page: Number.isInteger(pageParam) && pageParam > 1 ? pageParam : 1,
@@ -125,6 +161,7 @@ export function parseListQuery(params: URLSearchParams): BonsListQuery {
 function filterEntries(q: BonsListQuery): Array<[string, string]> {
   const entries: Array<[string, string]> = [];
   if (q.search) entries.push(['search', q.search]);
+  if (q.reference) entries.push(['reference', q.reference]);
   if (q.status) entries.push(['status', q.status]);
   if (q.excludeStatus) entries.push(['excludeStatus', q.excludeStatus]);
   if (q.overdue) entries.push(['overdue', '1']);
@@ -136,6 +173,7 @@ function filterEntries(q: BonsListQuery): Array<[string, string]> {
   if (q.dateTo) entries.push(['dateTo', q.dateTo]);
   if (q.noReturnDate) entries.push(['noReturnDate', '1']);
   if (q.createdById) entries.push(['createdById', q.createdById]);
+  for (const key of EVENT_DAY_KEYS) if (q[key]) entries.push([key, q[key]]);
   return entries;
 }
 

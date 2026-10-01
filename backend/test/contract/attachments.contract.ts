@@ -4,10 +4,10 @@
  * le collaborateur titulaire pendant la période de signature.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { nestError, ok } from './support/common-shapes';
+import { apiError, listOf, ok } from './support/common-shapes';
 import { ContractContext, startContractContext } from './support/context';
 import type { Caller } from './support/http';
-import { arrayOf, expectShape } from './support/shape';
+import { expectShape } from './support/shape';
 import { attachment } from './shapes/workflow';
 
 let ctx: ContractContext;
@@ -42,7 +42,7 @@ describe('Droits d’accès (titulaire ou IT)', () => {
   ] as const)('GET /bons/:bonId/attachments par %s → %i', async (caller, status) => {
     const res = await ctx.http.get(`/bons/${ctx.data.bons.sentMiseDispo.id}/attachments`, caller);
     expect(res.status).toBe(status);
-    expectShape(res.body, nestError);
+    expectShape(res.body, apiError);
   });
 });
 
@@ -56,10 +56,18 @@ describe('Cycle d’une pièce jointe', () => {
     attachmentId = res.body.id;
   });
 
-  it('GET /bons/:bonId/attachments : tableau nu des métadonnées', async () => {
+  it('GET /bons/:bonId/attachments : métadonnées, forme commune des listes', async () => {
     const res = await ctx.http.get(`/bons/${ctx.data.bons.sentMiseDispo.id}/attachments`, 'technician');
     expect(res.status).toBe(200);
-    expectShape(res.body, arrayOf(attachment, { minLength: 1 }));
+    expectShape(res.body, listOf(attachment, { minLength: 1 }));
+    expect(res.body.items.map((a: { id: string }) => a.id)).toContain(attachmentId);
+  });
+
+  it('l’ajout est tracé dans l’historique du bon (journal d’audit, phrase du catalogue)', async () => {
+    const res = await ctx.http.get(`/bons/${ctx.data.bons.sentMiseDispo.id}/history`, 'technician');
+    expect(res.status).toBe(200);
+    const entry = (res.body.items as { action: string; sentence: string }[]).find((e) => e.action === 'attachment_uploaded');
+    expect(entry?.sentence).toMatch(/a ajouté une pièce jointe/);
   });
 
   it('GET /bons/:bonId/attachments/:id : le fichier, image affichée en ligne', async () => {
@@ -78,7 +86,7 @@ describe('Cycle d’une pièce jointe', () => {
   it('ajout par le titulaire hors période de signature : 403', async () => {
     const res = await upload(ctx.data.bons.archived.id, 'collaborator');
     expect(res.status).toBe(403);
-    expectShape(res.body, nestError);
+    expectShape(res.body, apiError);
   });
 });
 
@@ -109,7 +117,7 @@ describe('Étape de la pièce jointe', () => {
     const before = await ctx.prisma.attachment.count({ where: { bonId: ctx.data.bons.active.id } });
     const res = await upload(ctx.data.bons.active.id, 'collaborator');
     expect(res.status).toBe(403);
-    expectShape(res.body, nestError);
+    expectShape(res.body, apiError);
     expect(await ctx.prisma.attachment.count({ where: { bonId: ctx.data.bons.active.id } })).toBe(before);
   });
 });

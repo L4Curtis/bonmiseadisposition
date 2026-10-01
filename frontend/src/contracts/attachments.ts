@@ -13,7 +13,7 @@
  * le chemin de stockage interne ni l'auteur par identifiant. Le contenu se
  * télécharge par GET /api/bons/:bonId/attachments/:id (réponse binaire).
  */
-import type { IsoDateTime, OkResponse } from './common';
+import type { IsoDateTime, ListResponse, OkResponse } from './common';
 
 /** Étape du bon à laquelle la pièce jointe se rattache ; toute valeur
  *  inconnue envoyée à l'ajout est enregistrée comme `general`. */
@@ -41,8 +41,9 @@ export interface BonAttachment {
 }
 
 /** GET /api/bons/:bonId/attachments — pièces jointes du bon, de la plus
- *  ancienne à la plus récente (tableau vide pour un bon inconnu). */
-export type AttachmentListResponse = BonAttachment[];
+ *  ancienne à la plus récente, à la forme commune des listes (liste
+ *  complète ; vide pour un bon inconnu). */
+export type AttachmentListResponse = ListResponse<BonAttachment>;
 
 /** POST /api/bons/:bonId/attachments — ajout (multipart, champ `file`) (201). */
 export type UploadAttachmentResponse = BonAttachment;

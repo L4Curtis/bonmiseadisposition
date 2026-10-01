@@ -1,15 +1,12 @@
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { INVALIDATED_TOKEN_SENTINEL } from '../common/bon-predicates';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 import { ContestableDocument, resolveContestedDocument } from './contested-document';
 import { PENDING_CONTESTATION_STATUSES } from './contestation-selects';
+import { writeAuditEntry } from '../audit/audit-record';
+import { bonNotFoundError } from '../bons/bon-errors';
+import { contestationAlreadyOpenError, contestationStaleError } from './contestation-errors';
 
 export interface CreateContestationDeps {
   prisma: PrismaService;
@@ -35,7 +32,7 @@ async function loadBon(prisma: PrismaService, bonId: string) {
       collaborateur: { select: { id: true, displayName: true, email: true } },
     },
   });
-  if (!bon) throw new NotFoundException('Bon introuvable');
+  if (!bon) throw bonNotFoundError();
   const pending = await prisma.signature.findMany({
     where: {
       bonId,
@@ -60,11 +57,11 @@ function contestedDocumentOf(
 ): ContestableDocument {
   const result = resolveContestedDocument({ status: bon.status, pendingDocuments });
   if (!result.contestable) {
-    if (bon.status === 'contested') throw new ConflictException(result.message);
+    if (bon.status === 'contested') throw contestationAlreadyOpenError(result.message);
     throw new BadRequestException(result.message);
   }
   if (requested && requested !== result.document) {
-    throw new ConflictException("Le document à contester a changé entre-temps : rechargez la page.");
+    throw contestationStaleError('Le document à contester a changé entre-temps : rechargez la page.');
   }
   return result.document;
 }
@@ -95,7 +92,7 @@ export async function createContestation(deps: CreateContestationDeps, input: Cr
     const existing = await tx.contestation.findFirst({
       where: { bonId: bon.id, status: { in: [...PENDING_CONTESTATION_STATUSES] } },
     });
-    if (existing) throw new ConflictException('Une contestation est déjà en cours sur ce bon.');
+    if (existing) throw contestationAlreadyOpenError();
 
     const created = await tx.contestation.create({
       data: {
@@ -116,15 +113,12 @@ export async function createContestation(deps: CreateContestationDeps, input: Cr
       where: { id: bon.id, status: bon.status },
       data: { status: 'contested' },
     });
-    if (claimed.count === 0) throw new ConflictException("Le bon a changé entre-temps : rechargez la page.");
+    if (claimed.count === 0) throw contestationStaleError('Le bon a changé entre-temps : rechargez la page.');
 
-    await tx.auditLog.create({
-      data: {
-        bonId: bon.id,
-        userId: input.userId,
-        action: 'bon_contested',
-        details: { contestationId: created.id, document, previousStatus: bon.status, message: message.slice(0, 200) },
-      },
+    await writeAuditEntry(tx, 'bon_contested', {
+      actorId: input.userId,
+      bonId: bon.id,
+      details: { contestationId: created.id, document, previousStatus: bon.status, message: message.slice(0, 200) },
     });
     return created;
   });

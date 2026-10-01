@@ -13,6 +13,10 @@ import type { EquipmentLine } from './types';
 
 const MIN_QUERY_LENGTH = 2;
 const SEARCH_DEBOUNCE_MS = 300;
+/** La recherche lit la première page de la liste (taille commune minimale)
+ *  et n'en propose que les premiers bons. */
+const SEARCH_PAGE_SIZE = 25;
+const MAX_RESULTS = 10;
 
 export interface DuplicateBonButtonProps {
   /** Reçoit les lignes d'équipement déjà construites (article uniquement —
@@ -47,9 +51,9 @@ export function DuplicateBonButton({ onImport }: DuplicateBonButtonProps) {
     let ignore = false;
     setLoading(true);
     const t = setTimeout(() => {
-      const params = new URLSearchParams({ search: query.trim(), limit: '10' });
-      api.get<{ bons: DuplicableBon[] }>(`/bons?${params}`)
-        .then((res) => { if (!ignore) setResults(res.bons); })
+      const params = new URLSearchParams({ search: query.trim(), limit: String(SEARCH_PAGE_SIZE) });
+      api.getList<DuplicableBon>(`/bons?${params}`)
+        .then((res) => { if (!ignore) setResults(res.items.slice(0, MAX_RESULTS)); })
         .catch(() => { if (!ignore) setError('Recherche indisponible pour le moment.'); })
         .finally(() => { if (!ignore) setLoading(false); });
     }, SEARCH_DEBOUNCE_MS);

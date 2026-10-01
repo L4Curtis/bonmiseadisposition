@@ -58,11 +58,11 @@ describe('Contestation Fondée d’une restitution, correction, nouveau lien', (
       document: 'restitution',
     });
     expect(contested.status, JSON.stringify(contested.body)).toBe(201);
-    const resolved = await ctx.http.patch(`/contestations/${contested.body.id}/resolve`, 'admin', {
+    const resolved = await ctx.http.post(`/contestations/${contested.body.id}/resolve`, 'admin', {
       outcome: 'founded',
       resolutionMessage: 'Nous corrigeons la restitution.',
     });
-    expect(resolved.status, JSON.stringify(resolved.body)).toBe(200);
+    expect(resolved.status, JSON.stringify(resolved.body)).toBe(201);
 
     // Pendant la correction : rien n'est reparti.
     expect(await oldLinkAsCollaborator(bon.link.token)).toMatchObject({

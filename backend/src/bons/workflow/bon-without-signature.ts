@@ -4,6 +4,8 @@ import { WithoutSignatureAction } from '../bon-status';
 import { findBonDetailOrThrow } from '../queries/bon-where';
 import { BonsWorkflowContext } from './bon-context';
 import { assertActionAllowed, requireReason, statusChangedMeanwhile } from './bon-guards';
+import { writeAuditEntry } from '../../audit/audit-record';
+import type { AuditAction } from '../../audit/audit-actions';
 
 /**
  * Les deux gestes « sans signature », distincts (R-014) :
@@ -17,7 +19,7 @@ import { assertActionAllowed, requireReason, statusChangedMeanwhile } from './bo
 
 interface GestureSpec {
   readonly action: WithoutSignatureAction;
-  readonly auditAction: string;
+  readonly auditAction: AuditAction;
   readonly invalidation: SignatureInvalidationReason;
 }
 
@@ -63,9 +65,7 @@ export async function handoverWithoutSignature(ctx: BonsWorkflowContext, id: str
   const bon = await findBonDetailOrThrow(ctx.prisma, id);
   assertActionAllowed(bon, 'handover_without_signature');
   await applyGesture(ctx, id, bon.status, HANDOVER, reason);
-  await ctx.prisma.auditLog.create({
-    data: { bonId: id, userId: actorId, action: HANDOVER.auditAction, details: { from: bon.status, reason } },
-  });
+  await writeAuditEntry(ctx.prisma, HANDOVER.auditAction, { actorId, bonId: id, details: { from: bon.status, reason } });
   await ctx.events.publish(DOMAIN_EVENTS.bonHandoverWithoutSignature, {
     bonId: id, bonReference: bon.reference, actorId, occurredAt: new Date(), reason,
   });
@@ -77,9 +77,7 @@ export async function closeWithoutSignature(ctx: BonsWorkflowContext, id: string
   const bon = await findBonDetailOrThrow(ctx.prisma, id);
   assertActionAllowed(bon, 'close_without_signature');
   await applyGesture(ctx, id, bon.status, CLOSURE, reason);
-  await ctx.prisma.auditLog.create({
-    data: { bonId: id, userId: actorId, action: CLOSURE.auditAction, details: { from: bon.status, reason } },
-  });
+  await writeAuditEntry(ctx.prisma, CLOSURE.auditAction, { actorId, bonId: id, details: { from: bon.status, reason } });
   await ctx.events.publish(DOMAIN_EVENTS.bonClosedWithoutSignature, {
     bonId: id, bonReference: bon.reference, actorId, occurredAt: new Date(), previousStatus: bon.status, reason,
   });

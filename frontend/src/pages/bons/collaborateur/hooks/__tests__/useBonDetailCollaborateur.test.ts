@@ -8,7 +8,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>();
   return {
     ...actual,
-    api: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), getBlob: vi.fn() },
+    api: { get: vi.fn(), getList: vi.fn(), post: vi.fn(), patch: vi.fn(), getBlob: vi.fn() },
   };
 });
 vi.mock('@/hooks/use-toast', () => ({ toast: vi.fn() }));
@@ -63,17 +63,26 @@ const contestation: MyContestation = {
   replacementBon: null,
 };
 
-function mockGets(overrides: Record<string, unknown> = {}) {
-  const responses: Record<string, unknown> = {
-    '/bons/b1': bonFixture,
-    '/bons/mes-bons': [portalVersion],
-    '/contestations/mine': [contestation],
-    '/bons/b1/pdf-snapshots': [{ type: 'signature_collab_mise_disposition', filename: 'a.pdf', createdAt: '2026-01-02', sha256: null }],
-    ...overrides,
-  };
-  vi.mocked(api.get).mockImplementation((path: string) =>
-    path in responses ? Promise.resolve(responses[path]) : Promise.reject(new Error(`GET inattendu ${path}`)),
+/** Réponse d'une liste à la forme commune de l'API. */
+function list(items: unknown[]) {
+  return { items, total: items.length, page: 1, limit: items.length, truncated: false };
+}
+
+function mockLists(responses: Record<string, unknown[]>) {
+  vi.mocked(api.getList).mockImplementation((path: string) =>
+    path in responses ? Promise.resolve(list(responses[path])) : Promise.reject(new Error(`GET inattendu ${path}`)),
   );
+}
+
+function mockGets(overrides: Record<string, unknown> = {}) {
+  vi.mocked(api.get).mockImplementation((path: string) =>
+    path === '/bons/b1' ? Promise.resolve(overrides['/bons/b1'] ?? bonFixture) : Promise.reject(new Error(`GET inattendu ${path}`)),
+  );
+  mockLists({
+    '/me/bons': [portalVersion],
+    '/me/contestations': [contestation],
+    '/bons/b1/pdf-snapshots': [{ type: 'signature_collab_mise_disposition', filename: 'a.pdf', createdAt: '2026-01-02', sha256: null }],
+  });
 }
 
 beforeEach(() => {
@@ -95,6 +104,7 @@ describe('useBonDetailCollaborateur', () => {
     vi.mocked(api.get).mockImplementation((path: string) =>
       path === '/bons/b1' ? Promise.resolve(bonFixture) : Promise.reject(new Error('panne')),
     );
+    vi.mocked(api.getList).mockRejectedValue(new Error('panne'));
     const { result } = renderHook(() => useBonDetailCollaborateur('b1'));
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.bon).not.toBeNull();
@@ -106,6 +116,7 @@ describe('useBonDetailCollaborateur', () => {
     vi.mocked(api.get).mockImplementation((path: string) =>
       path === '/bons/b1' ? Promise.reject(new Error('Accès refusé à ce bon')) : Promise.resolve([]),
     );
+    vi.mocked(api.getList).mockResolvedValue(list([]) as never);
     const { result } = renderHook(() => useBonDetailCollaborateur('b1'));
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.loadError).toBe('Accès refusé à ce bon');

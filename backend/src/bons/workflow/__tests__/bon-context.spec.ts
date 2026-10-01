@@ -3,6 +3,7 @@ import { createMockPrismaService, type MockPrismaService } from '../../../common
 import { createMockConfigService, createMockPdfService } from '../../../common/__tests__/helpers/mock-services';
 import type { BonForPdf } from '../../../pdf/pdf.service';
 import { BonsWorkflowContext, generateAndSaveSnapshot, getPvTokenValidityDays } from '../bon-context';
+import { ConfigRegistryService } from '../../../config/config-registry.service';
 
 function context(prisma: MockPrismaService, overrides: Partial<Record<'pdfService' | 'configService', unknown>> = {}) {
   const logger = new Logger('test');
@@ -14,6 +15,8 @@ function context(prisma: MockPrismaService, overrides: Partial<Record<'pdfServic
     logger,
     ...overrides,
   };
+  // Lecture typée des réglages, sur le service de configuration du contexte.
+  Object.assign(ctx, { settings: new ConfigRegistryService(ctx.configService as never) });
   return ctx as unknown as BonsWorkflowContext & { pdfService: ReturnType<typeof createMockPdfService> };
 }
 
@@ -41,7 +44,7 @@ describe('document PDF produit après une action déjà validée', () => {
     await expect(generateAndSaveSnapshot(ctx, 'bon-1', BON, 'restitution', null, 'bon.pdf')).resolves.toBeNull();
     expect(ctx.logger.error).toHaveBeenCalledWith(expect.stringContaining('[restitution] pour le bon bon-1'));
     expect(prisma.auditLog.create).toHaveBeenCalledWith({
-      data: { bonId: 'bon-1', action: 'pdf_snapshot_failed', details: { type: 'restitution', error: 'police introuvable' } },
+      data: { action: 'pdf_snapshot_failed', bonId: 'bon-1', details: { type: 'restitution', error: 'police introuvable' } },
     });
   });
 

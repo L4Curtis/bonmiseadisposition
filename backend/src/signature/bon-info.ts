@@ -5,7 +5,7 @@ import { BON_FOR_SIGNATURE_SELECT } from './select-shape';
 import { isRecipient } from './recipient';
 import { isReplacedToken } from './token';
 import { effectiveInvalidationReason } from './link-invalidation';
-import { lastLinkRequestAt } from './link-request';
+import { linkRequestedAt } from './link-request';
 import { linkFollowUp } from './link-follow-up';
 import type { LinkSignatureType } from '../contracts/bons';
 
@@ -62,7 +62,7 @@ export async function getBonInfoByToken(
     };
   }
   if (new Date() > sig.tokenExpiresAt) {
-    const requestedAt = await lastLinkRequestAt(deps.prisma, sig.bon.id, sig.createdAt);
+    const requestedAt = await linkRequestedAt(deps.prisma, sig.bon.id, sig);
     return { status: 'expired', reference: sig.bon.reference, newLinkRequestedAt: requestedAt };
   }
 

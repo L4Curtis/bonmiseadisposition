@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { api, ApiError } from '@/lib/api';
+import { api, hasErrorCode } from '@/lib/api';
 import { errorMessage, showActionError } from '@/lib/errors';
 import { toast } from '@/hooks/use-toast';
 
@@ -68,12 +68,11 @@ export function useResendLinks(onDone: () => void) {
       setConfirmation(null);
       onDone();
     } catch (e: unknown) {
-      if (e instanceof ApiError && e.status === 409) {
-        const body = e.body as { code?: string; sentAt?: string } | undefined;
-        if (body?.code === 'token_recent' && body.sentAt) {
-          setConfirmation({ bonId, reference, sentAt: body.sentAt });
-          return;
-        }
+      // Lien envoyé il y a moins d'une heure : même confirmation que la fiche.
+      const sentAt = hasErrorCode(e, 'token_recent') ? e.details?.sentAt : undefined;
+      if (typeof sentAt === 'string') {
+        setConfirmation({ bonId, reference, sentAt });
+        return;
       }
       setConfirmation(null);
       showActionError(e, 'Erreur lors du renvoi du lien');

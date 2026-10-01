@@ -5,6 +5,7 @@ import { assertActionAllowed } from './bon-guards';
 import { issueEmailLink } from './bon-links';
 import { emitPvClotureIfDue } from './bon-cloture';
 import { pendingDocument } from './state-machine';
+import { writeAuditEntry } from '../../audit/audit-record';
 
 /** Un lien encore valide envoyé il y a moins d'une heure demande confirmation. */
 const RECENT_LINK_MS = 60 * 60 * 1000;
@@ -39,9 +40,7 @@ export async function resendSignatureLink(ctx: BonsWorkflowContext, bonId: strin
     if (issued.reused) return { ok: true as const, message: ALREADY_SENT_MESSAGE };
   }
 
-  await ctx.prisma.auditLog.create({
-    data: { bonId, userId: actorId, action: 'reminder_sent', details: { manual: true, document } },
-  });
+  await writeAuditEntry(ctx.prisma, 'reminder_sent', { actorId, bonId, details: { manual: true, document } });
   return { ok: true as const, message: 'Lien renvoyé avec succès' };
 }
 

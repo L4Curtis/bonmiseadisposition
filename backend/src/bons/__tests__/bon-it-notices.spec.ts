@@ -83,17 +83,38 @@ describe('contestationNotice', () => {
 });
 
 describe('linkRequestNotice', () => {
-  it('demande postérieure au dernier lien : rappelée avec le document', () => {
-    const notice = linkRequestNotice(at(30), state({ signatures: [link('restitution', at(1))] }));
+  /** Demande enregistrée dans le journal : `signatureId` = lien expiré visé. */
+  const request = (createdAt: Date, signatureId?: string) => ({
+    createdAt,
+    details: { documentType: 'restitution', expiredAt: at(0).toISOString(), ...(signatureId ? { signatureId } : {}) },
+  });
+
+  it('demande qui vise le dernier lien du document en attente : rappelée avec le document', () => {
+    const notice = linkRequestNotice(request(at(30), 's1'), state({ signatures: [link('restitution', at(1), { id: 's1' })] }));
     expect(notice).toEqual({ requestedAt: at(30).toISOString(), documentType: 'restitution' });
   });
 
-  it('l’IT a renvoyé depuis : plus de rappel', () => {
-    expect(linkRequestNotice(at(30), state({ signatures: [link('restitution', at(40))] }))).toBeNull();
+  it('l’IT a renvoyé depuis (nouveau lien) : plus de rappel', () => {
+    const signatures = [link('restitution', at(1), { id: 's1' }), link('restitution', at(40), { id: 's2' })];
+    expect(linkRequestNotice(request(at(30), 's1'), state({ signatures }))).toBeNull();
+  });
+
+  it('horloges décalées : la comparaison porte sur le lien visé, jamais sur les dates', () => {
+    // Le serveur d'application retarde sur la base : la demande paraît
+    // antérieure au lien qu'elle vise, puis postérieure au lien renvoyé.
+    const visé = [link('restitution', at(50), { id: 's1' })];
+    expect(linkRequestNotice(request(at(30), 's1'), state({ signatures: visé }))).not.toBeNull();
+    const renvoyé = [link('restitution', at(1), { id: 's1' }), link('restitution', at(20), { id: 's2' })];
+    expect(linkRequestNotice(request(at(30), 's1'), state({ signatures: renvoyé }))).toBeNull();
+  });
+
+  it('demande enregistrée avant l’identifiant du lien : comparée aux dates, comme avant', () => {
+    expect(linkRequestNotice(request(at(30)), state({ signatures: [link('restitution', at(1), { id: 's1' })] }))).not.toBeNull();
+    expect(linkRequestNotice(request(at(30)), state({ signatures: [link('restitution', at(40), { id: 's2' })] }))).toBeNull();
   });
 
   it('rien n’attend la signature, ou aucune demande : rien', () => {
-    expect(linkRequestNotice(at(30), state({ pendingDocument: null }))).toBeNull();
+    expect(linkRequestNotice(request(at(30), 's1'), state({ pendingDocument: null }))).toBeNull();
     expect(linkRequestNotice(null, state())).toBeNull();
   });
 });

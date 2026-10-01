@@ -1,7 +1,6 @@
 import {
   isReplacedToken,
   unusableLinkMessage,
-  clampTokenValidityDays,
   computeTokenExpiresAt,
 } from '../token';
 
@@ -41,29 +40,6 @@ describe('token (pure helpers)', () => {
       expect(unusableLinkMessage({ tokenExpiresAt: new Date(Date.now() - 1000) }, 'sent_mise_dispo')).toBe(
         'Ce lien de signature a expiré : demandez un nouveau lien depuis la page de signature.',
       );
-    });
-  });
-
-  describe('clampTokenValidityDays', () => {
-    it('should return the default when raw is null', () => {
-      expect(clampTokenValidityDays(null, 7)).toBe(7);
-    });
-
-    it('should return the default when raw is not numeric', () => {
-      expect(clampTokenValidityDays('not-a-number', 7)).toBe(7);
-    });
-
-    it('should clamp below 1 up to 1', () => {
-      expect(clampTokenValidityDays('0', 7)).toBe(1);
-      expect(clampTokenValidityDays('-5', 7)).toBe(1);
-    });
-
-    it('should clamp above 30 down to 30', () => {
-      expect(clampTokenValidityDays('365', 7)).toBe(30);
-    });
-
-    it('should pass through a valid in-range value', () => {
-      expect(clampTokenValidityDays('14', 7)).toBe(14);
     });
   });
 

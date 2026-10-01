@@ -1,6 +1,5 @@
 import { Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { AppConfigService } from '../../config/config.service';
 import { NotificationService } from '../../notification/notification.service';
 import { findItAlertRecipients } from '../../notification/it-alert-recipients';
 import { resolveAppUrl } from '../../notification/app-url';
@@ -11,10 +10,12 @@ import {
   OverdueContestationItem as OverdueContestation,
   TemplateRenderer,
 } from '../../templates/contestation-overdue-alert';
+import type { ConfigRegistryService } from '../../config/config-registry.service';
 
 export interface OverdueAlertDeps {
   prisma: PrismaService;
-  configService: AppConfigService;
+  /** Lecture typée des réglages (registre de configuration). */
+  settings: Pick<ConfigRegistryService, 'getString'>;
   notificationService: NotificationService;
   /** Rend le modèle personnalisable `contestation_overdue_alert` (TemplatesService). */
   templatesService: TemplateRenderer;
@@ -107,7 +108,7 @@ export async function runContestationOverdueAlerts(
     await logFailure(deps.prisma, due, 'Aucun administrateur ni technicien actif avec une adresse email valide');
     return { overdue: overdue.length, alerted: 0 };
   }
-  const appUrl = resolveAppUrl(await deps.configService.get('general', 'app_url'), process.env);
+  const appUrl = resolveAppUrl(await deps.settings.getString('general.app_url'), process.env);
   if (!appUrl) {
     deps.logger.error("Relance des contestations non envoyée : URL de l'application non configurée");
     await logFailure(deps.prisma, due, "URL de l'application non configurée");

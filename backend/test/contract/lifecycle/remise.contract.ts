@@ -93,7 +93,7 @@ describe('Modifier un bon envoyé non signé (R-012)', () => {
     await ctx.http.post(`/bons/${draft.id}/send`, 'technician', {});
     const firstLink = await latestLink(ctx, draft.id);
 
-    const edited = await ctx.http.put(`/bons/${draft.id}`, 'technician', {
+    const edited = await ctx.http.patch(`/bons/${draft.id}`, 'technician', {
       equipments: [{ catalogItemId: ctx.data.catalog.laptopId, serialNumber: 'SN-MODIF-CORRIGE' }],
     });
     expect(edited.status).toBe(200);
@@ -122,7 +122,7 @@ describe('Modifier seulement la note interne IT d’un bon envoyé', () => {
     const link = await latestLink(ctx, draft.id);
 
     // Le formulaire renvoie tout le bon : seule la note interne diffère.
-    const edited = await ctx.http.put(`/bons/${draft.id}`, 'technician', {
+    const edited = await ctx.http.patch(`/bons/${draft.id}`, 'technician', {
       filialeId: ctx.data.filialeId,
       collaborateurId: ctx.data.people.otherCollaborator.id,
       civilite: 'mme',
@@ -207,9 +207,9 @@ describe('Portail « Mes équipements »', () => {
     const link = await latestLink(ctx, draft.id);
     await ctx.prisma.signature.update({ where: { id: link.id }, data: { tokenExpiresAt: new Date(Date.now() - 1000) } });
 
-    const res = await ctx.http.get('/bons/mes-bons', 'otherCollaborator');
+    const res = await ctx.http.get('/me/bons', 'otherCollaborator');
     expect(res.status).toBe(200);
-    const mine = res.body.find((b: { id: string }) => b.id === draft.id);
+    const mine = res.body.items.find((b: { id: string }) => b.id === draft.id);
     expect(mine.pendingSignature).toMatchObject({ type: 'mise_disposition', expired: true });
     const expired = mine.signatures.find((s: { id: string }) => s.id === link.id);
     expect(expired.token).toBe(link.token);
@@ -258,9 +258,9 @@ describe('Bon remplaçant (contestation Fondée)', () => {
     expect((await itDetail(ctx, original.id)).status).toBe('active');
 
     // Le portail voit que ce bon va être remplacé (il ne propose plus de le contester).
-    const portal = await ctx.http.get('/bons/mes-bons', 'collaborator');
+    const portal = await ctx.http.get('/me/bons', 'collaborator');
     expectShape(portal.body, myBons);
-    const mine = portal.body.find((b: { id: string }) => b.id === original.id)!;
+    const mine = portal.body.items.find((b: { id: string }) => b.id === original.id)!;
     expect(mine.replacedBy).toMatchObject({ id: replacement.id });
     expect(mine).not.toHaveProperty('internalNote');
     expect(mine).not.toHaveProperty('availableActions');

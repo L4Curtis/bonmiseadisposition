@@ -8,6 +8,7 @@ import type {
   ContestationHandler,
   ContestationListBon,
   ContestationListItem,
+  ContestationListMeta,
   ContestationListResponse,
   CreateContestationResponse,
   MyContestation,
@@ -31,9 +32,11 @@ import {
   bonStatus,
   contestationOutcome,
   contestationStatus,
+  listOf,
+  listWithMeta,
   signatureInvalidationReason,
 } from '../support/common-shapes';
-import { arrayOf, bool, int, isoDate, literal, nullable, object, optional, str, uuid } from '../support/shape';
+import { arrayOf, bool, int, isoDate, literal, nullable, object, optional, str, uuid, type Shape } from '../support/shape';
 import { bonForSignature, safeSignatureFields, signaturePdfType } from './bons';
 
 // ─── Signature par lien ───────────────────────────────────────────────────────
@@ -65,7 +68,7 @@ export const signatureReplaced = object<SignatureReplacedResponse>({
 export const signatureExpired = object<SignatureExpiredResponse>({
   status: literal('expired'),
   reference: str,
-  newLinkRequestedAt: optional(nullable(isoDate)),
+  newLinkRequestedAt: nullable(isoDate),
 });
 
 export const requestNewLink = object<RequestNewLinkResponse>({
@@ -129,8 +132,7 @@ const people = {
   resolvedBy: nullable(handler),
 };
 
-export const contestationList = object<ContestationListResponse>({
-  contestations: arrayOf(
+export const contestationList: Shape<ContestationListResponse> = listWithMeta(
     object<ContestationListItem>({
       ...contestationColumns,
       ...people,
@@ -141,19 +143,17 @@ export const contestationList = object<ContestationListResponse>({
         filiale: object<ContestationListBon['filiale']>({ displayName: str }),
       }),
     }),
-    { minLength: 1 },
-  ),
-  total: int,
-  page: int,
-  limit: int,
-  openCount: int,
-  pendingCount: int,
-  overdueCount: int,
-  overdueAfterDays: int,
-  overdueSince: isoDate,
-});
+  object<ContestationListMeta>({
+    openCount: int,
+    pendingCount: int,
+    overdueCount: int,
+    overdueAfterDays: int,
+    overdueSince: isoDate,
+  }),
+  { minLength: 1 },
+);
 
-export const myContestations = arrayOf(
+export const myContestations = listOf(
   object<MyContestation>({
     id: uuid,
     bon: bonRef,

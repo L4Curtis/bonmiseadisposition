@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { BonStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateBonDto, UpdateBonDto } from './dto/bon.dto';
@@ -7,6 +7,12 @@ import { NotificationService } from '../notification/notification.service';
 import { PdfService } from '../pdf/pdf.service';
 import { SmbService } from '../smb/smb.service';
 import { AppConfigService } from '../config/config.service';
+import { ConfigRegistryService } from '../config/config-registry.service';
+import { toFullListResponse, toListResponse } from '../common/pagination';
+import type { ListResponse } from '../contracts/common';
+import type { BonHistoryEntry } from '../contracts/bons';
+import { loadBonHistory } from './bon-history';
+import { tokenRecentSentAt } from './bon-errors';
 import { DomainEventsPublisher, SignatureSignedEvent } from '../common/events';
 
 import { BON_SELECT, buildBonWhere, findBonDetailOrThrow, findBonOrThrow, BonListFilters } from './queries/bon-where';
@@ -14,7 +20,7 @@ import { getBonStats } from './queries/bon-stats';
 import { BON_LIST_SELECT } from './queries/bon-list-select';
 import { findBonIdsBySubStatus, intersectIds } from './queries/bon-substatus-filter';
 import { buildBonOrderBy, BonSortField, SortOrder } from './queries/bon-order';
-import { getExportData as buildExportData } from './export/bon-csv';
+import { EXPORT_ROW_LIMIT, getExportData as buildExportData } from './export/bon-csv';
 import { mapCollaborateurBons } from './bon-mappers';
 import { BON_DETAIL_SELECT, BON_SIGNATURE_SELECT, BonViewer, presentBonDetail } from './bon-view';
 import { loadBonItNotices } from './bon-it-notices';
@@ -49,6 +55,9 @@ export interface ResendBatchItem {
   sentAt?: string;
 }
 
+/** « Mes équipements » : au-delà, la liste est coupée (`truncated`). */
+export const MY_BONS_MAX = 100;
+
 export interface ResendBatchResult {
   results: ResendBatchItem[];
   sent: number;
@@ -77,6 +86,7 @@ export class BonsService {
     pdfService: PdfService,
     smbService: SmbService,
     private readonly configService: AppConfigService,
+    settings: ConfigRegistryService,
     events: DomainEventsPublisher,
   ) {
     this.ctx = {
@@ -86,6 +96,7 @@ export class BonsService {
       pdfService,
       smbService,
       configService,
+      settings,
       events,
       logger: this.logger,
     };
@@ -95,7 +106,12 @@ export class BonsService {
 
   async getNotificationLogs(bonId: string) {
     await findBonOrThrow(this.prisma, bonId);
-    return this.prisma.notificationLog.findMany({ where: { bonId }, orderBy: { sentAt: 'desc' } });
+    return toFullListResponse(await this.prisma.notificationLog.findMany({ where: { bonId }, orderBy: { sentAt: 'desc' } }));
+  }
+
+  /** Historique des actions du bon (journal d'audit, phrases du catalogue). */
+  history(bonId: string): Promise<ListResponse<BonHistoryEntry>> {
+    return loadBonHistory(this.prisma, bonId);
   }
 
   async getStats() {
@@ -114,10 +130,11 @@ export class BonsService {
     return { ...filters, restrictToIds: intersectIds(filters.ids, found) };
   }
 
-  /** Liste paginée : projection allégée, tri stable (départage par id), et
-   *  pour chaque ligne l'état calculé par la machine à états. */
-  async findAll(filters: BonListFilters & { page?: number; limit?: number; sort?: BonSortField; order?: SortOrder }) {
-    const { page = 1, limit = 20 } = filters;
+  /** Liste paginée, à la forme commune : projection allégée, tri stable
+   *  (départage par id), et pour chaque ligne l'état calculé par la machine à
+   *  états. */
+  async findAll(filters: BonListFilters & { page: number; limit: number; sort?: BonSortField; order?: SortOrder }) {
+    const { page, limit } = filters;
     const overdueDays = await this.configService.getSignatureOverdueDays();
     const where = buildBonWhere(await this.resolveSubStatus(filters), overdueDays);
     const [rows, total] = await Promise.all([
@@ -131,7 +148,12 @@ export class BonsService {
       this.prisma.bon.count({ where }),
     ]);
     const now = new Date();
-    return { bons: rows.map((row) => presentBonListItem(row, overdueDays, now)), total, page, limit };
+    return toListResponse(rows.map((row) => presentBonListItem(row, overdueDays, now)), {
+      total,
+      page,
+      limit,
+      meta: { exportLimit: EXPORT_ROW_LIMIT },
+    });
   }
 
   /** Fiche d'un bon, pour l'IT ou pour le collaborateur titulaire (sans les
@@ -158,36 +180,34 @@ export class BonsService {
     return findBonOrThrow(this.prisma, id);
   }
 
-  async getRecentBons(limit = 10) {
-    const [rows, signatureOverdueDays] = await Promise.all([
-      this.prisma.bon.findMany({ ...BON_DETAIL_SELECT, orderBy: { createdAt: 'desc' }, take: limit }),
-      this.configService.getSignatureOverdueDays(),
-    ]);
-    return rows.map((bon) => presentBonDetail(bon, { viewer: 'it', signatureOverdueDays }));
-  }
-
   /**
    * « Mes équipements » : bons du collaborateur (hors brouillons et annulés),
    * vus comme par le titulaire — état calculé compris (sous-état, document
    * en attente, remplacement, état de chaque équipement) — avec les seuls
-   * jetons utiles au portail (voir mapCollaborateurBons).
+   * jetons utiles au portail (voir mapCollaborateurBons). Liste complète,
+   * coupée à MY_BONS_MAX bons (`truncated`).
    */
   async findByCollaborateur(userId: string) {
-    const [rows, signatureOverdueDays] = await Promise.all([
+    const where = { collaborateurId: userId, status: { notIn: [...COLLAB_HIDDEN_BON_STATUSES] } };
+    const [rows, total, signatureOverdueDays] = await Promise.all([
       this.prisma.bon.findMany({
-        where: { collaborateurId: userId, status: { notIn: [...COLLAB_HIDDEN_BON_STATUSES] } },
+        where,
         select: {
           ...BON_DETAIL_SELECT.select,
           signatures: { select: { ...BON_SIGNATURE_SELECT, token: true }, orderBy: { createdAt: 'asc' } },
         },
         orderBy: { createdAt: 'desc' },
-        take: 100,
+        take: MY_BONS_MAX,
       }),
+      this.prisma.bon.count({ where }),
       this.configService.getSignatureOverdueDays(),
     ]);
     const now = new Date();
     const views = rows.map((bon) => presentBonDetail(bon, { viewer: 'holder', signatureOverdueDays, now }));
-    return mapCollaborateurBons(await attachNewLinkRequests(this.prisma, views));
+    const items = mapCollaborateurBons(await attachNewLinkRequests(this.prisma, views));
+    return total > rows.length
+      ? toListResponse(items, { total, page: 1, limit: MY_BONS_MAX, truncated: true })
+      : toFullListResponse(items);
   }
 
   /** Contrôles avant la remise (lignes sans numéro, séries en circulation). */
@@ -305,11 +325,9 @@ export class BonsService {
       await resendSignatureLinkWorkflow(this.ctx, id, initiatedById, force);
       return { id, outcome: 'sent' };
     } catch (err: unknown) {
-      if (err instanceof ConflictException) {
-        const body = err.getResponse() as { code?: string; sentAt?: string };
-        if (body?.code === 'token_recent') {
-          return { id, outcome: 'skipped', code: 'token_recent', reason: 'Un lien a été envoyé il y a moins d’une heure', sentAt: body.sentAt };
-        }
+      const sentAt = tokenRecentSentAt(err);
+      if (sentAt !== null) {
+        return { id, outcome: 'skipped', code: 'token_recent', reason: 'Un lien a été envoyé il y a moins d’une heure', sentAt };
       }
       if (err instanceof BadRequestException || err instanceof NotFoundException) {
         return { id, outcome: 'skipped', reason: err.message };

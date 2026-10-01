@@ -1,23 +1,23 @@
 import type { SignatureInvalidationReason } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { AppConfigService } from '../config/config.service';
+import { ConfigRegistryService } from '../config/config-registry.service';
 import { generateSignatureToken } from '../common/tokens';
-import { clampTokenValidityDays, computeTokenExpiresAt } from './token';
+import { computeTokenExpiresAt } from './token';
 import { LIVE_LINK_WHERE, invalidationData } from './link-invalidation';
 
 export interface TokenLifecycleDeps {
   prisma: PrismaService;
-  configService: AppConfigService;
-  defaultTokenValidityDays: number;
+  /** Lecture typée des réglages (registre de configuration). */
+  settings: Pick<ConfigRegistryService, 'getInt'>;
   inPersonTokenValidityHours: number;
 }
 
 export type LinkDocumentType = 'mise_disposition' | 'restitution' | 'pv_cloture';
 
-/** Token validity in days — admin-configurable (tokens.expiry_days), clamped to [1, 30]. */
-async function getTokenValidityDays(deps: TokenLifecycleDeps): Promise<number> {
-  const raw = await deps.configService.get('tokens', 'expiry_days');
-  return clampTokenValidityDays(raw, deps.defaultTokenValidityDays);
+/** Validité d'un lien par email, en jours : réglage `tokens.expiry_days` du
+ *  registre (1 à 30, 7 par défaut ; une saisie hors bornes est ramenée à la borne). */
+function getTokenValidityDays(deps: TokenLifecycleDeps): Promise<number> {
+  return deps.settings.getInt('tokens.expiry_days');
 }
 
 /**

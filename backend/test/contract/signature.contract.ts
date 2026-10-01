@@ -4,7 +4,7 @@
  * Le parcours de signature réussie est couvert par bon-workflow.contract.ts.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { nestError } from './support/common-shapes';
+import { apiError } from './support/common-shapes';
 import { ContractContext, startContractContext } from './support/context';
 import { PENDING_REMISE_TOKEN, PENDING_RESTITUTION_TOKEN, SIGNED_TOKEN } from './support/fixtures';
 import type { Caller } from './support/http';
@@ -47,13 +47,13 @@ describe('GET /signature/:token — un état par forme de réponse', () => {
   it('401 sans session', async () => {
     const res = await ctx.http.get(`/signature/${PENDING_REMISE_TOKEN}`, 'anonymous');
     expect(res.status).toBe(401);
-    expectShape(res.body, nestError);
+    expectShape(res.body, apiError);
   });
 
   it('jeton inconnu : 404', async () => {
     const res = await ctx.http.get('/signature/jeton-inconnu', 'collaborator');
     expect(res.status).toBe(404);
-    expectShape(res.body, nestError);
+    expectShape(res.body, apiError);
   });
 
   const cases: readonly [string, string, Caller, (body: unknown) => void][] = [
@@ -115,7 +115,7 @@ describe('GET /signature/:token/preview', () => {
   it('autre compte que le destinataire : refusé au format NestJS', async () => {
     const res = await ctx.http.get(`/signature/${PENDING_REMISE_TOKEN}/preview`, 'otherCollaborator');
     expect(res.status).toBeGreaterThanOrEqual(400);
-    expectShape(res.body, nestError);
+    expectShape(res.body, apiError);
   });
 });
 
@@ -123,7 +123,7 @@ describe('POST /signature/:token/sign — erreurs', () => {
   it('401 sans session', async () => {
     const res = await ctx.http.post(`/signature/${PENDING_REMISE_TOKEN}/sign`, 'anonymous', {});
     expect(res.status).toBe(401);
-    expectShape(res.body, nestError);
+    expectShape(res.body, apiError);
   });
 
   it('corps invalide : 400 du ValidationPipe', async () => {
@@ -132,7 +132,7 @@ describe('POST /signature/:token/sign — erreurs', () => {
       mentionLuApprouve: true,
     });
     expect(res.status).toBe(400);
-    expectShape(res.body, nestError);
+    expectShape(res.body, apiError);
   });
 
   it('lien déjà signé : refusé au format NestJS', async () => {
@@ -142,7 +142,7 @@ describe('POST /signature/:token/sign — erreurs', () => {
       mentionLuApprouve: true,
     });
     expect(res.status).toBeGreaterThanOrEqual(400);
-    expectShape(res.body, nestError);
+    expectShape(res.body, apiError);
   });
 });
 
@@ -166,13 +166,13 @@ describe('POST /signature/:token/request-new-link — lien expiré (R-058)', () 
   it('lien encore valable : 400 au format NestJS', async () => {
     const res = await ctx.http.post(`/signature/${PENDING_REMISE_TOKEN}/request-new-link`, 'collaborator', {});
     expect(res.status).toBe(400);
-    expectShape(res.body, nestError);
+    expectShape(res.body, apiError);
   });
 
   it('autre compte : 403, sans l’adresse du destinataire (R-039)', async () => {
     const res = await ctx.http.post(`/signature/${PENDING_REMISE_TOKEN}/request-new-link`, 'otherCollaborator', {});
     expect(res.status).toBe(403);
-    expectShape(res.body, nestError);
+    expectShape(res.body, apiError);
     expect(JSON.stringify(res.body)).not.toContain('@');
   });
 
@@ -190,7 +190,7 @@ describe('POST /signature/:token/sign — refus d’un autre compte (R-039)', ()
       mentionLuApprouve: true,
     });
     expect(res.status).toBe(403);
-    expectShape(res.body, nestError);
+    expectShape(res.body, apiError);
     expect(JSON.stringify(res.body)).not.toContain('@');
   });
 });

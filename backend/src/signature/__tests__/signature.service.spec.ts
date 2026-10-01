@@ -17,7 +17,6 @@ import { DomainEventsPublisher } from '../../common/events';
 import { NotificationService } from '../../notification/notification.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EncryptionService } from '../../config/encryption.service';
-import { AppConfigService } from '../../config/config.service';
 import { PdfService } from '../../pdf/pdf.service';
 import { SmbService } from '../../smb/smb.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
@@ -38,6 +37,7 @@ import {
 } from '../../common/__tests__/fixtures/bon.fixtures';
 import type { Mock, Mocked } from 'vitest';
 import * as fsPromisesModule from 'fs/promises';
+import { ConfigRegistryService } from '../../config/config-registry.service';
 
 /** Publication des événements du domaine : on vérifie ce qui est annoncé. */
 function createMockPublisher() {
@@ -154,7 +154,7 @@ describe('SignatureService', () => {
         SignatureService,
         { provide: PrismaService, useValue: prisma },
         { provide: EncryptionService, useValue: encryption },
-        { provide: AppConfigService, useValue: createMockConfigService() },
+        { provide: ConfigRegistryService, useValue: new ConfigRegistryService(createMockConfigService() as never) },
         { provide: TimestampService, useValue: createMockTimestampService() },
         { provide: PdfService, useValue: pdfService },
         { provide: SmbService, useValue: smbService },

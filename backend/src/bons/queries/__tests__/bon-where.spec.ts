@@ -25,6 +25,30 @@ describe('buildBonWhere', () => {
     expect(buildBonWhere({})).toEqual({});
   });
 
+  it('référence exacte (insensible à la casse), et non plus une sous-chaîne', () => {
+    expect(buildBonWhere({ reference: 'BON-2026-0042' })).toEqual({
+      reference: { equals: 'BON-2026-0042', mode: 'insensitive' },
+    });
+  });
+
+  it('période de création en jours de Paris, bornes incluses (minuit Paris → minuit Paris du lendemain)', () => {
+    // 1er septembre 2026 à Paris = 31 août 22 h UTC (heure d'été).
+    expect(buildBonWhere({ created: { from: '2026-09-01', to: '2026-09-30' } }).createdAt).toEqual({
+      gte: new Date('2026-08-31T22:00:00.000Z'),
+      lt: new Date('2026-09-30T22:00:00.000Z'),
+    });
+  });
+
+  it('période de clôture sur la date de clôture (archivedAt), comme le chiffre « Bons clôturés » du tableau de bord', () => {
+    expect(buildBonWhere({ closed: { from: '2026-12-01' } }).archivedAt).toEqual({ gte: new Date('2026-11-30T23:00:00.000Z') });
+  });
+
+  it('période d’annulation lue dans le journal (bon_cancelled), comme le chiffre « Bons annulés »', () => {
+    expect(buildBonWhere({ cancelled: { to: '2026-09-30' } }).AND).toEqual([
+      { auditLogs: { some: { action: 'bon_cancelled', createdAt: { lt: new Date('2026-09-30T22:00:00.000Z') } } } },
+    ]);
+  });
+
   it('combines status and excludeStatus (AND, not override)', () => {
     const where = buildBonWhere({
       status: ['draft' as BonStatus, 'active' as BonStatus],

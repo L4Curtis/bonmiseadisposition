@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { BonsService } from './bons.service';
 import { BonsController } from './bons.controller';
+import { MeController } from './me.controller';
+import { BonDocumentsService } from './bon-documents.service';
 import { BonSignatureListener } from './bon-signature.listener';
 import { SignatureModule } from '../signature/signature.module';
 import { NotificationModule } from '../notification/notification.module';
@@ -17,8 +19,8 @@ import { SmbModule } from '../smb/smb.module';
  */
 @Module({
   imports: [SignatureModule, NotificationModule, PdfModule, SmbModule],
-  controllers: [BonsController],
-  providers: [BonsService, BonSignatureListener],
+  controllers: [BonsController, MeController],
+  providers: [BonsService, BonDocumentsService, BonSignatureListener],
   exports: [BonsService],
 })
 export class BonsModule {}

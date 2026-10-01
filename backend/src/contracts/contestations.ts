@@ -11,7 +11,7 @@
  * « Pris en charge par » (`reviewedBy`) et « tranché par » (`resolvedBy`) sont
  * deux personnes distinctes, chacune avec sa date.
  */
-import type { BonStatus, ContestationOutcome, ContestationStatus, IsoDateTime } from './common';
+import type { ApiErrorBody, BonStatus, ContestationOutcome, ContestationStatus, IsoDateTime, ListResponse } from './common';
 import type { LinkSignatureType } from './bons';
 
 /** Colonnes du modèle Contestation, hors relations. */
@@ -95,15 +95,9 @@ export interface ContestationListItem extends ContestationWithPeople {
   bon: ContestationListBon;
 }
 
-/** GET /api/contestations?status=&page=&limit= — liste paginée (IT), de la plus
- *  récente à la plus ancienne. `status` accepte une valeur ou une liste séparée
- *  par des virgules (`open,in_review` : « À traiter »). `total` compte la liste
- *  filtrée (pagination) ; les trois compteurs ignorent filtres et pagination. */
-export interface ContestationListResponse {
-  contestations: ContestationListItem[];
-  total: number;
-  page: number;
-  limit: number;
+/** Compteurs de l'en-tête de la liste (`meta`) : ils ignorent filtres et
+ *  pagination. */
+export interface ContestationListMeta {
   /** Contestations nouvelles, que personne n'a prises en charge (pastille du menu). */
   openCount: number;
   /** Contestations pas encore tranchées (nouvelles + prises en charge). */
@@ -121,7 +115,14 @@ export interface ContestationListResponse {
   overdueSince: IsoDateTime;
 }
 
-// ─── GET /api/contestations/mine ──────────────────────────────────────────────
+/** GET /api/contestations?status=&aTraiter=&page=&limit= — liste paginée (IT),
+ *  de la plus récente à la plus ancienne, à la forme commune des listes
+ *  (`limit` : 25, 50 ou 100). `status` accepte une valeur ou une liste séparée
+ *  par des virgules (`open,in_review`) ; `aTraiter=1` : les contestations à
+ *  traiter, avec le prédicat de la tuile de l'accueil. Compteurs dans `meta`. */
+export type ContestationListResponse = ListResponse<ContestationListItem, ContestationListMeta>;
+
+// ─── GET /api/me/contestations ────────────────────────────────────────────────
 
 /** Contestation vue par son auteur : jamais le nom des techniciens, jamais de
  *  note interne. */
@@ -142,9 +143,38 @@ export interface MyContestation {
   replacementBon: ContestationBonRef | null;
 }
 
-/** GET /api/contestations/mine — contestations du compte connecté, de la plus
- *  récente à la plus ancienne (100 au plus). Ouverte à tout rôle. */
-export type MyContestationsResponse = MyContestation[];
+/** GET /api/me/contestations (ancien chemin : /api/contestations/mine) —
+ *  contestations du compte connecté, de la plus récente à la plus ancienne.
+ *  Liste complète, coupée à 100 (`truncated`). Ouverte à tout rôle. */
+export type MyContestationsResponse = ListResponse<MyContestation>;
+
+// ─── Erreurs ──────────────────────────────────────────────────────────────────
+
+/**
+ * Codes d'erreur propres aux contestations (409), en plus des codes communs :
+ *  - `contestation_already_open` : une contestation attend déjà une décision
+ *    sur ce bon ;
+ *  - `contestation_already_handled` : un autre membre de l'équipe l'a prise en
+ *    charge ou tranchée entre-temps (l'écran recharge la liste).
+ * Le bon ou le document qui a changé depuis l'affichage répond `conflict`.
+ */
+export type ContestationErrorCode = 'contestation_already_open' | 'contestation_already_handled';
+
+/** `details` d'un 409 `contestation_already_handled` : où en est la
+ *  contestation, et qui l'a prise en charge ou tranchée (`null` : inconnu). */
+export interface ContestationAlreadyHandledDetails {
+  status: ContestationStatus;
+  outcome: ContestationOutcome | null;
+  by: string | null;
+}
+
+/** POST /api/contestations/:id/review et /resolve — 409 : un collègue l'a
+ *  prise en charge ou tranchée entre-temps ; le message le dit en clair
+ *  (« … déjà prise en charge par Marc Petit. »). */
+export interface ContestationAlreadyHandledErrorBody
+  extends ApiErrorBody<'contestation_already_handled', ContestationAlreadyHandledDetails> {
+  details: ContestationAlreadyHandledDetails;
+}
 
 // ─── Actions ──────────────────────────────────────────────────────────────────
 
@@ -160,8 +190,9 @@ export interface CreateContestationResponse extends ContestationColumns {
   user: ContestationAuthor;
 }
 
-/** PATCH /api/contestations/:id/review — prise en charge d'une contestation
- *  nouvelle : « pris en charge par » la personne connectée. */
+/** POST /api/contestations/:id/review (ancien verbe : PATCH) — prise en charge
+ *  d'une contestation nouvelle : « pris en charge par » la personne connectée.
+ *  Déjà prise en charge ou tranchée : 409 `contestation_already_handled`. */
 export interface ReviewContestationResponse extends ContestationWithPeople {
   status: 'in_review';
   reviewedById: string;
@@ -173,7 +204,7 @@ export interface ReviewContestationResponse extends ContestationWithPeople {
 /** Document qu'une contestation Fondée fait corriger sur le bon d'origine. */
 export type ReopenedDocument = 'restitution' | 'pv_cloture';
 
-/** PATCH /api/contestations/:id/resolve — décision. Corps : `{ outcome:
+/** POST /api/contestations/:id/resolve (ancien verbe : PATCH) — décision. Corps : `{ outcome:
  *  'founded' | 'not_retained', resolutionMessage? }` (réponse obligatoire pour
  *  « Non retenue »). Le bon reprend son statut d'avant la contestation. Pour
  *  une contestation Fondée, un seul des deux champs suivants est renseigné :

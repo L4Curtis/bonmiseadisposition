@@ -8,6 +8,7 @@ import { correctionBeforeNewLink, LinkCorrection } from '../../common/link-corre
 import { NotificationBon } from '../../common/types';
 import { BonsWorkflowContext, getPvTokenValidityDays } from './bon-context';
 import { FactsBon, isItSignedFor, isValidLink } from './bon-facts';
+import { tokenRecentError } from '../bon-errors';
 
 /**
  * Liens de signature du collaborateur : invalidation motivée, émission par
@@ -174,7 +175,7 @@ function claimEmailLink(
     const live = await latestValidLink(tx, bonId);
     const age = live ? Date.now() - live.createdAt.getTime() : Infinity;
     if (live && options.refuseRecentWithinMs !== undefined && age < options.refuseRecentWithinMs) {
-      throw new ConflictException({ code: 'token_recent', sentAt: live.createdAt.toISOString() });
+      throw tokenRecentError(live.createdAt);
     }
     if (live && live.type === document && !live.isInPerson && age < DUPLICATE_SEND_WINDOW_MS) {
       return { token: live.token, reused: true };

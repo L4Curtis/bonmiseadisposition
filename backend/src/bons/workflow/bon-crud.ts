@@ -11,6 +11,7 @@ import {
   normalizeEquipmentInput,
 } from '../validation/bon-validators';
 import { BonsWorkflowContext } from './bon-context';
+import { writeAuditEntry } from '../../audit/audit-record';
 
 export async function createBon(ctx: BonsWorkflowContext, dto: CreateBonDto, userId: string) {
   const { prisma } = ctx;
@@ -90,9 +91,7 @@ export async function createBon(ctx: BonsWorkflowContext, dto: CreateBonDto, use
     });
   }, BON_REFERENCE_TX_OPTIONS);
   await rememberCivilite(ctx, dto.collaborateurId, dto.civilite as Civilite);
-  await prisma.auditLog.create({
-    data: { bonId: bon.id, userId, action: 'bon_created' },
-  });
+  await writeAuditEntry(prisma, 'bon_created', { actorId: userId, bonId: bon.id });
   return bon.id;
 }
 
@@ -161,21 +160,15 @@ export async function duplicateAsDraft(
       ...BON_SELECT,
     });
 
-    await client.auditLog.create({
-      data: {
-        bonId: bon.id,
-        userId,
-        action: 'bon_created',
-        details: { correctedFrom: source.reference, sourceBonId, ...context },
-      },
+    await writeAuditEntry(client, 'bon_created', {
+      actorId: userId,
+      bonId: bon.id,
+      details: { correctedFrom: source.reference, sourceBonId, ...context },
     });
-    await client.auditLog.create({
-      data: {
-        bonId: sourceBonId,
-        userId,
-        action: 'bon_corrected',
-        details: { correctedTo: bon.reference, newBonId: bon.id, ...context },
-      },
+    await writeAuditEntry(client, 'bon_corrected', {
+      actorId: userId,
+      bonId: sourceBonId,
+      details: { correctedTo: bon.reference, newBonId: bon.id, ...context },
     });
 
     return bon;

@@ -66,11 +66,45 @@ describe('QueryBonsDto — filtres', () => {
   });
 });
 
+describe('QueryBonsDto — pagination commune', () => {
+  it('limit vaut 25, 50 ou 100 (25 par défaut), page 1 par défaut', async () => {
+    for (const limit of ['25', '50', '100']) expect(await errorsFor({ limit })).toEqual([]);
+    const dto = plainToInstance(QueryBonsDto, {});
+    expect(dto.page).toBe(1);
+    expect(dto.limit).toBe(25);
+  });
+
+  it('refuse une taille hors liste (400), jamais corrigée en silence', async () => {
+    expect(await errorsFor({ limit: '20' })).toEqual(['limit']);
+    expect(await errorsFor({ limit: '500' })).toEqual(['limit']);
+    expect(await errorsFor({ page: '0' })).toEqual(['page']);
+  });
+});
+
+describe('QueryBonsDto — référence exacte et dates d’événement', () => {
+  it('accepte une référence de bon, refuse un texte qui n’en est pas une', async () => {
+    expect(await errorsFor({ reference: 'BON-2026-0042' })).toEqual([]);
+    expect(await errorsFor({ reference: 'bon-2026-0042' })).toEqual([]);
+    expect(await errorsFor({ reference: '0042' })).toEqual(['reference']);
+  });
+
+  it('accepte les périodes de création, de clôture et d’annulation au format AAAA-MM-JJ', async () => {
+    expect(await errorsFor({
+      createdFrom: '2026-09-01', createdTo: '2026-09-30',
+      closedFrom: '2026-09-01', closedTo: '2026-09-30',
+      cancelledFrom: '2026-09-01', cancelledTo: '2026-09-30',
+    })).toEqual([]);
+    expect(await errorsFor({ createdFrom: '01/09/2026' })).toEqual(['createdFrom']);
+    expect(await errorsFor({ closedTo: '2026-02-30' })).toEqual(['closedTo']);
+    expect(await errorsFor({ cancelledFrom: '2026-09' })).toEqual(['cancelledFrom']);
+  });
+});
+
 describe('toBonListQuery', () => {
   it('reprend les filtres et le tri du DTO', () => {
     const dto = plainToInstance(QueryBonsDto, {
       search: 'x', sort: 'reference', order: 'asc', dateFrom: '2026-01-01', dateTo: '2026-01-31',
-      noReturnDate: 'true', createdById: UUID_A, page: '2', limit: '10',
+      noReturnDate: 'true', createdById: UUID_A, page: '2', limit: '50',
     });
     expect(toBonListQuery(dto)).toEqual(expect.objectContaining({
       search: 'x', sort: 'reference', order: 'asc', dateFrom: '2026-01-01', dateTo: '2026-01-31',
@@ -81,6 +115,24 @@ describe('toBonListQuery', () => {
 
   it('refuse une période dont le début suit la fin', () => {
     const dto = plainToInstance(QueryBonsDto, { dateFrom: '2026-03-01', dateTo: '2026-02-01' });
+    expect(() => toBonListQuery(dto)).toThrow(BadRequestException);
+  });
+
+  it('reprend la référence (en majuscules) et les périodes d’événement', () => {
+    const dto = plainToInstance(QueryBonsDto, {
+      reference: 'bon-2026-0042', createdFrom: '2026-09-01', createdTo: '2026-09-30', closedFrom: '2026-09-02',
+      cancelledTo: '2026-09-03',
+    });
+    expect(toBonListQuery(dto)).toEqual(expect.objectContaining({
+      reference: 'BON-2026-0042',
+      created: { from: '2026-09-01', to: '2026-09-30' },
+      closed: { from: '2026-09-02' },
+      cancelled: { to: '2026-09-03' },
+    }));
+  });
+
+  it.each(['created', 'closed', 'cancelled'])('refuse une période de %s dont le début suit la fin', (event) => {
+    const dto = plainToInstance(QueryBonsDto, { [`${event}From`]: '2026-03-01', [`${event}To`]: '2026-02-01' });
     expect(() => toBonListQuery(dto)).toThrow(BadRequestException);
   });
 

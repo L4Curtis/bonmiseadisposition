@@ -4,7 +4,9 @@ import { useBonCreators } from '../useBonCreators';
 
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>();
-  return { ...actual, api: { get: vi.fn() } };
+  const { listViaGet } = await import('@/test/api-mock');
+  const get = vi.fn();
+  return { ...actual, api: { get, getList: listViaGet(get) } };
 });
 
 import { api } from '@/lib/api';

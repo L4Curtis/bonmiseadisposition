@@ -48,7 +48,7 @@ function fakeDeps(logs: LogRow[], clock: { now: Date }) {
     },
   };
   const notificationService = { sendEmail: vi.fn().mockResolvedValue({ ok: true }) };
-  const configService = { get: vi.fn().mockResolvedValue('https://bons.example.test') };
+  const settings = { getString: vi.fn().mockResolvedValue('https://bons.example.test') };
   // Aucun modèle personnalisé : TemplatesService rend le modèle par défaut.
   const templatesService = {
     renderTemplate: vi.fn((_id: string, vars: Record<string, string>) =>
@@ -58,7 +58,7 @@ function fakeDeps(logs: LogRow[], clock: { now: Date }) {
   const deps = {
     prisma,
     notificationService,
-    configService,
+    settings,
     templatesService,
     logger: new Logger('test'),
   } as unknown as OverdueAlertDeps;

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Pagination } from '../Pagination';
 
@@ -74,5 +74,15 @@ describe('Pagination', () => {
   it('est une zone de navigation nommée', () => {
     setup();
     expect(screen.getByRole('navigation', { name: 'Pagination' })).toBeInTheDocument();
+  });
+  it('garde Précédent, la page et Suivant dans un même groupe insécable (téléphone 375 px)', () => {
+    setup();
+    const group = screen.getByRole('group', { name: 'Changer de page' });
+    expect(within(group).getByRole('button', { name: 'Page précédente' })).toBeInTheDocument();
+    expect(within(group).getByText('Page 2 sur 6')).toBeInTheDocument();
+    expect(within(group).getByRole('button', { name: 'Page suivante' })).toBeInTheDocument();
+    expect(group).toHaveClass('flex-nowrap');
+    // Le choix du nombre de lignes, lui, peut passer à la ligne.
+    expect(within(group).queryByRole('combobox')).not.toBeInTheDocument();
   });
 });

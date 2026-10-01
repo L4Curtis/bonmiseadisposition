@@ -1,4 +1,3 @@
-import { NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BonStatus, BON_SELECT_SHAPE } from '../../common/types';
@@ -8,12 +7,20 @@ import {
   buildOverdueSignatureWhere,
   DEFAULT_SIGNATURE_OVERDUE_DAYS,
 } from '../../common/bon-predicates';
+import { addDaysToIsoDate, parisDayStartUtc } from '../../common/dates/paris';
 import { BON_DETAIL_SELECT, BonDetailRow } from '../bon-view';
+import { bonNotFoundError } from '../bon-errors';
 import type { BonSubStatus } from '../../contracts/bons';
 
 // Canonical select shape: no Bytes columns, signatures restricted to API-safe
 // fields (no token / signerIp / signerUserAgent / signatureImagePath).
 export const BON_SELECT = BON_SELECT_SHAPE;
+
+/** Période en jours civils de Paris (AAAA-MM-JJ), bornes incluses, chacune facultative. */
+export interface DayRange {
+  readonly from?: string;
+  readonly to?: string;
+}
 
 /** Filtres de liste partagés par findAll, getExportData et getStats. */
 export interface BonListFilters {
@@ -21,6 +28,8 @@ export interface BonListFilters {
   excludeStatus?: BonStatus[];
   filialeId?: string;
   search?: string;
+  /** Référence exacte (BON-AAAA-NNNN). */
+  reference?: string;
   overdue?: boolean;
   /** « Signature attendue » (tuile de l'accueil). */
   awaitingSignature?: boolean;
@@ -31,6 +40,12 @@ export interface BonListFilters {
   dateTo?: string;
   /** Uniquement les bons sans date de restitution prévue. */
   noReturnDate?: boolean;
+  /** Créés / clôturés / annulés sur la période : mêmes règles que les chiffres
+   *  « Bons créés », « Bons clôturés », « Bons annulés » du tableau de bord
+   *  (kpi/lists/kpi-list-sources.ts), dont les listes mènent ici. */
+  created?: DayRange;
+  closed?: DayRange;
+  cancelled?: DayRange;
   /** Créateur du bon (Bon.createdById, toujours renseigné). */
   createdById?: string;
   /** Sélection explicite (export de la sélection de la liste). */
@@ -61,6 +76,30 @@ export function buildSearchClauses(search: string): Prisma.BonWhereInput[] {
     { equipments: { some: { serialNumber: { contains: search, mode: 'insensitive' } } } },
     { equipments: { some: { inventoryNumber: { contains: search, mode: 'insensitive' } } } },
   ];
+}
+
+/** Instants d'une période de jours de Paris : de minuit (inclus) au minuit
+ *  qui suit le dernier jour (exclu). */
+export function parisInstantRange(range: DayRange): Prisma.DateTimeFilter {
+  return {
+    ...(range.from ? { gte: parisDayStartUtc(range.from) } : {}),
+    ...(range.to ? { lt: parisDayStartUtc(addDaysToIsoDate(range.to, 1)) } : {}),
+  };
+}
+
+/** Filtres de date d'événement : création et clôture sur leur colonne,
+ *  annulation sur l'entrée `bon_cancelled` du journal (comme le tableau de bord). */
+function eventDateWhere(filters: BonListFilters): { where: Prisma.BonWhereInput; predicates: Prisma.BonWhereInput[] } {
+  const { created, closed, cancelled } = filters;
+  return {
+    where: {
+      ...(created ? { createdAt: parisInstantRange(created) } : {}),
+      ...(closed ? { archivedAt: parisInstantRange(closed) } : {}),
+    },
+    predicates: cancelled
+      ? [{ auditLogs: { some: { action: 'bon_cancelled', createdAt: parisInstantRange(cancelled) } } }]
+      : [],
+  };
 }
 
 /** Construit le where Prisma partagé par findAll, getExportData et
@@ -95,6 +134,9 @@ export function buildBonWhere(
     };
   }
   if (noReturnDate) where.dateRestitution = null;
+  if (filters.reference) where.reference = { equals: filters.reference, mode: 'insensitive' };
+  const events = eventDateWhere(filters);
+  Object.assign(where, events.where);
   if (search) {
     where.OR = buildSearchClauses(search);
   }
@@ -104,18 +146,19 @@ export function buildBonWhere(
     ...(overdue ? [buildOverdueSignatureWhere(overdueDays)] : []),
     ...(awaitingSignature ? [buildAwaitingSignatureWhere()] : []),
     ...(linkExpired ? [buildExpiredLinkWhere()] : []),
+    ...events.predicates,
   ];
   if (predicates.length > 0) where.AND = predicates;
   return where;
 }
 
 /** Charge un bon par id avec le select canonique (BON_SELECT) — 404 si absent. */
-export async function findBonOrThrow(prisma: PrismaService, id: string) {
+export async function findBonOrThrow(prisma: Pick<PrismaService, 'bon'>, id: string) {
   const bon = await prisma.bon.findUnique({
     where: { id },
     ...BON_SELECT,
   });
-  if (!bon) throw new NotFoundException('Bon introuvable');
+  if (!bon) throw bonNotFoundError();
   return bon;
 }
 
@@ -124,6 +167,6 @@ export async function findBonOrThrow(prisma: PrismaService, id: string) {
  *  ce que lisent la machine à états et les émetteurs de lien — 404 si absent. */
 export async function findBonDetailOrThrow(prisma: Pick<Prisma.TransactionClient, 'bon'>, id: string): Promise<BonDetailRow> {
   const bon = await prisma.bon.findUnique({ where: { id }, ...BON_DETAIL_SELECT });
-  if (!bon) throw new NotFoundException('Bon introuvable');
+  if (!bon) throw bonNotFoundError();
   return bon;
 }

@@ -11,7 +11,7 @@ import {
 } from '../common/events';
 import type { WithoutSignatureNotice } from '../pdf/pdf-types';
 import { BON_FOR_SIGNATURE_SELECT } from './select-shape';
-import { generatePdfSnapshot } from './pdf-snapshot';
+import { generatePdfSnapshot, recordSnapshotFailure } from './pdf-snapshot';
 
 /**
  * Document probant des deux gestes « sans signature » (R-031) : « Constater
@@ -70,9 +70,7 @@ export class WithoutSignatureDocumentsListener {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.error(`Document ${type} du bon ${event.bonReference} non produit : ${message}`);
-      await this.prisma.auditLog
-        .create({ data: { bonId: event.bonId, action: 'pdf_snapshot_failed', details: { type, error: message } } })
-        .catch(() => undefined);
+      await recordSnapshotFailure(this.prisma, this.logger, { bonId: event.bonId, type, message });
     }
   }
 }
