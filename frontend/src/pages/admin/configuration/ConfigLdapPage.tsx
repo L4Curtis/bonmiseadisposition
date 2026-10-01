@@ -1,5 +1,6 @@
 import { api } from '@/lib/api';
-import { ConfigSection, type TestResult } from '@/components/admin/ConfigSection';
+import { ConfigSection } from '@/components/admin/ConfigSection';
+import type { ConnectionTestResponse } from '@/contracts/admin';
 
 export function ConfigLdapPage() {
   return (
@@ -10,7 +11,7 @@ export function ConfigLdapPage() {
       <ConfigSection
         title="LDAP / Active Directory"
         category="ldap"
-        onTest={() => api.post<TestResult>('/admin/config/test/ldap')}
+        onTest={() => api.post<ConnectionTestResponse>('/admin/config/test/ldap')}
         testLabel="Tester la connexion LDAP"
         fields={[
           { key: 'enabled', label: 'LDAP activé', toggle: true },
@@ -19,8 +20,13 @@ export function ConfigLdapPage() {
           { key: 'bind_dn', label: 'Bind DN', placeholder: 'CN=svc-ldap,OU=Services,DC=...' },
           { key: 'bind_password', label: 'Mot de passe', type: 'password', encrypted: true },
           { key: 'search_base', label: 'Search Base', placeholder: 'DC=entreprise,DC=local' },
-          { key: 'user_filter', label: 'Filtre utilisateurs', placeholder: '(objectClass=person)' },
-          { key: 'sync_interval_hours', label: 'Fréquence sync (heures)', placeholder: '6' },
+          { key: 'user_filter', label: 'Filtre utilisateurs' },
+          {
+            key: 'sync_interval_hours',
+            label: 'Fréquence de synchronisation (heures)',
+            type: 'number',
+            help: 'La synchronisation passe au plus souvent toutes les 6 heures.',
+          },
         ]}
       />
     </>

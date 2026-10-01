@@ -1,35 +1,15 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { HttpStatus, NotFoundException } from '@nestjs/common';
 import { EquipmentCatalog, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateCatalogItemDto, UpdateCatalogItemDto } from './dto/equipment.dto';
 import { trimOptionalOrUndefined, trimRequired } from './equipment-validation';
 import { recordCatalogItemCreated, recordCatalogItemDisabled, recordCatalogItemUpdate } from './equipment-audit';
 import { CLOSED_BON_STATUSES } from '../bons/bon-status';
+import { AppException } from '../common/errors';
 
 export function findAllCatalog(prisma: PrismaService) {
   return prisma.equipmentCatalog.findMany({
     orderBy: [{ category: 'asc' }, { brand: 'asc' }, { model: 'asc' }],
-  });
-}
-
-export function findActiveCatalog(prisma: PrismaService) {
-  return prisma.equipmentCatalog.findMany({
-    where: { active: true },
-    orderBy: [{ category: 'asc' }, { brand: 'asc' }, { model: 'asc' }],
-  });
-}
-
-export async function searchCatalog(prisma: PrismaService, query: string) {
-  return prisma.equipmentCatalog.findMany({
-    where: {
-      active: true,
-      OR: [
-        { brand: { contains: query, mode: 'insensitive' } },
-        { model: { contains: query, mode: 'insensitive' } },
-        { description: { contains: query, mode: 'insensitive' } },
-      ],
-    },
-    take: 20,
   });
 }
 
@@ -87,8 +67,10 @@ export async function updateCatalogItem(
       },
     });
     if (referencedBySignedBon > 0) {
-      throw new BadRequestException(
+      throw new AppException(
+        'catalog_item_locked',
         'Article référencé par des bons signés : créez un nouvel article plutôt que de modifier celui-ci.',
+        HttpStatus.CONFLICT,
       );
     }
   }
@@ -123,12 +105,12 @@ export async function removeCatalogItem(prisma: PrismaService, id: string, userI
 
 /**
  * Traduit une violation de la contrainte d'unicité (category, brand, model)
- * — code Prisma P2002 — en 400 explicite plutôt que de laisser remonter un
- * 500 générique. Toute autre erreur est repropagée telle quelle.
+ * — code Prisma P2002 — en 409 `catalog_item_exists` plutôt que de laisser
+ * remonter un 500 générique. Toute autre erreur est repropagée telle quelle.
  */
 function throwIfDuplicateCatalogItem(error: unknown): never {
   if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-    throw new BadRequestException('Cet article (catégorie / marque / modèle) existe déjà.');
+    throw new AppException('catalog_item_exists', 'Cet article (catégorie / marque / modèle) existe déjà.', HttpStatus.CONFLICT);
   }
   throw error;
 }
@@ -146,8 +128,11 @@ export async function assertNotReferencedForDeactivation(prisma: PrismaService, 
     },
   });
   if (activeBonCount > 0) {
-    throw new BadRequestException(
+    throw new AppException(
+      'catalog_item_in_use',
       `Cet équipement est référencé sur ${activeBonCount} bon(s) actif(s) et ne peut pas être désactivé.`,
+      HttpStatus.CONFLICT,
+      { bonCount: activeBonCount },
     );
   }
 
@@ -158,8 +143,11 @@ export async function assertNotReferencedForDeactivation(prisma: PrismaService, 
     },
   });
   if (activePackCount > 0) {
-    throw new BadRequestException(
+    throw new AppException(
+      'catalog_item_in_use',
       `Cet article est présent dans ${activePackCount} pack(s) actif(s) et ne peut pas être désactivé.`,
+      HttpStatus.CONFLICT,
+      { packCount: activePackCount },
     );
   }
 }

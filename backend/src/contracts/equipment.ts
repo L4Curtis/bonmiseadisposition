@@ -6,7 +6,7 @@
  * `GET /equipment/history`, ouverte aussi à la direction.
  */
 
-import type { BonStatus, EquipmentCategory, IsoDateTime } from './common';
+import type { BonStatus, EquipmentCategory, IsoDateTime, ListResponse, PageSize } from './common';
 
 // ─── Catalogue ────────────────────────────────────────────────────────────────
 
@@ -25,11 +25,9 @@ export interface CatalogItem {
 
 /**
  * GET /equipment/catalog — tout le catalogue, actifs et désactivés, trié par
- * catégorie, marque puis modèle.
- * Même forme pour GET /equipment/catalog/active (actifs seuls, même tri) et
- * GET /equipment/catalog/search?q= (actifs seuls, 20 au plus, sans tri).
+ * catégorie, marque puis modèle, en une seule page.
  */
-export type CatalogListResponse = CatalogItem[];
+export type CatalogListResponse = ListResponse<CatalogItem>;
 
 /**
  * GET /equipment/catalog/:id, POST /equipment/catalog (201),
@@ -88,10 +86,9 @@ export interface Pack extends PackRecord {
 
 /**
  * GET /equipment/packs — tous les packs, actifs et désactivés, triés par
- * nom ; les articles de chaque pack sont triés par `order`.
- * Même forme pour GET /equipment/packs/active (actifs seuls).
+ * nom, en une seule page ; les articles de chaque pack sont triés par `order`.
  */
-export type PackListResponse = Pack[];
+export type PackListResponse = ListResponse<Pack>;
 
 /**
  * GET /equipment/packs/:id, POST /equipment/packs (201),
@@ -101,17 +98,19 @@ export type PackListResponse = Pack[];
  */
 export type PackResponse = Pack;
 
-/** DELETE /equipment/packs/:id — le pack désactivé (`active: false`), SANS
- *  la clé `items` (la mise à jour Prisma n'inclut pas la relation). */
-export type DeletePackResponse = PackRecord;
+/** DELETE /equipment/packs/:id — le pack désactivé (`active: false`), avec
+ *  ses articles triés par `order` : la suppression est logique. */
+export type DeletePackResponse = Pack;
 
 // ─── Historique d'un matériel ─────────────────────────────────────────────────
 
 /** Paramètres de GET /equipment/history : `q` est comparé, sans tenir compte
  *  de la casse, au n° de série OU au n° d'inventaire. Vide ou absent, la
- *  réponse est vide. */
+ *  réponse est vide. `page` ≥ 1, `limit` 25, 50 ou 100 (400 sinon). */
 export interface EquipmentHistoryQuery {
   q?: string;
+  page?: number;
+  limit?: PageSize;
 }
 
 /** Bon sur lequel figure le matériel, réduit aux champs de l'historique. */
@@ -160,16 +159,23 @@ export interface EquipmentHistoryEntry {
 }
 
 /**
- * GET /equipment/history?q= — tous les bons où ce matériel apparaît, du plus
- * récent au plus ancien, 200 au plus. `truncated` vaut `true` quand `total`
- * dépasse cette limite ; `total` est le nombre réel d'apparitions.
- * Même forme pour l'ancienne route GET /equipment/serial-history?q=.
+ * GET /equipment/history?q=&page=&limit= — une page des bons où ce matériel
+ * apparaît, du plus récent au plus ancien ; `total` est le nombre réel
+ * d'apparitions.
+ * L'ancien chemin GET /equipment/serial-history?q= est un alias déprécié de
+ * cette route (même traitement, mêmes droits, en-têtes `Deprecation` et `Link`).
+ *
+ * GET /equipment/history/export?q= — tout l'historique en CSV,
+ * `historique-equipement-AAAA-MM-JJ.csv` (date de Paris), coupé à 5 000
+ * lignes (`X-Truncated: true`) : `meta.exportLimit` annonce ce plafond à
+ * l'écran, qui prévient avant l'export.
  */
-export interface EquipmentHistoryResponse {
-  items: EquipmentHistoryEntry[];
-  truncated: boolean;
-  total: number;
+export interface EquipmentHistoryMeta {
+  /** Plafond de lignes de l'export CSV de l'historique. */
+  exportLimit: number;
 }
+
+export type EquipmentHistoryResponse = ListResponse<EquipmentHistoryEntry, EquipmentHistoryMeta>;
 
 // ─── Conflits de numéros de série ─────────────────────────────────────────────
 
@@ -203,10 +209,20 @@ export interface SerialConflict {
 
 /**
  * GET /equipment/serial-conflicts?serials=a,b&excludeBonId= — avertissement
- * non bloquant. `truncated` vaut `true` quand plus de 50 numéros distincts
- * ont été fournis (seuls les 50 premiers sont vérifiés).
+ * non bloquant, en une seule page. `truncated` vaut `true` quand plus de 50
+ * numéros distincts ont été fournis (seuls les 50 premiers sont vérifiés).
  */
-export interface SerialConflictsResponse {
-  items: SerialConflict[];
-  truncated: boolean;
-}
+export type SerialConflictsResponse = ListResponse<SerialConflict>;
+
+/**
+ * Codes d'erreur propres au matériel (en plus de `CommonApiErrorCode`) :
+ *  - `catalog_item_exists` (409) : même catégorie, marque et modèle ;
+ *  - `catalog_item_locked` (409) : article d'un bon déjà envoyé, sa
+ *    catégorie, sa marque et son modèle ne changent plus ;
+ *  - `catalog_item_in_use` (409) : désactivation refusée, l'article est sur un
+ *    bon en cours (`details.bonCount`) ou dans un pack actif
+ *    (`details.packCount`) ;
+ *  - `pack_items_unavailable` (400) : article introuvable ou désactivé
+ *    (`details.catalogItemIds`).
+ */
+export type EquipmentErrorCode = 'catalog_item_exists' | 'catalog_item_locked' | 'catalog_item_in_use' | 'pack_items_unavailable';

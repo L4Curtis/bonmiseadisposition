@@ -29,7 +29,7 @@ export function EmailTemplateEditor({
     if (!open || !template) { setData(null); setHtml(''); return; }
     let cancelled = false;
     setTab('code');
-    api.get<TemplateHtml>(`/admin/email-templates/${template.id}/html`)
+    api.get<TemplateHtml>(`/email-templates/${template.id}/html`)
       .then((d) => {
         if (cancelled) return;
         setData(d);
@@ -46,7 +46,7 @@ export function EmailTemplateEditor({
     if (!template || !html.trim()) return;
     setSaving(true);
     try {
-      await api.patch(`/admin/email-templates/${template.id}`, { html });
+      await api.patch(`/email-templates/${template.id}`, { html });
       toast({ title: 'Template sauvegardé' });
       onSaved();
       onClose();

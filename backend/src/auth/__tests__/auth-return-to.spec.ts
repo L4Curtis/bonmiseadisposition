@@ -13,6 +13,8 @@ import { Test } from '@nestjs/testing';
 import { AddressInfo } from 'net';
 import cookieParser from 'cookie-parser';
 import { AuthController, isSafeReturnTo } from '../auth.controller';
+import { AuditService } from '../../audit/audit.service';
+import { ConfigRegistryService } from '../../config/config-registry.service';
 import { AuthService } from '../auth.service';
 import { AppConfigService } from '../../config/config.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -68,6 +70,8 @@ describe('Cookie auth_return_to — aller-retour HTTP réel', () => {
         { provide: AuthService, useValue: authService },
         { provide: AppConfigService, useValue: { get: vi.fn() } },
         { provide: PrismaService, useValue: { auditLog: { create: vi.fn(async () => ({})) } } },
+        { provide: ConfigRegistryService, useValue: { getBool: vi.fn(async () => true) } },
+        AuditService,
       ],
     })
       .overrideGuard(UserThrottlerGuard).useValue({ canActivate: () => true })

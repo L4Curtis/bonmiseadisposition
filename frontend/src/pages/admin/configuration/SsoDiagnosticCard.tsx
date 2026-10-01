@@ -6,15 +6,7 @@ import { api } from '@/lib/api';
 import { errorMessage } from '@/lib/errors';
 import { formatDateTime } from '@/lib/dates';
 import { roleLabel } from '@/domain/labels';
-
-interface SsoDiagnosticEntry {
-  at: string;
-  user: string;
-  state: 'presente' | 'depassement' | 'absente' | string;
-  groupsCount: number;
-  resolvedRole: string | null;
-  message: string;
-}
+import type { SsoDiagnosticEntry } from '@/contracts/admin';
 
 /**
  * Dernières connexions SSO et rôle attribué. Répond à la question « la personne
@@ -31,8 +23,8 @@ export function SsoDiagnosticCard() {
     setLoading(true);
     setError(null);
     api
-      .get<SsoDiagnosticEntry[]>('/admin/sso/diagnostic')
-      .then(setEntries)
+      .getList<SsoDiagnosticEntry>('/admin/sso/diagnostic')
+      .then((list) => setEntries(list.items))
       .catch((e: unknown) => setError(errorMessage(e, 'Impossible de charger le diagnostic SSO')))
       .finally(() => setLoading(false));
   };

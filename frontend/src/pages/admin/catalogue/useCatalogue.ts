@@ -24,12 +24,12 @@ export function useCatalogue() {
 
   const fetchData = async (): Promise<void> => {
     try {
-      const [catalogData, packsData] = await Promise.all([
-        api.get<CatalogItem[]>('/equipment/catalog'),
-        api.get<Pack[]>('/equipment/packs'),
+      const [catalog, packList] = await Promise.all([
+        api.getList<CatalogItem>('/equipment/catalog'),
+        api.getList<Pack>('/equipment/packs'),
       ]);
-      itemsApi.setItems(catalogData);
-      packsApi.setPacks(packsData);
+      itemsApi.setItems(catalog.items);
+      packsApi.setPacks(packList.items);
       setLoadError(null);
     } catch (e: unknown) {
       setLoadError(errorMessage(e, 'Erreur lors du chargement du catalogue'));

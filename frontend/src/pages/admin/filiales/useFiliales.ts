@@ -16,8 +16,8 @@ export function useFiliales() {
 
   const fetchFiliales = async () => {
     try {
-      const data = await api.get<Filiale[]>('/filiales');
-      setFiliales(data);
+      const { items } = await api.getList<Filiale>('/filiales');
+      setFiliales(items);
       setLoadError(null);
     } catch (e: unknown) {
       setLoadError(errorMessage(e, 'Erreur lors du chargement des filiales'));

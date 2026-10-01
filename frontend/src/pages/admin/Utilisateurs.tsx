@@ -1,246 +1,152 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { api } from '@/lib/api';
-import { errorMessage, showActionError } from '@/lib/errors';
+import { useState } from 'react';
+import { Search } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { ListState, Pagination } from '@/components/list';
 import { toast } from '@/hooks/use-toast';
-import { Search, ChevronLeft, ChevronRight, XCircle } from 'lucide-react';
-import type { User, UserRole } from '@/types';
+import type { UserStatusFilter } from '@/contracts/users';
+import type { User } from '@/types';
 import { ManualUserDialog } from './utilisateurs/ManualUserDialog';
 import { UsersTable } from './utilisateurs/UsersTable';
 import { ManualUsersActionsBar } from './utilisateurs/ManualUsersActionsBar';
 import { ManualUsersImportDialog } from './utilisateurs/ManualUsersImportDialog';
+import { DeactivateUserDialog } from './utilisateurs/DeactivateUserDialog';
 import { useManualUsersImport } from './utilisateurs/useManualUsersImport';
-import { useManualUsersExport } from './utilisateurs/useManualUsersExport';
+import { useManualUsersTemplate } from './utilisateurs/useManualUsersTemplate';
+import { ManualUsersExportButton } from './utilisateurs/ManualUsersExportButton';
+import { useUsersList } from './utilisateurs/useUsersList';
+import { useUserAccountActions } from './utilisateurs/useUserAccountActions';
 
-const LIMIT = 25;
+const STATUS_OPTIONS: readonly { value: UserStatusFilter; label: string }[] = [
+  { value: 'active', label: 'Comptes actifs' },
+  { value: 'inactive', label: 'Comptes désactivés' },
+  { value: 'all', label: 'Tous les comptes' },
+];
 
-interface UsersPage {
-  users: User[];
-  total: number;
+function isStatusFilter(value: string): value is UserStatusFilter {
+  return STATUS_OPTIONS.some((option) => option.value === value);
 }
 
 export function UtilisateursPage() {
   const { user: currentUser } = useAuth();
   const isAdmin = currentUser?.role === 'admin';
-
-  const [users, setUsers] = useState<User[]>([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
-  const [query, setQuery] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [unlockingId, setUnlockingId] = useState<string | null>(null);
-  const [updatingRoleId, setUpdatingRoleId] = useState<string | null>(null);
-  const [togglingActiveId, setTogglingActiveId] = useState<string | null>(null);
+  const list = useUsersList();
+  const actions = useUserAccountActions(list);
   const [manualDialogOpen, setManualDialogOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<User | null>(null);
+  const importState = useManualUsersImport(list.reload);
+  const template = useManualUsersTemplate();
 
-  // Identifie la requête la plus récente : une réponse arrivée après qu'une
-  // requête plus récente a été lancée (frappe rapide ou changement de page) est ignorée.
-  const requestIdRef = useRef(0);
-  const isSearching = query.trim().length >= 2;
-
-  const load = useCallback(() => {
-    const requestId = ++requestIdRef.current;
-    setLoading(true);
-    setLoadError(null);
-
-    const q = query.trim();
-    const request: Promise<UsersPage> = q.length >= 2
-      ? api.get<User[]>(`/users/search?q=${encodeURIComponent(q)}`).then((data) => ({ users: data, total: data.length }))
-      : api.get<{ users: User[]; total: number; page: number; limit: number } | User[]>(`/users?page=${page}&limit=${LIMIT}`)
-        .then((data) => (Array.isArray(data) ? { users: data, total: data.length } : { users: data.users, total: data.total }));
-
-    request
-      .then(({ users: fetchedUsers, total: fetchedTotal }) => {
-        if (requestIdRef.current !== requestId) return;
-        setUsers(fetchedUsers);
-        setTotal(fetchedTotal);
-      })
-      .catch((e: unknown) => {
-        if (requestIdRef.current !== requestId) return;
-        setUsers([]);
-        setTotal(0);
-        setLoadError(errorMessage(e, 'Erreur lors du chargement des utilisateurs'));
-      })
-      .finally(() => {
-        if (requestIdRef.current === requestId) setLoading(false);
-      });
-  }, [query, page]);
-
-  useEffect(() => {
-    const t = setTimeout(load, 300);
-    // clearTimeout annule le débounce s'il n'a pas encore déclenché load() ;
-    // si une requête est déjà en vol, invalider requestIdRef évite un setState
-    // après démontage (ou une réponse obsolète appliquée après un nouveau load()).
-    return () => {
-      clearTimeout(t);
-      requestIdRef.current += 1;
-    };
-  }, [load]);
-
-  // Une nouvelle recherche repart de la page 1
-  useEffect(() => { setPage(1); }, [query]);
-
-  const handleUnlock = async (u: User) => {
-    setUnlockingId(u.id);
-    try {
-      const res = await api.post<{ unlocked: boolean; removed: number }>(`/admin/users/${u.id}/unlock`);
-      toast({
-        title: res.unlocked ? 'Compte déverrouillé' : 'Compte non verrouillé',
-        description: `${res.removed} tentative(s) échouée(s) supprimée(s).`,
-        variant: 'success',
-      });
-    } catch (e: unknown) {
-      showActionError(e, 'Erreur lors du déverrouillage');
-    } finally {
-      setUnlockingId(null);
-    }
-  };
-
-  const handleRoleChange = async (target: User, role: UserRole) => {
-    if (role === target.role) return;
-    const previousRole = target.role;
-    const previousIsItStaff = target.isItStaff;
-
-    setUpdatingRoleId(target.id);
-    // Mise à jour optimiste (immutable) — revert en cas d'échec serveur.
-    setUsers((prev) => prev.map((u) => (u.id === target.id ? { ...u, role } : u)));
-
-    try {
-      const result = await api.patch<{ id: string; role: UserRole; isItStaff: boolean }>(
-        `/admin/users/${target.id}/role`,
-        { role },
-      );
-      setUsers((prev) =>
-        prev.map((u) => (u.id === target.id ? { ...u, role: result.role, isItStaff: result.isItStaff } : u)),
-      );
-      toast({ title: 'Rôle mis à jour', variant: 'success' });
-    } catch (e: unknown) {
-      setUsers((prev) =>
-        prev.map((u) => (u.id === target.id ? { ...u, role: previousRole, isItStaff: previousIsItStaff } : u)),
-      );
-      showActionError(e, 'Erreur lors de la mise à jour du rôle');
-    } finally {
-      setUpdatingRoleId(null);
-    }
-  };
-
-  const handleToggleActive = async (target: User) => {
-    const nextActive = !target.active;
-    setTogglingActiveId(target.id);
-    // Mise à jour optimiste (immutable) — revert en cas d'échec serveur.
-    setUsers((prev) => prev.map((u) => (u.id === target.id ? { ...u, active: nextActive } : u)));
-
-    try {
-      await api.patch<User>(`/users/${target.id}/manual`, { active: nextActive });
-      toast({ title: nextActive ? 'Collaborateur activé' : 'Collaborateur désactivé', variant: 'success' });
-    } catch (e: unknown) {
-      setUsers((prev) => prev.map((u) => (u.id === target.id ? { ...u, active: target.active } : u)));
-      showActionError(e, 'Erreur lors de la mise à jour du statut');
-    } finally {
-      setTogglingActiveId(null);
-    }
-  };
-
-  const handleOpenCreate = () => {
-    setEditTarget(null);
-    setManualDialogOpen(true);
-  };
-
-  const handleOpenEdit = (target: User) => {
+  const openManualDialog = (target: User | null) => {
     setEditTarget(target);
     setManualDialogOpen(true);
   };
 
   const handleManualUserSaved = () => {
     toast({ title: editTarget ? 'Collaborateur modifié' : 'Collaborateur créé', variant: 'success' });
-    load();
+    list.reload();
   };
-
-  const importState = useManualUsersImport(load);
-  const csvExport = useManualUsersExport();
-
-  const totalPages = Math.ceil(total / LIMIT);
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-xl font-bold text-foreground">Utilisateurs</h1>
         {isAdmin && (
-          <ManualUsersActionsBar
-            onAdd={handleOpenCreate}
-            onImport={importState.openDialog}
-            onExportCsv={() => void csvExport.exportCsv()}
-            onDownloadTemplate={() => void csvExport.downloadTemplate()}
-            busy={csvExport.exporting || csvExport.downloadingTemplate}
-          />
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <ManualUsersExportButton />
+            <ManualUsersActionsBar
+              onAdd={() => openManualDialog(null)}
+              onImport={importState.openDialog}
+              onDownloadTemplate={() => void template.downloadTemplate()}
+              busy={template.downloadingTemplate}
+            />
+          </div>
         )}
       </div>
 
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/70" />
-        <Input
-          placeholder="Rechercher par nom, email..."
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          className="pl-9"
-        />
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" aria-hidden="true" />
+          <Input
+            placeholder="Rechercher par nom, email, identifiant…"
+            aria-label="Rechercher un utilisateur"
+            value={list.searchInput}
+            onChange={(e) => list.setSearchInput(e.target.value)}
+            className="h-11 pl-9 sm:h-10"
+          />
+        </div>
+        <select
+          aria-label="État des comptes"
+          value={list.status}
+          onChange={(e) => { if (isStatusFilter(e.target.value)) list.setStatus(e.target.value); }}
+          className="h-11 rounded-lg border border-input bg-card px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-10"
+        >
+          {STATUS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
       </div>
 
-      {loadError && !loading && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-center" role="alert">
-          <XCircle className="h-6 w-6 mx-auto mb-2 text-destructive" />
-          <p className="text-sm text-destructive">{loadError}</p>
-          <Button variant="outline" size="sm" className="mt-3" onClick={load}>
-            Réessayer
-          </Button>
-        </div>
+      {isAdmin && !list.directoryActive && (
+        <p className="text-sm text-muted-foreground">
+          L'annuaire Active Directory n'est pas synchronisé : vous pouvez désactiver ici le compte d'une personne
+          qui quitte l'entreprise.
+        </p>
       )}
 
-      <UsersTable
-        users={users}
-        loading={loading}
-        loadError={loadError}
-        isAdmin={isAdmin}
-        isSearching={isSearching}
-        currentUserId={currentUser?.id}
-        updatingRoleId={updatingRoleId}
-        onRoleChange={handleRoleChange}
-        unlockingId={unlockingId}
-        onUnlock={handleUnlock}
-        onEdit={handleOpenEdit}
-        togglingActiveId={togglingActiveId}
-        onToggleActive={handleToggleActive}
+      <Card>
+        <CardContent className="p-0">
+          <ListState
+            loading={list.loading}
+            error={list.loadError}
+            isEmpty={list.users.length === 0}
+            onRetry={list.reload}
+            emptyMessage="Aucun utilisateur"
+            hasActiveFilters={list.hasActiveFilters}
+            onClearFilters={list.clearFilters}
+          >
+            <UsersTable
+              users={list.users}
+              isAdmin={isAdmin}
+              currentUserId={currentUser?.id}
+              directoryActive={list.directoryActive}
+              updatingRoleId={actions.updatingRoleId}
+              onRoleChange={(u, role) => void actions.changeRole(u, role)}
+              unlockingId={actions.unlockingId}
+              onUnlock={(u) => void actions.unlock(u)}
+              onEdit={openManualDialog}
+              togglingActiveId={actions.togglingActiveId}
+              onToggleActive={actions.toggleActive}
+            />
+          </ListState>
+        </CardContent>
+      </Card>
+
+      <Pagination
+        page={list.pagination.page}
+        pageSize={list.pagination.pageSize}
+        total={list.total}
+        onPageChange={list.pagination.setPage}
+        onPageSizeChange={list.pagination.setPageSize}
+        itemLabel={{ singular: 'utilisateur', plural: 'utilisateurs' }}
       />
 
-      {!isSearching && totalPages > 1 && (
-        <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>{total} utilisateur(s)</span>
-          <div className="flex items-center gap-1">
-            <Button variant="outline" size="icon" disabled={page === 1} onClick={() => setPage((p) => p - 1)} aria-label="Page précédente">
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <span className="px-3">Page {page} / {totalPages}</span>
-            <Button variant="outline" size="icon" disabled={page === totalPages} onClick={() => setPage((p) => p + 1)} aria-label="Page suivante">
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      )}
-
       {isAdmin && (
-        <ManualUserDialog
-          open={manualDialogOpen}
-          onOpenChange={setManualDialogOpen}
-          editUser={editTarget}
-          onSaved={handleManualUserSaved}
-        />
+        <>
+          <ManualUserDialog
+            open={manualDialogOpen}
+            onOpenChange={setManualDialogOpen}
+            editUser={editTarget}
+            onSaved={handleManualUserSaved}
+          />
+          <ManualUsersImportDialog state={importState} />
+          <DeactivateUserDialog
+            target={actions.deactivateTarget}
+            onCancel={() => actions.setDeactivateTarget(null)}
+            onConfirm={() => void actions.confirmDeactivate()}
+            loading={actions.deactivateTarget !== null && actions.togglingActiveId === actions.deactivateTarget.id}
+          />
+        </>
       )}
-
-      {isAdmin && <ManualUsersImportDialog state={importState} />}
     </div>
   );
 }

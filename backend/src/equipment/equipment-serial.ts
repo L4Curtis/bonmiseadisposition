@@ -1,31 +1,67 @@
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { IN_PROGRESS_BON_STATUSES } from '../bons/bon-status';
+import { toListResponse, toPrismaPage, type PageRequest } from '../common/pagination';
+import type { ListResponse } from '../contracts/common';
+import type { EquipmentHistoryMeta } from '../contracts/equipment';
 import { equipmentHolding } from './equipment-holding';
 
-/** Limite de lignes renvoyées par getEquipmentHistory — au-delà, `truncated:
- *  true` signale explicitement que le résultat est partiel plutôt que de
- *  tronquer silencieusement. */
-const EQUIPMENT_HISTORY_LIMIT = 200;
+/** Plafond de l'export CSV de l'historique d'un matériel : au-delà, le
+ *  fichier est coupé et l'en-tête `X-Truncated` le signale. */
+export const EQUIPMENT_HISTORY_EXPORT_LIMIT = 5000;
 
 /** Plafond du nombre de numéros de série vérifiés en une seule fois par
  *  findSerialConflicts — garde-fou contre une requête IN() démesurée. */
 const SERIAL_CONFLICTS_LIMIT = 50;
 
+const HISTORY_INCLUDE = {
+  catalogItem: { select: { brand: true, model: true, category: true } },
+  bon: {
+    select: {
+      id: true,
+      reference: true,
+      status: true,
+      dateMiseDisposition: true,
+      dateRestitution: true,
+      collaborateur: { select: { displayName: true, email: true } },
+      filiale: { select: { displayName: true } },
+    },
+  },
+} satisfies Prisma.BonEquipmentInclude;
+
+type HistoryRow = Prisma.BonEquipmentGetPayload<{ include: typeof HISTORY_INCLUDE }>;
+
+function toHistoryEntry(e: HistoryRow) {
+  return {
+    equipmentId: e.id,
+    serialNumber: e.serialNumber,
+    inventoryNumber: e.inventoryNumber,
+    label: e.catalogItem ? `${e.catalogItem.brand} ${e.catalogItem.model}` : e.customLabel,
+    returnedAt: e.returnedAt,
+    notReturned: e.notReturned,
+    holding: equipmentHolding({ returnedAt: e.returnedAt, notReturned: e.notReturned, bonStatus: e.bon.status }),
+    bon: e.bon,
+  };
+}
+
+export type EquipmentHistoryItem = ReturnType<typeof toHistoryEntry>;
+
 /**
  * Historique d'un matériel : tous les bons où il apparaît, identifié par son
- * numéro de série OU son numéro d'inventaire (l'un ou l'autre suffit — les
- * deux comptent autant l'un que l'autre pour retrouver un équipement), du
- * plus récent au plus ancien (limité à EQUIPMENT_HISTORY_LIMIT ; `truncated`
- * indique explicitement si des résultats plus anciens ont été omis).
- * Répond à « où est le portable SN-1234 ? » comme à « où est le matériel
- * INV-5678 ? ». Alimente la page `/materiel/:reference`. Chaque ligne porte sa
- * situation (`holding`, voir equipment-holding.ts) : un brouillon n'a pas de
- * détenteur.
+ * numéro de série OU son numéro d'inventaire (l'un ou l'autre suffit), du
+ * plus récent au plus ancien, page par page. Répond à « où est le portable
+ * SN-1234 ? » comme à « où est le matériel INV-5678 ? ». Alimente la page
+ * `/materiel/:reference`. Chaque ligne porte sa situation (`holding`, voir
+ * equipment-holding.ts) : un brouillon n'a pas de détenteur.
  */
-export async function getEquipmentHistory(prisma: PrismaService, reference: string) {
+export async function getEquipmentHistory(
+  prisma: PrismaService,
+  reference: string,
+  page: PageRequest,
+): Promise<ListResponse<EquipmentHistoryItem, EquipmentHistoryMeta>> {
+  const meta: EquipmentHistoryMeta = { exportLimit: EQUIPMENT_HISTORY_EXPORT_LIMIT };
   const query = (reference ?? '').trim();
-  if (!query) return { items: [], truncated: false, total: 0 };
+  if (!query) return toListResponse([], { total: 0, page: page.page, limit: page.limit, meta });
 
   const where: Prisma.BonEquipmentWhereInput = {
     OR: [
@@ -37,37 +73,24 @@ export async function getEquipmentHistory(prisma: PrismaService, reference: stri
     prisma.bonEquipment.count({ where }),
     prisma.bonEquipment.findMany({
       where,
-      orderBy: { createdAt: 'desc' },
-      take: EQUIPMENT_HISTORY_LIMIT,
-      include: {
-        catalogItem: { select: { brand: true, model: true, category: true } },
-        bon: {
-          select: {
-            id: true,
-            reference: true,
-            status: true,
-            dateMiseDisposition: true,
-            dateRestitution: true,
-            collaborateur: { select: { displayName: true, email: true } },
-            filiale: { select: { displayName: true } },
-          },
-        },
-      },
+      // L'identifiant départage deux lignes créées au même instant : une
+      // ligne ne saute pas d'une page à l'autre.
+      orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+      ...toPrismaPage(page),
+      include: HISTORY_INCLUDE,
     }),
   ]);
+  return toListResponse(entries.map(toHistoryEntry), { total, page: page.page, limit: page.limit, meta });
+}
 
-  const items = entries.map((e) => ({
-    equipmentId: e.id,
-    serialNumber: e.serialNumber,
-    inventoryNumber: e.inventoryNumber,
-    label: e.catalogItem ? `${e.catalogItem.brand} ${e.catalogItem.model}` : e.customLabel,
-    returnedAt: e.returnedAt,
-    notReturned: e.notReturned,
-    holding: equipmentHolding({ returnedAt: e.returnedAt, notReturned: e.notReturned, bonStatus: e.bon.status }),
-    bon: e.bon,
-  }));
-
-  return { items, truncated: total > EQUIPMENT_HISTORY_LIMIT, total };
+/** Lignes de l'export CSV : tout l'historique, jusqu'au plafond
+ *  EQUIPMENT_HISTORY_EXPORT_LIMIT (`truncated` s'il est dépassé). */
+export async function getEquipmentHistoryForExport(
+  prisma: PrismaService,
+  reference: string,
+): Promise<{ items: EquipmentHistoryItem[]; truncated: boolean }> {
+  const all = await getEquipmentHistory(prisma, reference, { page: 1, limit: EQUIPMENT_HISTORY_EXPORT_LIMIT });
+  return { items: all.items, truncated: all.total > EQUIPMENT_HISTORY_EXPORT_LIMIT };
 }
 
 /**

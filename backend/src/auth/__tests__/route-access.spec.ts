@@ -10,17 +10,25 @@
  *
  * La table complète route → rôles est comparée au fichier
  * `__snapshots__/route-access.md`, versionné : tout changement de droits se voit
- * donc dans la revue de code. Après une modification VOULUE des droits :
+ * donc dans la revue de code. Elle se termine par les anciens chemins encore
+ * servis (alias dépréciés), avec les droits de la route qui les sert. Après
+ * une modification VOULUE des droits :
  *   cd backend && npx vitest run src/auth/__tests__/route-access.spec.ts -u
  */
 import { UserRole } from '@prisma/client';
 import { AppModule } from '../../app.module';
+import { API_PREFIX } from '../../bootstrap/configure-app';
+import { collectDeprecatedAliases, DeprecatedAliasRoute } from '../../common/http/deprecated-alias';
 import { ALL_ROLES } from '../decorators/roles.decorator';
-import { inventoryRoutes, RouteAccess } from './helpers/route-inventory';
+import { collectControllers, inventoryRoutes, RouteAccess } from './helpers/route-inventory';
 
 const routes = inventoryRoutes(AppModule);
 const key = (r: RouteAccess): string => `${r.method} ${r.path}`;
 const byKey = new Map(routes.map((r) => [key(r), r]));
+const aliases = [...collectDeprecatedAliases(collectControllers(AppModule), API_PREFIX)].sort(
+  (a, b) => a.path.localeCompare(b.path, 'en') || a.method.localeCompare(b.method, 'en'),
+);
+const successorKey = (a: DeprecatedAliasRoute): string => `${a.successorMethod} ${a.successorPath}`;
 
 const PUBLIC = 'public';
 const TOUS = [...ALL_ROLES];
@@ -39,6 +47,12 @@ function accessLabel(route: RouteAccess): string {
   return ALL_ROLES.filter((r) => roles.has(r)).join(', ');
 }
 
+function aliasLine(alias: DeprecatedAliasRoute): string {
+  const successor = byKey.get(successorKey(alias));
+  const label = successor ? accessLabel(successor) : 'ROUTE CIBLE ABSENTE';
+  return `| ${alias.method} | ${alias.path} | ${successorKey(alias)} | ${label} |`;
+}
+
 function markdownTable(list: readonly RouteAccess[]): string {
   const lines = list.map((r) => `| ${r.method} | ${r.path} | ${accessLabel(r)} | ${r.handler} |`);
   return [
@@ -49,6 +63,14 @@ function markdownTable(list: readonly RouteAccess[]): string {
     '| Verbe | Route | Accès | Méthode |',
     '|---|---|---|---|',
     ...lines,
+    '',
+    '## Anciens chemins encore servis (alias dépréciés)',
+    '',
+    'Chacun est réécrit vers sa route cible avant le routage : mêmes gardes, mêmes droits.',
+    '',
+    '| Verbe | Ancien chemin | Route cible | Accès |',
+    '|---|---|---|---|',
+    ...aliases.map(aliasLine),
     '',
   ].join('\n');
 }
@@ -100,6 +122,17 @@ describe('Accès de toutes les routes', () => {
     expect(doublons).toEqual([]);
   });
 
+  it('chaque alias déprécié mène à une route existante, dont il reprend les droits', () => {
+    expect(aliases.length).toBeGreaterThan(0);
+    const orphelins = aliases.filter((a) => !byKey.has(successorKey(a))).map((a) => `${a.method} ${a.path}`);
+    expect(orphelins).toEqual([]);
+  });
+
+  it('aucun alias ne masque une route encore déclarée', () => {
+    const masquees = aliases.map((a) => `${a.method} ${a.path}`).filter((k) => byKey.has(k));
+    expect(masquees).toEqual([]);
+  });
+
   it('la table route → rôles correspond au fichier versionné', async () => {
     await expect(markdownTable(routes)).toMatchFileSnapshot('./__snapshots__/route-access.md');
   });
@@ -124,11 +157,18 @@ describe('Décisions d’accès du propriétaire (24/09)', () => {
     ['GET /api/signature/:token/preview', TOUS],
     ['POST /api/signature/:token/sign', TOUS],
     ['POST /api/signature/:token/request-new-link', TOUS],
-    ['GET /api/bons/mes-bons', TOUS],
+    ['GET /api/me/bons', TOUS],
+    ['GET /api/me/contestations', TOUS],
     ['GET /api/bons/:id', TOUS],
     ['GET /api/bons/:id/pdf', TOUS],
     ['POST /api/bons/:id/contestation', TOUS],
-    ['GET /api/contestations/mine', TOUS],
+    // Gestes IT sur un bon et ses contestations : ni collaborateur ni direction.
+    ['PATCH /api/bons/:id', IT],
+    ['POST /api/bons/:id/cancel', IT],
+    ['GET /api/bons/:id/history', IT],
+    ['GET /api/contestations', IT],
+    ['POST /api/contestations/:id/review', IT],
+    ['POST /api/contestations/:id/resolve', IT],
     // Utilisateurs : la gestion est réservée à l'admin…
     ['GET /api/users', ADMIN],
     ['POST /api/users/manual', ADMIN],
@@ -136,8 +176,10 @@ describe('Décisions d’accès du propriétaire (24/09)', () => {
     ['GET /api/users/manual/export', ADMIN],
     ['GET /api/users/manual/import/template', ADMIN],
     ['POST /api/users/manual/import', ADMIN],
-    ['PATCH /api/admin/users/:id/role', ADMIN],
-    ['POST /api/admin/users/:id/unlock', ADMIN],
+    ['PATCH /api/users/:id/role', ADMIN],
+    ['POST /api/users/:id/unlock', ADMIN],
+    ['POST /api/users/:id/deactivate', ADMIN],
+    ['POST /api/users/:id/reactivate', ADMIN],
     // … le technicien garde la recherche du destinataire d'un bon et la fiche en lecture.
     ['GET /api/users/search', IT],
     ['GET /api/users/it-staff', IT],
@@ -165,6 +207,13 @@ describe('Décisions d’accès du propriétaire (24/09)', () => {
     // Synchronisation de l'annuaire : admin seul.
     ['GET /api/admin/ldap/status', ADMIN],
     ['POST /api/admin/ldap/sync', ADMIN],
+    ['POST /api/admin/ldap/deactivate-all', ADMIN],
+    // Registre de configuration (valeurs appliquées) : admin seul.
+    ['GET /api/admin/config/registry', ADMIN],
+    // Exports du tableau de bord : mêmes lecteurs que les onglets exportés.
+    ['GET /api/kpi/parc/export', IT_ET_DIRECTION],
+    ['GET /api/kpi/delais/export', IT_ET_DIRECTION],
+    ['GET /api/kpi/incidents/export', IT_ET_DIRECTION],
   ];
 
   it.each(decisions)('%s → %j', (routeKey, attendu) => {
@@ -187,6 +236,25 @@ describe('Décisions d’accès du propriétaire (24/09)', () => {
     expect(ouvertes).toEqual([]);
   });
 
+  it('les modèles d’email et de PDF, sortis de /api/admin, restent réservés à l’administrateur', () => {
+    const modeles = routes.filter((r) => /^\/api\/(email|pdf)-templates(\/|$)/.test(r.path));
+    expect(modeles.length).toBeGreaterThan(10);
+    const ouvertes = modeles.filter((r) => r.isPublic || r.roles.some((role) => role !== 'admin')).map(key);
+    expect(ouvertes).toEqual([]);
+  });
+
+  it('chaque export du tableau de bord a exactement les lecteurs de l’onglet qu’il exporte', () => {
+    const exports = routes.filter((r) => /^\/api\/kpi\/[^/]+\/export$/.test(r.path));
+    expect(exports.length).toBeGreaterThan(0);
+    const ecarts = exports
+      .filter((r) => {
+        const onglet = byKey.get(`GET ${r.path.replace(/\/export$/, '')}`);
+        return !onglet || [...onglet.roles].sort().join() !== [...r.roles].sort().join();
+      })
+      .map(key);
+    expect(ecarts).toEqual([]);
+  });
+
   it('l’administration (/api/admin/…) est réservée à l’administrateur', () => {
     const ouvertes = routes
       .filter((r) => r.path.startsWith('/api/admin/'))
@@ -203,13 +271,13 @@ describe('Décisions d’accès du propriétaire (24/09)', () => {
     'GET /api/auth/me',
     'POST /api/auth/logout',
     'POST /api/auth/change-password',
-    'GET /api/bons/mes-bons',
+    'GET /api/me/bons',
     'GET /api/bons/:id',
     'GET /api/bons/:id/integrity',
     'GET /api/bons/:id/pdf',
     'GET /api/bons/:id/pdf-snapshots',
     'POST /api/bons/:id/contestation',
-    'GET /api/contestations/mine',
+    'GET /api/me/contestations',
     'GET /api/bons/:bonId/attachments',
     'POST /api/bons/:bonId/attachments',
     'GET /api/bons/:bonId/attachments/:attachmentId',

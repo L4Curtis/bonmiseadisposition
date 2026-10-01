@@ -47,7 +47,6 @@ function ActiveRetention() {
         ...RETENTION_DURATIONS.map((d) => ({
           key: d.key,
           label: `${d.label} (${d.unit})`,
-          placeholder: String(d.suggested),
           type: 'number',
           min: d.min,
           help: d.key === 'anonymize_months' ? 'Minimum légal : 60 mois' : undefined,

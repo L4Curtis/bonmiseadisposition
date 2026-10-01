@@ -94,12 +94,10 @@ export function useCataloguePacks(): UseCataloguePacksResult {
   const deactivatePack = async (id: string): Promise<void> => {
     setPendingPackId(id);
     try {
-      // DELETE /equipment/packs/:id ne renvoie pas les items du pack
-      // (contrairement au PUT) : on ne fusionne donc que les champs
-      // scalaires retournés, en conservant les items déjà connus localement
-      // plutôt que de tout recharger.
+      // DELETE /equipment/packs/:id désactive le pack et le renvoie avec ses
+      // articles, comme le PUT.
       const updated = await api.delete<Pack>(`/equipment/packs/${id}`);
-      setPacks((prev) => prev.map((p) => (p.id === id ? { ...p, ...updated, items: p.items } : p)));
+      upsertPack(updated);
       toast({ title: 'Pack désactivé', variant: 'success' });
     } catch (e: unknown) {
       showActionError(e, 'Erreur lors de la désactivation');

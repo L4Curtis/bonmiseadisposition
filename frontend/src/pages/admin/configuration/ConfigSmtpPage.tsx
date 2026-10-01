@@ -1,5 +1,6 @@
 import { api } from '@/lib/api';
-import { ConfigSection, SmtpTestButton, type TestResult } from '@/components/admin/ConfigSection';
+import { ConfigSection, SmtpTestButton } from '@/components/admin/ConfigSection';
+import type { ConnectionTestResponse } from '@/contracts/admin';
 
 export function ConfigSmtpPage() {
   return (
@@ -12,15 +13,15 @@ export function ConfigSmtpPage() {
         fields={[
           { key: 'secure', label: 'TLS/SSL', toggle: true },
           { key: 'host', label: 'Serveur SMTP', placeholder: 'smtp.entreprise.local' },
-          { key: 'port', label: 'Port', placeholder: '587' },
+          { key: 'port', label: 'Port', type: 'number' },
           { key: 'user', label: 'Utilisateur SMTP', placeholder: 'notifications@entreprise.local' },
           { key: 'password', label: 'Mot de passe SMTP', type: 'password', encrypted: true },
-          { key: 'from', label: 'Adresse From', placeholder: 'IT <noreply@entreprise.local>' },
+          { key: 'from', label: 'Adresse d’expéditeur', placeholder: 'noreply@entreprise.local', type: 'email' },
         ]}
         footer={
           <SmtpTestButton
             onTest={(email) =>
-              api.post<TestResult>('/admin/config/test/smtp', { testEmail: email })
+              api.post<ConnectionTestResponse>('/admin/config/test/smtp', { testEmail: email })
             }
           />
         }

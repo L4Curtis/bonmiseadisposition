@@ -34,8 +34,8 @@ export function usePdfTemplates(): UsePdfTemplatesResult {
 
   const fetchTemplates = useCallback(async () => {
     try {
-      const data = await api.get<PdfTemplateDefinition[]>('/admin/pdf-templates');
-      setTemplates(data);
+      const data = await api.getList<PdfTemplateDefinition>('/pdf-templates');
+      setTemplates(data.items);
     } catch {
       toast({ title: 'Erreur', description: 'Impossible de charger les modèles PDF', variant: 'destructive' });
     } finally {
@@ -47,7 +47,7 @@ export function usePdfTemplates(): UsePdfTemplatesResult {
 
   const handleExport = async () => {
     try {
-      const data = await api.get<{ exportedAt: string; templates: unknown[] }>('/admin/pdf-templates/export');
+      const data = await api.get<{ exportedAt: string; templates: unknown[] }>('/pdf-templates/export');
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       saveBlob(blob, `pdf-templates-export-${todayInParis()}.json`);
       toast({ title: 'Export réussi' });
@@ -67,7 +67,7 @@ export function usePdfTemplates(): UsePdfTemplatesResult {
         toast({ title: 'Erreur', description: 'Format JSON invalide', variant: 'destructive' });
         return;
       }
-      const result = await api.post<{ imported: number; skipped: number }>('/admin/pdf-templates/import', data);
+      const result = await api.post<{ imported: number; skipped: number }>('/pdf-templates/import', data);
       toast({ title: `Import : ${result.imported} modèle(s) importé(s), ${result.skipped} ignoré(s)` });
       await fetchTemplates();
     } catch {

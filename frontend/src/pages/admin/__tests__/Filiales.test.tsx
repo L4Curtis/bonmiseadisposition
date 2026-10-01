@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { resetActiveFilialesForTests } from '@/hooks/use-active-filiales';
 import { FilialesPage } from '../Filiales';
@@ -10,6 +10,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
     ...actual,
     api: {
       get: vi.fn(),
+      getList: vi.fn(),
       post: vi.fn(),
       put: vi.fn(),
       patch: vi.fn(),
@@ -23,6 +24,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
 });
 
 import { api } from '@/lib/api';
+import { toListResponse } from '@/lib/api-envelope';
 
 let mockRole = 'admin';
 vi.mock('@/contexts/AuthContext', () => ({
@@ -55,6 +57,9 @@ const filiale = {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  // Les listes passent par `api.getList`, qui lit la réponse de `api.get`
+  // simulée ci-dessous (forme commune ou ancienne forme).
+  vi.mocked(api.getList).mockImplementation(async (path: string) => toListResponse(await api.get(path)));
   resetActiveFilialesForTests();
   mockRole = 'admin';
   vi.mocked(api.get).mockResolvedValue([filiale]);
@@ -115,26 +120,37 @@ describe('FilialesPage', () => {
     expect(screen.getByText('SIRET: —')).toBeInTheDocument();
   });
 
-  it('exporte le CSV des filiales sans puis avec les images', async () => {
+  it('annonce puis exporte les filiales affichées, sans puis avec les images', async () => {
     const originalCreate = URL.createObjectURL;
     const originalRevoke = URL.revokeObjectURL;
     URL.createObjectURL = vi.fn(() => 'blob:mock-url');
     URL.revokeObjectURL = vi.fn();
     const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
     vi.mocked(api.getFile).mockResolvedValue({ blob: new Blob(['a,b'], { type: 'text/csv' }), filename: 'export.csv', truncated: false });
+    const inactive = { ...filiale, id: 'f2', name: 'Ancienne', displayName: 'Ancienne SAS', active: false };
+    vi.mocked(api.get).mockResolvedValue([filiale, inactive]);
 
     const { user } = renderWithProviders(<FilialesPage />);
     await screen.findByText('Fresse GDO SAS');
 
-    await user.click(screen.getByRole('button', { name: /Autres actions/ }));
-    await user.click(await screen.findByRole('menuitem', { name: 'Exporter CSV' }));
-    await waitFor(() => expect(api.getFile).toHaveBeenCalledWith('/filiales/export'));
-    // Attend la fin de l'export (bouton réactivé) avant de rouvrir le menu.
-    await waitFor(() => expect(screen.getByRole('button', { name: /Autres actions/ })).not.toBeDisabled());
+    // Avant : le nombre de filiales affichées et le filtre, rien de téléchargé.
+    await user.click(screen.getByRole('button', { name: 'Exporter CSV' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('1 filiale à exporter.');
+    expect(dialog).toHaveTextContent('Filtres : État : actives seulement');
+    expect(api.getFile).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole('button', { name: /^Exporter$/ }));
+    await waitFor(() => expect(api.getFile).toHaveBeenCalledWith('/filiales/export?status=active'));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
-    await user.click(screen.getByRole('button', { name: /Autres actions/ }));
-    await user.click(await screen.findByRole('menuitem', { name: /Exporter CSV avec images/ }));
-    await waitFor(() => expect(api.getFile).toHaveBeenCalledWith('/filiales/export?images=1'));
+    // Filiales désactivées affichées : le fichier les reprend aussi.
+    await user.click(screen.getByRole('switch'));
+    await user.click(screen.getByRole('button', { name: 'Exporter avec images' }));
+    const withImages = await screen.findByRole('dialog');
+    expect(withImages).toHaveTextContent('2 filiales à exporter.');
+    expect(withImages).toHaveTextContent('Filtres : État : actives et désactivées');
+    await user.click(within(withImages).getByRole('button', { name: /^Exporter$/ }));
+    await waitFor(() => expect(api.getFile).toHaveBeenCalledWith('/filiales/export?status=all&images=1'));
 
     URL.createObjectURL = originalCreate;
     URL.revokeObjectURL = originalRevoke;

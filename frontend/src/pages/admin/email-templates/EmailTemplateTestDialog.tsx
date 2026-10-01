@@ -12,6 +12,7 @@ import { Loader2, Send } from 'lucide-react';
 import { BonPicker } from './BonPicker';
 import { NON_BON_CATEGORIES } from './types';
 import type { PreviewBonOption, TemplateDefinition } from './types';
+import type { EmailTemplateTestResponse } from '@/contracts/templates';
 
 interface EmailTemplateTestDialogProps {
   template: TemplateDefinition | null;
@@ -19,15 +20,11 @@ interface EmailTemplateTestDialogProps {
   onClose: () => void;
 }
 
-interface TestEmailResult {
-  success: boolean;
-  message: string;
-}
 
 /** Envoi d'un email de test pour un modèle, sans créer ni modifier de bon.
  *  Par défaut le modèle est rendu avec un jeu de variables d'exemple
- *  (POST /admin/email-templates/:id/test) ; l'administrateur peut choisir un
- *  vrai bon (lot H3, POST /admin/email-templates/:id/test-bon) : ses données
+ *  (POST /email-templates/:id/test) ; l'administrateur peut choisir un
+ *  vrai bon (lot H3, POST /email-templates/:id/test-bon) : ses données
  *  sont alors reprises, avec un lien de signature factice. Chaque envoi est
  *  tracé dans le journal d'audit. L'adresse de l'administrateur connecté est
  *  proposée par défaut. */
@@ -58,20 +55,20 @@ export function EmailTemplateTestDialog({ template, open, onClose }: EmailTempla
     setSending(true);
     try {
       const result = useBon && bon
-        ? await api.post<TestEmailResult>(
-          `/admin/email-templates/${template.id}/test-bon`,
+        ? await api.post<EmailTemplateTestResponse>(
+          `/email-templates/${template.id}/test-bon`,
           { email: email.trim(), bonId: bon.id },
         )
-        : await api.post<TestEmailResult>(
-          `/admin/email-templates/${template.id}/test`,
+        : await api.post<EmailTemplateTestResponse>(
+          `/email-templates/${template.id}/test`,
           { email: email.trim() },
         );
       toast({
-        title: result.success ? 'Email de test envoyé' : "Échec de l'envoi",
+        title: result.ok ? 'Email de test envoyé' : "Échec de l'envoi",
         description: result.message,
-        variant: result.success ? undefined : 'destructive',
+        variant: result.ok ? undefined : 'destructive',
       });
-      if (result.success) onClose();
+      if (result.ok) onClose();
     } catch {
       toast({ title: 'Erreur', description: "Impossible d'envoyer l'email de test.", variant: 'destructive' });
     } finally {

@@ -86,9 +86,9 @@ export function EmailTemplatePreview({ template, open, onClose }: EmailTemplateP
     let cancelled = false;
     setLoading(true);
     const request = mode === 'bon' && bon
-      ? api.get<BonPreviewResult>(`/admin/email-templates/${template.id}/preview-bon/${bon.id}`)
+      ? api.get<BonPreviewResult>(`/email-templates/${template.id}/preview-bon/${bon.id}`)
         .then((r) => { if (!cancelled) { setBonResult(r); setHtml(r.html); } })
-      : api.get<{ html: string }>(`/admin/email-templates/${template.id}/preview`)
+      : api.get<{ html: string }>(`/email-templates/${template.id}/preview`)
         .then((r) => { if (!cancelled) setHtml(r.html); });
     request
       .catch((e: unknown) => {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { api } from '@/lib/api';
+import { toListResponse } from '@/lib/api-envelope';
 import { errorMessage } from '@/lib/errors';
 import type { Filiale } from '@/types';
 
@@ -64,8 +65,13 @@ export function getActiveFiliales(): Promise<Filiale[]> {
   if (inFlight) return inFlight;
 
   setState({ ...state, loading: true, error: null });
+  // Lecture de la liste par `toListResponse`, comme `api.getList` : la forme
+  // commune `{ items, … }` (et l'ancienne, un tableau nu, le temps de la
+  // vague). Passer par `api.get` garde un seul point d'appel réseau pour ce
+  // chargement partagé par de nombreux écrans.
   inFlight = api
-    .get<Filiale[]>('/filiales/active')
+    .get<unknown>('/filiales/active')
+    .then((body) => toListResponse<Filiale>(body).items)
     .then((filiales) => {
       setState({ filiales, loading: false, error: null, fetchedAt: Date.now() });
       return filiales;

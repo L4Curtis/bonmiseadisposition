@@ -1,34 +1,31 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { usePagination } from '@/hooks/usePagination';
 import { CATEGORIES } from './types';
 import { filterAndSortCatalogItems } from './lib/search';
 import type { CatalogueSortKey, SortDirection } from './lib/search';
 import type { ItemStatusFilter } from './lib/statusFilter';
 import type { CatalogItem } from './types';
 
-export const CATALOGUE_PAGE_SIZE = 10;
 const SEARCH_DEBOUNCE_MS = 300;
 
 /** Recherche (anti-rebond), filtre par catégorie, filtre d'état (géré par
  *  l'appelant, partagé avec les packs — voir {@link ./lib/statusFilter}), tri
  *  par colonne et pagination pour la table du catalogue. Le volume
  *  d'équipements est faible : tout se fait côté client, à partir de la liste
- *  déjà chargée par {@link useCatalogue}. */
+ *  complète chargée par {@link useCatalogue}. La pagination est celle de
+ *  toutes les listes (page dans l'adresse, 25, 50 ou 100 lignes). */
 export function useCatalogueFilters(items: CatalogItem[], statusFilter: ItemStatusFilter) {
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilterState] = useState('');
   const [sortKey, setSortKey] = useState<CatalogueSortKey>('category');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
-  const [page, setPage] = useState(1);
 
   // Anti-rebond de la recherche texte (300 ms), sans bloquer le filtre catégorie
   useEffect(() => {
     const handle = setTimeout(() => setSearch(searchInput.trim()), SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(handle);
   }, [searchInput]);
-
-  // Retour à la page 1 dès qu'un filtre change (évite une page vide)
-  useEffect(() => { setPage(1); }, [search, categoryFilter, statusFilter]);
 
   const setCategoryFilter = (value: string): void => setCategoryFilterState(value);
 
@@ -48,12 +45,19 @@ export function useCatalogueFilters(items: CatalogItem[], statusFilter: ItemStat
     [items, search, categoryFilter, statusFilter, sortKey, sortDirection],
   );
 
-  const totalPages = Math.max(1, Math.ceil(filteredItems.length / CATALOGUE_PAGE_SIZE));
-  const currentPage = Math.min(page, totalPages);
-  const pageItems = useMemo(
-    () => filteredItems.slice((currentPage - 1) * CATALOGUE_PAGE_SIZE, currentPage * CATALOGUE_PAGE_SIZE),
-    [filteredItems, currentPage],
-  );
+  const pagination = usePagination({ total: filteredItems.length });
+  const { offset, pageSize, setPage } = pagination;
+  const pageItems = useMemo(() => filteredItems.slice(offset, offset + pageSize), [filteredItems, offset, pageSize]);
+
+  // Retour à la page 1 quand un filtre change (évite une page vide) ; pas au
+  // premier affichage, pour garder la page d'un lien partagé.
+  const filtersKey = `${search}|${categoryFilter}|${statusFilter}`;
+  const previousFilters = useRef(filtersKey);
+  useEffect(() => {
+    if (previousFilters.current === filtersKey) return;
+    previousFilters.current = filtersKey;
+    setPage(1);
+  }, [filtersKey, setPage]);
 
   const hasActiveFilters = !!(search || categoryFilter);
   const resetFilters = (): void => {
@@ -71,9 +75,7 @@ export function useCatalogueFilters(items: CatalogItem[], statusFilter: ItemStat
     sortKey,
     sortDirection,
     toggleSort,
-    page: currentPage,
-    setPage,
-    totalPages,
+    pagination,
     total: filteredItems.length,
     pageItems,
     filteredItems,

@@ -1,4 +1,3 @@
-import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
@@ -13,6 +12,7 @@ import { IN_PROGRESS_BON_STATUSES } from '../../bons/bon-status';
 type MockPrisma = Record<string, Record<string, Mock>>;
 
 const USER_ID = 'user-001';
+const PAGE_1 = { page: 1, limit: 25 };
 const CAT_1 = '11111111-1111-4111-8111-111111111111';
 const CAT_2 = '22222222-2222-4222-8222-222222222222';
 const CAT_3 = '33333333-3333-4333-8333-333333333333';
@@ -113,39 +113,6 @@ describe('EquipmentService', () => {
       });
     });
 
-    it('should find active catalog items', async () => {
-      const items = [catalogItem()];
-      prisma.equipmentCatalog.findMany.mockResolvedValue(items);
-
-      const result = await service.findActiveCatalog();
-
-      expect(result).toEqual(items);
-      expect(prisma.equipmentCatalog.findMany).toHaveBeenCalledWith({
-        where: { active: true },
-        orderBy: [{ category: 'asc' }, { brand: 'asc' }, { model: 'asc' }],
-      });
-    });
-
-    it('should search catalog', async () => {
-      const items = [catalogItem()];
-      prisma.equipmentCatalog.findMany.mockResolvedValue(items);
-
-      const result = await service.searchCatalog('Lenovo');
-
-      expect(result).toEqual(items);
-      expect(prisma.equipmentCatalog.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            active: true,
-            OR: expect.arrayContaining([
-              { brand: { contains: 'Lenovo', mode: 'insensitive' } },
-            ]),
-          }),
-          take: 20,
-        }),
-      );
-    });
-
     it('should create a catalog item', async () => {
       const dto = {
         category: EquipmentCategoryEnum.pc_portable,
@@ -168,7 +135,7 @@ describe('EquipmentService', () => {
       });
     });
 
-    it('should reject creating a duplicate (category, brand, model) with a clear 400', async () => {
+    it('should reject creating a duplicate (category, brand, model) with a 409 catalog_item_exists', async () => {
       const dto = {
         category: EquipmentCategoryEnum.pc_portable,
         brand: 'Lenovo',
@@ -176,7 +143,7 @@ describe('EquipmentService', () => {
       };
       prisma.equipmentCatalog.create.mockRejectedValue(uniqueViolation());
 
-      await expect(service.createCatalogItem(dto, USER_ID)).rejects.toThrow(BadRequestException);
+      await expect(service.createCatalogItem(dto, USER_ID)).rejects.toMatchObject({ code: 'catalog_item_exists' });
       await expect(service.createCatalogItem(dto, USER_ID)).rejects.toThrow(
         'Cet article (catégorie / marque / modèle) existe déjà.',
       );
@@ -227,7 +194,7 @@ describe('EquipmentService', () => {
 
       await expect(
         service.updateCatalogItem('cat-001', { brand: 'HP' }, USER_ID),
-      ).rejects.toThrow(BadRequestException);
+      ).rejects.toMatchObject({ code: 'catalog_item_locked' });
       expect(prisma.bonEquipment.count).toHaveBeenCalledWith({
         where: { catalogItemId: 'cat-001', bon: { status: { not: 'draft' } } },
       });
@@ -246,7 +213,7 @@ describe('EquipmentService', () => {
       expect(result.model).toBe('ThinkBook 16 G7');
     });
 
-    it('should reject updating into a duplicate (category, brand, model) with a clear 400', async () => {
+    it('should reject updating into a duplicate (category, brand, model) with a 409 catalog_item_exists', async () => {
       const existing = catalogItem();
       prisma.equipmentCatalog.findUnique.mockResolvedValue(existing);
       prisma.bonEquipment.count.mockResolvedValue(0);
@@ -254,7 +221,7 @@ describe('EquipmentService', () => {
 
       await expect(
         service.updateCatalogItem('cat-001', { brand: 'Dell' }, USER_ID),
-      ).rejects.toThrow(BadRequestException);
+      ).rejects.toMatchObject({ code: 'catalog_item_exists' });
       await expect(
         service.updateCatalogItem('cat-001', { brand: 'Dell' }, USER_ID),
       ).rejects.toThrow('Cet article (catégorie / marque / modèle) existe déjà.');
@@ -291,9 +258,7 @@ describe('EquipmentService', () => {
       prisma.equipmentCatalog.findUnique.mockResolvedValue(existing);
       prisma.bonEquipment.count.mockResolvedValue(3);
 
-      await expect(service.removeCatalogItem('cat-001', USER_ID)).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(service.removeCatalogItem('cat-001', USER_ID)).rejects.toMatchObject({ code: 'catalog_item_in_use' });
       expect(prisma.equipmentPackItem.count).not.toHaveBeenCalled();
       expect(prisma.auditLog.create).not.toHaveBeenCalled();
     });
@@ -304,9 +269,7 @@ describe('EquipmentService', () => {
       prisma.bonEquipment.count.mockResolvedValue(0);
       prisma.equipmentPackItem.count.mockResolvedValue(2);
 
-      await expect(service.removeCatalogItem('cat-001', USER_ID)).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(service.removeCatalogItem('cat-001', USER_ID)).rejects.toMatchObject({ code: 'catalog_item_in_use' });
       expect(prisma.equipmentPackItem.count).toHaveBeenCalledWith({
         where: { catalogItemId: 'cat-001', pack: { active: true } },
       });
@@ -320,7 +283,7 @@ describe('EquipmentService', () => {
 
       await expect(
         service.updateCatalogItem('cat-001', { active: false }, USER_ID),
-      ).rejects.toThrow(BadRequestException);
+      ).rejects.toMatchObject({ code: 'catalog_item_in_use' });
       expect(prisma.bonEquipment.count).toHaveBeenCalledWith({
         where: { catalogItemId: 'cat-001', bon: { status: { notIn: ['archived', 'cancelled'] } } },
       });
@@ -335,7 +298,7 @@ describe('EquipmentService', () => {
 
       await expect(
         service.updateCatalogItem('cat-001', { active: false }, USER_ID),
-      ).rejects.toThrow(BadRequestException);
+      ).rejects.toMatchObject({ code: 'catalog_item_in_use' });
       expect(prisma.equipmentCatalog.update).not.toHaveBeenCalled();
     });
 
@@ -522,7 +485,7 @@ describe('EquipmentService', () => {
       prisma.bonEquipment.count.mockResolvedValue(0);
       prisma.bonEquipment.findMany.mockResolvedValue([]);
 
-      await service.getEquipmentHistory('  SN-1234  ');
+      await service.getEquipmentHistory('  SN-1234  ', PAGE_1);
 
       expect(prisma.bonEquipment.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -536,36 +499,37 @@ describe('EquipmentService', () => {
       );
     });
 
-    it('should return an empty envelope for a blank query without hitting the DB', async () => {
-      const result = await service.getEquipmentHistory('   ');
+    it('should return an empty list for a blank query without hitting the DB', async () => {
+      const result = await service.getEquipmentHistory('   ', PAGE_1);
 
-      expect(result).toEqual({ items: [], truncated: false, total: 0 });
+      expect(result).toEqual({ items: [], total: 0, page: 1, limit: 25, truncated: false, meta: { exportLimit: 5000 } });
       expect(prisma.bonEquipment.findMany).not.toHaveBeenCalled();
       expect(prisma.bonEquipment.count).not.toHaveBeenCalled();
     });
 
-    it('should return items with truncated=false when the total is within the limit', async () => {
+    it('should return one page of items, with the real total', async () => {
       prisma.bonEquipment.count.mockResolvedValue(1);
       prisma.bonEquipment.findMany.mockResolvedValue([serialEntryFixture()]);
 
-      const result = await service.getEquipmentHistory('SN-1234');
+      const result = await service.getEquipmentHistory('SN-1234', PAGE_1);
 
-      expect(result.truncated).toBe(false);
-      expect(result.total).toBe(1);
+      expect(result).toMatchObject({ total: 1, page: 1, limit: 25, truncated: false, meta: { exportLimit: 5000 } });
       expect(result.items).toHaveLength(1);
       expect(result.items[0]).toEqual(
         expect.objectContaining({ equipmentId: 'be-001', serialNumber: 'SN-1234', label: 'Lenovo ThinkBook 16 G6' }),
       );
     });
 
-    it('should signal truncation explicitly when more than 200 entries exist', async () => {
+    it('should read the requested page (skip/take), most recent first', async () => {
       prisma.bonEquipment.count.mockResolvedValue(250);
       prisma.bonEquipment.findMany.mockResolvedValue([serialEntryFixture()]);
 
-      const result = await service.getEquipmentHistory('SN-1234');
+      const result = await service.getEquipmentHistory('SN-1234', { page: 3, limit: 50 });
 
-      expect(result.truncated).toBe(true);
-      expect(result.total).toBe(250);
+      expect(result).toMatchObject({ total: 250, page: 3, limit: 50, truncated: false });
+      expect(prisma.bonEquipment.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ skip: 100, take: 50, orderBy: [{ createdAt: 'desc' }, { id: 'asc' }] }),
+      );
     });
 
     it('should match and return a bon equipment found only by its inventory number', async () => {
@@ -574,14 +538,14 @@ describe('EquipmentService', () => {
         serialEntryFixture({ serialNumber: null, inventoryNumber: 'INV-5678' }),
       ]);
 
-      const result = await service.getEquipmentHistory('INV-5678');
+      const result = await service.getEquipmentHistory('INV-5678', PAGE_1);
 
       expect(result.items[0]).toEqual(
         expect.objectContaining({ serialNumber: null, inventoryNumber: 'INV-5678' }),
       );
     });
 
-    it('should build the CSV export from the same history and pass through truncated', async () => {
+    it('should build the CSV export from the whole history, up to its ceiling', async () => {
       prisma.bonEquipment.count.mockResolvedValue(1);
       prisma.bonEquipment.findMany.mockResolvedValue([serialEntryFixture()]);
 
@@ -590,6 +554,16 @@ describe('EquipmentService', () => {
       expect(truncated).toBe(false);
       expect(csv).toContain('BON-0001');
       expect(csv).toContain('SN-1234');
+      expect(prisma.bonEquipment.findMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 0, take: 5000 }));
+    });
+
+    it('should flag the CSV export as truncated above 5 000 lines', async () => {
+      prisma.bonEquipment.count.mockResolvedValue(5001);
+      prisma.bonEquipment.findMany.mockResolvedValue([serialEntryFixture()]);
+
+      const { truncated } = await service.getEquipmentHistoryCsv('SN-1234');
+
+      expect(truncated).toBe(true);
     });
 
     it('should trim serials and drop blank entries before checking conflicts', async () => {
@@ -755,7 +729,7 @@ describe('EquipmentService', () => {
 
       await expect(
         service.createPack({ name: 'Pack Test', items: [{ catalogItemId: CAT_1 }] }, USER_ID),
-      ).rejects.toThrow(BadRequestException);
+      ).rejects.toMatchObject({ code: 'pack_items_unavailable' });
       expect(prisma.equipmentPack.create).not.toHaveBeenCalled();
     });
 
@@ -765,7 +739,7 @@ describe('EquipmentService', () => {
 
       await expect(
         service.createPack({ name: 'Pack Test', items: [{ catalogItemId: CAT_3 }] }, USER_ID),
-      ).rejects.toThrow(BadRequestException);
+      ).rejects.toMatchObject({ code: 'pack_items_unavailable' });
       expect(prisma.equipmentPack.create).not.toHaveBeenCalled();
     });
 
@@ -845,7 +819,7 @@ describe('EquipmentService', () => {
 
       await expect(
         service.updatePack('pack-001', { items: [{ catalogItemId: CAT_3 }] }, USER_ID),
-      ).rejects.toThrow(BadRequestException);
+      ).rejects.toMatchObject({ code: 'pack_items_unavailable' });
       expect(prisma.equipmentPackItem.deleteMany).not.toHaveBeenCalled();
       expect(prisma.equipmentPack.update).not.toHaveBeenCalled();
     });
@@ -882,7 +856,12 @@ describe('EquipmentService', () => {
       const result = await service.removePack('pack-001', USER_ID);
 
       expect(result.active).toBe(false);
-      expect(prisma.equipmentPack.update).toHaveBeenCalledWith({ where: { id: 'pack-001' }, data: { active: false } });
+      // Le pack renvoyé garde ses articles : même forme que les autres routes des packs.
+      expect(prisma.equipmentPack.update).toHaveBeenCalledWith({
+        where: { id: 'pack-001' },
+        data: { active: false },
+        include: { items: { include: { catalogItem: true }, orderBy: { order: 'asc' } } },
+      });
       expect(prisma.auditLog.create).toHaveBeenCalledWith({
         data: { userId: USER_ID, action: 'pack_disabled', details: { packId: 'pack-001', name: 'Pack Developpeur' } },
       });

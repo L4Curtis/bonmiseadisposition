@@ -9,6 +9,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
     ...actual,
     api: {
       get: vi.fn(),
+      getList: vi.fn(),
       post: vi.fn(),
       put: vi.fn(),
       patch: vi.fn(),
@@ -54,12 +55,17 @@ const templates = [
   },
 ];
 
+/** Réponse de liste à la forme unique de l'API. */
+function listOf<T>(items: T[]) {
+  return { items, total: items.length, page: 1, limit: items.length, truncated: false };
+}
+
 beforeEach(() => {
   vi.resetAllMocks();
-  vi.mocked(api.get).mockImplementation((path: string) => {
-    if (path === '/admin/email-templates') return Promise.resolve(templates);
-    return Promise.resolve(null);
-  });
+  vi.mocked(api.getList).mockImplementation((path: string) =>
+    Promise.resolve(listOf(path === '/email-templates' ? templates : [])) as never,
+  );
+  vi.mocked(api.get).mockResolvedValue(null);
 });
 
 describe('TemplatesPage', () => {
@@ -68,7 +74,7 @@ describe('TemplatesPage', () => {
 
     expect(await screen.findByText('Demande de signature')).toBeInTheDocument();
     expect(screen.getByText('Litige équipement')).toBeInTheDocument();
-    expect(api.get).toHaveBeenCalledWith('/admin/email-templates');
+    expect(api.getList).toHaveBeenCalledWith('/email-templates');
   });
 
   it('affiche le libelle de categorie pour chaque template', async () => {
@@ -116,7 +122,7 @@ describe('TemplatesPage', () => {
   });
 
   it('envoie un email de test avec l\'adresse de l\'administrateur connecté proposée par défaut', async () => {
-    vi.mocked(api.post).mockResolvedValue({ success: true, message: 'Email de test envoyé à admin@livio.fr.' });
+    vi.mocked(api.post).mockResolvedValue({ ok: true, message: 'Email de test envoyé à admin@livio.fr.' });
     const { user } = renderWithProviders(<TemplatesPage />);
 
     await screen.findByText('Demande de signature');
@@ -128,7 +134,7 @@ describe('TemplatesPage', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Envoyer le test' }));
 
     await waitFor(() => expect(api.post).toHaveBeenCalledWith(
-      '/admin/email-templates/tpl-1/test',
+      '/email-templates/tpl-1/test',
       { email: 'admin@livio.fr' },
     ));
   });

@@ -1,13 +1,19 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { UserRole } from '../common/types';
+import { AuditService } from '../audit/audit.service';
+import { AppException } from '../common/errors';
+import { toFullListResponse, toListResponse, toPrismaPage } from '../common/pagination';
 import { IT_ROLES } from '../common/roles';
+import type { ListResponse } from '../contracts/common';
+import type { UserOrigin, UserStatusFilter } from '../contracts/users';
 import { normalizeEmail } from '../auth/utils/normalize-email.util';
 import { CreateManualUserDto, UpdateManualUserDto } from './dto/manual-user.dto';
 import { ImportManualUsersDto, ImportManualUsersResult } from './dto/import-users.dto';
+import { UsersListQueryDto } from './dto/users-list-query.dto';
 import { buildManualUsersExportCsv, buildManualUsersImportTemplateCsv } from './users-csv';
 import { importManualUsers } from './users-import';
+import { USER_SAFE_SELECT } from './user-select';
 import {
   buildManualDisplayName,
   buildManualSamAccountBase,
@@ -15,122 +21,90 @@ import {
   splitManualDisplayName,
 } from './manual-account.util';
 
+/** Nombre maximal de personnes proposées par la recherche d'un destinataire. */
+const SEARCH_LIMIT = 15;
+
+const EMAIL_TAKEN_MESSAGE = 'Un utilisateur avec cet email existe déjà.';
+
+type SafeUser = Prisma.UserGetPayload<{ select: typeof USER_SAFE_SELECT }>;
+
+function statusWhere(status: UserStatusFilter): Prisma.UserWhereInput {
+  if (status === 'all') return {};
+  return { active: status === 'active' };
+}
+
+/** Même partage que `accountKind` (user-accounts.service.ts) : un compte
+ *  manuel prime, puis un compte local ; le reste vient de l'annuaire. */
+function originWhere(origin: UserOrigin | undefined): Prisma.UserWhereInput {
+  if (origin === 'manual') return { isManualAccount: true };
+  if (origin === 'local') return { isManualAccount: false, isLocalAccount: true };
+  if (origin === 'directory') return { isManualAccount: false, isLocalAccount: false };
+  return {};
+}
+
+function searchWhere(term: string | undefined): Prisma.UserWhereInput {
+  if (!term) return {};
+  const contains = { contains: term, mode: 'insensitive' as const };
+  return { OR: [{ displayName: contains }, { email: contains }, { samAccountName: contains }] };
+}
+
 @Injectable()
 export class UsersService {
-  private readonly logger = new Logger(UsersService.name);
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
-  constructor(private readonly prisma: PrismaService) {}
-
-  // Fields safe to return in API responses (passwordHash intentionally excluded).
-  // De la filiale, seulement son identité : ni cachet, ni logo, ni adresse.
-  private readonly safeSelect = {
-    id: true,
-    samAccountName: true,
-    displayName: true,
-    email: true,
-    department: true,
-    company: true,
-    title: true,
-    // Civilité retenue sur le compte (choisie par le technicien au premier
-    // bon) : le formulaire de bon la repropose pour les bons suivants.
-    civilite: true,
-    filialeId: true,
-    filiale: { select: { id: true, name: true, displayName: true, active: true } },
-    isItStaff: true,
-    role: true,
-    isLocalAccount: true,
-    isManualAccount: true,
-    mustChangePassword: true,
-    active: true,
-    lastLdapSync: true,
-    createdAt: true,
-    updatedAt: true,
-  };
-
-  findAll(options?: { filialeId?: string; role?: string }) {
-    return this.prisma.user.findMany({
-      where: {
-        active: true,
-        filialeId: options?.filialeId,
-        role: options?.role as UserRole | undefined,
-      },
-      select: this.safeSelect,
-      orderBy: { displayName: 'asc' },
-    });
-  }
-
-  /** Pagination optionnelle pour GET /users (LOT C bug #11) : renvoie
-   *  { users, total, page, limit } plutôt qu'un tableau brut quand ?page est
-   *  fourni — findAll() reste inchangée pour ne pas casser les appelants
-   *  existants qui attendent un tableau. */
-  async findAllPaginated(options: {
-    filialeId?: string;
-    role?: string;
-    search?: string;
-    page: number;
-    limit: number;
-  }) {
-    const where = {
-      active: true,
-      filialeId: options.filialeId,
-      role: options.role as UserRole | undefined,
-      ...(options.search
-        ? {
-            OR: [
-              { displayName: { contains: options.search, mode: 'insensitive' as const } },
-              { email: { contains: options.search, mode: 'insensitive' as const } },
-              { samAccountName: { contains: options.search, mode: 'insensitive' as const } },
-            ],
-          }
-        : {}),
+  /** GET /users — page de l'écran Utilisateurs, triée par nom. */
+  async findPage(query: UsersListQueryDto): Promise<ListResponse<SafeUser>> {
+    const where: Prisma.UserWhereInput = {
+      ...statusWhere(query.status),
+      ...originWhere(query.origin),
+      ...(query.role ? { role: query.role } : {}),
+      ...(query.filialeId ? { filialeId: query.filialeId } : {}),
+      ...searchWhere(query.search),
     };
-
-    const [users, total] = await Promise.all([
+    const [items, total] = await Promise.all([
       this.prisma.user.findMany({
         where,
-        select: this.safeSelect,
-        orderBy: { displayName: 'asc' },
-        skip: (options.page - 1) * options.limit,
-        take: options.limit,
+        select: USER_SAFE_SELECT,
+        orderBy: [{ displayName: 'asc' }, { id: 'asc' }],
+        ...toPrismaPage(query),
       }),
       this.prisma.user.count({ where }),
     ]);
-
-    return { users, total, page: options.page, limit: options.limit };
+    return toListResponse(items, { total, page: query.page, limit: query.limit });
   }
 
-  async search(query: string) {
-    return this.prisma.user.findMany({
-      where: {
-        active: true,
-        OR: [
-          { displayName: { contains: query, mode: 'insensitive' } },
-          { email: { contains: query, mode: 'insensitive' } },
-          { samAccountName: { contains: query, mode: 'insensitive' } },
-        ],
-      },
-      select: this.safeSelect,
-      take: 15,
+  /** GET /users/search?q= — personnes actives dont le nom, l'email ou
+   *  l'identifiant contient `q` (destinataire d'un bon), SEARCH_LIMIT au plus ;
+   *  `truncated` signale qu'il y en a davantage. */
+  async search(query: string): Promise<ListResponse<SafeUser>> {
+    const where: Prisma.UserWhereInput = { active: true, ...searchWhere(query.trim()) };
+    const rows = await this.prisma.user.findMany({
+      where,
+      select: USER_SAFE_SELECT,
+      take: SEARCH_LIMIT + 1,
       orderBy: { displayName: 'asc' },
     });
+    const items = rows.slice(0, SEARCH_LIMIT);
+    return toListResponse(items, { total: items.length, page: 1, limit: SEARCH_LIMIT, truncated: rows.length > SEARCH_LIMIT });
   }
 
   /** Administrateurs et techniciens actifs (qui peuvent créer un bon), pour
    *  le filtre « Créé par » de la liste des bons. Sélection par RÔLE, pas par
    *  `isItStaff`, et réduite à ce que le filtre affiche. */
-  findItStaff() {
-    return this.prisma.user.findMany({
+  async findItStaff(): Promise<ListResponse<{ id: string; displayName: string }>> {
+    const staff = await this.prisma.user.findMany({
       where: { role: { in: [...IT_ROLES] }, active: true },
       select: { id: true, displayName: true },
       orderBy: { displayName: 'asc' },
     });
+    return toFullListResponse(staff);
   }
 
   findOne(id: string) {
-    return this.prisma.user.findUnique({
-      where: { id },
-      select: this.safeSelect,
-    });
+    return this.prisma.user.findUnique({ where: { id }, select: USER_SAFE_SELECT });
   }
 
   /**
@@ -178,19 +152,18 @@ export class UsersService {
           passwordHash: null,
           lastLdapSync: null,
         },
-        select: this.safeSelect,
+        select: USER_SAFE_SELECT,
       });
     } catch (err: unknown) {
       // Filet de sécurité contre une collision concurrente (deux créations
       // simultanées pour le même email ou — bien plus improbable — le même
       // samAccountName généré) survenue entre la vérification et l'écriture.
-      throw this.toBadRequestOnUniqueViolation(err);
+      throw this.toEmailTakenOnUniqueViolation(err);
     }
 
-    await this.writeAudit(actorId, 'user_created_manually', {
-      targetUserId: created.id,
-      samAccountName: created.samAccountName,
-      displayName: created.displayName,
+    await this.audit.recordSafely('user_created_manually', {
+      actorId,
+      details: { targetUserId: created.id, samAccountName: created.samAccountName, displayName: created.displayName },
     });
 
     return created;
@@ -207,7 +180,8 @@ export class UsersService {
       throw new NotFoundException('Utilisateur introuvable');
     }
     if (!existing.isManualAccount) {
-      throw new BadRequestException(
+      throw new AppException(
+        'directory_account',
         "Ce compte provient de l'annuaire (Active Directory / SSO) : il ne peut être modifié que dans Active Directory.",
       );
     }
@@ -254,19 +228,19 @@ export class UsersService {
     }
 
     if (changedFields.length === 0) {
-      return this.prisma.user.findUnique({ where: { id }, select: this.safeSelect });
+      return this.prisma.user.findUnique({ where: { id }, select: USER_SAFE_SELECT });
     }
 
     let updated;
     try {
-      updated = await this.prisma.user.update({ where: { id }, data, select: this.safeSelect });
+      updated = await this.prisma.user.update({ where: { id }, data, select: USER_SAFE_SELECT });
     } catch (err: unknown) {
-      throw this.toBadRequestOnUniqueViolation(err);
+      throw this.toEmailTakenOnUniqueViolation(err);
     }
 
-    await this.writeAudit(actorId, 'user_updated_manually', {
-      targetUserId: id,
-      changedFields,
+    await this.audit.recordSafely('user_updated_manually', {
+      actorId,
+      details: { targetUserId: id, displayName: updated.displayName, changedFields },
     });
 
     return updated;
@@ -316,29 +290,21 @@ export class UsersService {
       },
     });
     if (existing) {
-      throw new BadRequestException('Un utilisateur avec cet email existe déjà.');
+      throw new AppException('email_taken', EMAIL_TAKEN_MESSAGE, HttpStatus.CONFLICT);
     }
   }
 
   private async assertFilialeActive(filialeId: string): Promise<void> {
     const filiale = await this.prisma.filiale.findUnique({ where: { id: filialeId } });
     if (!filiale || !filiale.active) {
-      throw new BadRequestException('Filiale introuvable ou inactive.');
+      throw new AppException('filiale_unavailable', 'Filiale introuvable ou inactive.');
     }
   }
 
-  private toBadRequestOnUniqueViolation(err: unknown): Error {
+  private toEmailTakenOnUniqueViolation(err: unknown): Error {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-      return new BadRequestException('Un utilisateur avec cet email existe déjà.');
+      return new AppException('email_taken', EMAIL_TAKEN_MESSAGE, HttpStatus.CONFLICT);
     }
     return err instanceof Error ? err : new Error(String(err));
-  }
-
-  private async writeAudit(actorId: string, action: string, details: Prisma.InputJsonValue): Promise<void> {
-    await this.prisma.auditLog
-      .create({ data: { userId: actorId, action, details } })
-      .catch((err: unknown) => {
-        this.logger.error(`Audit ${action} non journalisé: ${(err as Error).message}`);
-      });
   }
 }

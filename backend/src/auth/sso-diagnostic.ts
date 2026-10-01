@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { writeAuditEntry } from '../audit/audit-record';
 
 /** Ce que le jeton d'identité contenait au sujet des groupes. */
 export type GroupsClaimState =
@@ -26,7 +27,7 @@ export interface SsoRoleDiagnostic {
   aucuneCorrespondance: boolean;
 }
 
-export const SSO_ROLE_SYNC_ACTION = 'sso_role_sync';
+export const SSO_ROLE_SYNC_ACTION = 'sso_role_sync' as const;
 
 /** État des groupes déduit des revendications du jeton d'identité. */
 export function readGroupsClaimState(claims: Record<string, unknown> | undefined): {
@@ -71,15 +72,9 @@ export async function recordSsoRoleDiagnostic(
   user: { id: string; email: string | null },
   diagnostic: SsoRoleDiagnostic,
 ): Promise<void> {
-  await prisma.auditLog.create({
-    data: {
-      userId: user.id,
-      userEmail: user.email,
-      action: SSO_ROLE_SYNC_ACTION,
-      details: {
-        ...diagnostic,
-        message: diagnosticMessage(diagnostic),
-      } as unknown as Prisma.InputJsonValue,
-    },
+  await writeAuditEntry(prisma, SSO_ROLE_SYNC_ACTION, {
+    actorId: user.id,
+    actorEmail: user.email,
+    details: { ...diagnostic, message: diagnosticMessage(diagnostic) } as unknown as Prisma.InputJsonObject,
   });
 }

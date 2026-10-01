@@ -23,8 +23,8 @@ export interface AuthMeFiliale {
  * JwtStrategy.validate() : le `select` complet de la stratégie, plus
  * `mustChangePassword` recalculé (indicateur en base OU mot de passe local de
  * plus de 90 jours). Contrairement à GET /users, cette forme n'a ni
- * `isManualAccount`, ni `lastLdapSync`, ni `createdAt`/`updatedAt`, mais
- * contient `passwordChangedAt`.
+ * `civilite`, ni `lastLdapSync`, ni `createdAt`/`updatedAt`, mais contient
+ * `passwordChangedAt`.
  */
 export interface AuthMeResponse {
   id: string;
@@ -42,6 +42,9 @@ export interface AuthMeResponse {
   isItStaff: boolean;
   role: UserRole;
   isLocalAccount: boolean;
+  /** Compte créé à la main (compagnon de chantier). Toujours `false` ici en
+   *  pratique : un tel compte n'a pas de mot de passe et ne se connecte pas. */
+  isManualAccount: boolean;
   /** Valeur effective, recalculée à chaque requête. */
   mustChangePassword: boolean;
   passwordChangedAt: IsoDateTime | null;
@@ -65,8 +68,10 @@ export interface LocalAuthStatusResponse {
  * POST /auth/local-login (201) — connexion réussie, cookies posés.
  * `mustChangePassword` indique qu'il faut changer le mot de passe avant
  * toute autre action (le serveur refuse sinon en 403).
- * Échecs au format `NestErrorBody` : 401 pour un compte verrouillé, 403 si
- * l'authentification locale est désactivée, 400 pour un corps invalide.
+ * Échecs au format `ApiErrorBody` : 401 `account_locked` pour un compte
+ * verrouillé (anti force brute), 401 `unauthorized` pour des identifiants
+ * incorrects, 403 si l'authentification locale est désactivée, 400 pour un
+ * corps invalide.
  */
 export interface LocalLoginResponse {
   ok: true;
@@ -83,3 +88,9 @@ export type LogoutResponse = OkResponse;
 /** POST /auth/change-password (201) — mot de passe changé, nouveaux cookies
  *  posés pour que la session en cours continue. */
 export type ChangePasswordResponse = OkResponse;
+
+/** Codes d'erreur propres à la connexion (en plus de `CommonApiErrorCode`) :
+ *  `account_locked` (401), compte verrouillé après trop d'échecs ;
+ *  `account_conflict` (409), création SSO concurrente (jamais renvoyé en
+ *  JSON : le retour SSO redirige vers `/login?error=account_conflict`). */
+export type AuthErrorCode = 'account_locked' | 'account_conflict';

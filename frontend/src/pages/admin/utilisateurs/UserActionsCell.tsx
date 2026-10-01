@@ -1,9 +1,15 @@
 import { Button } from '@/components/ui/button';
 import { LockOpen, Pencil, Power } from 'lucide-react';
 import type { User } from '@/types';
+import { accountOrigin, canToggleActive } from './account-origin';
 
-interface UserActionsCellProps {
+/** Cible tactile de 44 px sur téléphone, taille compacte à partir de 640 px. */
+const TOUCH = 'h-11 sm:h-8 gap-1.5';
+
+export interface UserActionsCellProps {
   readonly user: User;
+  readonly currentUserId?: string;
+  readonly directoryActive: boolean;
   readonly unlockingId: string | null;
   readonly onUnlock: (user: User) => void;
   readonly onEdit: (user: User) => void;
@@ -11,50 +17,47 @@ interface UserActionsCellProps {
   readonly onToggleActive: (user: User) => void;
 }
 
-/** Actions de la ligne « Utilisateurs » : déverrouillage (compte local),
- *  modification + activation/désactivation (compte manuel uniquement). Un
- *  compte d'annuaire ne peut pas être modifié ici — phrase explicative
- *  renvoyant vers Active Directory. */
+/**
+ * Actions d'un compte : déverrouillage (compte local), modification (compte
+ * créé à la main), désactivation et réactivation (tout compte, sauf un compte
+ * de l'annuaire quand l'annuaire synchronise : une phrase renvoie alors vers
+ * Active Directory).
+ */
 export function UserActionsCell({
-  user, unlockingId, onUnlock, onEdit, togglingActiveId, onToggleActive,
+  user, currentUserId, directoryActive, unlockingId, onUnlock, onEdit, togglingActiveId, onToggleActive,
 }: UserActionsCellProps) {
+  const origin = accountOrigin(user);
+  const canToggle = canToggleActive(user, directoryActive, currentUserId);
   return (
-    <div className="flex flex-col items-start gap-1.5">
-      {user.isLocalAccount && (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {origin === 'local' && (
+        <Button variant="outline" size="sm" className={TOUCH} disabled={unlockingId === user.id} onClick={() => onUnlock(user)}>
+          <LockOpen className="h-3.5 w-3.5" aria-hidden="true" />
+          {unlockingId === user.id ? 'Déverrouillage…' : 'Déverrouiller'}
+        </Button>
+      )}
+      {origin === 'manual' && (
+        <Button variant="outline" size="sm" className={TOUCH} onClick={() => onEdit(user)}>
+          <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+          Modifier
+        </Button>
+      )}
+      {canToggle && (
         <Button
           variant="outline"
           size="sm"
-          disabled={unlockingId === user.id}
-          onClick={() => onUnlock(user)}
-          className="gap-1.5"
+          className={TOUCH}
+          disabled={togglingActiveId === user.id}
+          onClick={() => onToggleActive(user)}
+          aria-label={`${user.active ? 'Désactiver' : 'Réactiver'} le compte de ${user.displayName}`}
         >
-          <LockOpen className="h-3.5 w-3.5" />
-          {unlockingId === user.id ? 'Déverrouillage...' : 'Déverrouiller'}
+          <Power className="h-3.5 w-3.5" aria-hidden="true" />
+          {user.active ? 'Désactiver' : 'Réactiver'}
         </Button>
       )}
-
-      {user.isManualAccount && (
-        <div className="flex items-center gap-1.5">
-          <Button variant="outline" size="sm" onClick={() => onEdit(user)} className="gap-1.5">
-            <Pencil className="h-3.5 w-3.5" />
-            Modifier
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={togglingActiveId === user.id}
-            onClick={() => onToggleActive(user)}
-            className="gap-1.5"
-          >
-            <Power className="h-3.5 w-3.5" />
-            {user.active ? 'Désactiver' : 'Activer'}
-          </Button>
-        </div>
-      )}
-
-      {!user.isManualAccount && !user.isLocalAccount && (
-        <p className="text-[11px] text-muted-foreground/70">
-          Compte Active Directory : modifiable dans Active Directory
+      {origin === 'directory' && directoryActive && (
+        <p className="text-xs text-muted-foreground">
+          Compte Active Directory : se modifie et se désactive dans Active Directory
         </p>
       )}
     </div>

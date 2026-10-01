@@ -36,8 +36,8 @@ export function BonPicker({ idPrefix, selected, onSelect }: BonPickerProps) {
     const timer = setTimeout(() => {
       setLoading(true);
       setError(null);
-      api.get<PreviewBonOption[]>(`/admin/email-templates/preview-bons?q=${encodeURIComponent(query.trim())}`)
-        .then((r) => { if (!cancelled) setResults(r); })
+      api.getList<PreviewBonOption>(`/email-templates/preview-bons?q=${encodeURIComponent(query.trim())}`)
+        .then((r) => { if (!cancelled) setResults(r.items); })
         .catch((e: unknown) => { if (!cancelled) setError(errorMessage(e, 'Recherche impossible.')); })
         .finally(() => { if (!cancelled) setLoading(false); });
     }, SEARCH_DEBOUNCE_MS);

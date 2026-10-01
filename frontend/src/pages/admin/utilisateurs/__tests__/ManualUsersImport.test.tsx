@@ -10,6 +10,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
     ...actual,
     api: {
       get: vi.fn(),
+      getList: vi.fn(),
       post: vi.fn(),
       put: vi.fn(),
       patch: vi.fn(),
@@ -39,10 +40,8 @@ vi.mock('@/contexts/AuthContext', () => ({
 beforeEach(() => {
   vi.resetAllMocks();
   resetActiveFilialesForTests();
-  vi.mocked(api.get).mockImplementation((path: string) => {
-    if (path.startsWith('/users')) return Promise.resolve({ users: [], total: 0, page: 1, limit: 25 });
-    return Promise.resolve([]);
-  });
+  vi.mocked(api.getList).mockResolvedValue({ items: [], total: 0, page: 1, limit: 25, truncated: false, meta: { directoryActive: true } });
+  vi.mocked(api.get).mockResolvedValue([]);
 });
 
 async function openMenu() {
@@ -98,19 +97,38 @@ describe('Import / export CSV des collaborateurs créés à la main', () => {
     expect(within(report).getByText('Erreur')).toBeInTheDocument();
   });
 
-  it("télécharge l'export et le modèle générés par le serveur", async () => {
+  it("annonce le nombre de comptes créés à la main, puis télécharge l'export généré par le serveur", async () => {
     vi.mocked(api.getFile).mockResolvedValue({ blob: new Blob(['a,b'], { type: 'text/csv' }), filename: 'export.csv', truncated: false });
+    Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:x'), revokeObjectURL: vi.fn() });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    vi.mocked(api.getList).mockImplementation(async (path: string) => ({
+      items: [], total: path.includes('origin=manual') ? 3 : 0, page: 1, limit: 25, truncated: false, meta: { directoryActive: true },
+    }));
+
+    const { user } = renderWithProviders(<UtilisateursPage />);
+    await user.click(await screen.findByRole('button', { name: 'Exporter CSV' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(await within(dialog).findByText('3 comptes créés à la main')).toBeInTheDocument();
+    expect(dialog).toHaveTextContent('quels que soient les filtres de la liste');
+    expect(api.getList).toHaveBeenCalledWith('/users?origin=manual&status=all&page=1&limit=25', expect.anything());
+    expect(api.getFile).not.toHaveBeenCalled();
+
+    await user.click(within(dialog).getByRole('button', { name: /^Exporter$/ }));
+    await waitFor(() => expect(api.getFile).toHaveBeenCalledWith('/users/manual/export'));
+    expect(click).toHaveBeenCalledTimes(1);
+    click.mockRestore();
+  });
+
+  it('télécharge le modèle généré par le serveur', async () => {
+    vi.mocked(api.getFile).mockResolvedValue({ blob: new Blob(['a,b'], { type: 'text/csv' }), filename: 'modele.csv', truncated: false });
     Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:x'), revokeObjectURL: vi.fn() });
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
 
     const { user } = await openMenu();
-    await user.click(await screen.findByRole('menuitem', { name: /Exporter CSV/ }));
-    await waitFor(() => expect(api.getFile).toHaveBeenCalledWith('/users/manual/export'));
-
-    await user.click(await screen.findByRole('button', { name: /Autres actions/ }));
+    expect(screen.queryByRole('menuitem', { name: /Exporter/ })).toBeNull();
     await user.click(await screen.findByRole('menuitem', { name: /Télécharger un modèle/ }));
     await waitFor(() => expect(api.getFile).toHaveBeenCalledWith('/users/manual/import/template'));
-    expect(click).toHaveBeenCalledTimes(2);
+    expect(click).toHaveBeenCalledTimes(1);
     click.mockRestore();
   });
 });

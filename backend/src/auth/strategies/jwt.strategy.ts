@@ -50,6 +50,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         isItStaff: true,
         role: true,
         isLocalAccount: true,
+        isManualAccount: true,
         mustChangePassword: true,
         passwordChangedAt: true,
         active: true,

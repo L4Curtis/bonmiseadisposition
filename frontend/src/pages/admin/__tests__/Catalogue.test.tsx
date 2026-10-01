@@ -9,6 +9,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
     ...actual,
     api: {
       get: vi.fn(),
+      getList: vi.fn(),
       post: vi.fn(),
       put: vi.fn(),
       patch: vi.fn(),
@@ -21,6 +22,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
 });
 
 import { api } from '@/lib/api';
+import { toListResponse } from '@/lib/api-envelope';
 
 const catalogItems = [
   {
@@ -45,6 +47,9 @@ const packs = [
 
 beforeEach(() => {
   vi.resetAllMocks();
+  // Les listes passent par `api.getList`, qui lit la réponse de `api.get`
+  // simulée ci-dessous.
+  vi.mocked(api.getList).mockImplementation(async (path: string) => toListResponse(await api.get(path)));
   vi.mocked(api.get).mockImplementation((path: string) => {
     if (path === '/equipment/catalog') return Promise.resolve(catalogItems);
     if (path === '/equipment/packs') return Promise.resolve(packs);
@@ -167,8 +172,8 @@ describe('CataloguePage', () => {
     expect(screen.getByRole('button', { name: 'Télécharger le modèle CSV' })).toBeInTheDocument();
   });
 
-  it('pagine la table du catalogue au-delà de 10 équipements', async () => {
-    const manyItems = Array.from({ length: 12 }, (_, i) => ({
+  it('pagine la table du catalogue au-delà de 25 articles (pagination commune)', async () => {
+    const manyItems = Array.from({ length: 27 }, (_, i) => ({
       id: `m${i}`,
       category: 'autre',
       brand: 'Marque',
@@ -183,15 +188,13 @@ describe('CataloguePage', () => {
     const { user } = renderWithProviders(<CataloguePage />);
 
     await screen.findByText('Modele-00');
-    expect(screen.queryByText('Modele-11')).not.toBeInTheDocument();
-    // Le texte « Page 1 sur 2 » est réparti sur plusieurs éléments (nombres
-    // dans des <span> imbriqués) : on compare le textContent complet plutôt
-    // que le texte direct utilisé par le matcher par défaut de getByText.
-    expect(screen.getByText((_, el) => el?.textContent === 'Page 1 sur 2')).toBeInTheDocument();
+    expect(screen.queryByText('Modele-26')).not.toBeInTheDocument();
+    expect(screen.getByText('1–25 sur 27 articles')).toBeInTheDocument();
+    expect(screen.getByText('Page 1 sur 2')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Page suivante' }));
 
-    expect(await screen.findByText('Modele-11')).toBeInTheDocument();
+    expect(await screen.findByText('Modele-26')).toBeInTheDocument();
     expect(screen.queryByText('Modele-00')).not.toBeInTheDocument();
   });
 

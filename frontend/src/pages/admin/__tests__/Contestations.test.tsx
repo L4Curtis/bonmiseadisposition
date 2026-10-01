@@ -9,6 +9,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
     ...actual,
     api: {
       get: vi.fn(),
+      getList: vi.fn(),
       post: vi.fn(),
       put: vi.fn(),
       patch: vi.fn(),
@@ -48,28 +49,31 @@ function contestation(extra: Partial<ContestationListItem> = {}): ContestationLi
   };
 }
 
-function response(overrides: Partial<ContestationListResponse> = {}): ContestationListResponse {
+/** Réponse de GET /contestations : liste commune, compteurs dans `meta`. */
+function response(): ContestationListResponse {
   return {
-    contestations: [
+    items: [
       contestation(),
       contestation({ id: 'c2', createdAt: '2026-09-20T10:00:00.000Z', user: { id: 'u2', displayName: 'Léa Martin', email: null } }),
     ],
     total: 2,
     page: 1,
-    limit: 20,
-    openCount: 2,
-    pendingCount: 2,
-    overdueCount: 1,
-    overdueAfterDays: 7,
-    // Seuil calculé par le serveur (7 jours ouvrés avant maintenant).
-    overdueSince: '2026-09-10T07:00:00.000Z',
-    ...overrides,
+    limit: 25,
+    truncated: false,
+    meta: {
+      openCount: 2,
+      pendingCount: 2,
+      overdueCount: 1,
+      overdueAfterDays: 7,
+      // Seuil calculé par le serveur (7 jours ouvrés avant maintenant).
+      overdueSince: '2026-09-10T07:00:00.000Z',
+    },
   };
 }
 
 beforeEach(() => {
   vi.resetAllMocks();
-  vi.mocked(api.get).mockResolvedValue(response());
+  vi.mocked(api.getList).mockResolvedValue(response());
 });
 
 describe('ContestationsPage', () => {
@@ -80,7 +84,7 @@ describe('ContestationsPage', () => {
     expect(screen.getAllByText('BMD-2026-0001').length).toBeGreaterThan(0);
     expect(screen.getByText(/2 à traiter/)).toBeInTheDocument();
     expect(screen.getByText(/1 en attente depuis plus de 7 jours ouvrés/)).toBeInTheDocument();
-    expect(api.get).toHaveBeenCalledWith(expect.stringContaining('aTraiter=1'));
+    expect(api.getList).toHaveBeenCalledWith(expect.stringContaining('aTraiter=1'));
   });
 
   it('« en retard » suit le seuil du serveur, pas le nombre de jours de calendrier', async () => {

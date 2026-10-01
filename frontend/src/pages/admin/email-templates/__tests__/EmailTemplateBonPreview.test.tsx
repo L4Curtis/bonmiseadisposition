@@ -11,6 +11,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
     ...actual,
     api: {
       get: vi.fn(),
+      getList: vi.fn(),
       post: vi.fn(),
       put: vi.fn(),
       patch: vi.fn(),
@@ -59,11 +60,16 @@ const BON = {
   filialeName: 'Livio Nord',
 };
 
+/** Réponse de liste à la forme unique de l'API. */
+function listOf<T>(items: T[]) {
+  return { items, total: items.length, page: 1, limit: items.length, truncated: false };
+}
+
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.mocked(api.getList).mockResolvedValue(listOf([BON]) as never);
   vi.mocked(api.get).mockImplementation((path: string) => {
     if (path.endsWith('/preview')) return Promise.resolve({ html: '<p>exemple</p>' });
-    if (path.startsWith('/admin/email-templates/preview-bons')) return Promise.resolve([BON]);
     if (path.includes('/preview-bon/')) {
       return Promise.resolve({
         html: '<p>reel</p>',
@@ -80,7 +86,7 @@ describe('EmailTemplatePreview — aperçu avec un bon réel', () => {
   it('affiche d’abord les données d’exemple', async () => {
     renderWithProviders(<EmailTemplatePreview template={signatureTemplate} open onClose={vi.fn()} />);
 
-    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/admin/email-templates/mise_disposition_request/preview'));
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/email-templates/mise_disposition_request/preview'));
     expect(screen.getByRole('button', { name: "Données d'exemple" })).toHaveAttribute('aria-pressed', 'true');
   });
 
@@ -90,12 +96,12 @@ describe('EmailTemplatePreview — aperçu avec un bon réel', () => {
     await user.click(screen.getByRole('button', { name: 'Un bon réel' }));
     await user.type(screen.getByLabelText('Bon à utiliser (recherche par référence)'), '0107');
 
-    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/admin/email-templates/preview-bons?q=0107'));
+    await waitFor(() => expect(api.getList).toHaveBeenCalledWith('/email-templates/preview-bons?q=0107'));
     const results = await screen.findByRole('list', { name: 'Bons trouvés' });
     await user.click(within(results).getByRole('button', { name: /BON-2026-0107/ }));
 
     await waitFor(() => expect(api.get).toHaveBeenCalledWith(
-      `/admin/email-templates/mise_disposition_request/preview-bon/${BON.id}`,
+      `/email-templates/mise_disposition_request/preview-bon/${BON.id}`,
     ));
     expect(await screen.findByText(/Le lien de signature est factice/)).toBeInTheDocument();
     expect(screen.getByText('[BON-2026-0107] Bon de mise à disposition à signer — Livio Nord')).toBeInTheDocument();
@@ -106,14 +112,14 @@ describe('EmailTemplatePreview — aperçu avec un bon réel', () => {
   it('ne propose pas de bon pour un modèle qui ne porte pas sur un bon', async () => {
     renderWithProviders(<EmailTemplatePreview template={departureTemplate} open onClose={vi.fn()} />);
 
-    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/admin/email-templates/departure_alert/preview'));
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/email-templates/departure_alert/preview'));
     expect(screen.queryByRole('button', { name: 'Un bon réel' })).not.toBeInTheDocument();
   });
 });
 
 describe('EmailTemplateTestDialog — test avec un bon réel', () => {
   it('envoie le test avec le bon choisi', async () => {
-    vi.mocked(api.post).mockResolvedValue({ success: true, message: 'Email de test envoyé à admin@livio.fr.' });
+    vi.mocked(api.post).mockResolvedValue({ ok: true, message: 'Email de test envoyé à admin@livio.fr.' });
     const { user } = renderWithProviders(<EmailTemplateTestDialog template={signatureTemplate} open onClose={vi.fn()} />);
 
     const send = screen.getByRole('button', { name: 'Envoyer le test' });
@@ -125,19 +131,19 @@ describe('EmailTemplateTestDialog — test avec un bon réel', () => {
     await user.click(send);
 
     await waitFor(() => expect(api.post).toHaveBeenCalledWith(
-      '/admin/email-templates/mise_disposition_request/test-bon',
+      '/email-templates/mise_disposition_request/test-bon',
       { email: 'admin@livio.fr', bonId: BON.id },
     ));
   });
 
   it('garde l’envoi avec les données d’exemple par défaut', async () => {
-    vi.mocked(api.post).mockResolvedValue({ success: true, message: 'ok' });
+    vi.mocked(api.post).mockResolvedValue({ ok: true, message: 'ok' });
     const { user } = renderWithProviders(<EmailTemplateTestDialog template={signatureTemplate} open onClose={vi.fn()} />);
 
     await user.click(screen.getByRole('button', { name: 'Envoyer le test' }));
 
     await waitFor(() => expect(api.post).toHaveBeenCalledWith(
-      '/admin/email-templates/mise_disposition_request/test',
+      '/email-templates/mise_disposition_request/test',
       { email: 'admin@livio.fr' },
     ));
   });

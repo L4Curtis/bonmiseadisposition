@@ -1,5 +1,6 @@
 import { api } from '@/lib/api';
-import { ConfigSection, type TestResult } from '@/components/admin/ConfigSection';
+import { ConfigSection } from '@/components/admin/ConfigSection';
+import type { ConnectionTestResponse } from '@/contracts/admin';
 
 export function ConfigSmbPage() {
   return (
@@ -9,7 +10,7 @@ export function ConfigSmbPage() {
       <ConfigSection
         title="Export SMB (Partage réseau)"
         category="smb"
-        onTest={() => api.post<TestResult>('/admin/config/test/smb')}
+        onTest={() => api.post<ConnectionTestResponse>('/admin/config/test/smb')}
         testLabel="Tester la connexion SMB"
         fields={[
           { key: 'enabled', label: 'Export SMB activé', toggle: true },

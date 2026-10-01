@@ -9,7 +9,12 @@ export function ConfigTokensPage() {
         title="Tokens de signature"
         category="tokens"
         fields={[
-          { key: 'expiry_days', label: 'Expiration (jours)', placeholder: '30' },
+          {
+            key: 'expiry_days',
+            label: 'Validité des liens de signature (jours)',
+            type: 'number',
+            help: 'Entre 1 et 30 jours.',
+          },
         ]}
       />
     </>

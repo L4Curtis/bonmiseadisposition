@@ -42,8 +42,8 @@ export function useCatalogueItems(): UseCatalogueItemsResult {
    *  réponse ne décrit pas individuellement chaque équipement créé/réactivé. */
   const reloadCatalog = async (): Promise<void> => {
     try {
-      const data = await api.get<CatalogItem[]>('/equipment/catalog');
-      setItems(data);
+      const { items: catalog } = await api.getList<CatalogItem>('/equipment/catalog');
+      setItems(catalog);
     } catch (e: unknown) {
       showActionError(e, 'Erreur lors du rechargement du catalogue');
     }

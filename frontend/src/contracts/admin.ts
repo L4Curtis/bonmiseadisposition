@@ -6,16 +6,20 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Contrats de l'API — administration : supervision (état des tâches planifiées,
- * emails en échec, diagnostic SSO), export SMB, configuration par rubrique,
- * tests de connexion, synchronisation LDAP et régénération des PDF manquants.
+ * Contrats de l'API — administration (réglages et exploitation) : supervision
+ * (état des tâches planifiées, emails en échec, diagnostic SSO), copie réseau
+ * des PDF (SMB), configuration par rubrique, tests de connexion,
+ * synchronisation de l'annuaire et régénération des PDF manquants.
  *
- * Contrôleurs : `admin/admin.controller.ts` (préfixe `/api/admin`) et
- * `pdf/pdf-admin.controller.ts` (préfixe `/api/admin/pdf`). Toutes ces routes
- * sont réservées à l'administrateur.
+ * Contrôleurs : `admin/admin.controller.ts` (supervision),
+ * `admin/config.controller.ts` (`/api/admin/config`),
+ * `admin/admin-ldap.controller.ts` (`/api/admin/ldap`),
+ * `admin/admin-smb.controller.ts` (`/api/admin/smb`) et
+ * `pdf/pdf-admin.controller.ts` (`/api/admin/pdf`). Toutes ces routes sont
+ * réservées à l'administrateur.
  */
 
-import type { IsoDateTime, NotificationType, OkResponse, ScheduledJobStatus, UserRole } from './common';
+import type { IsoDateTime, ListResponse, NotificationType, OkResponse, ScheduledJobStatus, UserRole } from './common';
 
 // ─── Emails en échec ──────────────────────────────────────────────────────────
 
@@ -23,9 +27,9 @@ import type { IsoDateTime, NotificationType, OkResponse, ScheduledJobStatus, Use
 export interface FailedNotificationItem {
   /** Identifiant de la ligne du journal des notifications. */
   id: string;
-  /** Bon concerné (relation obligatoire en base : jamais `null` en pratique). */
+  /** Bon concerné. */
   bonId: string;
-  /** Référence du bon, « — » si le bon est introuvable. */
+  /** Référence du bon. */
   reference: string;
   /** Adresse du destinataire. */
   recipient: string;
@@ -35,18 +39,19 @@ export interface FailedNotificationItem {
   error: string;
 }
 
+/** Données annexes de la liste des emails en échec. */
+export interface FailedNotificationsMeta {
+  /** Fenêtre appliquée, en jours. */
+  windowDays: number;
+}
+
 /**
  * GET /api/admin/notifications/failed?days= — emails en échec des `days`
- * derniers jours (défaut 30, borné entre 1 et 365 ; une valeur illisible
- * reprend le défaut). Réservé à l'administrateur.
+ * derniers jours (30 par défaut, de 1 à 365 ; hors bornes : 400). Les 100 plus
+ * récents dans `items`, `total` compte tous ceux de la fenêtre (`truncated`
+ * vrai s'il y en a plus de 100).
  */
-export interface FailedNotificationsResponse {
-  /** Nombre total d'échecs sur la fenêtre (peut dépasser la longueur de `items`). */
-  count: number;
-  /** Fenêtre réellement appliquée, en jours. */
-  windowDays: number;
-  items: FailedNotificationItem[];
-}
+export type FailedNotificationsResponse = ListResponse<FailedNotificationItem, FailedNotificationsMeta>;
 
 // ─── État de l'application et des tâches planifiées ──────────────────────────
 
@@ -114,10 +119,9 @@ export interface SsoDiagnosticEntry {
 
 /**
  * GET /api/admin/sso/diagnostic?limit= — dernières connexions SSO, les plus
- * récentes d'abord (10 par défaut, borné entre 1 et 50). Réservé à
- * l'administrateur.
+ * récentes d'abord (10 par défaut, de 1 à 50 ; hors bornes : 400).
  */
-export type SsoDiagnosticResponse = SsoDiagnosticEntry[];
+export type SsoDiagnosticResponse = ListResponse<SsoDiagnosticEntry>;
 
 // ─── Export SMB ───────────────────────────────────────────────────────────────
 
@@ -154,32 +158,22 @@ export interface SmbFailedExport {
 
 /**
  * GET /api/admin/smb/failed — les 100 exports en échec les plus récents ;
- * tableau vide quand l'export SMB est désactivé.
+ * liste vide quand la copie réseau est désactivée.
  */
-export type SmbFailedExportsResponse = SmbFailedExport[];
-
-/** Relance réussie (ou export déjà réussi auparavant). */
-export interface SmbRetrySuccess {
-  success: true;
-}
-
-/** Relance en échec : export introuvable, snapshot PDF introuvable, chemin
- *  invalide ou partage non monté, erreur d'écriture. */
-export interface SmbRetryFailure {
-  success: false;
-  error: string;
-}
+export type SmbFailedExportsResponse = ListResponse<SmbFailedExport>;
 
 /**
- * POST /api/admin/smb/retry/:id — relance d'un export. Répond 201 dans les
- * deux branches (y compris « Export introuvable ») ; seul l'export SMB
- * désactivé produit une erreur 400.
+ * POST /api/admin/smb/retry/:id — relance d'un export. 200 `{ ok, message }` :
+ * `ok` faux quand la relance a échoué (PDF introuvable, partage non monté,
+ * erreur d'écriture), `message` dit pourquoi. 404 pour un export inconnu, 400
+ * `smb_disabled` quand la copie réseau est désactivée.
  */
-export type SmbRetryOneResponse = SmbRetrySuccess | SmbRetryFailure;
+export type SmbRetryOneResponse = ConnectionTestResponse;
 
 /**
  * POST /api/admin/smb/retry-all — relance des exports en échec ayant moins de
- * 3 tentatives (50 au plus). Erreur 400 si l'export SMB est désactivé.
+ * 3 tentatives (50 au plus), 200. 400 `smb_disabled` quand la copie réseau est
+ * désactivée.
  */
 export interface SmbRetryAllResponse {
   retried: number;
@@ -336,42 +330,37 @@ export interface ConfigValuesByCategory {
 
 /**
  * GET /api/admin/config/:category — dictionnaire des valeurs enregistrées de
- * la rubrique (voir les règles ci-dessus). Réservé à l'administrateur ; une
- * rubrique inconnue répond 400. Une clé retirée de la liste autorisée mais
- * restée en base serait elle aussi renvoyée.
+ * la rubrique (voir les règles ci-dessus). Une rubrique inconnue répond 400
+ * `unknown_config_category`. La valeur réellement appliquée (défaut compris)
+ * se lit sur GET /api/admin/config/registry.
  */
 export type ConfigSectionResponse<C extends ConfigCategory = ConfigCategory> = ConfigValuesByCategory[C];
 
 /**
  * PUT /api/admin/config/:category — enregistrement des valeurs envoyées
- * (chaînes uniquement, clés autorisées de la rubrique ; un secret envoyé vide
- * est ignoré). Réservé à l'administrateur.
+ * (chaînes uniquement, réglages du registre). Une valeur vide efface la saisie
+ * (le défaut s'applique de nouveau) ; un secret envoyé vide est ignoré. Une
+ * valeur hors bornes ou mal formée répond 400 `validation_failed` (libellé et
+ * bornes dans `message`), un réglage inconnu 400 `unknown_config_key`. Chaque
+ * changement est tracé au journal (`config_updated`), un secret seulement
+ * comme « modifié ».
  */
 export type ConfigUpdateResponse = OkResponse;
 
 // ─── Tests de connexion ───────────────────────────────────────────────────────
 
-export interface ConnectionTestSuccess {
-  success: true;
-  message: string;
-}
-
-/** Échec du test : le message explique la cause (configuration incomplète,
- *  serveur injoignable, identifiants refusés…). */
-export interface ConnectionTestFailure {
-  success: false;
-  message: string;
-}
-
 /**
  * POST /api/admin/config/test/ldap, POST /api/admin/config/test/smtp,
  * POST /api/admin/config/test/entra, POST /api/admin/config/test/smb — test
- * de connexion avec la configuration enregistrée. Répond 201 dans les deux
- * branches, l'échec étant porté par `success: false` et `message`. Seul le
- * test SMTP peut répondre 400, quand `testEmail` est fourni et invalide.
- * Réservé à l'administrateur.
+ * de connexion avec la configuration enregistrée. Répond 200 dans les deux
+ * cas : `ok` dit si le test a réussi, `message` l'explique (configuration
+ * incomplète, serveur injoignable, identifiants refusés…). Seul le test SMTP
+ * peut répondre 400, quand `testEmail` est fourni et invalide.
  */
-export type ConnectionTestResponse = ConnectionTestSuccess | ConnectionTestFailure;
+export interface ConnectionTestResponse {
+  ok: boolean;
+  message: string;
+}
 
 // ─── Synchronisation LDAP ─────────────────────────────────────────────────────
 
@@ -402,19 +391,21 @@ export interface OkMessageResponse extends OkResponse {
 }
 
 /**
- * POST /api/admin/ldap/sync — synchronisation lancée en arrière-plan ; la
+ * POST /api/admin/ldap/sync — synchronisation lancée en arrière-plan (200) ; la
  * réponse n'attend pas son résultat (à lire ensuite sur /admin/ldap/status).
- * Réservé à l'administrateur.
+ * Débit limité (5 par minute).
  */
 export type LdapSyncTriggerResponse = OkMessageResponse;
 
 /**
- * DELETE /api/admin/ldap/users — désactivation (jamais la suppression) des
- * comptes collaborateurs issus de LDAP. Le nombre de comptes désactivés n'est
- * disponible que dans `message` (« N utilisateur(s) LDAP désactivé(s) »).
- * Réservé à l'administrateur.
+ * POST /api/admin/ldap/deactivate-all — désactivation (jamais la suppression)
+ * des comptes collaborateurs venus de l'annuaire (200). L'ancien chemin
+ * `DELETE /api/admin/ldap/users` reste servi en alias déprécié. Débit limité.
  */
-export type LdapUsersDeactivateResponse = OkMessageResponse;
+export interface LdapDeactivateAllResponse extends OkMessageResponse {
+  /** Nombre de comptes désactivés. */
+  deactivated: number;
+}
 
 // ─── PDF de preuve ────────────────────────────────────────────────────────────
 

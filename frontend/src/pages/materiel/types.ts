@@ -1,38 +1,10 @@
 import { formatDate } from '@/lib/dates';
-import type { BonStatus } from '@/types';
-import type { EquipmentHolding } from '@/contracts/equipment';
+import type { EquipmentHistoryEntry, EquipmentHolding } from '@/contracts/equipment';
 
 /** Une entrée de l'historique : un bon où ce matériel est apparu (référencé
- *  par son n° de série OU son n° d'inventaire — lot L1, les deux comptent
- *  autant l'un que l'autre). */
-export interface MaterielHistoryEntry {
-  equipmentId: string;
-  serialNumber: string | null;
-  inventoryNumber: string | null;
-  label: string | null;
-  returnedAt: string | null;
-  notReturned: boolean;
-  /** Situation sur ce bon, calculée par le serveur (brouillon = rien de remis). */
-  holding: EquipmentHolding;
-  bon: {
-    id: string;
-    reference: string;
-    status: BonStatus;
-    dateMiseDisposition: string;
-    dateRestitution?: string | null;
-    collaborateur: { displayName: string; email: string };
-    filiale: { displayName: string };
-  };
-}
-
-/** Réponse de GET /equipment/history. Le backend renvoie une ENVELOPPE,
- *  pas un tableau : `truncated` signale que l'historique dépasse la limite
- *  de 200 bons, et `total` donne le compte réel. Lire `items`. */
-export interface MaterielHistoryResponse {
-  items: MaterielHistoryEntry[];
-  truncated: boolean;
-  total: number;
-}
+ *  par son n° de série OU son n° d'inventaire, les deux comptent autant), avec
+ *  sa situation sur ce bon calculée par le serveur (brouillon = rien de remis). */
+export type MaterielHistoryEntry = EquipmentHistoryEntry;
 
 export type CurrentHolderKind = 'chez_collaborateur' | 'a_signer' | 'prevu' | 'rendu' | 'non_restitue' | 'aucun';
 

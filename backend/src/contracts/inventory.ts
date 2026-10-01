@@ -3,11 +3,13 @@
  * (`backend/src/reporting/`, contrôleur `reporting/inventory`).
  *
  * Accès : admin, technician, direction. L'export CSV
- * (`GET /api/reporting/inventory/export`) ne renvoie pas de JSON et n'est donc
- * pas décrit ici.
+ * (`GET /api/reporting/inventory/export`, mêmes filtres et même tri que la
+ * liste) ne renvoie pas de JSON : nom de fichier `inventaire-AAAA-MM-JJ.csv`,
+ * plafond `meta.exportLimit` de la liste, en-tête `X-Truncated: true` quand le
+ * fichier est coupé.
  */
 
-import type { BonStatus, EquipmentCategory, IsoDateTime } from './common';
+import type { BonStatus, EquipmentCategory, IsoDateTime, ListResponse } from './common';
 
 // ─── Briques partagées (aussi utilisées par kpi.ts) ───────────────────────────
 
@@ -105,18 +107,24 @@ export interface InventoryItem {
   filiale: InventoryFiliale;
 }
 
-/** GET /api/reporting/inventory — liste paginée des équipements du parc en
- *  circulation (filtres `filialeId`, `category`, `collaborateurId`,
- *  `situation`, `overdue`, `sansNumeroSerie`, `horsCatalogue`, `search`, tri
- *  `sort`/`direction`). `situation=non_restitue` liste à la place les
- *  équipements encore non restitués (carte « Encore non restitués »).
- *  `limit` vaut 50 par défaut, 200 au plus. */
-export interface InventoryListResponse {
-  items: InventoryItem[];
-  total: number;
-  page: number;
-  limit: number;
+/** Données annexes de la liste de l'inventaire. */
+export interface InventoryListMeta {
+  /** Plafond de lignes de l'export CSV (`/reporting/inventory/export`) :
+   *  au-delà, le fichier est coupé (en-tête `X-Truncated: true`). L'écran
+   *  compare `total` à ce plafond pour prévenir avant d'exporter. */
+  exportLimit: number;
 }
+
+/** GET /api/reporting/inventory — liste paginée des équipements du parc en
+ *  circulation, à la forme unique des listes (`truncated` toujours faux).
+ *  Filtres `filialeId`, `category`, `collaborateurId`, `situation`,
+ *  `overdue` (« Retour en retard »), `sansNumeroSerie`, `horsCatalogue`,
+ *  `search`, tri `sort`/`direction`. `situation=non_restitue` liste à la
+ *  place les équipements encore non restitués (carte « Encore non
+ *  restitués »). `page` ≥ 1 ; `limit` 25 (défaut), 50, 100 ou 200, toute
+ *  autre valeur refusée en 400. L'export CSV prend les mêmes filtres et le
+ *  même tri, sans pagination. */
+export type InventoryListResponse = ListResponse<InventoryItem, InventoryListMeta>;
 
 // ─── GET /api/reporting/inventory/summary ─────────────────────────────────────
 
@@ -127,8 +135,11 @@ export interface InventorySummaryResponse {
   byCategory: ParcCategoryCount[];
   byFiliale: ParcFilialeCount[];
   bySituation: ParcSituationCount[];
-  /** Équipements dont la date de restitution prévue est dépassée (jour civil
-   *  Europe/Paris). */
+  /** « Retour en retard » : équipements dont la date de restitution prévue
+   *  est dépassée (jour civil Europe/Paris). */
+  overdueReturns: number;
+  /** @deprecated Ancien nom de `overdueReturns` (même valeur), servi pendant
+   *  la vague 3 puis retiré. */
   overdue: number;
   /** Équipements encore non restitués (hors parc, bons clôturés compris,
    *  jamais sur un bon annulé) : option « Non restitué » du filtre. */
@@ -156,7 +167,11 @@ export interface InventoryCollaborateurItem {
   active: boolean;
   /** Nombre d'équipements détenus (dans le jeu filtré). */
   count: number;
-  /** Nombre d'équipements en retard de restitution. */
+  /** « Retour en retard » : équipements dont la date de restitution prévue
+   *  est dépassée (dans le jeu filtré). */
+  overdueReturns: number;
+  /** @deprecated Ancien nom de `overdueReturns` (même valeur), servi pendant
+   *  la vague 3 puis retiré. */
   overdueCount: number;
   /** Colonne `@db.Date` du prêt le plus ancien : minuit UTC du jour civil. */
   oldestDateMiseDisposition: IsoDateTime;
@@ -166,16 +181,11 @@ export interface InventoryCollaborateurItem {
 }
 
 /** GET /api/reporting/inventory/by-collaborateur — parc regroupé par
- *  collaborateur, paginé et trié après regroupement (`sort` = `count` ou
- *  `oldest`). Mêmes filtres que la liste, sauf `collaborateurId`, plus
- *  `compte` (`actif` | `inactif`) : la forme est identique avec
- *  `?compte=inactif`, chaque élément ayant alors `active: false`.
- *  `truncated` signale un regroupement fait sur les 10 000 premiers
- *  équipements seulement (doublé par l'en-tête `X-Truncated: true`). */
-export interface InventoryByCollaborateurResponse {
-  items: InventoryCollaborateurItem[];
-  total: number;
-  page: number;
-  limit: number;
-  truncated: boolean;
-}
+ *  collaborateur, à la forme unique des listes, paginé et trié après
+ *  regroupement (`sort` = `count` ou `oldest` ; `limit` 25, 50, 100 ou 200).
+ *  Mêmes filtres que la liste, sauf `collaborateurId`, plus `compte`
+ *  (`actif` | `inactif`) : la forme est identique avec `?compte=inactif`,
+ *  chaque élément ayant alors `active: false`. `truncated` signale un
+ *  regroupement fait sur les 10 000 premiers équipements seulement (doublé
+ *  par l'en-tête `X-Truncated: true`). */
+export type InventoryByCollaborateurResponse = ListResponse<InventoryCollaborateurItem>;

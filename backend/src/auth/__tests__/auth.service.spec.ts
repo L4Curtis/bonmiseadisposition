@@ -15,6 +15,7 @@ vi.mock('fs', async (importOriginal) => ({
 }));
 import { existsSync, unlinkSync } from 'fs';
 import { AppConfigService } from '../../config/config.service';
+import { ConfigRegistryService } from '../../config/config-registry.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
 import { createMockConfigService } from '../../common/__tests__/helpers/mock-services';
@@ -47,6 +48,7 @@ describe('AuthService', () => {
       configService as unknown as AppConfigService,
       prisma as unknown as PrismaService,
       jwtService as unknown as JwtService,
+      new ConfigRegistryService(configService as unknown as AppConfigService, {}),
     );
   });
 
@@ -144,15 +146,33 @@ describe('AuthService', () => {
       ).rejects.toThrow(UnauthorizedException);
     });
 
-    it('should throw UnauthorizedException when brute-force locked (10+ failures for this account+IP)', async () => {
+    it('should throw 401 account_locked when brute-force locked (10+ failures for this account+IP)', async () => {
       prisma.auditLog.count.mockResolvedValue(10);
 
       await expect(
         service.localLogin('locked@local', 'Whatever1!@#', TEST_IP),
-      ).rejects.toThrow(UnauthorizedException);
+      ).rejects.toMatchObject({ code: 'account_locked', status: 401 });
 
       // Should NOT even try to look up the user
       expect(prisma.user.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('compte les échecs du compte depuis le dernier déverrouillage, sans rien effacer', async () => {
+      const unlockedAt = new Date(Date.now() - 5 * 60 * 1000);
+      prisma.auditLog.findFirst.mockResolvedValue({ createdAt: unlockedAt });
+      prisma.auditLog.count.mockResolvedValue(0);
+      prisma.user.findFirst.mockResolvedValue(null);
+
+      await expect(service.localLogin('locked@local', 'Whatever1!@#', TEST_IP)).rejects.toThrow(UnauthorizedException);
+
+      expect(prisma.auditLog.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ action: 'user_unlocked' }) }),
+      );
+      type CountArgs = { where: { createdAt: { gte: Date } } };
+      const [accountCount, ipCount] = prisma.auditLog.count.mock.calls.map((call) => (call[0] as CountArgs).where);
+      expect(accountCount.createdAt.gte).toEqual(unlockedAt);
+      // Le compteur par adresse garde sa fenêtre de 30 minutes.
+      expect(ipCount.createdAt.gte.getTime()).toBeLessThan(unlockedAt.getTime());
     });
 
     it('should lock by account+IP but NOT by email alone (LOT C bug #2)', async () => {
@@ -177,7 +197,7 @@ describe('AuthService', () => {
 
       await expect(
         service.localLogin('anyone@local', 'Whatever1!@#', TEST_IP),
-      ).rejects.toThrow(UnauthorizedException);
+      ).rejects.toMatchObject({ code: 'account_locked', status: 401 });
       expect(prisma.user.findFirst).not.toHaveBeenCalled();
     });
 

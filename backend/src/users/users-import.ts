@@ -10,6 +10,7 @@ import {
 import {
   buildManualDisplayName, buildManualSamAccountBase, generateUniqueManualSamAccountName,
 } from './manual-account.util';
+import { writeAuditEntry } from '../audit/audit-record';
 
 const logger = new Logger('UsersImport');
 
@@ -354,21 +355,16 @@ export async function importManualUsers(
   }
 
   const result = summarize(lines);
-  await prisma.auditLog
-    .create({
-      data: {
-        userId: actorId,
-        action: 'users_imported',
-        details: {
-          created: result.created,
-          updated: result.updated,
-          skipped: result.skipped,
-          errorCount: result.errors.length,
-        },
-      },
-    })
-    .catch((err: unknown) => {
-      logger.error(`Audit users_imported non journalisé : ${err instanceof Error ? err.message : String(err)}`);
-    });
+  await writeAuditEntry(prisma, 'users_imported', {
+    actorId,
+    details: {
+      created: result.created,
+      updated: result.updated,
+      skipped: result.skipped,
+      errorCount: result.errors.length,
+    },
+  }).catch((err: unknown) => {
+    logger.error(`Audit users_imported non journalisé : ${err instanceof Error ? err.message : String(err)}`);
+  });
   return result;
 }

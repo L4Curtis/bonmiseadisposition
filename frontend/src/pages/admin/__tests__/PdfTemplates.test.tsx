@@ -9,6 +9,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
     ...actual,
     api: {
       get: vi.fn(),
+      getList: vi.fn(),
       post: vi.fn(),
       put: vi.fn(),
       patch: vi.fn(),
@@ -41,12 +42,17 @@ const templates = [
   },
 ];
 
+/** Réponse de liste à la forme unique de l'API. */
+function listOf<T>(items: T[]) {
+  return { items, total: items.length, page: 1, limit: items.length, truncated: false };
+}
+
 beforeEach(() => {
   vi.resetAllMocks();
-  vi.mocked(api.get).mockImplementation((path: string) => {
-    if (path === '/admin/pdf-templates') return Promise.resolve(templates);
-    return Promise.resolve(null);
-  });
+  vi.mocked(api.getList).mockImplementation((path: string) =>
+    Promise.resolve(listOf(path === '/pdf-templates' ? templates : [])) as never,
+  );
+  vi.mocked(api.get).mockResolvedValue(null);
 });
 
 describe('PdfTemplatesPage', () => {
@@ -55,7 +61,7 @@ describe('PdfTemplatesPage', () => {
 
     expect(await screen.findByText('Mise à disposition')).toBeInTheDocument();
     expect(screen.getByText('Restitution')).toBeInTheDocument();
-    expect(api.get).toHaveBeenCalledWith('/admin/pdf-templates');
+    expect(api.getList).toHaveBeenCalledWith('/pdf-templates');
   });
 
   it('affiche le badge "Personnalisé" uniquement pour les modeles personnalises', async () => {

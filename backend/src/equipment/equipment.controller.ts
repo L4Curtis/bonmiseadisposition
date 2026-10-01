@@ -1,8 +1,9 @@
 import {
   Controller, Get, Post, Put, Delete, Body, Param, Query, Res, UseGuards,
 } from '@nestjs/common';
-import { Response } from 'express';
+import type { Response } from 'express';
 import { EquipmentService } from './equipment.service';
+import { EquipmentHistoryExportQueryDto, EquipmentHistoryQueryDto } from './dto/equipment-history-query.dto';
 import {
   CreateCatalogItemDto, UpdateCatalogItemDto,
   CreatePackDto, UpdatePackDto, ImportCatalogDto,
@@ -12,6 +13,9 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth-user.interface';
+import { DeprecatedAlias } from '../common/http/deprecated-alias';
+import { sendCsv } from '../common/csv';
+import { toFullListResponse, toListResponse } from '../common/pagination';
 
 // Catalogue et packs sont des données IT internes : lecture comme écriture
 // réservées aux rôles admin/technician, posés une fois sur la classe (les
@@ -25,64 +29,45 @@ export class EquipmentController {
 
   // ── Historique matériel (n° de série ou n° d'inventaire) ────
 
-  /** GET /equipment/history?q=SN-1234 — tous les bons où ce matériel apparaît,
-   *  identifié par son n° de série OU son n° d'inventaire (lot L1 — alimente
-   *  la page /materiel/:reference). Ouvert à la direction, en lecture, comme
-   *  l'inventaire (elle n'a en revanche aucun lien vers les bons côté front). */
+  /** GET /equipment/history?q=SN-1234&page=&limit= — une page des bons où ce
+   *  matériel apparaît, identifié par son n° de série OU son n° d'inventaire
+   *  (page /materiel/:reference). Ouvert à la direction, en lecture, comme
+   *  l'inventaire. L'ancien chemin /equipment/serial-history reste servi par
+   *  ce handler, en alias déprécié (common/http/deprecated-alias.ts). */
   @Get('history')
   @Roles('admin', 'technician', 'direction')
-  equipmentHistory(@Query('q') q: string) {
-    return this.equipmentService.getEquipmentHistory(q || '');
+  @DeprecatedAlias('GET /equipment/serial-history')
+  equipmentHistory(@Query() query: EquipmentHistoryQueryDto) {
+    return this.equipmentService.getEquipmentHistory(query.q ?? '', query);
   }
 
-  /** GET /equipment/history/export?q=SN-1234 — export CSV de cet historique (A4). */
+  /** GET /equipment/history/export?q=SN-1234 — tout l'historique en CSV,
+   *  `historique-equipement-AAAA-MM-JJ.csv` (date de Paris), `X-Truncated`
+   *  au-delà du plafond de l'export. */
   @Get('history/export')
   @Roles('admin', 'technician', 'direction')
-  async exportEquipmentHistory(@Query('q') q: string, @Res() res: Response) {
-    const { csv, truncated } = await this.equipmentService.getEquipmentHistoryCsv(q || '');
-    const filename = `historique-materiel-${new Date().toISOString().slice(0, 10)}.csv`;
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    if (truncated) {
-      res.setHeader('X-Truncated', 'true');
-    }
-    res.send(csv);
-  }
-
-  /** GET /equipment/serial-history?q=SN-1234 — ancienne route, conservée pour
-   *  compatibilité : le lot L1 l'a remplacée par /equipment/history, qui
-   *  reconnaît aussi le n° d'inventaire (rôles inchangés : admin/technicien
-   *  uniquement, hérités du contrôleur). */
-  @Get('serial-history')
-  serialHistory(@Query('q') q: string) {
-    return this.equipmentService.getEquipmentHistory(q || '');
+  async exportEquipmentHistory(@Query() query: EquipmentHistoryExportQueryDto, @Res() res: Response): Promise<void> {
+    const { csv, truncated } = await this.equipmentService.getEquipmentHistoryCsv(query.q ?? '');
+    sendCsv(res, { filename: 'historique-equipement', csv, truncated });
   }
 
   /** GET /equipment/serial-conflicts?serials=a,b&excludeBonId=… — n° déjà en
-   *  circulation sur un autre bon (avertissement non bloquant) */
+   *  circulation sur un autre bon (avertissement non bloquant), en une seule
+   *  page ; `truncated` : plus de 50 numéros fournis, seuls les 50 premiers
+   *  ont été vérifiés. */
   @Get('serial-conflicts')
-  serialConflicts(
-    @Query('serials') serials: string,
-    @Query('excludeBonId') excludeBonId?: string,
-  ) {
+  async serialConflicts(@Query('serials') serials: string, @Query('excludeBonId') excludeBonId?: string) {
     const list = (serials || '').split(',').map((s) => s.trim()).filter(Boolean);
-    return this.equipmentService.findSerialConflicts(list, excludeBonId || undefined);
+    const { items, truncated } = await this.equipmentService.findSerialConflicts(list, excludeBonId || undefined);
+    return toListResponse(items, { total: items.length, page: 1, limit: items.length, truncated });
   }
 
   // ── Catalogue ──────────────────────────────────────────────
+  /** GET /equipment/catalog — tout le catalogue, articles désactivés compris,
+   *  en une seule page. */
   @Get('catalog')
-  findAllCatalog() {
-    return this.equipmentService.findAllCatalog();
-  }
-
-  @Get('catalog/search')
-  searchCatalog(@Query('q') q: string) {
-    return this.equipmentService.searchCatalog(q || '');
-  }
-
-  @Get('catalog/active')
-  findActiveCatalog() {
-    return this.equipmentService.findActiveCatalog();
+  async findAllCatalog() {
+    return toFullListResponse(await this.equipmentService.findAllCatalog());
   }
 
   @Get('catalog/:id')
@@ -113,14 +98,11 @@ export class EquipmentController {
   }
 
   // ── Packs ──────────────────────────────────────────────────
+  /** GET /equipment/packs — tous les packs avec leurs articles, désactivés
+   *  compris, en une seule page. */
   @Get('packs')
-  findAllPacks() {
-    return this.equipmentService.findAllPacks();
-  }
-
-  @Get('packs/active')
-  findActivePacks() {
-    return this.equipmentService.findActivePacks();
+  async findAllPacks() {
+    return toFullListResponse(await this.equipmentService.findAllPacks());
   }
 
   @Get('packs/:id')

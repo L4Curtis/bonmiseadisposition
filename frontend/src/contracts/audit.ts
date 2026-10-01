@@ -8,11 +8,19 @@
 /**
  * Contrats de l'API — journal d'audit (`backend/src/audit/`).
  *
- * Accès : admin uniquement. L'export CSV (`GET /api/audit/export`) ne renvoie
- * pas de JSON et n'est donc pas décrit ici.
+ * Accès : admin uniquement. L'écran affiche, pour chaque entrée, le libellé et
+ * la phrase du catalogue (`audit-actions.ts` : `AUDIT_ACTIONS`,
+ * `fillAuditSentence`), jamais les clés brutes de `details`.
+ *
+ * L'export CSV (`GET /api/audit/export`, mêmes filtres que la liste) ne
+ * renvoie pas de JSON : colonnes « Date » (JJ/MM/AAAA HH:MM, heure de Paris),
+ * « Action » (libellé), « Description » (phrase, sans données personnelles),
+ * « Auteur », « Email de l'auteur », « Bon ». En-tête `X-Truncated: true` au-delà
+ * de `exportLimit` lignes. Débit limité (10 par minute).
  */
 
-import type { IsoDateTime, JsonValue } from './common';
+import type { IsoDateTime, JsonValue, ListResponse } from './common';
+import type { AuditActionDomain } from './audit-actions';
 
 /** Bon concerné par l'entrée. */
 export interface AuditLogBonRef {
@@ -60,19 +68,32 @@ export interface AuditLogEntry {
   user: AuditLogUser | null;
 }
 
-/** GET /api/audit — liste paginée, les plus récentes d'abord (filtres `bonId`,
- *  `user`, `userEmail`, `action`, `dateFrom`, `dateTo`). `limit` vaut 50 par
- *  défaut, 100 au plus. `exportTruncated` annonce qu'un export avec les mêmes
- *  filtres serait tronqué à `exportLimit` lignes (10 000). Date invalide : 400. */
-export interface AuditListResponse {
-  logs: AuditLogEntry[];
-  total: number;
-  page: number;
-  limit: number;
+/** Filtres de GET /api/audit et GET /api/audit/export (paramètres de requête). */
+export interface AuditListFilters {
+  bonId?: string;
+  /** Qui a agi : fragment du nom affiché ou de l'email (`userEmail` reste accepté). */
+  user?: string;
+  /** Action du catalogue (`bon_cancelled`). */
+  action?: string;
+  /** Famille d'actions. */
+  domain?: AuditActionDomain;
+  /** Jours civils à l'heure de Paris (AAAA-MM-JJ), bornes incluses. */
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+/** Données annexes de la liste : ce que donnerait un export avec les mêmes filtres. */
+export interface AuditListMeta {
+  /** Plafond de lignes d'un export (10 000). */
   exportLimit: number;
+  /** Un export avec ces filtres serait tronqué à `exportLimit` lignes. */
   exportTruncated: boolean;
 }
 
+/** GET /api/audit — liste paginée (25, 50 ou 100 par page), les plus récentes
+ *  d'abord. Date ou paramètre invalide : 400. */
+export type AuditListResponse = ListResponse<AuditLogEntry, AuditListMeta>;
+
 /** GET /api/audit/actions — actions distinctes présentes en base, triées par
  *  ordre alphabétique. */
-export type AuditActionsResponse = string[];
+export type AuditActionsResponse = ListResponse<string>;

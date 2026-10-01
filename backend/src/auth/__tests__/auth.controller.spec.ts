@@ -1,8 +1,10 @@
 import type { Request, Response } from 'express';
 import { AuthController, isSafeReturnTo } from '../auth.controller';
-import { AuthService } from '../auth.service';
+import { AccountLockedException, AuthService } from '../auth.service';
 import { AppConfigService } from '../../config/config.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AuditService } from '../../audit/audit.service';
+import { ConfigRegistryService } from '../../config/config-registry.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
 import { createMockConfigService } from '../../common/__tests__/helpers/mock-services';
 import { adminUser } from '../../common/__tests__/fixtures/user.fixtures';
@@ -35,7 +37,8 @@ describe('AuthController', () => {
     controller = new AuthController(
       authService as unknown as AuthService,
       configService as unknown as AppConfigService,
-      prisma as unknown as PrismaService,
+      new ConfigRegistryService(configService as unknown as AppConfigService, {}),
+      new AuditService(prisma as unknown as PrismaService),
     );
   });
 
@@ -74,7 +77,29 @@ describe('AuthController', () => {
   });
 
   describe('localLogin', () => {
-    it('passes the extracted client IP through to authService.localLogin', async () => {
+    it('refuse (403) quand la connexion locale est désactivée', async () => {
+      configService.set('general', 'local_auth_enabled', 'false');
+      const req = { ip: '203.0.113.5', headers: {}, socket: {} } as unknown as Request;
+
+      await expect(controller.localLogin({ email: 'a@b.fr', password: 'x' }, req, makeRes())).rejects.toMatchObject({
+        status: 403,
+      });
+      expect(authService.localLogin).not.toHaveBeenCalled();
+    });
+
+    it('trace un compte verrouillé en login_local_locked, pas en échec (qui prolongerait le verrou)', async () => {
+      authService.localLogin.mockRejectedValue(new AccountLockedException());
+      const req = { ip: '203.0.113.5', headers: {}, socket: {} } as unknown as Request;
+
+      await expect(controller.localLogin({ email: 'a@b.fr', password: 'x' }, req, makeRes())).rejects.toMatchObject({
+        code: 'account_locked',
+      });
+      expect(prisma.auditLog.create).toHaveBeenCalledWith({
+        data: { action: 'login_local_locked', userEmail: 'a@b.fr', ipAddress: '203.0.113.5', userAgent: 'unknown' },
+      });
+    });
+
+    it('transmet l’adresse du client selon la règle unique (req.ip), jamais un X-Real-IP posé par le poste', async () => {
       configService.set('general', 'local_auth_enabled', 'true');
       authService.localLogin.mockResolvedValue({
         accessToken: 'a',
@@ -82,7 +107,8 @@ describe('AuthController', () => {
         mustChangePassword: false,
       });
       const req = {
-        headers: { 'x-real-ip': '203.0.113.5', 'user-agent': 'jest' },
+        ip: '203.0.113.5',
+        headers: { 'x-real-ip': '6.6.6.6', 'x-forwarded-for': '7.7.7.7', 'user-agent': 'jest' },
         socket: {},
       } as unknown as Request;
       const res = makeRes();

@@ -35,6 +35,13 @@ beforeEach(() => {
 });
 
 describe('useActiveFiliales', () => {
+  it('lit la liste à la forme commune { items, total, page, limit, truncated }', async () => {
+    vi.mocked(api.get).mockResolvedValue({ items: [filialeA, filialeB], total: 2, page: 1, limit: 2, truncated: false });
+
+    await expect(getActiveFiliales()).resolves.toEqual([filialeA, filialeB]);
+  });
+
+
   it("ne déclenche qu'un seul appel réseau quand deux composants sont montés en même temps", async () => {
     vi.mocked(api.get).mockResolvedValue([filialeA]);
 

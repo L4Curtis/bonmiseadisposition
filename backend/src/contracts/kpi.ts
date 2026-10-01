@@ -11,7 +11,7 @@
  * dans docs/architecture.md.
  */
 
-import type { BonStatus, EquipmentCategory, IsoDateTime, SignatureType } from './common';
+import type { BonStatus, EquipmentCategory, IsoDateTime, ListResponse, SignatureType } from './common';
 import type { ParcCategoryCount, ParcFilialeCount, ParcSituationCount } from './inventory';
 
 // ─── Briques communes aux trois routes ────────────────────────────────────────
@@ -241,16 +241,22 @@ export interface KpiWaitingStep {
   /** Ancienneté moyenne de la demande de signature (`awaitingSince`), en jours ; `null` si aucun bon. */
   avgAgeDays: number | null;
   /** Bons en « Signature en retard » (seuil `thresholdDays`). */
+  overdueSignatures: number;
+  /** @deprecated Ancien nom de `overdueSignatures` (même valeur), servi
+   *  pendant la vague 3 puis retiré. */
   overdue: number;
 }
 
 /** Signatures attendues : toujours trois étapes, dans l'ordre mise_disposition,
  *  restitution, pv_cloture. Somme des `count` = tuile « Signatures attendues »,
- *  `overdueTotal` = tuile « Signature en retard » (sans filtre filiale). */
+ *  `overdueSignatures` = tuile « Signature en retard » (sans filtre filiale). */
 export interface KpiWaiting {
   /** Seuil de retard en jours (configuration `rappels.signature_overdue_days`). */
   thresholdDays: number;
-  /** Somme des `overdue` des étapes. */
+  /** « Signature en retard » : somme des `overdueSignatures` des étapes. */
+  overdueSignatures: number;
+  /** @deprecated Ancien nom de `overdueSignatures` (même valeur), servi
+   *  pendant la vague 3 puis retiré. */
   overdueTotal: number;
   steps: KpiWaitingStep[];
 }
@@ -459,16 +465,16 @@ export interface KpiListItem {
   detail: string | null;
 }
 
+/** Données annexes de la liste d'un chiffre : le chiffre et la période. */
+export interface KpiListMeta {
+  indicateur: KpiListKey;
+  period: { from: KpiDate; to: KpiDate };
+}
+
 /** GET /api/kpi/liste?indicateur=…&from&to&filialeId&page&limit (admin,
  *  technician ; la direction n'ouvre pas de bon) : la liste exacte de ce que
  *  compte la carte, pour la même période et la même filiale — `total` égale
- *  la valeur de la carte. Plus récents d'abord ; `limit` 50 par défaut, 200 au
- *  plus. Non mise en cache. */
-export interface KpiListResponse {
-  indicateur: KpiListKey;
-  period: { from: KpiDate; to: KpiDate };
-  items: KpiListItem[];
-  total: number;
-  page: number;
-  limit: number;
-}
+ *  la valeur de la carte. Forme unique des listes, l'indicateur et la période
+ *  dans `meta`. Plus récents d'abord ; `limit` 25 (défaut), 50, 100 ou 200,
+ *  toute autre valeur refusée en 400. Non mise en cache. */
+export type KpiListResponse = ListResponse<KpiListItem, KpiListMeta>;

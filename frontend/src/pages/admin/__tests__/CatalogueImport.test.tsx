@@ -9,6 +9,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
     ...actual,
     api: {
       get: vi.fn(),
+      getList: vi.fn(),
       post: vi.fn(),
       put: vi.fn(),
       patch: vi.fn(),
@@ -21,6 +22,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
 });
 
 import { api } from '@/lib/api';
+import { toListResponse } from '@/lib/api-envelope';
 
 const catalogItems = [
   {
@@ -30,6 +32,9 @@ const catalogItems = [
 
 beforeEach(() => {
   vi.resetAllMocks();
+  // Les listes passent par `api.getList`, qui lit la réponse de `api.get`
+  // simulée ci-dessous.
+  vi.mocked(api.getList).mockImplementation(async (path: string) => toListResponse(await api.get(path)));
   vi.mocked(api.get).mockImplementation((path: string) => {
     if (path === '/equipment/catalog') return Promise.resolve(catalogItems);
     if (path === '/equipment/packs') return Promise.resolve([]);

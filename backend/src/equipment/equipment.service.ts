@@ -5,7 +5,8 @@ import {
   CreatePackDto, UpdatePackDto, ImportCatalogDto, ImportCatalogResult,
 } from './dto/equipment.dto';
 import { importCatalogItems } from './equipment-catalog-import';
-import { getEquipmentHistory, findSerialConflicts } from './equipment-serial';
+import type { PageRequest } from '../common/pagination';
+import { getEquipmentHistory, getEquipmentHistoryForExport, findSerialConflicts } from './equipment-serial';
 import { buildEquipmentHistoryCsv } from './equipment-history-csv';
 import * as catalog from './equipment-catalog';
 import * as packs from './equipment-packs';
@@ -23,13 +24,14 @@ export class EquipmentService {
 
   // ── Historique matériel (n° de série ou n° d'inventaire) ────
 
-  getEquipmentHistory(reference: string) {
-    return getEquipmentHistory(this.prisma, reference);
+  getEquipmentHistory(reference: string, page: PageRequest) {
+    return getEquipmentHistory(this.prisma, reference, page);
   }
 
-  /** Export CSV de l'historique (A4) — mêmes entrées que getEquipmentHistory. */
-  async getEquipmentHistoryCsv(reference: string) {
-    const { items, truncated } = await this.getEquipmentHistory(reference);
+  /** Export CSV de l'historique : mêmes entrées, dans le même ordre, que
+   *  l'écran, toutes pages confondues (jusqu'au plafond de l'export). */
+  async getEquipmentHistoryCsv(reference: string): Promise<{ csv: string; truncated: boolean }> {
+    const { items, truncated } = await getEquipmentHistoryForExport(this.prisma, reference);
     return { csv: buildEquipmentHistoryCsv(items), truncated };
   }
 
@@ -41,14 +43,6 @@ export class EquipmentService {
 
   findAllCatalog() {
     return catalog.findAllCatalog(this.prisma);
-  }
-
-  findActiveCatalog() {
-    return catalog.findActiveCatalog(this.prisma);
-  }
-
-  searchCatalog(query: string) {
-    return catalog.searchCatalog(this.prisma, query);
   }
 
   findOneCatalog(id: string) {
@@ -80,10 +74,6 @@ export class EquipmentService {
 
   findAllPacks() {
     return packs.findAllPacks(this.prisma);
-  }
-
-  findActivePacks() {
-    return packs.findActivePacks(this.prisma);
   }
 
   findOnePack(id: string) {

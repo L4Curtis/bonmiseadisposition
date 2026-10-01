@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
+import { useLocation } from 'react-router';
 import { renderWithProviders } from '@/test/render';
 import { AuditLogsPage } from '../AuditLogs';
 
@@ -7,65 +8,102 @@ vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>();
   return {
     ...actual,
-    api: {
-      get: vi.fn(),
-      post: vi.fn(),
-      put: vi.fn(),
-      patch: vi.fn(),
-      delete: vi.fn(),
-      getBlob: vi.fn(),
-      postForm: vi.fn(),
-      patchForm: vi.fn(),
-    },
+    api: { get: vi.fn(), getList: vi.fn(), getFile: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn(), delete: vi.fn() },
   };
 });
+vi.mock('@/lib/download', () => ({ saveBlob: vi.fn() }));
 
 import { api } from '@/lib/api';
 
-const log = {
-  id: 'l1',
-  action: 'bon_created',
-  userEmail: 'jean@example.com',
-  createdAt: '2026-09-01T10:00:00.000Z',
+const configChange = {
+  id: 'l1', bonId: null, userId: 'u1', userEmail: null, action: 'config_updated',
+  details: { category: 'smtp', section: 'Email / SMTP', summary: 'Serveur SMTP : « a » → « b »', changes: [] },
+  ipAddress: '10.0.0.1', userAgent: 'Firefox', createdAt: '2026-09-24T12:00:00.000Z', bon: null,
+  user: { id: 'u1', displayName: 'Marie Martin', email: 'marie@livio.fr' },
 };
+const exportEntry = { ...configChange, id: 'l2', action: 'audit_exported', details: { rowCount: 571, truncated: false } };
+
+function listOf(items: unknown[], meta = { exportLimit: 10000, exportTruncated: false }, total = items.length) {
+  return { items, total, page: 1, limit: 50, truncated: false, meta };
+}
+
+/** Affiche l'adresse courante pour vérifier ce que l'écran y écrit. */
+function LocationProbe() {
+  const location = useLocation();
+  return <output data-testid="location">{location.search}</output>;
+}
+
+function renderPage(route = '/admin/audit') {
+  return renderWithProviders(<><AuditLogsPage /><LocationProbe /></>, { route });
+}
 
 beforeEach(() => {
   vi.resetAllMocks();
-  vi.mocked(api.get).mockImplementation((path: string) => {
-    if (path.startsWith('/audit/actions')) return Promise.resolve(['bon_created']);
-    if (path.startsWith('/audit')) return Promise.resolve({ logs: [log], total: 1, page: 1, limit: 50 });
-    return Promise.resolve(null);
-  });
+  vi.mocked(api.getList).mockResolvedValue(listOf([configChange, exportEntry]));
 });
 
 describe('AuditLogsPage', () => {
-  it('affiche le journal avec les entrées chargées', async () => {
-    renderWithProviders(<AuditLogsPage />);
+  it('raconte chaque entrée par la phrase du catalogue, sans clé technique', async () => {
+    renderPage();
 
-    expect(await screen.findByText('Bon créé')).toBeInTheDocument();
-    expect(screen.getByText('jean@example.com')).toBeInTheDocument();
-    expect(screen.getByText('(1 entrée)')).toBeInTheDocument();
+    const table = await screen.findByRole('table', { name: "Journal d'audit" });
+    expect(within(table).getByText('Marie Martin a modifié les paramètres « Email / SMTP » : Serveur SMTP : « a » → « b ».')).toBeInTheDocument();
+    expect(within(table).getByText("Marie Martin a exporté le journal d'audit (lignes : 571).")).toBeInTheDocument();
+    expect(within(table).getByText('Paramètres modifiés')).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/rowCount|truncated|10\.0\.0\.1/);
   });
 
-  it("prévient que l'export sera tronqué quand les filtres dépassent le plafond", async () => {
-    vi.mocked(api.get).mockImplementation((path: string) => {
-      if (path.startsWith('/audit/actions')) return Promise.resolve([]);
-      if (path.startsWith('/audit')) {
-        return Promise.resolve({
-          logs: [log], total: 12000, page: 1, limit: 50, exportLimit: 10000, exportTruncated: true,
-        });
-      }
-      return Promise.resolve(null);
-    });
-    renderWithProviders(<AuditLogsPage />);
+  it('relit les filtres dans l’adresse et les envoie au serveur', async () => {
+    renderPage('/admin/audit?user=marie&domain=config&action=config_updated&dateFrom=2026-09-01&page=2');
 
-    expect(await screen.findByText(/export CSV est limité aux/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Exporter CSV/ })).toBeEnabled();
+    await waitFor(() => expect(api.getList).toHaveBeenCalled());
+    expect(vi.mocked(api.getList).mock.calls[0][0]).toBe(
+      '/audit?user=marie&domain=config&action=config_updated&dateFrom=2026-09-01&page=2&limit=50',
+    );
+    expect(screen.getByLabelText("Auteur de l'action (nom ou email)")).toHaveValue('marie');
   });
 
-  it("n'affiche pas l'avertissement quand l'export est complet", async () => {
-    renderWithProviders(<AuditLogsPage />);
-    await screen.findByText('Bon créé');
-    expect(screen.queryByText(/export CSV est limité/)).not.toBeInTheDocument();
+  it('écrit un filtre dans l’adresse et revient à la première page', async () => {
+    const { user } = renderPage('/admin/audit?page=3');
+    await screen.findByRole('table', { name: "Journal d'audit" });
+
+    await user.type(screen.getByLabelText("Auteur de l'action (nom ou email)"), 'jean{Enter}');
+
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('?user=jean'));
+    expect(screen.getByTestId('location')).not.toHaveTextContent('page=');
+  });
+
+  it('annonce ce qui sera exporté puis exporte avec les mêmes filtres', async () => {
+    vi.mocked(api.getFile).mockResolvedValue({ blob: new Blob(['x']), filename: 'journal.csv', truncated: false });
+    const { user } = renderPage('/admin/audit?action=config_updated');
+    await screen.findByRole('table', { name: "Journal d'audit" });
+
+    await user.click(screen.getByRole('button', { name: /Exporter CSV/ }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('2 actions')).toBeInTheDocument();
+    expect(within(dialog).getByText(/Action : Paramètres modifiés/)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: /Exporter/ }));
+
+    await waitFor(() => expect(api.getFile).toHaveBeenCalledWith('/audit/export?action=config_updated'));
+  });
+
+  it('prévient avant l’export qu’il sera tronqué, et après qu’il l’a été', async () => {
+    vi.mocked(api.getList).mockResolvedValue(listOf([configChange], { exportLimit: 10000, exportTruncated: true }, 12000));
+    vi.mocked(api.getFile).mockResolvedValue({ blob: new Blob(['x']), filename: 'journal.csv', truncated: true });
+    const { user } = renderPage();
+    await screen.findByRole('table', { name: "Journal d'audit" });
+
+    await user.click(screen.getByRole('button', { name: /Exporter CSV/ }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('alert')).toHaveTextContent(/10\s000/);
+    await user.click(within(dialog).getByRole('button', { name: /Exporter/ }));
+
+    expect(await screen.findByText('Export incomplet')).toBeInTheDocument();
+  });
+
+  it('signale une erreur de chargement', async () => {
+    vi.mocked(api.getList).mockRejectedValue(new Error('boom'));
+    renderPage();
+    expect(await screen.findByText('boom')).toBeInTheDocument();
   });
 });

@@ -1,8 +1,6 @@
 import { api } from "@/lib/api";
-import {
-  ConfigSection,
-  type TestResult,
-} from "@/components/admin/ConfigSection";
+import { ConfigSection } from "@/components/admin/ConfigSection";
+import type { ConnectionTestResponse } from "@/contracts/admin";
 import { SsoDiagnosticCard } from "./SsoDiagnosticCard";
 
 export function ConfigEntraPage() {
@@ -13,7 +11,7 @@ export function ConfigEntraPage() {
       <ConfigSection
         title="Microsoft Entra ID (SSO)"
         category="entra"
-        onTest={() => api.post<TestResult>("/admin/config/test/entra")}
+        onTest={() => api.post<ConnectionTestResponse>("/admin/config/test/entra")}
         testLabel="Tester la connexion Entra"
         fields={[
           {

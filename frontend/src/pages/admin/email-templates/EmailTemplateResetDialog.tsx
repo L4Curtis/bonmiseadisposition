@@ -24,7 +24,7 @@ export function EmailTemplateResetDialog({
     if (!template) return;
     setLoading(true);
     try {
-      await api.delete(`/admin/email-templates/${template.id}`);
+      await api.delete(`/email-templates/${template.id}`);
       toast({ title: 'Template réinitialisé' });
       onReset();
       onClose();

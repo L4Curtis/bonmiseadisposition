@@ -1,44 +1,22 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { NotFoundException } from '@nestjs/common';
+import { AppException } from '../common/errors';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePackDto, UpdatePackDto } from './dto/equipment.dto';
 import { trimOptionalOrUndefined, trimRequired } from './equipment-validation';
 import { recordPackCreated, recordPackDisabled, recordPackUpdate } from './equipment-audit';
 
-export function findAllPacks(prisma: PrismaService) {
-  return prisma.equipmentPack.findMany({
-    include: {
-      items: {
-        include: { catalogItem: true },
-        orderBy: { order: 'asc' },
-      },
-    },
-    orderBy: { name: 'asc' },
-  });
-}
+/** Articles d'un pack, avec l'article du catalogue, dans l'ordre du pack. */
+const PACK_ITEMS_INCLUDE = {
+  items: { include: { catalogItem: true }, orderBy: { order: 'asc' } },
+} satisfies Prisma.EquipmentPackInclude;
 
-export function findActivePacks(prisma: PrismaService) {
-  return prisma.equipmentPack.findMany({
-    where: { active: true },
-    include: {
-      items: {
-        include: { catalogItem: true },
-        orderBy: { order: 'asc' },
-      },
-    },
-    orderBy: { name: 'asc' },
-  });
+export function findAllPacks(prisma: PrismaService) {
+  return prisma.equipmentPack.findMany({ include: PACK_ITEMS_INCLUDE, orderBy: { name: 'asc' } });
 }
 
 export async function findOnePack(prisma: PrismaService, id: string) {
-  const pack = await prisma.equipmentPack.findUnique({
-    where: { id },
-    include: {
-      items: {
-        include: { catalogItem: true },
-        orderBy: { order: 'asc' },
-      },
-    },
-  });
+  const pack = await prisma.equipmentPack.findUnique({ where: { id }, include: PACK_ITEMS_INCLUDE });
   if (!pack) throw new NotFoundException('Pack introuvable');
   return pack;
 }
@@ -117,9 +95,11 @@ export async function updatePack(prisma: PrismaService, id: string, dto: UpdateP
   return updated;
 }
 
+/** DELETE /equipment/packs/:id — désactivation : le pack reste en base et
+ *  revient avec ses articles, comme les autres routes des packs. */
 export async function removePack(prisma: PrismaService, id: string, userId: string) {
   const existing = await findOnePack(prisma, id);
-  const updated = await prisma.equipmentPack.update({ where: { id }, data: { active: false } });
+  const updated = await prisma.equipmentPack.update({ where: { id }, data: { active: false }, include: PACK_ITEMS_INCLUDE });
   await recordPackDisabled(prisma, existing, userId);
   return updated;
 }
@@ -142,8 +122,11 @@ async function assertCatalogItemsActive(prisma: PrismaService, catalogItemIds: s
   const invalidIds = uniqueIds.filter((id) => activeById.get(id) !== true);
 
   if (invalidIds.length > 0) {
-    throw new BadRequestException(
+    throw new AppException(
+      'pack_items_unavailable',
       `Article(s) de catalogue introuvable(s) ou inactif(s) : ${invalidIds.join(', ')}`,
+      undefined,
+      { catalogItemIds: invalidIds },
     );
   }
 }

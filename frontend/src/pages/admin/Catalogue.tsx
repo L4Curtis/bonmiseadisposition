@@ -2,11 +2,11 @@ import { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useCatalogue } from './catalogue/useCatalogue';
-import { useCatalogueFilters, CATALOGUE_PAGE_SIZE } from './catalogue/useCatalogueFilters';
+import { useCatalogueFilters } from './catalogue/useCatalogueFilters';
 import { useCatalogueImport } from './catalogue/useCatalogueImport';
 import { CatalogueTable } from './catalogue/CatalogueTable';
 import { CatalogueFilters } from './catalogue/CatalogueFilters';
-import { CataloguePagination } from './catalogue/CataloguePagination';
+import { Pagination } from '@/components/list';
 import { CatalogueToolbar } from './catalogue/CatalogueToolbar';
 import { CatalogueImportDialog } from './catalogue/CatalogueImportDialog';
 import { PackList } from './catalogue/PackList';
@@ -40,7 +40,7 @@ export function CataloguePage() {
   const {
     searchInput, setSearchInput, categoryFilter, setCategoryFilter,
     sortKey, sortDirection, toggleSort,
-    page, setPage, totalPages, total, pageItems, filteredItems, hasActiveFilters, resetFilters,
+    pagination, total, pageItems, filteredItems, hasActiveFilters, resetFilters,
   } = useCatalogueFilters(items, statusFilter);
 
   const importState = useCatalogueImport(reloadCatalog);
@@ -125,13 +125,13 @@ export function CataloguePage() {
               />
 
               {!loading && (
-                <CataloguePagination
-                  page={page}
-                  totalPages={totalPages}
+                <Pagination
+                  page={pagination.page}
+                  pageSize={pagination.pageSize}
                   total={total}
-                  pageSize={CATALOGUE_PAGE_SIZE}
-                  onPrevPage={() => setPage(page - 1)}
-                  onNextPage={() => setPage(page + 1)}
+                  onPageChange={pagination.setPage}
+                  onPageSizeChange={pagination.setPageSize}
+                  itemLabel={{ singular: 'article', plural: 'articles' }}
                 />
               )}
             </div>

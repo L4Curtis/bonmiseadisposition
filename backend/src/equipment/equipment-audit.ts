@@ -1,12 +1,13 @@
 import { EquipmentCatalog } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { writeAuditEntry } from '../audit/audit-record';
 import { PackItemDto, UpdateCatalogItemDto, UpdatePackDto } from './dto/equipment.dto';
 
 // ── Catalogue ────────────────────────────────────────────────────────────
 //
-// Journal d'audit du catalogue et des packs, dans le même style que
-// backend/src/bons/workflow/bon-crud.ts : une action en snake_case, un
-// `details` JSON avec les valeurs utiles, et le `userId` de l'appelant.
+// Journal d'audit du catalogue et des packs : une action du catalogue
+// (contracts/audit-actions.ts), un `details` JSON avec les valeurs utiles à
+// la phrase du journal, et l'auteur de l'action.
 
 // `string | null` couvre tous les champs diffés ici (catégorie, marque,
 // modèle, description, nom de pack) — types concrets attendus par le champ
@@ -22,9 +23,7 @@ export async function recordCatalogItemCreated(
   item: EquipmentCatalog,
   userId: string,
 ): Promise<void> {
-  await prisma.auditLog.create({
-    data: { userId, action: 'catalog_item_created', details: summarizeCatalogItem(item) },
-  });
+  await writeAuditEntry(prisma, 'catalog_item_created', { actorId: userId, details: summarizeCatalogItem(item) });
 }
 
 export async function recordCatalogItemDisabled(
@@ -32,9 +31,7 @@ export async function recordCatalogItemDisabled(
   item: Pick<EquipmentCatalog, 'id' | 'category' | 'brand' | 'model'>,
   userId: string,
 ): Promise<void> {
-  await prisma.auditLog.create({
-    data: { userId, action: 'catalog_item_disabled', details: summarizeCatalogItem(item) },
-  });
+  await writeAuditEntry(prisma, 'catalog_item_disabled', { actorId: userId, details: summarizeCatalogItem(item) });
 }
 
 /**
@@ -52,9 +49,7 @@ export async function recordCatalogItemUpdate(
   if (dto.active === false && existing.active !== false) {
     await recordCatalogItemDisabled(prisma, existing, userId);
   } else if (dto.active === true && existing.active === false) {
-    await prisma.auditLog.create({
-      data: { userId, action: 'catalog_item_reactivated', details: summarizeCatalogItem(existing) },
-    });
+    await writeAuditEntry(prisma, 'catalog_item_reactivated', { actorId: userId, details: summarizeCatalogItem(existing) });
   }
 
   const changes: FieldChanges = {};
@@ -66,9 +61,7 @@ export async function recordCatalogItemUpdate(
   });
 
   if (Object.keys(changes).length > 0) {
-    await prisma.auditLog.create({
-      data: { userId, action: 'catalog_item_updated', details: { catalogItemId: existing.id, changes } },
-    });
+    await writeAuditEntry(prisma, 'catalog_item_updated', { actorId: userId, details: { catalogItemId: existing.id, changes } });
   }
 }
 
@@ -92,23 +85,18 @@ export async function recordPackCreated(
   items: PackItemDto[] | undefined,
   userId: string,
 ): Promise<void> {
-  await prisma.auditLog.create({
-    data: {
-      userId,
-      action: 'pack_created',
-      details: {
-        packId: pack.id,
-        name: pack.name,
-        items: (items ?? []).map((item) => ({ catalogItemId: item.catalogItemId, quantity: item.quantity ?? 1 })),
-      },
+  await writeAuditEntry(prisma, 'pack_created', {
+    actorId: userId,
+    details: {
+      packId: pack.id,
+      name: pack.name,
+      items: (items ?? []).map((item) => ({ catalogItemId: item.catalogItemId, quantity: item.quantity ?? 1 })),
     },
   });
 }
 
 export async function recordPackDisabled(prisma: PrismaService, pack: PackSummaryFields, userId: string): Promise<void> {
-  await prisma.auditLog.create({
-    data: { userId, action: 'pack_disabled', details: { packId: pack.id, name: pack.name } },
-  });
+  await writeAuditEntry(prisma, 'pack_disabled', { actorId: userId, details: { packId: pack.id, name: pack.name } });
 }
 
 /** Diff des items d'un pack entre l'état existant et les items fournis à
@@ -145,9 +133,7 @@ export async function recordPackUpdate(
   if (dto.active === false && existing.active !== false) {
     await recordPackDisabled(prisma, existing, userId);
   } else if (dto.active === true && existing.active === false) {
-    await prisma.auditLog.create({
-      data: { userId, action: 'pack_reactivated', details: { packId: existing.id, name: existing.name } },
-    });
+    await writeAuditEntry(prisma, 'pack_reactivated', { actorId: userId, details: { packId: existing.id, name: existing.name } });
   }
 
   const changes: FieldChanges = {};
@@ -158,17 +144,13 @@ export async function recordPackUpdate(
     changes.description = { before: existing.description, after: dto.description };
   }
   if (Object.keys(changes).length > 0) {
-    await prisma.auditLog.create({
-      data: { userId, action: 'pack_updated', details: { packId: existing.id, changes } },
-    });
+    await writeAuditEntry(prisma, 'pack_updated', { actorId: userId, details: { packId: existing.id, changes } });
   }
 
   if (dto.items !== undefined) {
     const itemsDiff = diffPackItems(existing.items, dto.items);
     if (itemsDiff.added.length > 0 || itemsDiff.removed.length > 0 || itemsDiff.quantityChanged.length > 0) {
-      await prisma.auditLog.create({
-        data: { userId, action: 'pack_items_changed', details: { packId: existing.id, ...itemsDiff } },
-      });
+      await writeAuditEntry(prisma, 'pack_items_changed', { actorId: userId, details: { packId: existing.id, ...itemsDiff } });
     }
   }
 }

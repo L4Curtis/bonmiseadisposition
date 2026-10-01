@@ -2,6 +2,7 @@ import { useNavigate, useParams } from 'react-router';
 import { Boxes, XCircle } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { isItRole } from '@/lib/roles';
+import { Pagination } from '@/components/list';
 import { useMaterielHistory } from './useMaterielHistory';
 import { MaterielHistoryHeader } from './MaterielHistoryHeader';
 import { MaterielHistoryList } from './MaterielHistoryList';
@@ -23,9 +24,11 @@ export function MaterielHistoryPage() {
   // que l'inventaire — voir canLinkToBon dans pages/Inventaire.tsx).
   const canLinkToBon = isItRole(user?.role);
 
-  const { history, loading, error, exportLoading, handleExport } = useMaterielHistory(reference);
+  const { history, latestEntries, loading, error, pagination } = useMaterielHistory(reference);
 
-  if (loading) {
+  // Le premier chargement occupe la page ; un changement de page garde la
+  // liste affichée le temps de la réponse.
+  if (loading && !history) {
     return (
       <div className="flex justify-center py-16" aria-live="polite">
         <div
@@ -51,7 +54,7 @@ export function MaterielHistoryPage() {
   }
 
   const entries = history?.items ?? [];
-  const latest = entries[0];
+  const latest = latestEntries[0] ?? entries[0];
 
   if (!latest) {
     return (
@@ -77,18 +80,23 @@ export function MaterielHistoryPage() {
       <MaterielHistoryHeader
         reference={reference}
         label={latest.label ?? '—'}
-        status={currentHolderStatus(entries)}
-        onExport={handleExport}
-        exportLoading={exportLoading}
+        status={currentHolderStatus(latestEntries.length > 0 ? latestEntries : entries)}
+        exportCount={history?.total ?? null}
+        exportLimit={history?.meta?.exportLimit}
       />
 
-      {history?.truncated && (
-        <p className="text-xs text-muted-foreground/80">
-          {`Les ${entries.length} bons les plus récents, sur ${history.total}.`}
-        </p>
-      )}
+      <div aria-busy={loading} className={loading ? 'opacity-60 transition-opacity' : undefined}>
+        <MaterielHistoryList entries={entries} canLinkToBon={canLinkToBon} />
+      </div>
 
-      <MaterielHistoryList entries={entries} canLinkToBon={canLinkToBon} />
+      <Pagination
+        page={pagination.page}
+        pageSize={pagination.pageSize}
+        total={history?.total ?? 0}
+        onPageChange={pagination.setPage}
+        onPageSizeChange={pagination.setPageSize}
+        itemLabel={{ singular: 'bon', plural: 'bons' }}
+      />
     </div>
   );
 }

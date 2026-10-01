@@ -38,8 +38,8 @@ export function useEmailTemplates(): UseEmailTemplatesResult {
 
   const fetchTemplates = useCallback(async () => {
     try {
-      const data = await api.get<TemplateDefinition[]>('/admin/email-templates');
-      setTemplates(data);
+      const data = await api.getList<TemplateDefinition>('/email-templates');
+      setTemplates(data.items);
     } catch {
       toast({ title: 'Erreur', description: 'Impossible de charger les templates.', variant: 'destructive' });
     } finally {
@@ -51,7 +51,7 @@ export function useEmailTemplates(): UseEmailTemplatesResult {
 
   const handleExport = async () => {
     try {
-      const data = await api.get<object>('/admin/email-templates/export');
+      const data = await api.get<object>('/email-templates/export');
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       saveBlob(blob, `email-templates-export-${todayInParis()}.json`);
       toast({ title: 'Export réussi' });
@@ -71,7 +71,7 @@ export function useEmailTemplates(): UseEmailTemplatesResult {
         toast({ title: 'Erreur', description: 'Format JSON invalide', variant: 'destructive' });
         return;
       }
-      const result = await api.post<{ imported: number; skipped: number }>('/admin/email-templates/import', data);
+      const result = await api.post<{ imported: number; skipped: number }>('/email-templates/import', data);
       toast({ title: `Import : ${result.imported} template(s) importé(s), ${result.skipped} ignoré(s)` });
       await fetchTemplates();
     } catch {

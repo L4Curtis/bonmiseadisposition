@@ -2,6 +2,7 @@ import { plainToInstance } from 'class-transformer';
 import { validate, ValidationError } from 'class-validator';
 import { PrismaService } from '../prisma/prisma.service';
 import { ImportCatalogItemDto, ImportCatalogResult } from './dto/equipment.dto';
+import { writeAuditEntry } from '../audit/audit-record';
 
 /** Concatène les messages de contrainte (`class-validator`) d'une ligne
  *  invalide en une seule chaîne lisible pour `errors[].message`. */
@@ -98,16 +99,13 @@ export async function importCatalogItems(
     result.created++;
   }
 
-  await prisma.auditLog.create({
-    data: {
-      userId,
-      action: 'catalog_imported',
-      details: {
-        created: result.created,
-        updated: result.updated,
-        skipped: result.skipped,
-        errorCount: result.errors.length,
-      },
+  await writeAuditEntry(prisma, 'catalog_imported', {
+    actorId: userId,
+    details: {
+      created: result.created,
+      updated: result.updated,
+      skipped: result.skipped,
+      errorCount: result.errors.length,
     },
   });
 

@@ -4,6 +4,7 @@
  * une vraie base : users-it-staff.real-db.spec.ts.
  */
 import { UsersService } from '../users.service';
+import { AuditService } from '../../audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
 
@@ -13,7 +14,7 @@ describe('UsersService — lectures ouvertes au technicien', () => {
 
   beforeEach(() => {
     prisma = createMockPrismaService();
-    service = new UsersService(prisma as unknown as PrismaService);
+    service = new UsersService(prisma as unknown as PrismaService, new AuditService(prisma as unknown as PrismaService));
   });
 
   it('findItStaff : admins et techniciens actifs, réduits à { id, displayName }, triés par nom', async () => {

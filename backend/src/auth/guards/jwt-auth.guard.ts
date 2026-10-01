@@ -27,7 +27,9 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
 
   handleRequest<TUser = AuthUser>(err: Error | null, user: TUser | false, _info: unknown, context: ExecutionContext): TUser {
     if (err || !user) {
-      throw err || new UnauthorizedException('Authentication required');
+      // Sans message : le filtre global pose le code `unauthorized` et la
+      // phrase française commune (common/errors/error-codes.ts).
+      throw err || new UnauthorizedException();
     }
     const authUser = user as unknown as AuthUser;
     if (authUser.mustChangePassword) {

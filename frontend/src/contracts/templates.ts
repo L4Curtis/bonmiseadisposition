@@ -9,14 +9,15 @@
  * Contrats de l'API — modèles d'email et modèles PDF modifiables depuis
  * l'administration.
  *
- * Contrôleurs : `admin/templates.controller.ts` et
- * `templates/template-bon-preview.controller.ts` (préfixe
- * `/api/admin/email-templates`), `admin/pdf-templates.controller.ts`
- * (préfixe `/api/admin/pdf-templates`). Toutes ces routes sont réservées à
- * l'administrateur.
+ * Contrôleurs : `templates/email-templates.controller.ts` (préfixe
+ * `/api/email-templates`) et `pdf/pdf-templates.controller.ts` (préfixe
+ * `/api/pdf-templates`), déclarés par TemplatesModule. Les anciens préfixes
+ * `/api/admin/email-templates` et `/api/admin/pdf-templates` restent servis en
+ * alias dépréciés : dans les descriptions ci-dessous, lire `/api/email-templates`
+ * et `/api/pdf-templates`. Toutes ces routes sont réservées à l'administrateur.
  */
 
-import type { BonStatus, IsoDateTime } from './common';
+import type { BonStatus, IsoDateTime, ListResponse, OkResponse } from './common';
 
 // ─── Briques partagées ────────────────────────────────────────────────────────
 
@@ -29,7 +30,8 @@ export interface TemplateVariable {
 /**
  * POST /api/admin/email-templates/import et POST /api/admin/pdf-templates/import
  * — nombre de modèles importés et ignorés (identifiant inconnu, contenu
- * invalide). Erreur 400 si le corps ne contient pas de tableau `templates`.
+ * invalide). 200 ; 400 si le corps ne contient pas de liste `templates`.
+ * Débit limité (10 par minute).
  */
 export interface TemplatesImportResponse {
   imported: number;
@@ -42,9 +44,7 @@ export interface TemplatesImportResponse {
  * enregistrement ou retour au modèle par défaut réussi (un identifiant inconnu
  * répond 404).
  */
-export interface TemplateSuccessResponse {
-  success: true;
-}
+export type TemplateSuccessResponse = OkResponse;
 
 // ─── Modèles d'email ──────────────────────────────────────────────────────────
 
@@ -88,7 +88,7 @@ export interface EmailTemplateSummary {
 }
 
 /** GET /api/admin/email-templates — catalogue complet, dans l'ordre du catalogue. */
-export type EmailTemplatesResponse = EmailTemplateSummary[];
+export type EmailTemplatesResponse = ListResponse<EmailTemplateSummary>;
 
 /** Modèle d'email exporté. */
 export interface EmailTemplateExportItem {
@@ -121,28 +121,21 @@ export interface EmailTemplatePreviewResponse {
   html: string;
 }
 
-/** Envoi de test accepté par le serveur d'envoi. */
-export interface EmailTemplateTestSuccess {
-  success: true;
-  /** « Email de test envoyé à … ». */
-  message: string;
-}
-
-/** Envoi de test en échec (SMTP non configuré, serveur injoignable…). */
-export interface EmailTemplateTestFailure {
-  success: false;
-  message: string;
-}
 
 /**
  * POST /api/admin/email-templates/:id/test et
  * POST /api/admin/email-templates/:id/test-bon — envoi d'un email de test,
- * avec les données d'exemple ou celles du bon `bonId`. Répond 201 dans les
- * deux branches ; 400 pour une adresse invalide (ou un `bonId` qui n'est pas
+ * avec les données d'exemple ou celles du bon `bonId`. Répond 200 `{ ok,
+ * message }` (`ok` faux si l'envoi a échoué : SMTP non configuré, serveur
+ * injoignable…) ; 400 pour une adresse invalide (ou un `bonId` qui n'est pas
  * un UUID, un modèle sans bon, un bon anonymisé), 404 pour un modèle ou un
  * bon introuvable.
  */
-export type EmailTemplateTestResponse = EmailTemplateTestSuccess | EmailTemplateTestFailure;
+export interface EmailTemplateTestResponse {
+  ok: boolean;
+  /** « Email de test envoyé à … », ou la cause de l'échec. */
+  message: string;
+}
 
 /** Bon proposé par la recherche de l'aperçu avec un bon réel. */
 export interface PreviewBonOption {
@@ -160,7 +153,7 @@ export interface PreviewBonOption {
  * référence contient `q` (sans distinction de casse ; tous les bons si `q`
  * est vide), les plus récents d'abord, bons anonymisés exclus.
  */
-export type PreviewBonsResponse = PreviewBonOption[];
+export type PreviewBonsResponse = ListResponse<PreviewBonOption>;
 
 /**
  * GET /api/admin/email-templates/:id/preview-bon/:bonId — modèle rendu avec
@@ -199,7 +192,7 @@ export interface PdfTemplateSummary {
 }
 
 /** GET /api/admin/pdf-templates — catalogue complet, dans l'ordre du catalogue. */
-export type PdfTemplatesResponse = PdfTemplateSummary[];
+export type PdfTemplatesResponse = ListResponse<PdfTemplateSummary>;
 
 /** Couleurs du document (codes hexadécimaux « #RRGGBB »). */
 export interface PdfColorScheme {

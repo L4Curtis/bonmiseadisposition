@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { normalizeEmail } from './utils/normalize-email.util';
 import { computeMustChangePassword, PasswordPolicyUser } from './password-policy';
 import { AccountLockedException } from './exceptions';
+import { LOGIN_LOCK_WINDOW_MS, lockWindowStart } from '../audit/login-lock';
 
 // Pre-computed hash to equalize timing between "unknown user" and "wrong password"
 // (prevents user enumeration through bcrypt timing).
@@ -28,11 +29,13 @@ type LocalUser = PasswordPolicyUser & {
   passwordHash: string | null;
 };
 
-// ─── Brute-force protection (persistent via AuditLog, survives restarts) ─
-// Deux dimensions indépendantes (LOT C bug #2) :
-//  - verrou par COMPTE : ≥10 échecs pour (email, IP) en 30 min. Sans la
-//    dimension IP, n'importe qui pouvait verrouiller admin@local (compte de
-//    secours) depuis n'importe où en renvoyant juste le bon email.
+// ─── Protection anti force brute (déduite du journal, survit aux redémarrages)
+// Deux dimensions indépendantes :
+//  - verrou par COMPTE : ≥10 échecs pour (email, IP) en 30 min, comptés
+//    depuis le dernier déverrouillage par l'administrateur s'il est plus
+//    récent (audit/login-lock.ts : le déverrouillage n'efface rien du
+//    journal). Sans la dimension IP, n'importe qui pouvait verrouiller
+//    admin@local (compte de secours) depuis n'importe où avec le bon email.
 //  - verrou par IP : ≥30 échecs depuis une même IP en 30 min, toutes cibles
 //    confondues — bloque le credential-stuffing qui teste beaucoup d'emails
 //    différents depuis une seule IP (ce que le verrou par compte ne couvre pas).
@@ -40,18 +43,20 @@ type LocalUser = PasswordPolicyUser & {
 // lockout rejections are logged as login_local_locked (not counted here) so
 // that probing a locked account cannot extend the lockout indefinitely.
 async function checkBruteForce(deps: Pick<LocalLoginDeps, 'prisma' | 'logger'>, email: string, ip: string): Promise<void> {
-  const windowStart = new Date(Date.now() - 30 * 60 * 1000); // 30-min window
+  const now = new Date();
+  const ipWindowStart = new Date(now.getTime() - LOGIN_LOCK_WINDOW_MS);
+  const accountWindowStart = await lockWindowStart(deps.prisma, email, now);
   const [accountFailures, ipFailures] = await Promise.all([
     deps.prisma.auditLog.count({
-      where: { userEmail: email, ipAddress: ip, action: 'login_local_failed', createdAt: { gte: windowStart } },
+      where: { userEmail: email, ipAddress: ip, action: 'login_local_failed', createdAt: { gte: accountWindowStart } },
     }),
     deps.prisma.auditLog.count({
-      where: { ipAddress: ip, action: 'login_local_failed', createdAt: { gte: windowStart } },
+      where: { ipAddress: ip, action: 'login_local_failed', createdAt: { gte: ipWindowStart } },
     }),
   ]);
   if (accountFailures >= 10) {
     deps.logger.warn(`Compte ${email} bloqué depuis l'IP ${ip} (${accountFailures} échecs en 30 min)`);
-    throw new AccountLockedException('Compte temporairement verrouillé suite à plusieurs tentatives échouées. Réessayez dans 30 minutes.');
+    throw new AccountLockedException();
   }
   if (ipFailures >= 30) {
     deps.logger.warn(`IP ${ip} bloquée (${ipFailures} échecs toutes cibles confondues en 30 min)`);

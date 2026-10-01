@@ -3,6 +3,7 @@ import { validate, ValidationError } from 'class-validator';
 import { PrismaService } from '../prisma/prisma.service';
 import { ImportFilialeItemDto, ImportFilialesResult } from './dto/filiale.dto';
 import { saveFilialeImageFromBase64, deleteFilialeUpload } from './filiales-image';
+import { writeAuditEntry } from '../audit/audit-record';
 
 /** Concatène les messages de contrainte (`class-validator`) d'une ligne
  *  invalide en une seule chaîne lisible pour `errors[].message` — même
@@ -183,16 +184,13 @@ export async function importFilialeItems(
     result.created++;
   }
 
-  await prisma.auditLog.create({
-    data: {
-      userId,
-      action: 'filiales_imported',
-      details: {
-        created: result.created,
-        updated: result.updated,
-        skipped: result.skipped,
-        errorCount: result.errors.length,
-      },
+  await writeAuditEntry(prisma, 'filiales_imported', {
+    actorId: userId,
+    details: {
+      created: result.created,
+      updated: result.updated,
+      skipped: result.skipped,
+      errorCount: result.errors.length,
     },
   });
 

@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Response } from 'express';
 import { AppConfigService } from '../config/config.service';
+import { ConfigRegistryService } from '../config/config-registry.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AccountLockedException, AccountConflictException } from './exceptions';
 import { resolveRoleFromGroups } from './role-mapping';
@@ -52,6 +53,7 @@ export class AuthService implements OnModuleDestroy {
     private readonly configService: AppConfigService,
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
+    private readonly settings: ConfigRegistryService,
   ) {
     // Periodically clean up expired entries every 5 minutes
     this.cleanupInterval = setInterval(() => {
@@ -92,7 +94,7 @@ export class AuthService implements OnModuleDestroy {
   }
 
   async getLoginUrl(state: string, prompt?: string): Promise<{ url: string; codeVerifier: string }> {
-    return getLoginUrlImpl({ configService: this.configService }, state, prompt);
+    return getLoginUrlImpl({ settings: this.settings }, state, prompt);
   }
 
   async handleCallback(
@@ -102,7 +104,7 @@ export class AuthService implements OnModuleDestroy {
   ): Promise<{ accessToken: string; refreshToken: string; user: { id: string; email: string } }> {
     return handleCallbackImpl(
       {
-        configService: this.configService,
+        settings: this.settings,
         prisma: this.prisma,
         logger: this.logger,
         createTokens: (user) => this.createTokensForUser(user),
@@ -138,16 +140,14 @@ export class AuthService implements OnModuleDestroy {
   /**
    * Recalcule le rôle depuis les groupes Entra à CHAQUE connexion SSO — les
    * groupes font toujours foi, sans exception : un compte passé manuellement
-   * en `direction` (PATCH /admin/users/:id/role) redescend en `collaborator`
+   * en `direction` (PATCH /users/:id/role) redescend en `collaborator`
    * à sa prochaine connexion s'il n'appartient à aucun groupe élevé. Priorité
    * admin > technician > direction > collaborator ; `direction` n'est jamais
    * du personnel IT (`isItStaff = false`). Mapping délégué à role-mapping.ts
    * (fonction pure), seule la lecture config + l'écriture DB restent ici.
    */
   private async syncUserRoleFromGroups(userId: string, groups: string[]): Promise<void> {
-    const adminGroupId = await this.configService.get('entra', 'admin_group_id');
-    const technicianGroupId = await this.configService.get('entra', 'technician_group_id');
-    const directionGroupId = await this.configService.get('entra', 'direction_group_id');
+    const { adminGroupId, technicianGroupId, directionGroupId } = await this.entraGroupIds();
 
     const { role, isItStaff } = resolveRoleFromGroups(groups, { adminGroupId, technicianGroupId, directionGroupId });
     const user = await this.prisma.user.update({
@@ -172,17 +172,32 @@ export class AuthService implements OnModuleDestroy {
    *  conservé, et la raison est tracée pour l'administrateur. */
   private async recordGroupsClaimIssue(userId: string, state: GroupsClaimState): Promise<void> {
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    const { adminGroupId, technicianGroupId, directionGroupId } = await this.entraGroupIds();
     await recordSsoRoleDiagnostic(this.prisma, user, {
       state,
       groupsCount: 0,
       configured: {
-        admin: !!(await this.configService.get('entra', 'admin_group_id'))?.trim(),
-        technician: !!(await this.configService.get('entra', 'technician_group_id'))?.trim(),
-        direction: !!(await this.configService.get('entra', 'direction_group_id'))?.trim(),
+        admin: !!adminGroupId?.trim(),
+        technician: !!technicianGroupId?.trim(),
+        direction: !!directionGroupId?.trim(),
       },
       resolvedRole: null,
       aucuneCorrespondance: false,
     });
+  }
+
+  /** Identifiants des groupes Entra qui donnent un rôle (null : non saisi). */
+  private async entraGroupIds(): Promise<{
+    adminGroupId: string | null;
+    technicianGroupId: string | null;
+    directionGroupId: string | null;
+  }> {
+    const [adminGroupId, technicianGroupId, directionGroupId] = await Promise.all([
+      this.settings.getString('entra.admin_group_id'),
+      this.settings.getString('entra.technician_group_id'),
+      this.settings.getString('entra.direction_group_id'),
+    ]);
+    return { adminGroupId, technicianGroupId, directionGroupId };
   }
 
   setAuthCookies(res: Response, accessToken: string, refreshToken: string) {

@@ -3,13 +3,14 @@ import { diagnosticMessage, readGroupsClaimState, type GroupsClaimState } from '
 import { ConfidentialClientApplication, AuthorizationCodeRequest } from '@azure/msal-node';
 import * as crypto from 'crypto';
 import { Prisma } from '@prisma/client';
-import { AppConfigService } from '../config/config.service';
+import { ConfigRegistryService } from '../config/config-registry.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { normalizeEmail } from './utils/normalize-email.util';
 import { AccountConflictException } from './exceptions';
 
 export interface EntraSsoDeps {
-  configService: AppConfigService;
+  /** Réglages Entra lus par le registre (valeur appliquée, secret déchiffré). */
+  settings: ConfigRegistryService;
   prisma: PrismaService;
   logger: Logger;
   /** Émission des tokens de session — fournie par la façade (session-tokens.ts + JwtService). */
@@ -28,10 +29,10 @@ export interface EntraSsoDeps {
 }
 
 /** Build MSAL ConfidentialClientApplication from DB config */
-async function getMsalClient(deps: Pick<EntraSsoDeps, 'configService'>): Promise<ConfidentialClientApplication> {
-  const tenantId = await deps.configService.get('entra', 'tenant_id');
-  const clientId = await deps.configService.get('entra', 'client_id');
-  const clientSecret = await deps.configService.get('entra', 'client_secret');
+async function getMsalClient(deps: Pick<EntraSsoDeps, 'settings'>): Promise<ConfidentialClientApplication> {
+  const tenantId = await deps.settings.getString('entra.tenant_id');
+  const clientId = await deps.settings.getString('entra.client_id');
+  const clientSecret = await deps.settings.getString('entra.client_secret');
 
   if (!tenantId || !clientId || !clientSecret) {
     throw new Error('Entra ID configuration incomplete. Please configure in admin panel.');
@@ -47,18 +48,19 @@ async function getMsalClient(deps: Pick<EntraSsoDeps, 'configService'>): Promise
 }
 
 /** Redirect URI Entra : valeur explicite si configurée, sinon dérivée
- *  automatiquement de l'URL publique (general.app_url puis FRONTEND_URL) —
- *  plus besoin de la saisir à la main dans la majorité des déploiements. */
-async function getRedirectUri(deps: Pick<EntraSsoDeps, 'configService'>): Promise<string> {
-  const explicit = await deps.configService.get('entra', 'redirect_uri');
+ *  automatiquement de l'URL publique (general.app_url, dont le registre
+ *  applique FRONTEND_URL quand rien n'est saisi) — plus besoin de la saisir à
+ *  la main dans la majorité des déploiements. */
+async function getRedirectUri(deps: Pick<EntraSsoDeps, 'settings'>): Promise<string> {
+  const explicit = await deps.settings.getString('entra.redirect_uri');
   if (explicit) return explicit;
-  const appUrl = (await deps.configService.get('general', 'app_url')) || process.env.FRONTEND_URL;
+  const appUrl = await deps.settings.getString('general.app_url');
   if (appUrl) return `${appUrl.replace(/\/+$/, '')}/api/auth/callback`;
   return 'http://localhost:4000/api/auth/callback';
 }
 
 export async function getLoginUrl(
-  deps: Pick<EntraSsoDeps, 'configService'>,
+  deps: Pick<EntraSsoDeps, 'settings'>,
   state: string,
   prompt?: string,
 ): Promise<{ url: string; codeVerifier: string }> {
@@ -161,7 +163,7 @@ export async function handleCallback(
         // pour le même utilisateur) ou collision imprévue. Le contrôleur
         // distingue ce cas (error=account_conflict) de l'échec générique.
         deps.logger.warn(`SSO ${email}: création en conflit (P2002 résiduel) — probable création concurrente`);
-        throw new AccountConflictException('Conflit lors de la création du compte SSO');
+        throw new AccountConflictException();
       }
       throw err;
     }

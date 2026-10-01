@@ -1,37 +1,49 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { AlertTriangle, CheckCircle, HardDrive, RefreshCw } from 'lucide-react';
 import { api } from '@/lib/api';
 import { showActionError } from '@/lib/errors';
 import { formatDateTime } from '@/lib/dates';
 import { Button } from '@/components/ui/button';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/hooks/use-toast';
-import { CheckCircle, Loader2, RefreshCw, AlertTriangle, HardDrive } from 'lucide-react';
 import { FailedEmailsCard } from '@/components/admin/FailedEmailsCard';
+import type {
+  SmbFailedExport,
+  SmbRetryAllResponse,
+  SmbRetryOneResponse,
+  SmbStatusEnabled,
+  SmbStatusResponse,
+} from '@/contracts/admin';
 import { ScheduledJobsCard } from './ScheduledJobsCard';
+import { SmbFailedExports } from './SmbFailedExports';
 
-interface SmbStatus {
-  enabled: boolean;
-  total?: number;
-  success?: number;
-  failed?: number;
-  pending?: number;
-  lastSuccessAt?: string | null;
+const CARD_TITLE = 'Surveillance de la copie réseau des PDF';
+
+function SmbCounters({ status }: { status: SmbStatusEnabled }) {
+  const hasFailures = status.failed > 0;
+  return (
+    <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+      <div className={`flex items-center gap-1.5 font-medium ${hasFailures ? 'text-destructive' : 'text-success'}`}>
+        {hasFailures ? <AlertTriangle className="h-4 w-4" /> : <CheckCircle className="h-4 w-4" />}
+        {hasFailures ? `${status.failed} copie(s) en échec` : 'Toutes les copies ont réussi'}
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
+        <span>Total : <strong className="text-foreground">{status.total}</strong></span>
+        <span>Réussies : <strong className="text-success">{status.success}</strong></span>
+        <span>En échec : <strong className={hasFailures ? 'text-destructive' : 'text-foreground'}>{status.failed}</strong></span>
+        <span>En attente : <strong className="text-foreground">{status.pending}</strong></span>
+      </div>
+    </div>
+  );
 }
 
-interface SmbFailedExport {
-  id: string;
-  bonId: string;
-  filename: string;
-  errorMessage: string | null;
-  retryCount: number;
-  lastAttemptAt: string | null;
-  createdAt: string;
-  bonReference: string;
-}
-
+/**
+ * Supervision : tâches planifiées, copie des PDF sur le partage réseau (SMB)
+ * et emails en échec. Une relance qui échoue le dit, avec sa cause.
+ */
 export function ConfigMonitoringPage() {
-  const [status, setStatus] = useState<SmbStatus | null>(null);
+  const [status, setStatus] = useState<SmbStatusResponse | null>(null);
   const [failed, setFailed] = useState<SmbFailedExport[]>([]);
   const [loading, setLoading] = useState(true);
   const [retrying, setRetrying] = useState<string | null>(null);
@@ -39,32 +51,31 @@ export function ConfigMonitoringPage() {
 
   const load = useCallback(async () => {
     try {
-      const s = await api.get<SmbStatus>('/admin/smb/status');
+      const s = await api.get<SmbStatusResponse>('/admin/smb/status');
       setStatus(s);
-      if (s.enabled && (s.failed ?? 0) > 0) {
-        const f = await api.get<SmbFailedExport[]>('/admin/smb/failed');
-        setFailed(f);
-      } else {
-        setFailed([]);
-      }
+      setFailed(s.enabled && s.failed > 0 ? (await api.getList<SmbFailedExport>('/admin/smb/failed')).items : []);
     } catch (e: unknown) {
       setStatus(null);
-      showActionError(e, 'Erreur lors du chargement du statut SMB');
+      showActionError(e, 'Erreur lors du chargement de la copie réseau');
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
-  const retryOne = async (id: string) => {
-    setRetrying(id);
+  const retryOne = async (exp: SmbFailedExport) => {
+    setRetrying(exp.id);
     try {
-      await api.post(`/admin/smb/retry/${id}`);
-      toast({ title: 'Export relancé', variant: 'success' });
+      const result = await api.post<SmbRetryOneResponse>(`/admin/smb/retry/${exp.id}`);
+      toast({
+        title: result.ok ? 'Copie relancée' : 'La relance a échoué',
+        description: result.message,
+        variant: result.ok ? 'success' : 'destructive',
+      });
       await load();
     } catch (e: unknown) {
-      showActionError(e, 'Erreur lors du retry');
+      showActionError(e, 'La relance a échoué');
     } finally {
       setRetrying(null);
     }
@@ -73,151 +84,51 @@ export function ConfigMonitoringPage() {
   const retryAll = async () => {
     setRetryingAll(true);
     try {
-      const result = await api.post<{ retried: number; succeeded: number; failed: number }>('/admin/smb/retry-all');
+      const result = await api.post<SmbRetryAllResponse>('/admin/smb/retry-all');
       toast({
-        title: `Retry terminé : ${result.succeeded} réussi(s), ${result.failed} échoué(s)`,
+        title: `Relance terminée : ${result.succeeded} réussie(s), ${result.failed} en échec`,
         variant: result.failed > 0 ? 'destructive' : 'success',
       });
       await load();
     } catch (e: unknown) {
-      showActionError(e, 'Erreur lors du retry');
+      showActionError(e, 'La relance a échoué');
     } finally {
       setRetryingAll(false);
     }
   };
 
-  // Lot F1 : titre de page caché — présent dans les trois branches de rendu
-  // (chargement / SMB désactivé / contenu), c'est le même titre pour la page.
-  const pageTitle = <h1 className="sr-only">Configuration — Monitoring SMB</h1>;
-
-  if (loading) {
-    return (
-      <div className="space-y-5">
-        {pageTitle}
-        <ScheduledJobsCard />
-        <Card>
-          <CardHeader><CardTitle>Monitoring export SMB</CardTitle></CardHeader>
-          <CardContent><Skeleton className="h-20 w-full" /></CardContent>
-        </Card>
-        <FailedEmailsCard />
-      </div>
-    );
-  }
-
-  if (!status || !status.enabled) {
-    return (
-      <div className="space-y-5">
-        {pageTitle}
-        <ScheduledJobsCard />
-        <Card>
-          <CardHeader><CardTitle className="flex items-center gap-2"><HardDrive className="h-4 w-4" /> Monitoring export SMB</CardTitle></CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground">L'export SMB est désactivé. Activez-le dans la section Export SMB pour voir les statistiques.</p>
-          </CardContent>
-        </Card>
-        <FailedEmailsCard />
-      </div>
-    );
-  }
-
-  const hasFailures = (status.failed ?? 0) > 0;
-  const statusColor = hasFailures ? 'text-destructive' : 'text-success';
-  const statusIcon = hasFailures ? <AlertTriangle className="h-4 w-4" /> : <CheckCircle className="h-4 w-4" />;
-
   return (
     <div className="space-y-5">
-      {pageTitle}
+      <h1 className="sr-only">Configuration — Monitoring SMB</h1>
       <ScheduledJobsCard />
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
-              <HardDrive className="h-4 w-4" /> Monitoring export SMB
-            </CardTitle>
-            <Button variant="ghost" size="sm" onClick={load} aria-label="Actualiser le statut de l'export SMB">
-              <RefreshCw className="h-3 w-3" />
-            </Button>
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle className="flex items-center gap-2"><HardDrive className="h-4 w-4" /> {CARD_TITLE}</CardTitle>
+            {status?.enabled && (
+              <Button variant="ghost" size="sm" className="min-h-11 min-w-11" onClick={load} aria-label="Actualiser l’état de la copie réseau">
+                <RefreshCw className="h-3 w-3" />
+              </Button>
+            )}
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex items-center gap-6 flex-wrap">
-            <div className={`flex items-center gap-1.5 font-medium ${statusColor}`}>
-              {statusIcon}
-              {hasFailures ? `${status.failed} export(s) échoué(s)` : 'Tous les exports OK'}
-            </div>
-            <div className="flex gap-4 text-sm text-muted-foreground">
-              <span>Total : <strong className="text-foreground">{status.total ?? 0}</strong></span>
-              <span>Réussis : <strong className="text-success">{status.success ?? 0}</strong></span>
-              <span>Échoués : <strong className={hasFailures ? 'text-destructive' : 'text-foreground'}>{status.failed ?? 0}</strong></span>
-              <span>En attente : <strong className="text-foreground">{status.pending ?? 0}</strong></span>
-            </div>
-          </div>
-
-          {status.lastSuccessAt && (
-            <p className="text-xs text-muted-foreground">
-              Dernier export réussi : {formatDateTime(status.lastSuccessAt)}
+          {loading ? (
+            <Skeleton className="h-20 w-full" />
+          ) : !status || !status.enabled ? (
+            <p className="text-sm text-muted-foreground">
+              La copie des PDF sur le partage réseau est désactivée. Activez-la dans la rubrique « Export SMB » pour en suivre l’état.
             </p>
-          )}
-
-          {failed.length > 0 && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-medium">Exports échoués</p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={retryAll}
-                  disabled={retryingAll}
-                >
-                  {retryingAll ? <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none mr-1" /> : <RefreshCw className="h-3 w-3 mr-1" />}
-                  Tout réessayer
-                </Button>
-              </div>
-              <div className="border rounded-lg overflow-hidden">
-                <table className="w-full text-sm" aria-label="Exports SMB échoués">
-                  <thead className="bg-muted/50">
-                    <tr>
-                      <th className="text-left px-3 py-2 font-medium">Bon</th>
-                      <th className="text-left px-3 py-2 font-medium">Fichier</th>
-                      <th className="text-left px-3 py-2 font-medium">Erreur</th>
-                      <th className="text-center px-3 py-2 font-medium">Tentatives</th>
-                      <th className="text-right px-3 py-2 font-medium">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {failed.slice(0, 20).map((exp) => (
-                      <tr key={exp.id} className="hover:bg-muted/30">
-                        <td className="px-3 py-2 font-mono text-xs">{exp.bonReference}</td>
-                        <td className="px-3 py-2 text-xs max-w-[200px] truncate" title={exp.filename}>{exp.filename}</td>
-                        <td className="px-3 py-2 text-xs text-destructive max-w-[250px] truncate" title={exp.errorMessage ?? ''}>
-                          {exp.errorMessage ?? 'Erreur inconnue'}
-                        </td>
-                        <td className="px-3 py-2 text-center text-xs">{exp.retryCount}/3</td>
-                        <td className="px-3 py-2 text-right">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => retryOne(exp.id)}
-                            disabled={retrying === exp.id}
-                            className="h-7 px-2"
-                            aria-label={`Réessayer l'export ${exp.filename}`}
-                          >
-                            {retrying === exp.id
-                              ? <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none" />
-                              : <RefreshCw className="h-3 w-3" />}
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {failed.length > 20 && (
-                <p className="text-xs text-muted-foreground">
-                  {failed.length - 20} export(s) échoué(s) supplémentaire(s) non affiché(s).
-                </p>
+          ) : (
+            <>
+              <SmbCounters status={status} />
+              {status.lastSuccessAt && (
+                <p className="text-xs text-muted-foreground">Dernière copie réussie : {formatDateTime(status.lastSuccessAt)}</p>
               )}
-            </div>
+              {failed.length > 0 && (
+                <SmbFailedExports exports={failed} retrying={retrying} retryingAll={retryingAll} onRetry={retryOne} onRetryAll={retryAll} />
+              )}
+            </>
           )}
         </CardContent>
       </Card>

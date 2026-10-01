@@ -9,6 +9,7 @@
 import { randomUUID } from 'crypto';
 import { Prisma, UserRole } from '@prisma/client';
 import { UsersService } from '../users.service';
+import { AuditService } from '../../audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
 
 const describeDb = process.env.RUN_DB_TESTS === '1' ? describe : describe.skip;
@@ -49,7 +50,8 @@ describeDb('UsersService.findItStaff — base réelle (transaction annulée)', (
             compte('direction', 'direction', true),
           ],
         });
-        resultat = await new UsersService(tx as unknown as PrismaService).findItStaff();
+        const audit = new AuditService(tx as unknown as PrismaService);
+        resultat = (await new UsersService(tx as unknown as PrismaService, audit).findItStaff()).items;
         throw ANNULATION;
       })
       .catch((err: unknown) => {

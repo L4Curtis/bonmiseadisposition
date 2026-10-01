@@ -1,7 +1,6 @@
 import { Controller, Get, Query, Req, Res, Post, Body, UseGuards, UnauthorizedException, ForbiddenException, Logger } from '@nestjs/common';
 import { Throttle, SkipThrottle } from '@nestjs/throttler';
 import { Request, Response } from 'express';
-import { PrismaService } from '../prisma/prisma.service';
 import * as crypto from 'crypto';
 import { AuthService, AccountLockedException, AccountConflictException } from './auth.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -13,17 +12,13 @@ import { normalizeEmail } from './utils/normalize-email.util';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { AuthUser } from './auth-user.interface';
 import { AppConfigService } from '../config/config.service';
+import { ConfigRegistryService } from '../config/config-registry.service';
+import { AuditService } from '../audit/audit.service';
+import type { AuditEntryInput } from '../audit/audit-record';
 import { LocalLoginDto } from './dto/local-login.dto';
+import { clientIp } from '../common/http/client-ip';
 import { ChangePasswordDto } from './dto/change-password.dto';
 
-// Prioritize X-Real-IP (set by nginx to $remote_addr) over the client-forgeable
-// X-Forwarded-For — same priority as bons.controller / signature.controller (SEC-03).
-function extractClientIp(req: Request): string {
-  return (req.headers['x-real-ip'] as string)?.trim()
-    ?? (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
-    ?? req.socket?.remoteAddress
-    ?? 'unknown';
-}
 
 /** Au-delà, un « returnTo » n'est pas une adresse d'écran : refusé (et le
  *  cookie qui le transporte reste petit). */
@@ -31,6 +26,11 @@ const MAX_RETURN_TO_LENGTH = 2048;
 
 /** Cookie qui garde la page demandée pendant l'aller-retour vers Microsoft. */
 const RETURN_TO_COOKIE = 'auth_return_to';
+
+/** Adresse et navigateur du client, tels que le journal d'audit les garde. */
+function clientTrace(req: Request): Pick<AuditEntryInput, 'ip' | 'userAgent'> {
+  return { ip: clientIp(req), userAgent: req.headers['user-agent'] ?? 'unknown' };
+}
 
 /**
  * Valide qu'un returnTo est un chemin relatif sûr vers CE frontend, pas une
@@ -69,7 +69,8 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly configService: AppConfigService,
-    private readonly prisma: PrismaService,
+    private readonly settings: ConfigRegistryService,
+    private readonly audit: AuditService,
   ) {}
 
   @Get('login')
@@ -136,19 +137,10 @@ export class AuthController {
     const codeVerifier = req.cookies['oauth_code_verifier'];
     res.clearCookie('oauth_code_verifier');
 
-    const ip = extractClientIp(req);
     try {
       const { accessToken, refreshToken, user } = await this.authService.handleCallback(code, state, codeVerifier);
       this.authService.setAuthCookies(res, accessToken, refreshToken);
-      await this.prisma.auditLog.create({
-        data: {
-          userId: user?.id,
-          userEmail: user?.email,
-          action: 'login_sso',
-          ipAddress: ip,
-          userAgent: req.headers['user-agent'] ?? 'unknown',
-        },
-      }).catch(() => { /* non-blocking */ });
+      await this.audit.recordSafely('login_sso', { actorId: user.id, actorEmail: user.email, ...clientTrace(req) });
       const destination = isSafeReturnTo(returnTo, frontendUrl) ? `${frontendUrl}${returnTo}` : `${frontendUrl}/`;
       return res.redirect(destination);
     } catch (err) {
@@ -191,7 +183,6 @@ export class AuthController {
   @Roles(...ALL_ROLES)
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   async logout(@CurrentUser() user: AuthUser, @Req() req: Request, @Res() res: Response) {
-    const ip = extractClientIp(req);
     // Revoke both tokens so they cannot be reused after logout
     const accessToken = req.cookies?.['access_token'];
     if (accessToken) {
@@ -202,15 +193,7 @@ export class AuthController {
       // Persisted in DB so the revocation survives a backend restart
       await this.authService.revokeRefreshToken(logoutRefreshToken);
     }
-    await this.prisma.auditLog.create({
-      data: {
-        userId: user?.id,
-        userEmail: user?.email,
-        action: 'logout',
-        ipAddress: ip,
-        userAgent: req.headers['user-agent'] ?? 'unknown',
-      },
-    }).catch(() => { /* non-blocking */ });
+    await this.audit.recordSafely('logout', { actorId: user.id, actorEmail: user.email, ...clientTrace(req) });
     this.authService.clearAuthCookies(res);
     return res.json({ ok: true });
   }
@@ -237,30 +220,24 @@ export class AuthController {
     @Req() req: Request,
     @Res() res: Response,
   ) {
-    const localAuthEnabled = await this.configService.get('general', 'local_auth_enabled');
-    if (localAuthEnabled === 'false') {
+    if (!(await this.settings.getBool('general.local_auth_enabled'))) {
       throw new ForbiddenException('Authentification locale désactivée');
     }
-    const ip = extractClientIp(req);
-    const ua = req.headers['user-agent'] ?? 'unknown';
+    const trace = clientTrace(req);
     // Normalisé pour que les entrées d'audit correspondent exactement à ce que
     // checkBruteForce() recherche (LOT C bug #2/#6) — sinon un email soumis
     // avec une casse différente d'une tentative à l'autre échapperait au compteur.
     const normalizedEmail = normalizeEmail(dto.email);
     try {
-      const { accessToken, refreshToken, mustChangePassword } = await this.authService.localLogin(dto.email, dto.password, ip);
+      const { accessToken, refreshToken, mustChangePassword } = await this.authService.localLogin(dto.email, dto.password, clientIp(req));
       this.authService.setAuthCookies(res, accessToken, refreshToken);
-      await this.prisma.auditLog.create({
-        data: { userEmail: normalizedEmail, action: 'login_local_success', ipAddress: ip, userAgent: ua },
-      }).catch(() => { /* non-blocking */ });
+      await this.audit.recordSafely('login_local_success', { actorEmail: normalizedEmail, ...trace });
       return res.json({ ok: true, mustChangePassword });
     } catch (err) {
       // A lockout rejection is logged under a distinct action so that it does
       // NOT feed checkBruteForce() and extend the lockout window indefinitely.
       const action = err instanceof AccountLockedException ? 'login_local_locked' : 'login_local_failed';
-      await this.prisma.auditLog.create({
-        data: { userEmail: normalizedEmail, action, ipAddress: ip, userAgent: ua },
-      }).catch(() => { /* non-blocking */ });
+      await this.audit.recordSafely(action, { actorEmail: normalizedEmail, ...trace });
       throw err;
     }
   }
@@ -280,17 +257,13 @@ export class AuthController {
     // re-issue fresh cookies so the current session continues seamlessly.
     const tokens = await this.authService.createTokensForUser(user);
     this.authService.setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
-    const ip = extractClientIp(req);
-    await this.prisma.auditLog.create({
-      data: { userId: user?.id, userEmail: user?.email, action: 'password_changed', ipAddress: ip, userAgent: req.headers['user-agent'] ?? 'unknown' },
-    }).catch(() => { /* non-blocking */ });
+    await this.audit.recordSafely('password_changed', { actorId: user.id, actorEmail: user.email, ...clientTrace(req) });
     return res.json({ ok: true });
   }
 
   @Get('local-auth-status')
   @Public()
   async localAuthStatus() {
-    const enabled = await this.configService.get('general', 'local_auth_enabled');
-    return { enabled: enabled !== 'false' };
+    return { enabled: await this.settings.getBool('general.local_auth_enabled') };
   }
 }

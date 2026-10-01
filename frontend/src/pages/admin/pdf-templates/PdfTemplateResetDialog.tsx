@@ -23,7 +23,7 @@ export function PdfTemplateResetDialog({
     if (!templateId) return;
     setLoading(true);
     try {
-      await api.delete(`/admin/pdf-templates/${templateId}`);
+      await api.delete(`/pdf-templates/${templateId}`);
       toast({ title: 'Modèle réinitialisé' });
       onReset();
       onClose();

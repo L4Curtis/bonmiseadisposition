@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/render';
 import { resetActiveFilialesForTests } from '@/hooks/use-active-filiales';
@@ -11,6 +11,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
     ...actual,
     api: {
       get: vi.fn(),
+      getList: vi.fn(),
       post: vi.fn(),
       put: vi.fn(),
       patch: vi.fn(),
@@ -23,6 +24,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
 });
 
 import { api } from '@/lib/api';
+import { toListResponse } from '@/lib/api-envelope';
 
 const CURRENT_USER_ID = 'admin-1';
 let mockRole = 'admin';
@@ -91,15 +93,26 @@ const manualUser = {
   active: true,
 };
 
+/** Réponse de GET /users : la liste paginée commune, avec l'état de l'annuaire. */
+function usersPage(items: unknown[], directoryActive = true) {
+  return { items, total: items.length, page: 1, limit: 25, truncated: false, meta: { directoryActive } };
+}
+
+function serveUsers(items: unknown[], directoryActive = true) {
+  vi.mocked(api.get).mockImplementation((path: string) => {
+    if (path.startsWith('/users?')) return Promise.resolve(usersPage(items, directoryActive));
+    if (path.startsWith('/filiales/active')) return Promise.resolve([]);
+    return Promise.resolve(null);
+  });
+}
+
 beforeEach(() => {
   vi.resetAllMocks();
   resetActiveFilialesForTests();
   mockRole = 'admin';
-  vi.mocked(api.get).mockImplementation((path: string) => {
-    if (path.startsWith('/users?')) return Promise.resolve({ users, total: users.length, page: 1, limit: 25 });
-    if (path.startsWith('/filiales/active')) return Promise.resolve([]);
-    return Promise.resolve(null);
-  });
+  // Les listes passent par `api.getList`, qui lit la réponse de `api.get`.
+  vi.mocked(api.getList).mockImplementation(async (path: string) => toListResponse(await api.get(path)));
+  serveUsers(users);
 });
 
 describe('UtilisateursPage — rôle direction (lot 3b)', () => {
@@ -108,7 +121,7 @@ describe('UtilisateursPage — rôle direction (lot 3b)', () => {
 
     await screen.findByText('Jean Dupont');
 
-    const selects = screen.getAllByRole('combobox');
+    const selects = screen.getAllByRole('combobox', { name: /Rôle de/ });
     expect(selects).toHaveLength(users.length);
 
     expect(screen.getByRole('combobox', { name: /Rôle de Current User/i })).toBeDisabled();
@@ -120,7 +133,7 @@ describe('UtilisateursPage — rôle direction (lot 3b)', () => {
     renderWithProviders(<UtilisateursPage />);
 
     await screen.findByText('Jean Dupont');
-    expect(screen.queryAllByRole('combobox')).toHaveLength(0);
+    expect(screen.queryAllByRole('combobox', { name: /Rôle de/ })).toHaveLength(0);
     expect(screen.getByText('Collaborateur')).toBeInTheDocument();
   });
 
@@ -131,7 +144,7 @@ describe('UtilisateursPage — rôle direction (lot 3b)', () => {
     expect(screen.getByText(/Compte SSO : rôle recalculé depuis les groupes Entra/i)).toBeInTheDocument();
   });
 
-  it('change le rôle via PATCH /admin/users/:id/role et met à jour la ligne', async () => {
+  it('change le rôle via PATCH /users/:id/role et met à jour la ligne', async () => {
     vi.mocked(api.patch).mockResolvedValue({ id: 'user-2', role: 'direction', isItStaff: false });
     // pointerEventsCheck: 0 — cf. BonCreate.test.tsx : Radix <Select> bascule
     // pointer-events sur <body> pendant l'animation, non garantie terminée en jsdom.
@@ -144,21 +157,14 @@ describe('UtilisateursPage — rôle direction (lot 3b)', () => {
     await user.click(await screen.findByRole('option', { name: 'Direction' }));
 
     await waitFor(() => {
-      expect(api.patch).toHaveBeenCalledWith('/admin/users/user-2/role', { role: 'direction' });
+      expect(api.patch).toHaveBeenCalledWith('/users/user-2/role', { role: 'direction' });
     });
   });
 });
 
 describe('UtilisateursPage — collaborateurs créés manuellement', () => {
   it('affiche le badge « Créé manuellement » et « — » pour un compte sans email', async () => {
-    vi.mocked(api.get).mockImplementation((path: string) => {
-      if (path.startsWith('/users?')) {
-        const all = [...users, manualUser];
-        return Promise.resolve({ users: all, total: all.length, page: 1, limit: 25 });
-      }
-      if (path.startsWith('/filiales/active')) return Promise.resolve([]);
-      return Promise.resolve(null);
-    });
+    serveUsers([...users, manualUser]);
 
     renderWithProviders(<UtilisateursPage />);
 
@@ -173,26 +179,20 @@ describe('UtilisateursPage — collaborateurs créés manuellement', () => {
   });
 
   it("n'affiche pas de bouton Modifier pour un compte d'annuaire, mais l'affiche pour un compte manuel", async () => {
-    vi.mocked(api.get).mockImplementation((path: string) => {
-      if (path.startsWith('/users?')) {
-        const all = [...users, manualUser];
-        return Promise.resolve({ users: all, total: all.length, page: 1, limit: 25 });
-      }
-      if (path.startsWith('/filiales/active')) return Promise.resolve([]);
-      return Promise.resolve(null);
-    });
+    serveUsers([...users, manualUser]);
 
     renderWithProviders(<UtilisateursPage />);
 
     await screen.findByText('Marc Ouvrier');
 
-    // Compte manuel : modification et activation/désactivation disponibles,
-    // et un seul bouton Modifier dans toute la page (pas sur les comptes d'annuaire).
+    // Compte manuel : modification et désactivation disponibles, et un seul
+    // bouton Modifier dans toute la page (pas sur les comptes d'annuaire).
     expect(screen.getAllByRole('button', { name: 'Modifier' })).toHaveLength(1);
-    expect(screen.getAllByRole('button', { name: /Désactiver|Activer/ })).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Désactiver le compte de Marc Ouvrier' })).toBeInTheDocument();
 
-    // Compte d'annuaire (Jean Dupont) : lecture seule, phrase explicative.
-    expect(screen.getByText(/Compte Active Directory : modifiable dans Active Directory/i)).toBeInTheDocument();
+    // Annuaire actif : le compte d'annuaire (Jean Dupont) renvoie vers Active Directory.
+    expect(screen.queryByRole('button', { name: 'Désactiver le compte de Jean Dupont' })).not.toBeInTheDocument();
+    expect(screen.getByText(/Compte Active Directory : se modifie et se désactive dans Active Directory/i)).toBeInTheDocument();
   });
 
   it('crée un collaborateur depuis l\'annuaire via le bouton « Ajouter un collaborateur »', async () => {
@@ -221,25 +221,76 @@ describe('UtilisateursPage — collaborateurs créés manuellement', () => {
     });
   });
 
-  it('active/désactive un compte manuel via PATCH /users/:id/manual', async () => {
+  it('désactive un compte manuel après confirmation, via POST /users/:id/deactivate', async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
-    vi.mocked(api.get).mockImplementation((path: string) => {
-      if (path.startsWith('/users?')) {
-        const all = [...users, manualUser];
-        return Promise.resolve({ users: all, total: all.length, page: 1, limit: 25 });
-      }
-      if (path.startsWith('/filiales/active')) return Promise.resolve([]);
-      return Promise.resolve(null);
-    });
-    vi.mocked(api.patch).mockResolvedValue({ ...manualUser, active: false });
+    serveUsers([...users, manualUser]);
+    vi.mocked(api.post).mockResolvedValue({ ...manualUser, active: false });
 
     renderWithProviders(<UtilisateursPage />);
     await screen.findByText('Marc Ouvrier');
 
-    await user.click(screen.getByRole('button', { name: /Désactiver/i }));
+    await user.click(screen.getByRole('button', { name: 'Désactiver le compte de Marc Ouvrier' }));
+    expect(api.post).not.toHaveBeenCalled();
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Désactiver' }));
 
-    await waitFor(() => {
-      expect(api.patch).toHaveBeenCalledWith('/users/user-3/manual', { active: false });
-    });
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/users/user-3/deactivate'));
+    expect(await screen.findByText('Inactif')).toBeInTheDocument();
+  });
+});
+
+describe('UtilisateursPage — annuaire inactif (R-107)', () => {
+  it('propose de désactiver un compte venu d’Active Directory, avec une confirmation qui le dit', async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    serveUsers(users, false);
+    vi.mocked(api.post).mockResolvedValue({ ...users[1], active: false });
+
+    renderWithProviders(<UtilisateursPage />);
+    await screen.findByText('Jean Dupont');
+
+    expect(screen.getByText(/L'annuaire Active Directory n'est pas synchronisé/)).toBeInTheDocument();
+    // Jamais sur son propre compte.
+    expect(screen.queryByRole('button', { name: 'Désactiver le compte de Current User' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Désactiver le compte de Jean Dupont' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent(/Ce compte vient d'Active Directory/);
+    await user.click(within(dialog).getByRole('button', { name: 'Désactiver' }));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/users/user-2/deactivate'));
+  });
+
+  it('réactive un compte désactivé sans confirmation, via POST /users/:id/reactivate', async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    serveUsers([{ ...users[1], active: false }], false);
+    vi.mocked(api.post).mockResolvedValue({ ...users[1], active: true });
+
+    renderWithProviders(<UtilisateursPage />);
+    await user.click(await screen.findByRole('button', { name: 'Réactiver le compte de Jean Dupont' }));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/users/user-2/reactivate'));
+  });
+});
+
+describe('UtilisateursPage — liste', () => {
+  it('demande la première page de 25 comptes actifs, puis filtre l’état sur demande', async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    renderWithProviders(<UtilisateursPage />);
+    await screen.findByText('Jean Dupont');
+
+    expect(api.getList).toHaveBeenCalledWith('/users?page=1&limit=25&status=active');
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'État des comptes' }), 'inactive');
+    await waitFor(() => expect(api.getList).toHaveBeenCalledWith('/users?page=1&limit=25&status=inactive'));
+  });
+
+  it('déverrouille un compte local via POST /users/:id/unlock', async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    serveUsers([{ ...users[1], id: 'loc-1', displayName: 'Lucie Locale', isLocalAccount: true }]);
+    vi.mocked(api.post).mockResolvedValue({ unlocked: true, failedAttempts: 3 });
+
+    renderWithProviders(<UtilisateursPage />);
+    await user.click(await screen.findByRole('button', { name: 'Déverrouiller' }));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/users/loc-1/unlock'));
   });
 });

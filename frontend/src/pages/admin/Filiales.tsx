@@ -4,12 +4,13 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { useFiliales } from './filiales/useFiliales';
 import { useFilialesImport } from './filiales/useFilialesImport';
-import { useFilialesExport } from './filiales/useFilialesExport';
+import { useFilialesTemplate } from './filiales/useFilialesTemplate';
 import { useFilialesStatusFilter } from './filiales/useFilialesStatusFilter';
 import { FilialeForm } from './filiales/FilialeForm';
 import { FilialeListItem } from './filiales/FilialeListItem';
 import { DeleteFilialeDialog } from './filiales/DeleteFilialeDialog';
 import { FilialesActionsBar } from './filiales/FilialesActionsBar';
+import { FilialesExportButtons } from './filiales/FilialesExportButtons';
 import { FilialesImportDialog } from './filiales/FilialesImportDialog';
 import { FilialesStatusFilter } from './filiales/FilialesStatusFilter';
 
@@ -63,25 +64,27 @@ export function FilialesPage() {
   } = useFiliales();
 
   const importState = useFilialesImport(fetchFiliales);
-  const {
-    exporting, exportCsv, downloadingTemplate, downloadTemplate,
-  } = useFilialesExport();
+  const { downloadingTemplate, downloadTemplate } = useFilialesTemplate();
   const {
     showInactive, setShowInactive, visibleFiliales, inactiveCount,
   } = useFilialesStatusFilter(filiales);
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-xl font-bold text-foreground">Filiales</h1>
-        <FilialesActionsBar
-          onAdd={() => setCreating(true)}
-          onImport={importState.openDialog}
-          onExportCsv={() => void exportCsv(false)}
-          onExportCsvWithImages={() => void exportCsv(true)}
-          onDownloadTemplate={() => void downloadTemplate()}
-          busy={exporting || downloadingTemplate}
-        />
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <FilialesExportButtons
+            count={loading ? null : visibleFiliales.length}
+            showInactive={showInactive}
+          />
+          <FilialesActionsBar
+            onAdd={() => setCreating(true)}
+            onImport={importState.openDialog}
+            onDownloadTemplate={() => void downloadTemplate()}
+            busy={downloadingTemplate}
+          />
+        </div>
       </div>
 
       {creating && (

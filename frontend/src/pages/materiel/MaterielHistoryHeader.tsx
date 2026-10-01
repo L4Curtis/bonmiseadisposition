@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router';
-import { ChevronLeft, Download, History } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { ChevronLeft, History } from 'lucide-react';
+import { ExportButton } from '@/components/export';
+import { todayInParis } from '@/lib/dates';
 import type { CurrentHolderStatus } from './types';
 
 const STATUS_CLASSES: Record<CurrentHolderStatus['kind'], string> = {
@@ -16,14 +17,17 @@ export interface MaterielHistoryHeaderProps {
   readonly reference: string;
   readonly label: string;
   readonly status: CurrentHolderStatus;
-  readonly onExport: () => void;
-  readonly exportLoading: boolean;
+  /** Nombre de bons de l'historique (`total` de la liste), annoncé avant l'export. */
+  readonly exportCount: number | null;
+  /** Plafond de l'export annoncé par le serveur (`meta.exportLimit`). */
+  readonly exportLimit?: number;
 }
 
 /** En-tête de la page /materiel/:reference : le numéro recherché, le
  *  modèle/désignation, et l'état actuel (chez qui, depuis quand, rendu le …,
- *  déclaré non restitué, ou seulement prévu sur un brouillon). */
-export function MaterielHistoryHeader({ reference, label, status, onExport, exportLoading }: MaterielHistoryHeaderProps) {
+ *  déclaré non restitué, ou seulement prévu sur un brouillon), et l'export
+ *  CSV de tout son historique (le serveur nomme le fichier). */
+export function MaterielHistoryHeader({ reference, label, status, exportCount, exportLimit }: MaterielHistoryHeaderProps) {
   const navigate = useNavigate();
 
   return (
@@ -46,18 +50,16 @@ export function MaterielHistoryHeader({ reference, label, status, onExport, expo
         </div>
       </div>
 
-      <Button variant="outline" size="sm" onClick={onExport} disabled={exportLoading}>
-        {exportLoading ? (
-          <span
-            className="h-3.5 w-3.5 mr-1.5 animate-spin motion-reduce:animate-none rounded-full border-2 border-muted border-t-muted-foreground"
-            role="status"
-            aria-label="Export en cours"
-          />
-        ) : (
-          <Download className="mr-1.5 h-3.5 w-3.5" />
-        )}
-        Exporter CSV
-      </Button>
+      <ExportButton
+        className="w-full sm:w-auto"
+        path={`/equipment/history/export?q=${encodeURIComponent(reference)}`}
+        fallbackFilename={`historique-equipement-${todayInParis()}.csv`}
+        filters={[{ label: 'Numéro', value: reference }]}
+        count={exportCount}
+        limit={exportLimit}
+        itemLabel={{ singular: 'bon', plural: 'bons' }}
+        note="Tout l'historique de l'équipement, toutes pages confondues, du plus récent au plus ancien."
+      />
     </div>
   );
 }

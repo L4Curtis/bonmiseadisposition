@@ -8,7 +8,8 @@ import { isItRole } from '@/lib/roles';
  *  (rate limit 60 req/min/IP partagé avec le reste de l'application). */
 const MIN_INTERVAL_MS = 30_000;
 
-interface OpenContestationsResponse {
+/** Compteurs de `meta` de GET /contestations (seul `openCount` sert ici). */
+interface OpenContestationsMeta {
   openCount?: number;
 }
 
@@ -36,10 +37,11 @@ export function useOpenContestationsCount(): number | null {
 
     const requestId = ++requestIdRef.current;
     api
-      .get<OpenContestationsResponse>('/contestations?status=open&limit=1')
+      .getList<unknown, OpenContestationsMeta>('/contestations?status=open')
       .then((res) => {
         if (requestIdRef.current !== requestId) return; // anti-course
-        setCount(typeof res.openCount === 'number' ? res.openCount : null);
+        const openCount = res.meta?.openCount;
+        setCount(typeof openCount === 'number' ? openCount : null);
       })
       .catch(() => {
         if (requestIdRef.current !== requestId) return;

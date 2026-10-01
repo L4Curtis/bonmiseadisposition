@@ -6,15 +6,16 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Contrats de l'API — annuaire des utilisateurs (`src/users/`) et actions
- * d'administration sur un compte (`src/admin/admin.controller.ts`).
+ * Contrats de l'API — utilisateurs (`src/users/`) : annuaire, comptes créés à
+ * la main et actions d'administration sur un compte (rôle, déverrouillage,
+ * désactivation).
  *
  * Gestion des comptes réservée à l'administrateur. L'IT (admin, technicien)
  * garde les lectures utiles aux bons : GET /users/search (destinataire d'un
  * bon), GET /users/it-staff (filtre « Créé par ») et GET /users/:id.
  */
 
-import type { Civilite, IsoDateTime, UserRole } from './common';
+import type { Civilite, IsoDateTime, ListResponse, PageSize, UserRole } from './common';
 import type { FilialeSummary } from './filiales';
 
 /**
@@ -48,42 +49,44 @@ export interface User {
   updatedAt: IsoDateTime;
 }
 
+/** Filtre d'état de GET /users : comptes actifs (défaut), inactifs ou tous. */
+export type UserStatusFilter = 'active' | 'inactive' | 'all';
+
+/** Origine d'un compte : créé à la main (compagnon de chantier), compte local
+ *  de l'application, ou venu de l'annuaire (Active Directory, SSO). */
+export type UserOrigin = 'manual' | 'local' | 'directory';
+
 /**
- * Paramètres de GET /users. `role` doit être une valeur de `UserRole`
- * (sinon 400). `page` fait basculer la réponse vers l'enveloppe paginée ;
- * `limit` (1 à 100, 20 par défaut) et `search` ne sont lus qu'avec `page`.
+ * Paramètres de GET /users (validés : 400 `validation_failed` hors bornes).
+ * `search` porte sur le nom, l'email et l'identifiant ; `origin` retient les
+ * comptes d'une seule origine (l'écran compte ainsi les comptes créés à la
+ * main avant de les exporter).
  */
 export interface UsersListQuery {
-  filialeId?: string;
-  role?: UserRole;
-  page?: string;
-  limit?: string;
+  page?: number;
+  limit?: PageSize;
   search?: string;
+  status?: UserStatusFilter;
+  origin?: UserOrigin;
+  role?: UserRole;
+  filialeId?: string;
 }
 
-/**
- * GET /users (sans `page`) — tableau nu de tous les utilisateurs ACTIFS,
- * triés par `displayName`, filtrés par `filialeId` et `role` s'ils sont
- * fournis (administrateur). Même route que l'écran Utilisateurs, autre forme :
- * seule la présence de `page` fait passer à l'enveloppe paginée.
- */
-export type UserListResponse = User[];
-
-/**
- * GET /users?page=&limit= — enveloppe paginée des utilisateurs actifs,
- * avec recherche facultative (`search`) sur le nom, l'email et
- * l'identifiant. `page` et `limit` renvoient les valeurs demandées, en nombre.
- */
-export interface UserPageResponse {
-  users: User[];
-  total: number;
-  page: number;
-  limit: number;
+/** Données annexes de GET /users. */
+export interface UserPageMeta {
+  /** L'annuaire (Active Directory) synchronise les comptes : réglage coché ET
+   *  adresse renseignée. Faux : l'administrateur désactive lui-même un compte
+   *  venu de l'annuaire (POST /users/:id/deactivate). */
+  directoryActive: boolean;
 }
+
+/** GET /users — page de l'écran Utilisateurs, triée par `displayName`. */
+export type UserPageResponse = ListResponse<User, UserPageMeta>;
 
 /** GET /users/search?q= — 15 utilisateurs actifs au plus, triés par
- *  `displayName`, dont le nom, l'email ou l'identifiant contient `q`. */
-export type UserSearchResponse = User[];
+ *  `displayName`, dont le nom, l'email ou l'identifiant contient `q` ;
+ *  `truncated` : il y en a d'autres, la recherche doit être précisée. */
+export type UserSearchResponse = ListResponse<User>;
 
 /**
  * GET /users/:id — l'utilisateur, actif ou non (404 s'il n'existe pas).
@@ -91,6 +94,8 @@ export type UserSearchResponse = User[];
  * `role: 'collaborator'`).
  * PATCH /users/:id/manual — le compte manuel modifié, ou relu tel quel si
  * aucun champ n'a changé.
+ * POST /users/:id/deactivate, POST /users/:id/reactivate — le compte, avec son
+ * nouvel état (relu tel quel s'il y était déjà).
  */
 export type UserResponse = User;
 
@@ -102,8 +107,8 @@ export interface ItStaffMember {
 }
 
 /** GET /users/it-staff — administrateurs et techniciens actifs, triés par
- *  `displayName` (IT). */
-export type ItStaffResponse = ItStaffMember[];
+ *  `displayName` (IT), en une seule page. */
+export type ItStaffResponse = ListResponse<ItStaffMember>;
 
 /** Issue du traitement d'une ligne d'import. */
 export type ManualUserImportStatus = 'created' | 'updated' | 'skipped' | 'error';
@@ -139,7 +144,8 @@ export interface ManualUsersImportResult {
   lines: ManualUserImportLine[];
 }
 
-/** PATCH /admin/users/:id/role — nouveau rôle et indicateur IT recalculé. */
+/** PATCH /users/:id/role (ancien chemin PATCH /admin/users/:id/role, alias
+ *  déprécié) — nouveau rôle et indicateur IT recalculé. */
 export interface ChangeUserRoleResponse {
   id: string;
   role: UserRole;
@@ -147,11 +153,33 @@ export interface ChangeUserRoleResponse {
 }
 
 /**
- * POST /admin/users/:id/unlock (201) — `unlocked` vaut toujours `true` ;
- * `removed` compte les échecs de connexion locale des 30 dernières minutes
- * supprimés (0 si le compte n'était pas verrouillé).
+ * POST /users/:id/unlock (ancien chemin POST /admin/users/:id/unlock, alias
+ * déprécié) — le verrou de la connexion locale est levé. Rien n'est effacé du
+ * journal : `failedAttempts` compte les échecs des 30 dernières minutes qui
+ * ne comptent plus (0 : le compte n'était pas verrouillé).
  */
 export interface UnlockUserResponse {
   unlocked: true;
-  removed: number;
+  failedAttempts: number;
 }
+
+/**
+ * Codes d'erreur propres aux utilisateurs (en plus de `CommonApiErrorCode`) :
+ *  - `own_account` (400) : un administrateur ne change ni son propre rôle ni
+ *    ne désactive son propre compte ;
+ *  - `last_admin` (409) : il doit rester un administrateur actif ;
+ *  - `directory_active` (409) : l'annuaire synchronise ce compte, il se
+ *    désactive dans Active Directory ;
+ *  - `directory_account` (400) : un compte d'annuaire ne se modifie pas ici ;
+ *  - `email_taken` (409) : adresse déjà portée par un autre compte ;
+ *  - `filiale_unavailable` (400) : filiale introuvable ou inactive ;
+ *  - `no_local_login` (400) : compte sans adresse, rien à déverrouiller.
+ */
+export type UserErrorCode =
+  | 'own_account'
+  | 'last_admin'
+  | 'directory_active'
+  | 'directory_account'
+  | 'email_taken'
+  | 'filiale_unavailable'
+  | 'no_local_login';

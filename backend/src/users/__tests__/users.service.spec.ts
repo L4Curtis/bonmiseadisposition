@@ -1,6 +1,8 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { UsersService } from '../users.service';
+import { AuditService } from '../../audit/audit.service';
+import { AppException } from '../../common/errors';
 import { PrismaService } from '../../prisma/prisma.service';
 import { createMockPrismaService } from '../../common/__tests__/helpers/mock-prisma';
 import { collaboratorUser, manualAccountUser } from '../../common/__tests__/fixtures/user.fixtures';
@@ -14,7 +16,7 @@ describe('UsersService — manual accounts', () => {
 
   beforeEach(() => {
     prisma = createMockPrismaService();
-    service = new UsersService(prisma as unknown as PrismaService);
+    service = new UsersService(prisma as unknown as PrismaService, new AuditService(prisma as unknown as PrismaService));
   });
 
   // ─── createManual ────────────────────────────────────────────────────────
@@ -60,8 +62,8 @@ describe('UsersService — manual accounts', () => {
 
       expect(prisma.auditLog.create).toHaveBeenCalledWith({
         data: {
-          userId: ACTOR_ID,
           action: 'user_created_manually',
+          userId: ACTOR_ID,
           details: {
             targetUserId: created.id,
             samAccountName: created.samAccountName,
@@ -98,7 +100,7 @@ describe('UsersService — manual accounts', () => {
 
       await expect(
         service.createManual({ ...minimalDto, email: 'Jean.Dupont@Exemple.fr' }, ACTOR_ID),
-      ).rejects.toThrow(BadRequestException);
+      ).rejects.toThrow(AppException);
 
       expect(prisma.user.create).not.toHaveBeenCalled();
     });
@@ -108,7 +110,7 @@ describe('UsersService — manual accounts', () => {
 
       await expect(
         service.createManual({ ...minimalDto, filialeId: '11111111-1111-1111-1111-111111111111' }, ACTOR_ID),
-      ).rejects.toThrow(BadRequestException);
+      ).rejects.toThrow(AppException);
 
       expect(prisma.user.create).not.toHaveBeenCalled();
     });
@@ -118,7 +120,7 @@ describe('UsersService — manual accounts', () => {
 
       await expect(
         service.createManual({ ...minimalDto, filialeId: '11111111-1111-1111-1111-111111111111' }, ACTOR_ID),
-      ).rejects.toThrow(BadRequestException);
+      ).rejects.toThrow(AppException);
 
       expect(prisma.user.create).not.toHaveBeenCalled();
     });
@@ -147,12 +149,12 @@ describe('UsersService — manual accounts', () => {
       );
     });
 
-    it('translates a residual P2002 (race condition) into a BadRequestException', async () => {
+    it('translates a residual P2002 (race condition) into an email_taken error', async () => {
       prisma.user.create.mockRejectedValue(
         new Prisma.PrismaClientKnownRequestError('Unique constraint failed', { code: 'P2002', clientVersion: 'test' }),
       );
 
-      await expect(service.createManual(minimalDto, ACTOR_ID)).rejects.toThrow(BadRequestException);
+      await expect(service.createManual(minimalDto, ACTOR_ID)).rejects.toThrow(AppException);
     });
   });
 
@@ -171,7 +173,7 @@ describe('UsersService — manual accounts', () => {
 
       await expect(
         service.updateManual(collaboratorUser().id, { department: 'IT' }, ACTOR_ID),
-      ).rejects.toThrow(BadRequestException);
+      ).rejects.toThrow(AppException);
       expect(prisma.user.update).not.toHaveBeenCalled();
     });
 
@@ -190,9 +192,9 @@ describe('UsersService — manual accounts', () => {
       });
       expect(prisma.auditLog.create).toHaveBeenCalledWith({
         data: {
-          userId: ACTOR_ID,
           action: 'user_updated_manually',
-          details: { targetUserId: existing.id, changedFields: ['department', 'active'] },
+          userId: ACTOR_ID,
+          details: { targetUserId: existing.id, displayName: expect.any(String), changedFields: ['department', 'active'] },
         },
       });
     });
@@ -242,7 +244,7 @@ describe('UsersService — manual accounts', () => {
 
       await expect(
         service.updateManual(existing.id, { email: 'taken@exemple.fr' }, ACTOR_ID),
-      ).rejects.toThrow(BadRequestException);
+      ).rejects.toThrow(AppException);
 
       expect(prisma.user.findFirst).toHaveBeenCalledWith({
         where: { email: { equals: 'taken@exemple.fr', mode: 'insensitive' }, id: { not: existing.id } },
@@ -257,7 +259,7 @@ describe('UsersService — manual accounts', () => {
 
       await expect(
         service.updateManual(existing.id, { filialeId: '11111111-1111-1111-1111-111111111111' }, ACTOR_ID),
-      ).rejects.toThrow(BadRequestException);
+      ).rejects.toThrow(AppException);
       expect(prisma.user.update).not.toHaveBeenCalled();
     });
 

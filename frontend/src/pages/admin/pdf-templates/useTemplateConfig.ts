@@ -35,7 +35,7 @@ export function useTemplateConfig(
     let cancelled = false;
     setLoading(true);
     api.get<{ config: PdfTemplateConfig; variables: PdfTemplateVariable[] }>(
-      `/admin/pdf-templates/${templateId}/config`,
+      `/pdf-templates/${templateId}/config`,
     )
       .then((data) => {
         if (cancelled) return;
@@ -71,7 +71,7 @@ export function useTemplateConfig(
     if (!templateId || !config) return;
     setSaving(true);
     try {
-      await api.patch(`/admin/pdf-templates/${templateId}`, config);
+      await api.patch(`/pdf-templates/${templateId}`, config);
       toast({ title: 'Modèle mis à jour' });
       onSaved();
       onClose();
