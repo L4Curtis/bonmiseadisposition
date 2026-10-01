@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { api, ApiError } from '../api';
+import { api, ApiError, hasErrorCode, NETWORK_ERROR_MESSAGE, UNEXPECTED_RESPONSE_MESSAGE } from '../api';
 
 function jsonRes(status: number, body: unknown): Response {
   return {
@@ -27,6 +27,78 @@ describe('api client', () => {
     global.fetch = vi.fn().mockResolvedValue(jsonRes(400, { message: 'Mauvaise requête' }));
     await expect(api.get('/x')).rejects.toBeInstanceOf(ApiError);
     await expect(api.get('/x')).rejects.toMatchObject({ status: 400, message: 'Mauvaise requête' });
+  });
+
+  it('erreur unique : ApiError porte le code, le message et les détails', async () => {
+    global.fetch = vi.fn().mockResolvedValue(
+      jsonRes(409, {
+        statusCode: 409,
+        code: 'serial_conflicts',
+        message: 'Des numéros de série sont déjà en circulation sur un autre bon.',
+        details: { conflicts: [{ serialNumber: 'SN-1', bonReference: 'BON-2026-0001' }] },
+        conflicts: [{ serialNumber: 'SN-1', bonReference: 'BON-2026-0001' }],
+      }),
+    );
+    const error = await api.post('/bons/1/send').catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({
+      status: 409,
+      code: 'serial_conflicts',
+      message: 'Des numéros de série sont déjà en circulation sur un autre bon.',
+      details: { conflicts: [{ serialNumber: 'SN-1', bonReference: 'BON-2026-0001' }] },
+    });
+    // Les écrans qui lisent encore le corps brut continuent de fonctionner.
+    expect((error as ApiError).body).toMatchObject({ conflicts: [{ serialNumber: 'SN-1' }] });
+  });
+
+  it('ancien corps à code sans message : code et détails lus, message de repli', async () => {
+    global.fetch = vi.fn().mockResolvedValue(jsonRes(409, { code: 'token_recent', sentAt: '2026-10-01T08:00:00.000Z' }));
+    await expect(api.post('/bons/1/resend')).rejects.toMatchObject({
+      code: 'token_recent',
+      details: { sentAt: '2026-10-01T08:00:00.000Z' },
+      message: 'Erreur HTTP 409',
+    });
+  });
+
+  it('erreur sans code : code et détails à null', async () => {
+    global.fetch = vi.fn().mockResolvedValue(jsonRes(404, { statusCode: 404, message: 'Bon introuvable', error: 'Not Found' }));
+    await expect(api.get('/bons/x')).rejects.toMatchObject({ code: null, details: null, message: 'Bon introuvable' });
+  });
+
+  it('hasErrorCode reconnaît une ApiError par son code', async () => {
+    const error = new ApiError(409, 'Lien récent', { statusCode: 409, code: 'token_recent', message: 'Lien récent' });
+    expect(hasErrorCode(error, 'token_recent')).toBe(true);
+    expect(hasErrorCode(error, 'serial_conflicts')).toBe(false);
+    expect(hasErrorCode(new Error('x'), 'token_recent')).toBe(false);
+  });
+
+  it('getList lit la liste unique', async () => {
+    global.fetch = vi.fn().mockResolvedValue(jsonRes(200, { items: [{ id: 1 }], total: 30, page: 2, limit: 25, truncated: false }));
+    await expect(api.getList<{ id: number }>('/users?page=2')).resolves.toEqual({
+      items: [{ id: 1 }],
+      total: 30,
+      page: 2,
+      limit: 25,
+      truncated: false,
+    });
+  });
+
+  it('getList lit encore l’ancienne forme de la route, le temps de la vague', async () => {
+    global.fetch = vi.fn().mockResolvedValue(jsonRes(200, { users: [{ id: 1 }], total: 1, page: 1, limit: 20 }));
+    await expect(api.getList('/users?page=1', { legacyKey: 'users' })).resolves.toMatchObject({
+      items: [{ id: 1 }],
+      total: 1,
+    });
+  });
+
+  it('getList transmet le signal et les en-têtes', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonRes(200, []));
+    global.fetch = fetchMock;
+    const controller = new AbortController();
+    await api.getList('/filiales', { signal: controller.signal, headers: { 'X-Test': '1' } });
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(init.signal).toBe(controller.signal);
+    expect(init.headers).toMatchObject({ 'X-Test': '1', 'X-Requested-With': 'XMLHttpRequest' });
   });
 
   it('joins class-validator array messages', async () => {
@@ -83,8 +155,36 @@ describe('api client', () => {
   it('never surfaces a raw HTML error body (e.g. a proxy 502) in the message', async () => {
     global.fetch = vi.fn().mockResolvedValue(rawRes(502, '<html><body>Bad Gateway</body></html>'));
     const err = await api.get('/x').catch((e: unknown) => e);
-    expect(err).toMatchObject({ status: 502, message: 'Erreur HTTP 502' });
+    expect(err).toMatchObject({
+      status: 502,
+      message: 'Serveur momentanément indisponible, réessayez dans quelques instants.',
+    });
     expect((err as Error).message).not.toContain('<html>');
+  });
+
+  it('corps d’erreur en texte brut (anglais d’un intermédiaire) : jamais affiché, phrase française', async () => {
+    global.fetch = vi.fn().mockResolvedValue(rawRes(413, 'Request Entity Too Large'));
+    await expect(api.get('/x')).rejects.toMatchObject({ status: 413, message: 'Contenu trop volumineux.' });
+    global.fetch = vi.fn().mockResolvedValue(rawRes(500, 'Internal Server Error'));
+    await expect(api.get('/x')).rejects.toMatchObject({ status: 500, message: 'Erreur HTTP 500' });
+  });
+
+  it('réponse réussie qui n’est pas du JSON (page HTML) : ApiError au message français', async () => {
+    global.fetch = vi.fn().mockResolvedValue(rawRes(200, '<!doctype html><html></html>'));
+    await expect(api.get('/x')).rejects.toMatchObject({ status: 200, message: UNEXPECTED_RESPONSE_MESSAGE });
+  });
+
+  it('serveur injoignable : ApiError de statut 0 au message français, sans « Failed to fetch »', async () => {
+    global.fetch = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+    const err = await api.get('/x').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err).toMatchObject({ status: 0, message: NETWORK_ERROR_MESSAGE });
+  });
+
+  it('annulation : l’AbortError du navigateur suit son cours', async () => {
+    const aborted = new DOMException('Aborted', 'AbortError');
+    global.fetch = vi.fn().mockRejectedValue(aborted);
+    await expect(api.get('/x')).rejects.toBe(aborted);
   });
 
   it('transmet le signal d’annulation et les en-têtes propres à l’appel', async () => {

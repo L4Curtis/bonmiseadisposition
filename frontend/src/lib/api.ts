@@ -1,16 +1,28 @@
+import type { ListResponse } from '@/contracts';
 import { filenameFromContentDisposition } from './content-disposition';
 import { loginPathFor } from './safe-return-to';
+import { parseErrorBody, toListResponse } from './api-envelope';
+import type { ListReadOptions } from './api-envelope';
 
 /**
  * Client HTTP unique de l'application : toutes les requêtes vers `/api`
  * passent par lui (cookies de session, en-tête anti-CSRF, rafraîchissement de
- * la session expirée, messages d'erreur lisibles).
+ * la session expirée, messages d'erreur lisibles, listes à la forme unique).
  */
 const BASE_URL = '/api';
 
+/**
+ * Erreur renvoyée par l'API. Le serveur répond `{ statusCode, code, message,
+ * details? }` : un écran teste `code` (identifiant stable), affiche `message`
+ * et lit ses données dans `details` (ex. `details.conflicts`).
+ */
 export class ApiError extends Error {
-  /** Parsed JSON error body when the server returned one (e.g. { code, sentAt }). */
+  /** Corps JSON brut de l'erreur, quand le serveur en a renvoyé un. */
   body?: unknown;
+  /** Identifiant stable de l'erreur (`serial_conflicts`…), `null` s'il n'y en a pas. */
+  readonly code: string | null;
+  /** Données de l'erreur, `null` s'il n'y en a pas. */
+  readonly details: Readonly<Record<string, unknown>> | null;
 
   constructor(
     public status: number,
@@ -19,7 +31,15 @@ export class ApiError extends Error {
   ) {
     super(message);
     this.body = body;
+    const parsed = parseErrorBody(body);
+    this.code = parsed.code;
+    this.details = parsed.details;
   }
+}
+
+/** Vrai si `e` est une erreur de l'API portant ce code. */
+export function hasErrorCode(e: unknown, code: string): e is ApiError {
+  return e instanceof ApiError && e.code === code;
 }
 
 /**
@@ -52,32 +72,61 @@ export interface DownloadedFile {
 
 const CSRF_HEADER = { 'X-Requested-With': 'XMLHttpRequest' } as const;
 
-/** Build a readable ApiError from a raw error response body: NestJS errors are
- *  JSON ({ statusCode, message, error }) — surface `message` (joined when it is
- *  a class-validator array) instead of the raw JSON string. */
+/** ApiError lisible à partir du corps d'une réponse en erreur : le `message`
+ *  de l'erreur unique (ou, pour une ancienne réponse, son tableau de messages
+ *  joint), jamais le JSON brut. */
 function buildError(status: number, text: string): ApiError {
   if (status === 429) return new ApiError(429, 'Trop de requêtes, réessayez dans une minute.');
+  let body: unknown;
   try {
-    const body: unknown = JSON.parse(text);
-    const rawMessage = (body as { message?: unknown })?.message;
-    const message = Array.isArray(rawMessage)
-      ? rawMessage.join(' — ')
-      : typeof rawMessage === 'string'
-        ? rawMessage
-        : text;
-    return new ApiError(status, message || `Erreur HTTP ${status}`, body);
+    body = JSON.parse(text);
   } catch {
-    // Corps non JSON (page HTML 502 du proxy, texte brut) : ne jamais l'afficher tel quel
-    const short = text && !/^\s*</.test(text) && text.length < 200 ? text : '';
-    return new ApiError(status, short || `Erreur HTTP ${status}`);
+    // Corps non JSON (page HTML 502 du proxy, texte brut d'un intermédiaire,
+    // souvent en anglais) : jamais affiché tel quel, phrase française selon
+    // le statut.
+    return new ApiError(status, fallbackMessage(status));
   }
+  return new ApiError(status, parseErrorBody(body).message ?? fallbackMessage(status), body);
 }
+
+/** Message d'une erreur dont le corps ne donne aucun texte affichable. */
+function fallbackMessage(status: number): string {
+  if (status === 413) return 'Contenu trop volumineux.';
+  if (status === 502 || status === 503 || status === 504) {
+    return 'Serveur momentanément indisponible, réessayez dans quelques instants.';
+  }
+  return `Erreur HTTP ${status}`;
+}
+
+/** Message d'une réponse réussie dont le corps n'est pas du JSON (page HTML
+ *  servie à la place de l'API par un intermédiaire mal réglé…). */
+export const UNEXPECTED_RESPONSE_MESSAGE = 'Réponse inattendue du serveur. Rechargez la page puis réessayez.';
+
+/** Message d'une requête qui n'a pas pu joindre le serveur. */
+export const NETWORK_ERROR_MESSAGE = 'Serveur injoignable : vérifiez votre connexion puis réessayez.';
 
 async function parseJsonResponse<T>(res: Response): Promise<T> {
   if (!res.ok) throw buildError(res.status, await res.text());
   if (res.status === 204) return undefined as T;
   const text = await res.text();
-  return (text ? JSON.parse(text) : undefined) as T;
+  if (!text) return undefined as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new ApiError(res.status, UNEXPECTED_RESPONSE_MESSAGE);
+  }
+}
+
+/** Requête envoyée ; une panne réseau (fetch rejeté, hors annulation) devient
+ *  une ApiError de statut 0 au message français, au lieu du « Failed to
+ *  fetch » du navigateur. Une annulation (AbortError) suit son cours. */
+async function fetchOrNetworkError(input: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') throw err;
+    throw new ApiError(0, NETWORK_ERROR_MESSAGE);
+  }
 }
 
 let refreshPromise: Promise<boolean> | null = null;
@@ -87,7 +136,7 @@ let refreshPromise: Promise<boolean> | null = null;
  *  quelle (elle ne doit pas envoyer vers la connexion). */
 function refreshSession(): Promise<boolean> {
   if (!refreshPromise) {
-    refreshPromise = fetch(`${BASE_URL}/auth/refresh`, {
+    refreshPromise = fetchOrNetworkError(`${BASE_URL}/auth/refresh`, {
       method: 'POST',
       credentials: 'include',
       headers: CSRF_HEADER,
@@ -112,7 +161,7 @@ function redirectToLogin(): void {
 async function send(path: string, init: RequestInit, options: RequestOptions): Promise<Response> {
   const mode = options.onUnauthorized ?? 'redirect';
   const doFetch = () =>
-    fetch(`${BASE_URL}${path}`, {
+    fetchOrNetworkError(`${BASE_URL}${path}`, {
       ...init,
       headers: { ...(init.headers as Record<string, string>), ...options.headers },
       signal: options.signal,
@@ -163,8 +212,20 @@ async function requestFile(path: string, options: RequestOptions = {}): Promise<
   };
 }
 
+/** Options d'une lecture de liste : celles d'une requête, plus la clé de
+ *  l'ancienne forme de la route le temps de la vague 3. */
+export type ListRequestOptions = RequestOptions & ListReadOptions;
+
+async function requestList<T, M>(path: string, options: ListRequestOptions = {}): Promise<ListResponse<T, M>> {
+  const body = await request<unknown>(path, jsonInit('GET'), options);
+  return toListResponse<T, M>(body, { legacyKey: options.legacyKey });
+}
+
 export const api = {
   get: <T>(path: string, options?: RequestOptions) => request<T>(path, jsonInit('GET'), options),
+  /** Liste à la forme unique `{ items, total, page, limit, truncated, meta? }`.
+   *  Lit aussi l'ancienne forme d'une route (`legacyKey`, tableau nu). */
+  getList: <T, M = never>(path: string, options?: ListRequestOptions) => requestList<T, M>(path, options),
   post: <T>(path: string, body?: unknown, options?: RequestOptions) =>
     request<T>(path, jsonInit('POST', body), options),
   put: <T>(path: string, body?: unknown, options?: RequestOptions) =>

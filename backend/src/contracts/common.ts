@@ -8,10 +8,13 @@
  *  - une colonne facultative en base arrive à `null` (`T | null`) ;
  *  - une clé qui peut être absente du JSON est marquée `clé?: T`.
  *
- * Règles du dossier : uniquement des types (`export interface`, `export type`),
- * aucun code exécutable, aucun import hors de ce dossier (ni Prisma, ni Nest) :
- * le script `scripts/sync-contracts.mjs` le recopie tel quel dans
- * `frontend/src/contracts/`, et la CI vérifie que la copie est à jour.
+ * Règles du dossier : des types (`export interface`, `export type`), aucun
+ * import hors de ce dossier (ni Prisma, ni Nest) : le script
+ * `scripts/sync-contracts.mjs` le recopie tel quel dans `frontend/src/contracts/`,
+ * et la CI vérifie que la copie est à jour. Seule exception, les CATALOGUES
+ * partagés par les deux côtés (`audit-actions.ts`) : des données constantes
+ * et des fonctions pures, sans aucun import, pour que le serveur et l'écran
+ * affichent exactement les mêmes libellés.
  *
  * Chaque forme est vérifiée par les tests de contrat HTTP
  * (`test/contract/`), qui interrogent l'application réelle : un changement de
@@ -104,27 +107,93 @@ export type SmbExportStatus = 'pending' | 'success' | 'failed';
 
 export type ScheduledJobStatus = 'success' | 'error' | 'skipped';
 
-// ─── Réponses d'erreur ────────────────────────────────────────────────────────
+// ─── Erreur unique ────────────────────────────────────────────────────────────
 
 /**
- * Erreur renvoyée par le filtre global (HttpException de NestJS, erreur Prisma
- * connue traduite en 404, 409…) :
- *  - `message` est une chaîne, ou un tableau de chaînes pour une erreur de
- *    validation (ValidationPipe) ;
- *  - `error` (« Bad Request », « Forbidden »…) est absent quand l'exception
- *    est levée sans message (`new UnauthorizedException()`) et pour une erreur
- *    Prisma traduite par le filtre.
+ * Codes d'erreur communs à toutes les routes, posés par le filtre global
+ * (`backend/src/common/errors/`) quand l'erreur n'en porte pas d'autre. Un
+ * domaine déclare ses propres codes dans son contrat (`BonErrorCode`…) :
+ * `code` reste donc une chaîne, stable, en `snake_case`.
  */
-export interface NestErrorBody {
-  statusCode: number;
-  message: string | string[];
-  error?: string;
+export type CommonApiErrorCode =
+  | 'bad_request'
+  | 'validation_failed'
+  | 'invalid_json'
+  | 'unauthorized'
+  | 'forbidden'
+  | 'csrf_rejected'
+  | 'not_found'
+  | 'route_not_found'
+  | 'conflict'
+  | 'already_exists'
+  | 'invalid_reference'
+  | 'payload_too_large'
+  | 'too_many_requests'
+  | 'internal_error'
+  | 'service_unavailable';
+
+/** Contenu libre de `details` : un objet JSON. */
+export interface ApiErrorDetails {
+  [key: string]: JsonValue;
 }
 
-/** Refus de la protection CSRF (en-tête X-Requested-With absent) : 403 sans
- *  `statusCode`, produit hors de NestJS par le middleware de main.ts. */
-export interface CsrfErrorBody {
+/**
+ * Forme UNIQUE de toute réponse d'erreur de l'API (4xx et 5xx), quel que soit
+ * l'endroit qui la produit (service, garde, validation, protection CSRF,
+ * lecture du corps JSON, base de données) :
+ *  - `statusCode` répète le code HTTP ;
+ *  - `code` est un identifiant stable, à tester par le front plutôt que le
+ *    texte ;
+ *  - `message` est TOUJOURS une chaîne française affichable telle quelle ;
+ *  - `details` porte les données utiles à l'écran (champs refusés, numéros
+ *    en conflit…), selon le `code`.
+ */
+export interface ApiErrorBody<C extends string = string, D extends object = ApiErrorDetails> {
+  statusCode: number;
+  code: C;
   message: string;
+  details?: D;
+}
+
+/** Un champ refusé par la validation des données reçues. `field` est le chemin
+ *  du champ (« equipments.0.serialNumber »), `null` s'il est inconnu. */
+export interface ValidationErrorDetail {
+  field: string | null;
+  messages: string[];
+}
+
+/** `details` d'une erreur `validation_failed` (400). `message` réunit les
+ *  mêmes textes, séparés par « — », pour un affichage direct. */
+export interface ValidationErrorDetails {
+  errors: ValidationErrorDetail[];
+}
+
+export type ValidationErrorBody = ApiErrorBody<'validation_failed', ValidationErrorDetails>;
+
+// ─── Listes ───────────────────────────────────────────────────────────────────
+
+/** Tailles de page acceptées par les listes paginées (`limit`). Une autre
+ *  valeur est refusée en 400, jamais corrigée en silence. */
+export type PageSize = 25 | 50 | 100;
+
+/**
+ * Forme UNIQUE d'une liste, paginée ou complète (petits référentiels compris) :
+ *  - `items` : les éléments de la page ;
+ *  - `total` : nombre d'éléments correspondant aux filtres, toutes pages
+ *    confondues ;
+ *  - `page` (à partir de 1) et `limit` : la page servie ; une liste complète
+ *    répond `page: 1` et `limit` = `total` ;
+ *  - `truncated` : la liste a été coupée à un plafond (export, recherche) ;
+ *  - `meta` : données annexes propres à la route (`openCount`,
+ *    `exportLimit`…), absentes quand la route n'en a pas.
+ */
+export interface ListResponse<T, M = never> {
+  items: T[];
+  total: number;
+  page: number;
+  limit: number;
+  truncated: boolean;
+  meta?: M;
 }
 
 /** Simple accusé de réception `{ ok: true }` (déconnexion, rafraîchissement…). */

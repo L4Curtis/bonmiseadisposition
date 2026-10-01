@@ -4,13 +4,14 @@
  * `Record<Union, true>` : oublier ou inventer une valeur ne compile pas.
  */
 import type {
+  ApiErrorBody,
+  ApiErrorDetails,
   BonStatus,
   Civilite,
   ContestationOutcome,
   ContestationStatus,
-  CsrfErrorBody,
   EquipmentCategory,
-  NestErrorBody,
+  ListResponse,
   NotificationStatus,
   NotificationType,
   OkResponse,
@@ -21,7 +22,7 @@ import type {
   SmbExportStatus,
   UserRole,
 } from '../../../src/contracts/common';
-import { arrayOf, int, literal, object, oneOf, optional, Shape, str } from './shape';
+import { absent, arrayOf, bool, int, literal, object, optional, Shape } from './shape';
 
 /** Énumération complète : une entrée par valeur de l'union, ni plus ni moins. */
 export function enumOf<V extends string>(values: Record<V, true>): Shape<V> {
@@ -121,12 +122,66 @@ export const scheduledJobStatus = enumOf<ScheduledJobStatus>({ success: true, er
 
 // ─── Erreurs ──────────────────────────────────────────────────────────────────
 
-export const nestError = object<NestErrorBody>({
+/** Code d'erreur stable : identifiant en snake_case. */
+export const errorCode: Shape<string> = {
+  label: 'un code d’erreur en snake_case',
+  check: (value, path) =>
+    typeof value === 'string' && /^[a-z][a-z0-9]*(_[a-z0-9]+)*$/.test(value)
+      ? []
+      : [`${path} : code d’erreur en snake_case attendu, reçu ${JSON.stringify(value)}`],
+};
+
+/** Message affichable : chaîne non vide (jamais un tableau). */
+export const errorMessage: Shape<string> = {
+  label: 'un message non vide',
+  check: (value, path) =>
+    typeof value === 'string' && value.trim() !== '' ? [] : [`${path} : message non vide attendu, reçu ${JSON.stringify(value)}`],
+};
+
+/** `details` d'une erreur : un objet. */
+export const errorDetails: Shape<ApiErrorDetails> = {
+  label: 'un objet de détails',
+  check: (value, path) =>
+    typeof value === 'object' && value !== null && !Array.isArray(value) ? [] : [`${path} : objet attendu`],
+};
+
+/** Forme UNIQUE de toute erreur de l'API : `{ statusCode, code, message, details? }`. */
+export const apiError = object<ApiErrorBody>({
   statusCode: int,
-  message: oneOf(str, arrayOf(str)),
-  error: optional(str),
+  code: errorCode,
+  message: errorMessage,
+  details: optional(errorDetails),
 });
 
-export const csrfError = object<CsrfErrorBody>({ message: str });
+// ─── Listes ───────────────────────────────────────────────────────────────────
+
+/** Liste à la forme unique `{ items, total, page, limit, truncated }`, sans
+ *  `meta`. `minLength` exige des éléments (le jeu de données doit en fournir). */
+export function listOf<T>(item: Shape<T>, options: { minLength?: number } = {}): Shape<ListResponse<T>> {
+  return object<ListResponse<T>>({
+    items: arrayOf(item, options),
+    total: int,
+    page: int,
+    limit: int,
+    truncated: bool,
+    meta: absent,
+  });
+}
+
+/** Liste à la forme unique avec sa `meta` propre à la route. */
+export function listWithMeta<T, M>(
+  item: Shape<T>,
+  meta: Shape<M>,
+  options: { minLength?: number } = {},
+): Shape<ListResponse<T, M>> {
+  return object<ListResponse<T, M>>({
+    items: arrayOf(item, options),
+    total: int,
+    page: int,
+    limit: int,
+    truncated: bool,
+    meta: optional(meta),
+  });
+}
 
 export const ok = object<OkResponse>({ ok: literal(true) });

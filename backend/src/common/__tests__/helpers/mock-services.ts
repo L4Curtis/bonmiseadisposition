@@ -106,23 +106,6 @@ export function createMockConfigService() {
     getAll: vi.fn().mockResolvedValue([]),
     invalidateCache: vi.fn(),
     isSetupRequired: vi.fn().mockResolvedValue(false),
-    getInt: vi
-      .fn()
-      .mockImplementation(
-        (
-          category: string,
-          key: string,
-          options: { fallback: number; min: number; max?: number },
-        ) => {
-          const raw = store.get(`${category}.${key}`);
-          const parsed = raw === undefined ? NaN : parseInt(raw, 10);
-          if (!Number.isFinite(parsed)) return Promise.resolve(options.fallback);
-          const clampedMin = Math.max(options.min, parsed);
-          return Promise.resolve(
-            options.max !== undefined ? Math.min(options.max, clampedMin) : clampedMin,
-          );
-        },
-      ),
     getSignatureOverdueDays: vi.fn().mockResolvedValue(7),
   };
 }

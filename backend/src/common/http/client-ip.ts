@@ -11,7 +11,8 @@
  */
 
 /** Nombre de proxys de confiance devant le backend (réglage `trust proxy`
- *  d'Express, posé au démarrage dans main.ts). */
+ *  d'Express, posé par bootstrap/configure-app.ts pour le serveur comme pour
+ *  les tests de contrat). */
 export const TRUSTED_PROXY_HOPS = 1;
 
 /** Ce que clientIp lit de la requête (une `Request` Express convient). */

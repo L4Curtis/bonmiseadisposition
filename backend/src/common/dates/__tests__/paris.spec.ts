@@ -6,6 +6,7 @@ import {
   daysBetweenIsoDates,
   formatParisDate,
   formatParisDateTime,
+  formatParisDateTimeFr,
   isIsoDateFormat,
   isRealCalendarDate,
   isoDateToUtc,
@@ -53,6 +54,18 @@ describe('dates à l’heure de Paris — sur un serveur réglé en UTC (product
     expect(formatParisDateTime(new Date('2026-09-24T12:05:09.000Z'))).toBe('2026-09-24 14:05:09');
     expect(formatParisDateTime(new Date('2026-01-14T23:30:00.000Z'))).toBe('2026-01-15 00:30:00');
   });
+
+  it('formatParisDateTimeFr : JJ/MM/AAAA HH:MM à l’heure de Paris (été comme hiver)', () => {
+    expect(formatParisDateTimeFr(new Date('2026-09-24T12:05:09.000Z'))).toBe('24/09/2026 14:05');
+    expect(formatParisDateTimeFr('2026-01-14T23:30:00.000Z')).toBe('15/01/2026 00:30');
+    expect(formatParisDateTimeFr('2026-09-30T22:30:00.000Z')).toBe('01/10/2026 00:30');
+  });
+
+  it('formatParisDateTimeFr : valeur absente ou illisible → `empty`', () => {
+    expect(formatParisDateTimeFr(null)).toBe('');
+    expect(formatParisDateTimeFr(undefined, '—')).toBe('—');
+    expect(formatParisDateTimeFr('pas une date')).toBe('');
+  });
 });
 
 describe('dates à l’heure de Paris — sur une machine à l’ouest de l’UTC', () => {
@@ -61,6 +74,10 @@ describe('dates à l’heure de Paris — sur une machine à l’ouest de l’UT
   it('une colonne @db.Date (minuit UTC) garde son jour civil', () => {
     // toLocaleDateString sans fuseau afficherait ici le 31/03/2026.
     expect(formatParisDate(new Date('2026-04-01T00:00:00.000Z'))).toBe('01/04/2026');
+  });
+
+  it('formatParisDateTimeFr ne dépend pas du fuseau de la machine', () => {
+    expect(formatParisDateTimeFr('2026-09-30T22:30:00.000Z')).toBe('01/10/2026 00:30');
   });
 
   it('parisDayStartUtc ne dépend pas du fuseau de la machine', () => {

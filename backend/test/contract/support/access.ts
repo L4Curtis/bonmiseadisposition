@@ -13,7 +13,7 @@
  */
 import { expect } from 'vitest';
 import type { UserRole } from '../../../src/contracts/common';
-import { nestError } from './common-shapes';
+import { apiError } from './common-shapes';
 import { ContractHttp, HttpMethod, ONE_PERSONA_PER_ROLE, PERSONA_ROLES } from './http';
 import type { SeededData } from './seed';
 import { expectShape } from './shape';
@@ -60,14 +60,14 @@ export async function expectAccessRule(http: ContractHttp, data: SeededData, acc
   const path = access.path(data);
   const anonymous = await http.send(access.method, path, 'anonymous', emptyBodyFor(access.method));
   expect(anonymous.status, `${access.route} sans session`).toBe(401);
-  expectShape(anonymous.body, nestError);
+  expectShape(anonymous.body, apiError);
 
   for (const persona of ONE_PERSONA_PER_ROLE) {
     const role = PERSONA_ROLES[persona];
     if (!access.allowed.includes(role)) {
       const denied = await http.send(access.method, path, persona, emptyBodyFor(access.method));
       expect(denied.status, `${access.route} pour le rôle ${role}`).toBe(403);
-      expectShape(denied.body, nestError);
+      expectShape(denied.body, apiError);
     } else if (access.method === 'get') {
       const granted = await http.get(path, persona);
       expect([401, 403], `${access.route} doit être accessible au rôle ${role} (reçu ${granted.status})`)

@@ -1,77 +1,58 @@
-import { Controller, Get, Query, Res, UseGuards } from '@nestjs/common';
-import { Response } from 'express';
+import { Controller, Get, Query, Req, Res, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
+import type { Request, Response } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth-user.interface';
-import { AuditService } from './audit.service';
-import { parsePositiveInt } from '../common/query-utils';
+import { sendCsv } from '../common/csv';
+import { clientIp } from '../common/http/client-ip';
+import { toFullListResponse } from '../common/pagination';
+import { HEAVY_EXPORT_THROTTLE } from '../common/throttle-limits';
+import type { AuditActionsResponse, AuditListResponse } from '../contracts/audit';
+import { AuditJournalService, AuditFilters } from './audit-journal.service';
+import { AuditQueryDto } from './dto/audit-query.dto';
 
+function filtersOf(query: AuditQueryDto): AuditFilters {
+  const { bonId, user, userEmail, action, domain, dateFrom, dateTo } = query;
+  return { bonId, user, userEmail, action, domain, dateFrom, dateTo };
+}
+
+/** Écran « Journal d'audit » : liste filtrée, export CSV. Réservé à l'administrateur. */
 @Controller('audit')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('admin')
 export class AuditController {
-  constructor(private readonly auditService: AuditService) {}
+  constructor(private readonly journal: AuditJournalService) {}
 
   /** GET /audit — liste paginée. Filtres : `user` (nom ou email de l'auteur ;
-   *  `userEmail` reste accepté), `action`, `dateFrom`/`dateTo` (AAAA-MM-JJ,
-   *  jours civils à l'heure de Paris, bornes incluses), `bonId`. */
+   *  `userEmail` reste accepté), `action`, `domain`, `dateFrom`/`dateTo`
+   *  (AAAA-MM-JJ, jours civils à l'heure de Paris, bornes incluses), `bonId`. */
   @Get()
-  findAll(
-    @Query('bonId') bonId?: string,
-    @Query('user') user?: string,
-    @Query('userEmail') userEmail?: string,
-    @Query('action') action?: string,
-    @Query('dateFrom') dateFrom?: string,
-    @Query('dateTo') dateTo?: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-  ) {
-    return this.auditService.findAll({
-      bonId,
-      user,
-      userEmail,
-      action,
-      dateFrom,
-      dateTo,
-      page: parsePositiveInt(page, 1),
-      limit: parsePositiveInt(limit, 50, 100),
-    });
+  findAll(@Query() query: AuditQueryDto): Promise<AuditListResponse> {
+    return this.journal.list(filtersOf(query), query);
   }
 
-  /** GET /audit/export — CSV (BOM UTF-8, séparateur `;`) des entrées
-   *  correspondant aux mêmes filtres que la liste, plafonné (cf.
-   *  audit-csv.ts#AUDIT_EXPORT_MAX_ROWS) : un dépassement est signalé par
-   *  l'en-tête `X-Truncated: true` (même convention que l'export de
-   *  l'inventaire), et annoncé à l'avance par `exportTruncated` dans la
-   *  réponse de GET /audit. */
+  /** GET /audit/export — CSV lisible (dates de Paris, libellés, phrases) des
+   *  entrées correspondant aux mêmes filtres, plafonné : un dépassement est
+   *  signalé par l'en-tête `X-Truncated`, et annoncé à l'avance par
+   *  `meta.exportTruncated` dans la réponse de GET /audit. Débit limité. */
   @Get('export')
+  @Throttle(HEAVY_EXPORT_THROTTLE)
   async exportCsv(
+    @Query() query: AuditQueryDto,
     @CurrentUser() actor: AuthUser,
+    @Req() req: Request,
     @Res() res: Response,
-    @Query('bonId') bonId?: string,
-    @Query('user') user?: string,
-    @Query('userEmail') userEmail?: string,
-    @Query('action') action?: string,
-    @Query('dateFrom') dateFrom?: string,
-    @Query('dateTo') dateTo?: string,
-  ) {
-    const { csv, truncated } = await this.auditService.exportCsv(
-      { bonId, user, userEmail, action, dateFrom, dateTo },
-      actor.id,
-    );
-    const filename = `journal-audit-${new Date().toISOString().slice(0, 10)}.csv`;
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    if (truncated) {
-      res.setHeader('X-Truncated', 'true');
-    }
-    res.send(csv);
+  ): Promise<void> {
+    const { csv, truncated } = await this.journal.exportCsv(filtersOf(query), { id: actor.id, ip: clientIp(req) });
+    sendCsv(res, { filename: 'journal-audit', csv, truncated });
   }
 
+  /** GET /audit/actions — actions présentes en base (filtres de l'écran). */
   @Get('actions')
-  getDistinctActions() {
-    return this.auditService.getDistinctActions();
+  async getDistinctActions(): Promise<AuditActionsResponse> {
+    return toFullListResponse(await this.journal.distinctActions());
   }
 }

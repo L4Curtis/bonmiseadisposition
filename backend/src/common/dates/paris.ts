@@ -50,6 +50,18 @@ const parisFrenchDateFormatter = new Intl.DateTimeFormat('fr-FR', {
   year: 'numeric',
 });
 
+/** « JJ/MM/AAAA HH:MM » (fr-FR insère une virgule entre date et heure,
+ *  retirée par `formatParisDateTimeFr`). */
+const parisFrenchDateTimeFormatter = new Intl.DateTimeFormat('fr-FR', {
+  timeZone: PARIS_TIME_ZONE,
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+});
+
 /** La locale sv-SE donne « AAAA-MM-JJ HH:MM:SS ». */
 const parisDateTimeFormatter = new Intl.DateTimeFormat('sv-SE', {
   timeZone: PARIS_TIME_ZONE,
@@ -134,6 +146,18 @@ export function formatParisDate(value: Date | string | null | undefined, empty =
   const instant = new Date(value);
   if (Number.isNaN(instant.getTime())) return empty;
   return parisFrenchDateFormatter.format(instant);
+}
+
+/**
+ * Date et heure JJ/MM/AAAA HH:MM à l'heure de Paris (« 24/09/2026 14:05 »),
+ * le format des exports CSV et des documents lus par un humain.
+ * Valeur absente ou illisible → `empty` (chaîne vide par défaut).
+ */
+export function formatParisDateTimeFr(value: Date | string | null | undefined, empty = ''): string {
+  if (value === null || value === undefined || value === '') return empty;
+  const instant = new Date(value);
+  if (Number.isNaN(instant.getTime())) return empty;
+  return parisFrenchDateTimeFormatter.format(instant).replace(',', '');
 }
 
 /** Horodatage lisible à l'heure de Paris : « 2026-09-24 14:05:09 ». */

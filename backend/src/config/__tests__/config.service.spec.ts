@@ -24,44 +24,15 @@ describe('AppConfigService', () => {
     );
   }
 
-  describe('getInt', () => {
-    it('renvoie fallback quand la clé est absente', async () => {
-      mockStoredValue(null);
-      const n = await service.getInt('rappels', 'signature_overdue_days', { fallback: 7, min: 1 });
-      expect(n).toBe(7);
-    });
-
-    it('renvoie fallback pour une valeur non numérique', async () => {
-      mockStoredValue('abc');
-      const n = await service.getInt('rappels', 'signature_overdue_days', { fallback: 7, min: 1 });
-      expect(n).toBe(7);
-    });
-
-    it('borne au minimum une valeur en-dessous', async () => {
-      mockStoredValue('0');
-      const n = await service.getInt('rappels', 'signature_overdue_days', { fallback: 7, min: 1 });
-      expect(n).toBe(1);
-    });
-
-    it('borne au maximum une valeur au-dessus', async () => {
-      mockStoredValue('999');
-      const n = await service.getInt('tokens', 'expiry_days', { fallback: 7, min: 1, max: 30 });
-      expect(n).toBe(30);
-    });
-
-    it('renvoie la valeur telle quelle quand elle est dans les bornes', async () => {
-      mockStoredValue('3');
-      const n = await service.getInt('rappels', 'signature_overdue_days', { fallback: 7, min: 1 });
-      expect(n).toBe(3);
-    });
-  });
-
-  describe('getSignatureOverdueDays', () => {
+  describe('getSignatureOverdueDays — selon le registre (7 par défaut, au moins 1)', () => {
     it.each([
       [null, 7],
       ['3', 3],
       ['0', 1],
       ['abc', 7],
+      ['7.5', 7],
+      ['-3', 1],
+      [' 12 ', 12],
     ])('valeur stockée %s → %i', async (stored, expected) => {
       mockStoredValue(stored);
       expect(await service.getSignatureOverdueDays()).toBe(expected);

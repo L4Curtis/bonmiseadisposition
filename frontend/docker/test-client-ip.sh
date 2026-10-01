@@ -3,7 +3,9 @@
 # Vérifie, sur l'image frontend réelle, l'adresse IP du client que nginx
 # transmet au backend (X-Real-IP et X-Forwarded-For), avec et sans l'option
 # TRUST_CF_CONNECTING_IP. Vérifie aussi ce qui ne doit pas bouger : en-têtes
-# de sécurité, taille maximale des requêtes, utilisateur non root.
+# de sécurité (ceux de l'interface, et ceux du backend relayés une seule fois
+# sur /api/), taille maximale des requêtes, utilisateur non root, et le
+# passage au backend des adresses d'API qui finissent par .png, .js…
 #
 # Montage : un réseau Docker jetable, un faux backend (nginx qui renvoie les
 # en-têtes reçus) qui porte le nom « backend », et le frontend à tester. Les
@@ -32,7 +34,8 @@ IMAGE_CONSTRUITE=""
 ECHECS=0
 
 # Faux backend : répond à toute requête par les deux en-têtes que le frontend
-# lui a transmis, sur une ligne. Tourne sous l'utilisateur non root de l'image,
+# lui a transmis, sur une ligne, avec des en-têtes de sécurité reconnaissables
+# (comme ceux que pose helmet). Tourne sous l'utilisateur non root de l'image,
 # d'où les chemins dans /tmp.
 CONF_FAUX_BACKEND='
 daemon off;
@@ -52,6 +55,10 @@ http {
         listen 4000;
         location / {
             default_type text/plain;
+            add_header X-Frame-Options "DENY" always;
+            add_header X-Content-Type-Options "nosniff" always;
+            add_header Referrer-Policy "no-referrer" always;
+            add_header Content-Security-Policy "csp-du-backend" always;
             return 200 "x-real-ip=$http_x_real_ip|x-forwarded-for=$http_x_forwarded_for";
         }
     }
@@ -203,12 +210,61 @@ tester_protections() {
   [ "$uid" = "1001" ] && ok "nginx tourne sans les droits root (uid 1001)" || echec "nginx tourne sans les droits root" "uid $uid"
 }
 
+# entete_api_unique <en-tête> <valeur attendue> : exactement une occurrence
+# dans la réponse de l'API, celle du backend.
+entete_api_unique() {
+  local valeurs nombre
+  valeurs="$(printf '%s' "$ENTETES_API" | tr -d '\r' | grep -i "^$1:" | sed 's/^[^:]*: *//' || true)"
+  nombre="$(printf '%s' "$valeurs" | grep -c . || true)"
+  if [ "$nombre" = "1" ] && [ "$valeurs" = "$2" ]; then
+    ok "API : $1 présent une seule fois, celui du backend"
+  else
+    echec "API : $1 présent une seule fois, celui du backend" "$nombre occurrence(s) : $(printf '%s' "$valeurs" | tr '\n' '|')"
+  fi
+}
+
+tester_entetes_api() {
+  echo "En-têtes de sécurité des réponses de l'API (une seule source : le backend) :"
+  demarrer_front
+  ENTETES_API="$(docker exec "$FAUX_BACKEND" curl -fsS -D - -o /dev/null "http://$FRONT:8080/api/ip")"
+  entete_api_unique "X-Frame-Options" "DENY"
+  entete_api_unique "X-Content-Type-Options" "nosniff"
+  entete_api_unique "Referrer-Policy" "no-referrer"
+  entete_api_unique "Content-Security-Policy" "csp-du-backend"
+}
+
+# Une adresse d'API qui finit comme un fichier statique (logo, cachet…) doit
+# atteindre le backend, avec l'adresse du client, et non le bloc des fichiers
+# statiques de nginx (qui répondrait 404 depuis le disque, en cache un an).
+tester_api_extension_statique() {
+  echo "Adresses d'API qui finissent comme un fichier statique :"
+  demarrer_front
+  local chemin obtenu entetes
+  for chemin in /api/filiales/1/logo.png /api/x.js /api/x.css /api/x.svg; do
+    obtenu="$(docker exec "$FAUX_BACKEND" curl -fsS -H 'X-Real-IP: 203.0.113.7' \
+      "http://$FRONT:8080$chemin" 2>&1 || true)"
+    if [ "$obtenu" = "x-real-ip=203.0.113.7|x-forwarded-for=203.0.113.7" ]; then
+      ok "$chemin atteint le backend"
+    else
+      echec "$chemin atteint le backend" "réponse : $obtenu"
+    fi
+  done
+  entetes="$(docker exec "$FAUX_BACKEND" curl -fsS -D - -o /dev/null "http://$FRONT:8080/api/x.png" | tr -d '\r')"
+  if printf '%s' "$entetes" | grep -qi '^cache-control:.*immutable'; then
+    echec "/api/x.png sans le cache d'un an des fichiers statiques" "en-têtes : $(printf '%s' "$entetes" | tr '\n' '|')"
+  else
+    ok "/api/x.png sans le cache d'un an des fichiers statiques"
+  fi
+}
+
 preparer_image
 demarrer_faux_backend
 tester_sans_option
 tester_avec_option
 tester_valeur_invalide
 tester_protections
+tester_entetes_api
+tester_api_extension_statique
 
 if [ "$ECHECS" -gt 0 ]; then
   echo "$ECHECS contrôle(s) en échec."
