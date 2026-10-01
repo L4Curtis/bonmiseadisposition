@@ -280,15 +280,17 @@ Après 10 échecs de connexion depuis un même poste en 30 minutes, le compte es
 poste qui l'est (« Trop de tentatives depuis votre adresse… »). Le verrou tombe seul au bout de 30 minutes.
 
 Pour un autre compte local, un administrateur le lève tout de suite : page Utilisateurs, bouton
-« Déverrouiller ». Pour `admin@local`, quand plus aucun administrateur ne peut se connecter, effacer les échecs
-récents dans la base, depuis la Console de `bons-db` (machine base) :
+« Déverrouiller ». Le déverrouillage n'efface rien : il ajoute au journal une entrée « Compte déverrouillé »,
+et seuls les échecs postérieurs comptent encore. Pour `admin@local`, quand plus aucun administrateur ne peut se
+connecter, ajouter cette même entrée à la main, depuis la Console de `bons-db` (machine base) :
 
 ```sh
-psql -U app -d bons_disposition -c "DELETE FROM audit_logs WHERE action = 'login_local_failed' AND user_email = 'admin@local' AND created_at > (now() AT TIME ZONE 'UTC') - interval '30 minutes';"
+psql -U app -d bons_disposition -c "INSERT INTO audit_logs (id, action, details, created_at) VALUES (gen_random_uuid()::text, 'user_unlocked', '{\"targetEmail\": \"admin@local\"}', now() AT TIME ZONE 'UTC');"
 ```
 
-Pour un poste verrouillé, remplacer `user_email = 'admin@local'` par `ip_address = '<adresse du poste>'`
-(celle du journal d'audit). La commande affiche `DELETE <nombre de lignes effacées>` ; se reconnecter ensuite.
+La commande affiche `INSERT 0 1` ; se reconnecter ensuite. Ne jamais effacer de lignes du journal : c'est la
+preuve des tentatives. Un poste verrouillé (30 échecs, tous comptes confondus) le reste 30 minutes : se
+connecter depuis un autre poste en attendant.
 
 ### Export SMB des PDF
 
