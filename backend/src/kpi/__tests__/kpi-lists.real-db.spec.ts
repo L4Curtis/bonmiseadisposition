@@ -56,6 +56,7 @@ describeDb('Tuile = liste (base réelle)', () => {
     await prisma.notificationLog.deleteMany({ where: onBon });
     await prisma.auditLog.deleteMany({ where: onBon });
     await prisma.contestation.deleteMany({ where: onBon });
+    await prisma.signature.deleteMany({ where: onBon });
     await prisma.bon.deleteMany({ where: { reference: { startsWith: TEST_PREFIX } } });
     await prisma.equipmentCatalog.deleteMany({ where: { brand: { startsWith: TEST_PREFIX } } });
     await prisma.user.deleteMany({ where: { email: { startsWith: TEST_PREFIX } } });
@@ -82,8 +83,17 @@ describeDb('Tuile = liste (base réelle)', () => {
     (await prisma.auditLog.create({ data: { bonId, action, createdAt, details } })).id;
   const email = async (bonId: string, status: string, sentAt: Date, recipientEmail = 'lea@test.local') =>
     (await prisma.notificationLog.create({ data: { bonId, recipientEmail, type: 'reminder', status: status as never, sentAt } })).id;
-  const contestation = async (bonId: string, userId: string, status: string, createdAt: Date) =>
-    (await prisma.contestation.create({ data: { bonId, userId, message: 'm', status: status as never, createdAt } })).id;
+  const contestation = async (bonId: string, userId: string, status: string, createdAt: Date, extra: Record<string, unknown> = {}) =>
+    (await prisma.contestation.create({ data: { bonId, userId, message: 'm', status: status as never, createdAt, ...extra } })).id;
+  /** Signature du collaborateur (ou cachet IT) sur le bon ; jeton unique. */
+  let tokenSeq = 0;
+  const signature = async (bonId: string, data: Partial<Prisma.SignatureUncheckedCreateInput>) =>
+    (await prisma.signature.create({
+      data: {
+        bonId, type: 'mise_disposition', token: `${TEST_PREFIX}-tok-${tokenSeq++}`, tokenExpiresAt: new Date(Date.now() + DAY_MS),
+        signed: true, signedAt: new Date(), signerEmail: `${TEST_PREFIX}-f@test.local`, ...data,
+      },
+    })).id;
 
   /** Filiale observée : le jeu de la carte et de sa liste. */
   async function seedMain(catalogId: string): Promise<void> {
@@ -139,6 +149,43 @@ describeDb('Tuile = liste (base réelle)', () => {
       await contestation(partial, main.userId, 'rejected', now),
     ];
     await contestation(oldBon, main.userId, 'open', old);
+    await seedDecisionsAndSignatures(main, { active, archived, partial, oldBon }, now, old);
+  }
+
+  /** Contestations tranchées (Fondée / Non retenue) et signatures par mode, dans la filiale observée. */
+  async function seedDecisionsAndSignatures(
+    main: Awaited<ReturnType<typeof makeFiliale>>,
+    bons: { active: string; archived: string; partial: string; oldBon: string },
+    now: Date,
+    old: Date,
+  ): Promise<void> {
+    const decided = (outcome: string, resolvedAt: Date) => ({ outcome: outcome as never, resolvedAt });
+    // Reçue il y a 60 jours, tranchée aujourd'hui : compte à la date de la décision.
+    expected.contestations_fondees = [
+      await contestation(bons.archived, main.userId, 'resolved', now, decided('founded', now)),
+      await contestation(bons.oldBon, main.userId, 'resolved', old, decided('founded', now)),
+    ];
+    expected.contestations_non_retenues = [
+      expected.contestations_recues[1], // « rejected » d'avant la vague 2 : pas d'issue, tranchée à sa dernière modification
+      await contestation(bons.partial, main.userId, 'rejected', now, decided('not_retained', now)),
+    ];
+    expected.contestations_recues.push(expected.contestations_fondees[0], expected.contestations_non_retenues[1]);
+    await contestation(bons.oldBon, main.userId, 'resolved', old, decided('founded', old));
+
+    const tech = await prisma.user.create({
+      data: { samAccountName: `${TEST_PREFIX}-tech`, email: `${TEST_PREFIX}-tech@test.local`, displayName: 'Tech', role: 'technician' },
+    });
+    const remote = await signature(bons.active, { type: 'mise_disposition' });
+    const witnessed = await signature(bons.archived, { type: 'restitution', isInPerson: true, signedByProxy: true, signerEmail: tech.email });
+    const proxy = await signature(bons.partial, { type: 'pv_cloture', isInPerson: true, signedByProxy: true, signerEmail: `${TEST_PREFIX}-proche@test.local` });
+    await signature(bons.oldBon, { signedAt: old });
+    await signature(bons.active, { type: 'restitution', signed: false, signedAt: null });
+    await signature(bons.active, { type: 'it_cachet' });
+    Object.assign(expected, {
+      signatures_a_distance: [remote],
+      signatures_sur_place: [witnessed, proxy],
+      signatures_mandatees: [proxy],
+    });
   }
 
   /** Autre filiale : les mêmes événements, qui ne doivent jamais apparaître. */
@@ -153,6 +200,9 @@ describeDb('Tuile = liste (base réelle)', () => {
     }
     await email(bon, 'failed', now);
     await contestation(bon, other.userId, 'open', now);
+    await contestation(bon, other.userId, 'resolved', now, { outcome: 'founded', resolvedAt: now });
+    await signature(bon, { isInPerson: true, signedByProxy: true, signerEmail: `${TEST_PREFIX}-autre@test.local` });
+    await signature(bon, { type: 'restitution' });
   }
 
   /** Équipements désignés par le fragment SQL d'une carte, dans la filiale observée. */
@@ -245,7 +295,15 @@ describeDb('Tuile = liste (base réelle)', () => {
         clotures_sans_signature: incidents.withoutSignature.closures.current,
         contestations_recues: incidents.contestations.received.current,
         emails_en_echec: incidents.failedEmails.count.current,
+        signatures_a_distance: delais.signatureMode.remote.current,
+        signatures_sur_place: delais.signatureMode.inPerson.current,
+        signatures_mandatees: delais.signatureMode.proxy.current,
+        contestations_fondees: incidents.contestations.founded.current,
+        contestations_non_retenues: incidents.contestations.notRetained.current,
       };
+      expect(incidents.contestations.decided.current).toBe(
+        incidents.contestations.founded.current + incidents.contestations.notRetained.current,
+      );
       expect(incidents.cancellations.count.current).toBe(delais.volumes.cancelled.current);
       return values[key];
     };
@@ -274,7 +332,7 @@ describeDb('Tuile = liste (base réelle)', () => {
       const handovers = await service.getList({ indicateur: 'remises_sans_signature', ...range, filialeId });
       const contestations = await service.getList({ indicateur: 'contestations_recues', ...range, filialeId });
       expect(handovers.items.map((i) => i.detail).sort()).toEqual(['Ancien geste', 'Tablette en panne']);
-      expect(contestations.items.map((i) => i.detail).sort()).toEqual(['Non retenue', 'À traiter']);
+      expect(contestations.items.map((i) => i.detail).sort()).toEqual(['Fondée', 'Non retenue', 'Non retenue', 'À traiter']);
     });
   });
 });

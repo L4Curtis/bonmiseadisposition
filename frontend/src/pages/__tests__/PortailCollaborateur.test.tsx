@@ -149,6 +149,47 @@ describe('Portail « Mes équipements » (R-057, R-090)', () => {
     expect(within(held).getByText('SN-CASQUE-25')).toBeInTheDocument();
   });
 
+  it('S23 (bon modifié) : « En attente d’un nouveau lien », hors « À signer » et du compteur, titre juste (R5)', async () => {
+    const s23 = bon({
+      reference: 'S23',
+      status: 'sent_mise_dispo',
+      equipments: [equipment({ serialNumber: 'SN-S23' })],
+      signatures: [signature({ tokenExpiresAt: new Date(0).toISOString(), invalidatedReason: 'modified' })],
+      pendingSignature: { type: 'mise_disposition', expired: true, inPerson: false, itSigned: false, sentAt: null, expiresAt: null },
+    });
+    mockPortal([...LEA, s23]);
+    renderWithProviders(<PortailCollaborateur />);
+
+    expect(await screen.findByText('Vous avez 2 documents à signer.')).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: /À signer/ })).queryByText(/S23/)).not.toBeInTheDocument();
+    const waiting = screen.getByRole('region', { name: /En attente d'un nouveau lien \(1\)/ });
+    expect(within(waiting).getByText('Bon de mise à disposition en attente d’un nouveau lien')).toBeInTheDocument();
+    expect(within(waiting).getByText('Ce bon a été modifié : un nouveau lien vous sera envoyé.')).toBeInTheDocument();
+    const held = screen.getByRole('region', { name: /Chez vous/ });
+    const card = within(held).getByText('SN-S23').closest('li') as HTMLElement;
+    expect(within(card).getByText('Nouveau lien à venir')).toBeInTheDocument();
+    expect(within(card).queryByText('À signer')).not.toBeInTheDocument();
+  });
+
+  it('carte en correction : titrée « Restitution en cours de correction », jamais « à signer » (R5)', async () => {
+    const s25 = bon({
+      reference: 'S25',
+      status: 'sent_restitution',
+      equipments: [equipment({ returnState: 'returned_to_sign' })],
+      signatures: [
+        signature({ signed: true, signedAt: '2026-08-01T00:00:00Z' }),
+        signature({ type: 'restitution', tokenExpiresAt: new Date(0).toISOString(), invalidatedReason: 'contested', createdAt: '2026-09-20T00:00:00Z' }),
+      ],
+      pendingSignature: { type: 'restitution', expired: true, inPerson: false, itSigned: false, sentAt: null, expiresAt: null },
+    });
+    mockPortal([s25]);
+    renderWithProviders(<PortailCollaborateur />);
+
+    const correction = await screen.findByRole('region', { name: /En cours de correction par l'équipe informatique/ });
+    expect(within(correction).getByText('Restitution en cours de correction')).toBeInTheDocument();
+    expect(within(correction).queryByRole('heading', { name: /à signer/ })).not.toBeInTheDocument();
+  });
+
   it('liste les équipements chez la personne, avec n° de série et catégorie lisible, jamais le code', async () => {
     mockPortal(LEA);
     renderWithProviders(<PortailCollaborateur />);

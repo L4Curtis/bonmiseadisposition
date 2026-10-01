@@ -113,6 +113,29 @@ describe('ParcTab', () => {
       .toHaveAttribute('href', '/inventaire?sansNumeroSerie=1&filialeId=f1');
   });
 
+  it('un seul équipement : accords au singulier (« saisi », « Voir l’équipement »)', async () => {
+    const fixture = parcFixture();
+    // 61 équipements : 1/61 hors catalogue, 60/61 avec un numéro.
+    mockGet('/kpi/parc', { ...fixture, loaned: { ...fixture.loaned, offCatalogShare: 1 / 61, serialCoverage: 60 / 61 } });
+    renderWithProviders(<ParcTab />, { route: ROUTE });
+    expect(await screen.findByText('1 équipement saisi en texte libre')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Voir l'équipement hors catalogue$/ })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Voir l'équipement sans numéro$/ })).toBeInTheDocument();
+    expect(screen.queryByText(/Voir les 1 /)).not.toBeInTheDocument();
+  });
+
+  it('rien à lister (100 % avec numéro, 0 % hors catalogue) : pas de lien, le « ? » dit pourquoi', async () => {
+    const fixture = parcFixture();
+    mockGet('/kpi/parc', { ...fixture, loaned: { ...fixture.loaned, offCatalogShare: 0, serialCoverage: 1 } });
+    const { user } = renderWithProviders(<ParcTab />, { route: ROUTE });
+    await screen.findByLabelText(/^Avec numéro de série : 100/);
+    expect(screen.queryByRole('link', { name: /^(Avec numéro de série|Hors catalogue)/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Définition : Avec numéro de série' }));
+    await user.click(screen.getByRole('button', { name: 'Définition : Hors catalogue' }));
+    expect(screen.getByText(/aucun équipement sans numéro à lister/)).toBeInTheDocument();
+    expect(screen.getByText(/n'est saisi en texte libre : il n'y a rien à lister/)).toBeInTheDocument();
+  });
+
   it('les flux d’équipements (journal) n’ont pas de lien et disent pourquoi sous « ? »', async () => {
     mockGet('/kpi/parc', parcFixture());
     const { user } = renderWithProviders(<ParcTab />, { route: ROUTE });

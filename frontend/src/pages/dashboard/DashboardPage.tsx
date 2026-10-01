@@ -73,7 +73,10 @@ export function DashboardPage() {
           {/* Lot F1 : premier (et unique) titre de la page — repère de
               structure pour un lecteur d'écran, comme sur Bons/Inventaire/Filiales. */}
           <h1 className="text-[22px] font-bold leading-tight tracking-tight text-foreground sm:text-[26px]">Tableau de bord</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Ce qui est à traiter, le parc prêté et les délais</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {/* La direction n'a rien « à traiter » : elle suit le parc et les délais. */}
+            {isIt ? 'Ce qui est à traiter, le parc prêté et les délais' : 'Le parc prêté, les délais et les incidents'}
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <div className="hidden items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-xs text-muted-foreground/70 sm:flex">

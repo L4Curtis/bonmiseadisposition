@@ -53,6 +53,47 @@ function drawPlaceholder(
   });
 }
 
+/** Rectangle en points PDF. */
+export interface FrameRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** Marge entre le tracé et le bord de sa zone : une signature qui monte tout
+ *  en haut du pavé ne touche ni le cadre ni la mention au-dessus. */
+export const SIGNATURE_IMAGE_MARGIN = 6;
+
+/** Zone de signature d'une case : sous la mention (deux lignes comprises),
+ *  au-dessus de la ligne de date. */
+export function signatureZone(x: number, y: number, width: number): FrameRect {
+  return { x: x + 10, y: y + 52, width: width - 20, height: 66 };
+}
+
+/** Cadre de l'image du tracé : la zone, moins la marge de chaque côté. */
+export function signatureImageFrame(x: number, y: number, width: number): FrameRect {
+  const zone = signatureZone(x, y, width);
+  return {
+    x: zone.x + SIGNATURE_IMAGE_MARGIN,
+    y: zone.y + SIGNATURE_IMAGE_MARGIN,
+    width: zone.width - 2 * SIGNATURE_IMAGE_MARGIN,
+    height: zone.height - 2 * SIGNATURE_IMAGE_MARGIN,
+  };
+}
+
+/** Pose l'image du tracé dans son cadre (proportions gardées), découpée à la
+ *  zone : même une image mal formée ne déborde jamais. */
+function drawSignatureImage(doc: PDFKit.PDFDocument, image: Buffer, zone: FrameRect, frame: FrameRect): void {
+  doc.save();
+  doc.roundedRect(zone.x, zone.y, zone.width, zone.height, 6).clip();
+  try {
+    doc.image(image, frame.x, frame.y, { fit: [frame.width, frame.height], align: 'center', valign: 'center' });
+  } finally {
+    doc.restore();
+  }
+}
+
 /** Corps du rendu d'une case signature (cadre, identité, mention, image ou
  *  texte de remplacement, date). Fonction pure PDFKit. */
 export function renderSignatureBox(
@@ -71,16 +112,15 @@ export function renderSignatureBox(
   doc.font(fonts.regular).fontSize(6.5).fillColor(colors.gray).text(opts.mention, x + 10, y + 33, { width: width - 20 });
 
   // Zone de signature (fond fixe : rendu déterministe)
-  const sigZoneY = y + 48;
-  const sigZoneH = 70;
-  doc.roundedRect(x + 10, sigZoneY, width - 20, sigZoneH, 6).fillColor('#FAF9F7').fill();
-  doc.roundedRect(x + 10, sigZoneY, width - 20, sigZoneH, 6).lineWidth(0.5).strokeColor(colors.border).stroke();
+  const zone = signatureZone(x, y, width);
+  doc.roundedRect(zone.x, zone.y, zone.width, zone.height, 6).fillColor('#FAF9F7').fill();
+  doc.roundedRect(zone.x, zone.y, zone.width, zone.height, 6).lineWidth(0.5).strokeColor(colors.border).stroke();
 
   const imgBuffer = opts.signatureImage ? dataUrlToBuffer(opts.signatureImage) : null;
   let drawn = false;
   if (imgBuffer) {
     try {
-      doc.image(imgBuffer, x + 10, sigZoneY + 2, { fit: [width - 20, sigZoneH - 4], align: 'center', valign: 'center' });
+      drawSignatureImage(doc, imgBuffer, zone, signatureImageFrame(x, y, width));
       drawn = true;
     } catch {
       drawn = false;
@@ -88,9 +128,9 @@ export function renderSignatureBox(
   }
   if (!drawn) {
     if (opts.placeholder) {
-      drawPlaceholder(doc, opts.placeholder, x + 10, sigZoneY, width - 20, sigZoneH, colors, fonts);
+      drawPlaceholder(doc, opts.placeholder, zone.x, zone.y, zone.width, zone.height, colors, fonts);
     } else {
-      doc.font(fonts.regular).fontSize(7).fillColor(colors.lightGray).text('Signature', x + 8, sigZoneY + 20, { width: width - 16, align: 'center' });
+      doc.font(fonts.regular).fontSize(7).fillColor(colors.lightGray).text('Signature', x + 8, zone.y + 20, { width: width - 16, align: 'center' });
     }
   }
 

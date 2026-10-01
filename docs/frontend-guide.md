@@ -267,6 +267,28 @@ Copies encore en place :
 
 ---
 
+### 1.10 Fiche IT d'un bon : documents et états
+
+« Documents PDF » (`pages/bons/detail/pdf-documents.ts`, `BonPdfSnapshots.tsx`) : titres au vocabulaire du
+lexique (« Remise / Restitution / PV de non-restitution — signature IT / signé(e) par le collaborateur »), un
+rang par série (type et signataire) et un badge par document : « En vigueur », ou « Ne vaut plus — motif ». En
+perte déclarée, le PV prêt (déjà certifié par la signature IT, pas encore émis) apparaît en tête, avec son
+signataire et un bouton de téléchargement (`readyPvOf`, `downloadReadyPv`). La colonne « État » des équipements
+s'affiche dès qu'une restitution a commencé, et aussi sur un bon contesté dont des équipements sont déjà
+marqués (`showsEquipmentState`). Un bon remplacé affiche « Repris sur BON-… », avec un lien vers le remplaçant ;
+le brouillon remplaçant rappelle « Remplace le bon contesté BON-… ». Le bloc d'intégrité et les pièces jointes
+disent « Signature IT », « Remise », « PV de non-restitution » (jamais « Cachet IT » ni « PV de clôture »).
+
+### 1.11 Tableau de bord : une carte = une liste, ou un « ? »
+
+Toute carte du tableau de bord (`pages/dashboard/**`) ouvre la liste exacte de ce qu'elle compte (`href`), ou
+porte un « ? » qui dit pourquoi elle n'en a pas (`noList`, textes dans `lists/kpi-lists.ts` → `NO_LIST`). Pour
+la direction, les listes qui mènent à des bons sont remplacées par `NO_LIST.direction`. Une part à 100 % ou à
+0 % n'a rien à lister et le dit. Les rangées de cinq cartes utilisent `FIVE_CARD_GRID`
+(`components/card-grid.ts`) : 3 colonnes sous 1400 px, pour qu'un titre ne se coupe jamais au milieu d'un mot.
+La comparaison à la période précédente dit toujours « contre N sur la période précédente », précédée de l'écart
+en % quand il se calcule. Définitions et listes : `docs/architecture.md` § 9.
+
 ## 2. Retours à l'utilisateur
 
 ### Notifications (toasts)
@@ -344,7 +366,10 @@ tablette et ordinateur gardent le menu latéral repliable. Les deux requêtes, e
 - **Menu** : une seule liste d'entrées par vue (`nav-config.ts`), rendue par `NavSections` en variante `rail`
   (menu latéral) ou `drawer` (tiroir). Ne pas dupliquer le menu ailleurs.
 - **Rubriques et personne connectée** : IT « Suivi » / « Référentiels » / « Administration », direction
-  « Pilotage », collaborateur une seule entrée « Mes équipements » sans rubrique (titre vide). Initiales
+  « Pilotage », collaborateur une seule entrée « Mes équipements » sans rubrique (titre vide). Les vues IT
+  finissent aussi par « Mes équipements » (`/mes-equipements`), dans une rubrique sans titre (`mineGroup`) :
+  chacun retrouve le matériel qui lui est prêté. `/mes-bons` redirige vers `/mes-equipements` ; la fiche d'un bon
+  reste `/mes-bons/:id` (refonte complète du menu en vague 4). Initiales
   identiques partout (`user-initials.ts` : première lettre du prénom et du nom, « Hugo Petit » → « HP ») ;
   aucun badge technique (« local ») à côté du nom.
 - **Tiroir couché** (écran de 500 px de haut au plus) : plus large, rubriques sur deux colonnes, et tout le
@@ -409,7 +434,7 @@ Android (Galaxy S9+, 320 px).
     défaut inchangées ;
   - temps mesuré sur la version de production (iPhone 13 émulé, cache vide, 3 essais) : document affiché en
     1,0 à 1,6 s en « Fast 4G », 2,6 s en « Slow 4G » ; écran de connexion depuis le lien dans les mêmes temps.
-- **Portail** (`pages/PortailCollaborateur.tsx`, `pages/portail/**`) : « À signer », puis « Chez vous », qui
+- **Portail** (`/mes-equipements`, `pages/PortailCollaborateur.tsx`, `pages/portail/**`) : « À signer », puis « Chez vous », qui
   liste aussi le matériel d'une **remise à signer** (pastille « À signer », bouton « Signer la remise » une
   fois par bon quand le lien est valide : le jeton d'un lien expiré, que le serveur transmet pour « Demander un
   nouveau lien », n'en fait jamais un), puis les bons. Un bon remplacé (contestation « Fondée ») dont le
@@ -421,8 +446,19 @@ Android (Galaxy S9+, 320 px).
   ou « Nouveau lien demandé le … » quand le serveur transmet `pendingSignature.newLinkRequestedAt`). Pendant la
   correction, le matériel dont le marquage est contesté (rendu à signer, déclaré non restitué) reste dans
   « Chez vous » avec la pastille « En cours de correction ». Le document lui-même n'est pas dans « À signer » :
-  il a son bloc, « En cours de correction par l'équipe informatique ». Le bandeau du haut compte exactement les
-  cartes de « À signer ».
+  il a son bloc, « En cours de correction par l'équipe informatique ». De même, un document qu'on ne peut ni
+  signer ni redemander (bon modifié en attente de sa signature IT, nouveau lien déjà demandé :
+  `isAwaitingNewLink`) a son bloc, « En attente d'un nouveau lien », et son matériel porte « Nouveau lien à
+  venir » au lieu de « À signer ». Le bandeau du haut compte exactement les cartes de « À signer ». Le titre
+  d'une carte ne contredit jamais ce qu'elle dit (`documentCardTitle`) : « Restitution en cours de correction »,
+  « … en attente d'un nouveau lien », « … à signer » seulement si quelque chose se signe ou se redemande ; la
+  fiche du bon reprend ce titre en sous-titre pendant une correction.
+- **Page du lien** (`pages/signature/lib/link-screens.ts`) : un lien invalidé suit la correction grâce à
+  `followUp` (serveur) : « Document en cours de correction » tant que rien n'est reparti, puis « Restitution
+  corrigée — un nouveau lien vous a été envoyé » (ou « se signe au guichet », ou « plus rien à signer » :
+  jamais « un nouveau lien vous sera envoyé » si aucun ne partira). Une 2e restitution se lit comme le PDF
+  (`lib/restitution-groups.ts`) : « Équipements restitués » (ce que la signature confirme), « Déjà restitués »
+  (restitution précédente, déjà signée) et « Encore chez vous ».
 - **Fiche d'un bon** (`pages/bons/BonDetailCollaborateur.tsx`, `pages/bons/collaborateur/**`) : documents
   ouverts dans le navigateur, **chacun par son identifiant** (`/bons/:id/pdf?snapshot=<id>`) : deux restitutions
   signées donnent deux entrées, datées à la minute, avec leur rang (« Bon de restitution signé (1 sur 2) ») ;

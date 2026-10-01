@@ -10,17 +10,16 @@ import { BonActionPanel } from './detail/BonActionPanel';
 import { BonAlerts } from './detail/BonAlerts';
 import { BonInfoCards } from './detail/BonInfoCards';
 import { BonSignatures } from './detail/BonSignatures';
-import { BonEquipmentTable } from './detail/BonEquipmentTable';
+import { BonEquipmentTable, showsEquipmentState } from './detail/BonEquipmentTable';
 import { BonNotesCard } from './detail/BonNotesCard';
 import { BonPdfSnapshots } from './detail/BonPdfSnapshots';
+import { readyPvOf } from './detail/pdf-documents';
 import { BonAttachments } from './detail/BonAttachments';
 import { BonIntegrity } from './detail/BonIntegrity';
 import { BonNotificationLogs } from './detail/BonNotificationLogs';
 import { BonModals } from './detail/BonModals';
 import type { BonFiche } from './detail/types';
 
-/** Statuts où la colonne « État » des équipements a un sens. */
-const RESTITUTION_STARTED = ['sent_restitution', 'partially_returned', 'archived'];
 /** Étape du formulaire de pièces jointes proposée par défaut. */
 const RESTITUTION_STAGE = ['active', 'sent_restitution', 'partially_returned', 'archived'];
 
@@ -113,7 +112,11 @@ export function BonDetailPage() {
       />
       <BonAlerts bon={bon} />
       <BonInfoCards bon={bon} />
-      <BonEquipmentTable equipments={bon.equipments} showEquipmentStatus={RESTITUTION_STARTED.includes(bon.status)} />
+      <BonEquipmentTable
+        equipments={bon.equipments}
+        showEquipmentStatus={showsEquipmentState(bon)}
+        replacedBy={bon.replacedBy}
+      />
       {bon.signatures?.length > 0 && (
         <BonSignatures
           signatures={bon.signatures}
@@ -132,6 +135,8 @@ export function BonDetailPage() {
         isAdmin={isAdmin}
         onRegenerateMissing={actions.regenerateMissingSnapshots}
         regenerating={actions.regeneratingSnapshots}
+        readyPv={isItStaff ? readyPvOf(bon) : null}
+        onDownloadReadyPv={actions.downloadReadyPv}
       />
       {bon.signatures?.some((s) => s.signed) && <BonIntegrity bonId={bon.id} />}
       {isItStaff && <BonNotificationLogs logs={notifLogs} />}

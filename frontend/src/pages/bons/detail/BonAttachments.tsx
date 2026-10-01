@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
+import { TERMS } from '@/domain/labels';
 import { toast } from '@/hooks/use-toast';
 import { showActionError } from '@/lib/errors';
 import { Paperclip, Upload, Trash2, FileText, Loader2, Download } from 'lucide-react';
@@ -19,10 +20,11 @@ interface Attachment {
   createdAt: string;
 }
 
-const STAGE_LABELS: Record<string, string> = {
-  mise_disposition: 'Mise à disposition',
+/** Étape d'une pièce jointe, au vocabulaire du lexique. */
+export const STAGE_LABELS: Readonly<Record<string, string>> = {
+  mise_disposition: 'Remise',
   restitution: 'Restitution',
-  pv_cloture: 'PV de clôture',
+  pv_cloture: TERMS.nonReturnReport,
   general: 'Général',
 };
 

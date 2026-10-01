@@ -6,6 +6,8 @@ import { isRecipient } from './recipient';
 import { isReplacedToken } from './token';
 import { effectiveInvalidationReason } from './link-invalidation';
 import { lastLinkRequestAt } from './link-request';
+import { linkFollowUp } from './link-follow-up';
+import type { LinkSignatureType } from '../contracts/bons';
 
 export interface BonInfoDeps {
   prisma: PrismaService;
@@ -50,10 +52,13 @@ export async function getBonInfoByToken(
   }
 
   if (isReplacedToken(sig.tokenExpiresAt)) {
+    const documentType = sig.type as LinkSignatureType;
     return {
       status: 'replaced',
       reference: sig.bon.reference,
       invalidatedReason: effectiveInvalidationReason(sig.invalidatedReason, sig.bon.status),
+      documentType,
+      followUp: linkFollowUp({ id: sig.id, type: documentType, createdAt: sig.createdAt }, sig.bon),
     };
   }
   if (new Date() > sig.tokenExpiresAt) {

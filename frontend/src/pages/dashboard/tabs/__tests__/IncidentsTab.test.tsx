@@ -134,6 +134,8 @@ describe('IncidentsTab', () => {
         [/^Bons annulés/, 'bons_annules'],
         [/^Contestations reçues/, 'contestations_recues'],
         [/^Emails en échec/, 'emails_en_echec'],
+        [/^Fondée/, 'contestations_fondees'],
+        [/^Non retenue/, 'contestations_non_retenues'],
       ];
       await screen.findByText('État du jour');
       for (const [name, key] of expected) {
@@ -165,6 +167,27 @@ describe('IncidentsTab', () => {
       expect(links).toEqual(['/inventaire?situation=non_restitue']);
       await user.click(screen.getByRole('button', { name: 'Pourquoi pas de liste : Bons annulés' }));
       expect(screen.getByText(/n'accède pas aux bons/)).toBeInTheDocument();
+    });
+
+    it('direction : le « ? » d’« Emails en échec », de « Fondée » et de « Non retenue » ne parle pas de « bons comptés »', async () => {
+      mockRole = 'direction';
+      mockGet('/kpi/incidents', incidentsFixture());
+      const { user } = renderWithProviders(<IncidentsTab />, { route: ROUTE });
+      await screen.findByText('État du jour');
+      for (const label of ['Emails en échec', 'Fondée', 'Non retenue']) {
+        await user.click(screen.getByRole('button', { name: `Définition : ${label}` }));
+      }
+      expect(screen.getAllByText(/La liste de ce chiffre mène aux bons concernés/)).toHaveLength(3);
+      expect(screen.queryByText(/compte des bons/)).not.toBeInTheDocument();
+    });
+
+    it('« Délai de décision » : une médiane, sans liste, et le « ? » le dit', async () => {
+      mockGet('/kpi/incidents', incidentsFixture());
+      const { user } = renderWithProviders(<IncidentsTab />, { route: ROUTE });
+      await screen.findByText('État du jour');
+      expect(screen.queryByRole('link', { name: /^Délai de décision/ })).not.toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Définition : Délai de décision' }));
+      expect(screen.getByText(/médiane calculée sur les contestations tranchées : il n'ouvre pas de liste/)).toBeInTheDocument();
     });
   });
 });

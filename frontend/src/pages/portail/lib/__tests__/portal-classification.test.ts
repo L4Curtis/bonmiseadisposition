@@ -290,7 +290,10 @@ describe('classifyPortal — ce que la personne doit faire (R-057)', () => {
       signatures: [sig({ signed: false, tokenExpiresAt: new Date(0).toISOString(), invalidatedReason: 'modified' })],
       pendingSignature: { type: 'mise_disposition', expired: true, inPerson: false, itSigned: false, sentAt: null, expiresAt: null },
     });
-    expect(classifyPortal([s23]).toSign[0]).toMatchObject({ invalidatedReason: 'modified', underCorrection: false, requestToken: null });
+    const groups = classifyPortal([s23]);
+    expect(groups.awaitingLink[0]).toMatchObject({ invalidatedReason: 'modified', underCorrection: false, requestToken: null });
+    // Rien à signer tant que le nouveau lien n'est pas parti (R5, constat n° 6).
+    expect(groups.toSign).toEqual([]);
   });
 
   it('lien expiré déjà redemandé : la date de la demande, transmise par le serveur', () => {
@@ -310,10 +313,31 @@ describe('classifyPortal — ce que la personne doit faire (R-057)', () => {
       signatures: [sig({ signed: false, token: 'tok-expire', tokenExpiresAt: PAST })],
       pendingSignature: pending,
     });
-    expect(classifyPortal([s03]).toSign[0]).toMatchObject({
+    const groups = classifyPortal([s03]);
+    expect(groups.awaitingLink[0]).toMatchObject({
       invalidatedReason: null,
       newLinkRequestedAt: '2026-09-27T09:30:00Z',
       requestToken: 'tok-expire',
     });
+    expect(groups.toSign).toEqual([]);
+  });
+
+  it('S23 et S26 : leur matériel reste « Chez vous », sans « À signer » ni bouton, « nouveau lien à venir »', () => {
+    const s23 = bon({
+      reference: 'S23',
+      status: 'sent_mise_dispo',
+      equipments: [equipment()],
+      signatures: [sig({ signed: false, tokenExpiresAt: new Date(0).toISOString(), invalidatedReason: 'modified' })],
+      pendingSignature: { type: 'mise_disposition', expired: true, inPerson: false, itSigned: false, sentAt: null, expiresAt: null },
+    });
+    const [held] = classifyPortal([s23]).held;
+    expect(held).toMatchObject({ awaitingSignature: false, awaitingNewLink: true, signToken: null });
+  });
+
+  it('lien simplement expiré, pas encore redemandé : reste « À signer » (la personne peut le redemander)', () => {
+    const s03 = bon({ reference: 'S03', status: 'sent_mise_dispo', signatures: [sig({ signed: false, token: 'tok', tokenExpiresAt: PAST })] });
+    const groups = classifyPortal([s03]);
+    expect(groups.toSign.map((d) => d.bon.reference)).toEqual(['S03']);
+    expect(groups.awaitingLink).toEqual([]);
   });
 });

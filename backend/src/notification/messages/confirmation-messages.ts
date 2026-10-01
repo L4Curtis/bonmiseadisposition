@@ -3,6 +3,7 @@ import { escapeHtml } from './escape-html';
 import { buildEquipList } from './equipment-lists';
 import { DOCUMENT_LABELS, civiliteLongOf, filialeNomOf } from './message-parts';
 import { portalUrl } from '../app-links';
+import { buildAlreadyReturnedSection, buildRemainingSection, signedRestitutionGroups } from './restitution-sections';
 
 export type ConfirmationType = 'mise_disposition' | 'restitution' | 'pv_cloture';
 
@@ -26,13 +27,22 @@ const TYPE_LABEL_BY_TYPE: Record<ConfirmationType, string> = {
   pv_cloture: 'PV de non-restitution',
 };
 
-/** Équipements concernés par le document signé : tous pour la remise, ceux
- *  rendus pour une restitution, ceux non restitués pour le PV. */
-function documentEquipments(bon: NotificationBon, type: ConfirmationType) {
+/** Équipements du document signé, et sections de rappel d'une restitution :
+ *  tous pour la remise ; pour une restitution, ceux rendus CETTE fois (ceux
+ *  d'une restitution précédente et ceux gardés viennent à part, comme dans le
+ *  PDF) ; ceux non restitués pour le PV. */
+function documentEquipmentVars(bon: NotificationBon, type: ConfirmationType) {
   const all = bon.equipments ?? [];
-  if (type === 'restitution') return all.filter((eq) => eq.returnedAt);
-  if (type === 'pv_cloture') return all.filter((eq) => eq.notReturned);
-  return all;
+  if (type === 'restitution') {
+    const groups = signedRestitutionGroups(bon);
+    return {
+      EQUIP_LIST: buildEquipList(groups.returnedNow),
+      ALREADY_RETURNED_SECTION: buildAlreadyReturnedSection(groups.returnedBefore),
+      REMAINING_SECTION: buildRemainingSection(groups.stillHeld),
+    };
+  }
+  const listed = type === 'pv_cloture' ? all.filter((eq) => eq.notReturned) : all;
+  return { EQUIP_LIST: buildEquipList(listed), ALREADY_RETURNED_SECTION: '', REMAINING_SECTION: '' };
 }
 
 /**
@@ -51,7 +61,7 @@ export function buildConfirmationMessage(bon: NotificationBon, type: Confirmatio
       REFERENCE: escapeHtml(bon.reference),
       TYPE_LABEL: TYPE_LABEL_BY_TYPE[type],
       DOCUMENT_LABEL: DOCUMENT_LABELS[type],
-      EQUIP_LIST: buildEquipList(documentEquipments(bon, type)),
+      ...documentEquipmentVars(bon, type),
       PORTAIL_URL: portalUrl(appUrl),
     },
     subject: `[${bon.reference}] Signature confirmée — ${DOCUMENT_LABELS[type]}`,

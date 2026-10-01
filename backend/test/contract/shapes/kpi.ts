@@ -230,7 +230,12 @@ const kpiListKey = enumOf<KpiListKey>({
   remises_sans_signature: true,
   clotures_sans_signature: true,
   contestations_recues: true,
+  contestations_fondees: true,
+  contestations_non_retenues: true,
   emails_en_echec: true,
+  signatures_a_distance: true,
+  signatures_sur_place: true,
+  signatures_mandatees: true,
 });
 
 export const kpiList = object<KpiListResponse>({

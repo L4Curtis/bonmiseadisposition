@@ -126,6 +126,7 @@ const equipmentReturnState = enumOf<EquipmentReturnState>({
   returned_to_sign: true,
   returned: true,
   not_returned: true,
+  replaced: true,
 });
 
 const linkRefusal = object<LinkRefusal>({

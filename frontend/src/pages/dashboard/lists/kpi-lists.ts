@@ -32,7 +32,12 @@ export const KPI_LISTS: Record<KpiListKey, KpiListMeta> = {
   remises_sans_signature: { title: 'Remises constatées sans signature', unit: UNITS.bons, dateLabel: 'constatée le' },
   clotures_sans_signature: { title: 'Clôturés sans signature', unit: UNITS.bons, dateLabel: 'clôturé le' },
   contestations_recues: { title: 'Contestations reçues', unit: UNITS.contestations, dateLabel: 'reçue le' },
+  contestations_fondees: { title: 'Contestations fondées', unit: UNITS.contestations, dateLabel: 'tranchée le' },
+  contestations_non_retenues: { title: 'Contestations non retenues', unit: UNITS.contestations, dateLabel: 'tranchée le' },
   emails_en_echec: { title: 'Emails en échec', unit: UNITS.emails, dateLabel: 'tenté le' },
+  signatures_a_distance: { title: 'Documents signés à distance, par le lien reçu', unit: UNITS.signatures, dateLabel: 'signé le' },
+  signatures_sur_place: { title: 'Documents signés sur place, devant le technicien', unit: UNITS.signatures, dateLabel: 'signé le' },
+  signatures_mandatees: { title: 'Documents signés par une personne mandatée', unit: UNITS.signatures, dateLabel: 'signé le' },
 };
 
 export function isKpiListKey(value: string | null): value is KpiListKey {
@@ -49,8 +54,13 @@ export function kpiListHref(key: KpiListKey, current: URLSearchParams): string {
 
 /** Texte du « ? » d'une carte sans liste, selon la raison. */
 export const NO_LIST = {
-  /** Direction : les listes de bons ne lui sont pas ouvertes. */
-  direction: "Ce chiffre compte des bons : il n'ouvre pas de liste pour la direction, qui n'accède pas aux bons.",
+  /** Direction : chaque ligne d'une liste mène à un bon, et les bons ne lui sont pas ouverts. */
+  direction: "La liste de ce chiffre mène aux bons concernés : elle ne s'ouvre pas pour la direction, qui n'accède pas aux bons.",
+  /** Part à 100 % ou à 0 % : il n'y a aucun équipement à montrer. */
+  allWithSerial: "Tous les équipements chez les collaborateurs ont un numéro de série : il n'y a aucun équipement sans numéro à lister.",
+  noneOffCatalog: "Aucun équipement chez les collaborateurs n'est saisi en texte libre : il n'y a rien à lister.",
+  /** Médiane des délais de décision. */
+  decisionDelay: "Ce chiffre est une médiane calculée sur les contestations tranchées : il n'ouvre pas de liste.",
   /** Flux d'équipements tiré du journal : un même équipement peut être déclaré puis retrouvé plusieurs fois. */
   equipmentFlow:
     "Ce chiffre compte des déclarations passées, pas une liste d'équipements : un équipement peut avoir été déclaré puis retrouvé depuis. La liste des équipements encore non restitués s'ouvre depuis la carte « Encore non restitués ».",

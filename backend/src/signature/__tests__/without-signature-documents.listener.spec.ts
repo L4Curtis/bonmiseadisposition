@@ -45,12 +45,20 @@ describe('WithoutSignatureDocumentsListener', () => {
   });
 
   it('remise sans signature → document « remise_sans_signature » avec le motif et le technicien', async () => {
-    await publisher.publish(DOMAIN_EVENTS.bonHandoverWithoutSignature, { ...base, reason: 'Collaborateur sur chantier' });
+    // Le nom du fichier est daté de sa production (heure de Paris) : horloge
+    // figée, pour que l'attendu ne dépende pas du jour où le test tourne.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(OCCURRED_AT);
+    try {
+      await publisher.publish(DOMAIN_EVENTS.bonHandoverWithoutSignature, { ...base, reason: 'Collaborateur sur chantier' });
+    } finally {
+      vi.useRealTimers();
+    }
 
     expect(pdfService.saveDocument).toHaveBeenCalledTimes(1);
     const [bon, type, filename] = pdfService.saveDocument.mock.calls[0];
     expect(type).toBe('remise_sans_signature');
-    expect(filename).toMatch(/^BON-2026-0001_Lea-Martin_Remise-constatee-sans-signature_2026-09-\d{2}_\d{2}h\d{2}m\d{2}\.pdf$/);
+    expect(filename).toBe('BON-2026-0001_Lea-Martin_Remise-constatee-sans-signature_2026-09-25_16h30m00.pdf');
     expect(bon._withoutSignature).toEqual({
       kind: 'handover',
       reason: 'Collaborateur sur chantier',

@@ -81,6 +81,7 @@ Généré par `backend/src/auth/__tests__/route-access.spec.ts` : ne pas modifie
 | GET | /api/bons/:id/pdf | tous les rôles connectés | BonsController.getPdf |
 | GET | /api/bons/:id/pdf-snapshots | tous les rôles connectés | BonsController.getPdfSnapshots |
 | GET | /api/bons/:id/pdf-snapshots/missing | admin, technician | BonsController.getMissingPdfSnapshots |
+| GET | /api/bons/:id/pdf/pv-pret | admin, technician | BonsController.getReadyPv |
 | POST | /api/bons/:id/resend | admin, technician | BonsController.resend |
 | POST | /api/bons/:id/send | admin, technician | BonsController.send |
 | GET | /api/bons/:id/send-check | admin, technician | BonsController.sendCheck |

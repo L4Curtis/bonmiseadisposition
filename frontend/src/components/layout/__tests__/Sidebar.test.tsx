@@ -121,7 +121,7 @@ describe('Sidebar', () => {
     mockView = 'collaborateur';
     renderWithProviders(<Sidebar />);
 
-    expect(await screen.findByRole('link', { name: /Mes équipements/ })).toHaveAttribute('href', '/mes-bons');
+    expect(await screen.findByRole('link', { name: /Mes équipements/ })).toHaveAttribute('href', '/mes-equipements');
     expect(screen.queryByText(/Mes bons/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Opérations/i)).not.toBeInTheDocument();
   });
@@ -135,4 +135,19 @@ describe('Sidebar', () => {
     expect(screen.getByText('Référentiels')).toBeInTheDocument();
     expect(screen.queryByText(/Opérations/i)).not.toBeInTheDocument();
   });
+
+  it.each([
+    ['technician', 'technicien'],
+    ['admin', 'administrateur'],
+  ] as const)('vue %s : « Mes équipements » en bas du menu (plan §1)', async (role, view) => {
+    mockRole = role;
+    mockView = view;
+    renderWithProviders(<Sidebar />);
+
+    const mine = await screen.findByRole('link', { name: /Mes équipements/ });
+    expect(mine).toHaveAttribute('href', '/mes-equipements');
+    const links = screen.getAllByRole('link');
+    expect(links[links.length - 1]).toBe(mine);
+  });
 });
+

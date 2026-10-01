@@ -141,6 +141,31 @@ describe('DelaisTab', () => {
     expect(screen.getByText(/n'accède pas aux bons/)).toBeInTheDocument();
   });
 
+  it('IT : chaque mode de signature ouvre la liste des documents qu’il compte', async () => {
+    mockGet('/kpi/delais', delaisFixture());
+    renderWithProviders(<DelaisTab />, { route: `${ROUTE}&tab=delais&filialeId=f1` });
+    for (const [name, key] of [[/^À distance, par le lien reçu : 9 signatures/, 'signatures_a_distance'],
+      [/^Sur place, devant le technicien : 2 signatures/, 'signatures_sur_place'],
+      [/^Par une personne mandatée : 1 signature/, 'signatures_mandatees']] as const) {
+      const href = (await screen.findByRole('link', { name })).getAttribute('href') ?? '';
+      const params = new URL(href, 'http://localhost').searchParams;
+      expect(params.get('liste')).toBe(key);
+      expect(params.get('filialeId')).toBe('f1');
+    }
+  });
+
+  it('direction : les modes de signature n’ouvrent pas de liste, et le « ? » dit pourquoi', async () => {
+    mockRole = 'direction';
+    mockGet('/kpi/delais', delaisFixture());
+    const { user } = renderWithProviders(<DelaisTab />, { route: ROUTE });
+    await screen.findByLabelText(/^À distance, par le lien reçu/);
+    expect(screen.queryByRole('link', { name: /^(À distance|Sur place|Par une personne)/ })).not.toBeInTheDocument();
+    for (const label of ['À distance, par le lien reçu', 'Sur place, devant le technicien', 'Par une personne mandatée']) {
+      await user.click(screen.getByRole('button', { name: `Définition : ${label}` }));
+    }
+    expect(screen.getAllByText(/La liste de ce chiffre mène aux bons concernés/)).toHaveLength(3);
+  });
+
   it('le tableau des signatures attendues donne le seuil', async () => {
     mockGet('/kpi/delais', delaisFixture());
     renderWithProviders(<DelaisTab />, { route: ROUTE });

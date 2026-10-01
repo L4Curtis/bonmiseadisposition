@@ -11,6 +11,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { LATENESS_LABELS } from '@/domain/labels';
 import { isItRole } from '@/lib/roles';
 import { KpiCard, KpiCardSkeleton, type KpiCardProps } from '../components/KpiCard';
+import { FIVE_CARD_GRID } from '../components/card-grid';
 import { asOfLabel, countWithUnit, periodLabel, UNITS } from '../lib/kpi-scope';
 import { usePeriodParams } from '../use-period-params';
 import type { DelaisKpiResponse } from '../types/delais';
@@ -150,7 +151,7 @@ export function DelaisTab() {
           : volumeCards(data, isIt ? listHref : null).map(({ key, ...card }) => <KpiCard key={key} {...card} />)}
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
+      <div className={FIVE_CARD_GRID}>
         {loading || !data
           ? Array.from({ length: 5 }).map((_, i) => <KpiCardSkeleton key={i} />)
           : delayCards(data, isIt, filialeId).map(({ key, ...card }) => <KpiCard key={key} {...card} />)}
@@ -195,7 +196,7 @@ export function DelaisTab() {
         empty={!loading && noSignature}
         emptyMessage="Aucune signature sur la période."
       >
-        {data && <SignatureModeTiles signatureMode={data.signatureMode} scope={periodLabel(data.period)} />}
+        {data && <SignatureModeTiles signatureMode={data.signatureMode} scope={periodLabel(data.period)} listHref={isIt ? listHref : null} />}
       </ChartCard>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">

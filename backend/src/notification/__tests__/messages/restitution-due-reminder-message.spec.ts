@@ -11,7 +11,7 @@ describe('buildRestitutionDueReminderMessage', () => {
 
     const { vars, subject } = buildRestitutionDueReminderMessage(bon, 'https://app.test');
 
-    expect(vars.PORTAIL_URL).toBe('https://app.test/mes-bons');
+    expect(vars.PORTAIL_URL).toBe('https://app.test/mes-equipements');
     expect(vars).not.toHaveProperty('SIGNER_URL');
     expect(vars.DATE_RESTITUTION).toContain('2026');
     expect(subject).toContain(bon.reference);

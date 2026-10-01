@@ -116,7 +116,7 @@ async function savePvDocument(ctx: BonsWorkflowContext, bonId: string): Promise<
 
   // Un nom daté par document : le PV réécrit après la co-signature n'écrase
   // ni la version signée par l'IT seule, ni son fichier sur le partage.
-  const filename = documentFilename(bon, 'cloture_equipements_manquants', new Date());
+  const filename = documentFilename(bon, 'cloture_equipements_manquants', new Date(), { itVersion: true });
   const pdfBuffer = await generateAndSaveSnapshot(
     ctx,
     bonId,

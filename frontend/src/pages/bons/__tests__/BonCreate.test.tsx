@@ -333,6 +333,33 @@ describe('BonCreatePage — pré-remplissage à l\'ouverture (C1, C2)', () => {
     expect(dateInput.value).toBe('2020-05-01');
   });
 
+  it('brouillon correctif d’une contestation Fondée : le titre rappelle le bon qu’il remplace', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path.startsWith('/filiales/active')) return Promise.resolve([siege, agenceLyon]);
+      if (path.startsWith('/equipment/catalog')) return Promise.resolve([]);
+      if (path.startsWith('/equipment/packs')) return Promise.resolve([]);
+      if (path.startsWith('/equipment/serial-conflicts')) return Promise.resolve({ items: [], truncated: false });
+      if (path === '/bons/correctif') {
+        return Promise.resolve({
+          id: 'correctif',
+          reference: 'BON-2026-0080',
+          status: 'draft',
+          filialeId: 'f1',
+          civilite: 'mme',
+          dateMiseDisposition: '2026-09-28',
+          collaborateur: { id: 'u1', displayName: 'Léa Martin', email: 'lea@livio.fr' },
+          equipments: [],
+          replaces: { id: 'origine', reference: 'BON-2026-0079' },
+        });
+      }
+      return Promise.reject(new Error(`GET non mocké dans ce test : ${path}`));
+    });
+
+    renderWithProviders(<BonCreatePage />, { route: '/bons/correctif/edit', path: '/bons/:id/edit' });
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Modifier le brouillon BON-2026-0080' })).toBeInTheDocument());
+    expect(screen.getByText('Remplace le bon contesté BON-2026-0079')).toBeInTheDocument();
+  });
+
   it('C1 — choisir un collaborateur dans l\'autocomplétion pré-remplit sa filiale connue de l\'annuaire', async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     const { container } = renderWithProviders(<BonCreatePage />);

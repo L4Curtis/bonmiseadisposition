@@ -7,7 +7,7 @@ import { portalUrl } from '../app-links';
 /**
  * Variables + sujet du rappel de restitution prévue. Contrairement aux autres
  * rappels, ce message ne porte pas de lien de signature : il pointe vers le
- * portail collaborateur ({{PORTAIL_URL}} = appUrl + '/mes-bons').
+ * portail collaborateur ({{PORTAIL_URL}} = appUrl + '/mes-equipements').
  */
 export function buildRestitutionDueReminderMessage(bon: NotificationBon, appUrl: string): EmailMessage {
   const filialeNom = bon.filiale?.displayName ?? bon.filiale?.name ?? '';

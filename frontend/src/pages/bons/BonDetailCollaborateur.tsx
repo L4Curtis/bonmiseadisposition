@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { ContestationDialog } from '@/components/ContestationDialog';
 import type { LinkSignatureType } from '@/contracts/bons';
 import { DocumentCard } from '@/pages/portail/components/ToSignSection';
+import { documentCardTitle } from '@/pages/portail/lib/portal-labels';
 import { DetailSkeleton } from './collaborateur/components/DetailSkeleton';
 import { CollabBonHeader } from './collaborateur/components/CollabBonHeader';
 import { MyContestationCard } from './collaborateur/components/MyContestationCard';
@@ -33,7 +34,7 @@ export function BonDetailCollaborateurPage() {
         <CardContent className="p-8 text-center" role="alert">
           <XCircle className="h-10 w-10 mx-auto mb-3 text-destructive/60" />
           <p className="text-sm text-destructive">{detail.loadError ?? 'Bon introuvable'}</p>
-          <Button variant="outline" onClick={() => navigate('/mes-bons')} className="mt-4 min-h-11">
+          <Button variant="outline" onClick={() => navigate('/mes-equipements')} className="mt-4 min-h-11">
             <ChevronLeft className="mr-1.5 h-4 w-4" /> Mes équipements
           </Button>
         </CardContent>
@@ -52,7 +53,7 @@ export function BonDetailCollaborateurPage() {
 
   return (
     <div className="space-y-5">
-      <CollabBonHeader bon={bon} />
+      <CollabBonHeader bon={bon} statusText={toSign?.underCorrection ? documentCardTitle(toSign) : undefined} />
 
       {toSign && (
         <DocumentCard doc={toSign} showBonLink={false} onContest={(target) => openContestation(target.document)} />

@@ -39,7 +39,7 @@ describe('sendTokenSignatureRequest', () => {
       buildMessage,
     });
 
-    expect(buildMessage).toHaveBeenCalledWith(baseBon, 'https://app.test.local/signer/token-abc');
+    expect(buildMessage).toHaveBeenCalledWith(baseBon, 'https://app.test.local/signer/token-abc', {});
     expect(deps.sendEmail).toHaveBeenCalledWith('jean.dupont@exemple.fr', 'Signer', expect.any(String));
   });
 

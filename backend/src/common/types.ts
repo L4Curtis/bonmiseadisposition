@@ -155,6 +155,7 @@ export interface NotificationBon {
     signedAt?: Date | string | null;
     signatureImagePath?: string | null;
     tokenExpiresAt?: Date | string;
+    invalidatedAt?: Date | string | null;
   }>;
 }
 

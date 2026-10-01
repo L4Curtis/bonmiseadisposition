@@ -15,7 +15,7 @@ import { DEFAULT_CONFIGS } from '../pdf-template-defaults';
 import { EncryptionService } from '../../config/encryption.service';
 import { listBonDocuments } from '../snapshot-list';
 import { findDocumentById } from '../snapshot-store';
-import { querySendToSignature } from '../../kpi/delais/delais-queries';
+import { querySignatureModes } from '../../kpi/delais/delais-queries';
 import { todayInParis } from '../../common/dates/paris';
 import type { BonForPdf } from '../pdf-types';
 
@@ -154,9 +154,8 @@ describeDb('Documents probants et mandataires (base réelle)', () => {
 
     const filiale = await prisma.bon.findUniqueOrThrow({ where: { id: bonId }, select: { filialeId: true } });
     const today = todayInParis();
-    const rows = await querySendToSignature(prisma, { from: today, to: today }, filiale.filialeId);
-    const restitution = rows.find((r) => r.type === 'restitution');
-    expect(Number(restitution?.inPerson)).toBe(3);
-    expect(Number(restitution?.proxy)).toBe(1);
+    const modes = await querySignatureModes(prisma, { from: today, to: today }, filiale.filialeId);
+    expect(modes.inPerson).toBe(3);
+    expect(modes.proxy).toBe(1);
   });
 });

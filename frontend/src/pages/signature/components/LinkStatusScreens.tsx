@@ -1,5 +1,7 @@
 import { AlertOctagon, Ban, CheckCircle, Clock, Info } from 'lucide-react';
 import type { SignatureInvalidationReason } from '@/contracts/common';
+import type { LinkSignatureType } from '@/contracts/bons';
+import type { LinkFollowUp } from '@/contracts/signature';
 import { formatDateLong } from '@/lib/dates';
 import { closedBonScreen, invalidatedLinkScreen } from '../lib/link-screens';
 import { PortalLink, StatusScreen } from './StatusScreen';
@@ -38,15 +40,17 @@ export function ExpiredLinkScreen({
   );
 }
 
-/** Lien invalidé avant usage : le vrai motif (R-038). */
-export function InvalidatedLinkScreen({
-  reason,
-  reference,
-}: {
+interface InvalidatedLinkScreenProps {
   reason: SignatureInvalidationReason | null | undefined;
   reference: string;
-}) {
-  const { title, message } = invalidatedLinkScreen(reason);
+  /** Ce qui a suivi l'invalidation (nouveau lien parti, à venir…). */
+  followUp?: LinkFollowUp;
+  documentType?: LinkSignatureType;
+}
+
+/** Lien invalidé avant usage : le vrai motif (R-038) et la suite donnée. */
+export function InvalidatedLinkScreen({ reason, reference, followUp, documentType }: InvalidatedLinkScreenProps) {
+  const { title, message } = invalidatedLinkScreen(reason, followUp, documentType);
   const icon =
     reason === 'cancelled' ? (
       <Ban className="h-12 w-12 text-muted-foreground" />

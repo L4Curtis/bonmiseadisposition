@@ -1,7 +1,7 @@
 import type { BonEquipment, LinkSignatureType } from '@/contracts/bons';
 import { DOCUMENT_LABELS, LINK_INVALIDATION_MESSAGES, categoryLabel, signatureStepInSentence } from '@/domain/labels';
 import { formatDateLong } from '@/lib/dates';
-import type { DocumentToSign } from './portal-classification';
+import { isAwaitingNewLink, type DocumentToSign } from './portal-classification';
 
 function capitalize(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
@@ -10,6 +10,21 @@ function capitalize(text: string): string {
 /** « Bon de restitution à signer », « PV de non-restitution à signer ». */
 export function documentToSignTitle(type: LinkSignatureType): string {
   return `${capitalize(DOCUMENT_LABELS[type])} à signer`;
+}
+
+/** Document en cours de correction, dit sans « à signer » (R5). */
+const IN_CORRECTION_TITLES: Readonly<Record<LinkSignatureType, string>> = {
+  mise_disposition: 'Remise en cours de correction',
+  restitution: 'Restitution en cours de correction',
+  pv_cloture: 'PV de non-restitution en cours de correction',
+};
+
+/** Titre de la carte d'un document : il ne contredit jamais ce qu'elle dit
+ *  (« à signer » seulement si quelque chose se signe ou se redemande). */
+export function documentCardTitle(doc: DocumentToSign): string {
+  if (doc.underCorrection) return IN_CORRECTION_TITLES[doc.type];
+  if (isAwaitingNewLink(doc)) return `${capitalize(DOCUMENT_LABELS[doc.type])} en attente d’un nouveau lien`;
+  return documentToSignTitle(doc.type);
 }
 
 /** Catégorie lisible (« PC portable »), jamais le code interne (R-091). */

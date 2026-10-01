@@ -34,7 +34,7 @@ export function StatusScreen({ icon, title, message, reference, success, actions
 export function PortalLink({ primary = false }: { primary?: boolean }) {
   return (
     <a
-      href="/mes-bons"
+      href="/mes-equipements"
       className={
         primary
           ? 'btn-gradient w-full min-h-11 inline-flex items-center justify-center rounded-lg px-4 py-2.5 text-sm font-semibold text-primary-foreground'

@@ -10,6 +10,7 @@ import {
   blockIfEmailMissing,
 } from '../notification-log';
 import { logRefusedRecipient, resolveCollaboratorRecipient } from '../collaborator-recipient';
+import type { RequestMessageOptions } from '../messages/signature-request-messages';
 
 /** Pièce jointe d'un email (le PDF signé d'une confirmation). */
 export interface EmailAttachment {
@@ -42,7 +43,9 @@ export interface TokenSignatureRequestParams {
   token: string;
   type: NotificationType;
   templateId: string;
-  buildMessage: (bon: NotificationBon, signerUrl: string) => { vars: Record<string, string>; subject: string };
+  buildMessage: (bon: NotificationBon, signerUrl: string, options: RequestMessageOptions) => { vars: Record<string, string>; subject: string };
+  /** Le document suit-il une correction (mention dans l'email) ? */
+  options?: RequestMessageOptions;
 }
 
 /**
@@ -66,7 +69,7 @@ export async function sendTokenSignatureRequest(
     return;
   }
 
-  const { vars, subject } = buildMessage(bon, `${appUrl}/signer/${token}`);
+  const { vars, subject } = buildMessage(bon, `${appUrl}/signer/${token}`, params.options ?? {});
   const html = await deps.templatesService.renderTemplate(templateId, vars);
   const result = await deps.sendEmail(recipientEmail, subject, html);
   await logNotificationResult(deps.prisma, { bonId: bon.id, recipientEmail, type, result, documentType });

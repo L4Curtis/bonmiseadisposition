@@ -18,6 +18,11 @@ export interface BonSignaturesProps {
 
 const time = (value: string | null | undefined) => (value ? new Date(value).getTime() : 0);
 
+/** Document signé par le collaborateur, au vocabulaire de la fiche (« Remise »). */
+function stepLabel(type: string): string {
+  return type === 'mise_disposition' ? 'Remise' : sigTypeLabel(type);
+}
+
 /** Signature IT : document concerné et technicien qui a réellement signé. */
 function itTitle(sig: FicheSignature): string {
   if (sig.pdfType === 'restitution') return 'Signature IT — restitution';
@@ -96,7 +101,7 @@ export function BonSignatures({ signatures, collaborateurName, collaborateurEmai
               ? <Stamp className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden="true" />
               : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden="true" />}
             <div className="min-w-0 flex-1 text-sm">
-              <p className="font-medium text-foreground">{sig.type === 'it_cachet' ? itTitle(sig) : sigTypeLabel(sig.type)}</p>
+              <p className="font-medium text-foreground">{sig.type === 'it_cachet' ? itTitle(sig) : stepLabel(sig.type)}</p>
               <p className="break-words text-xs text-muted-foreground">
                 Signé le {formatDateTime(sig.signedAt)} {signedBy(sig, collaborateurName, collaborateurEmail)}
               </p>
@@ -110,7 +115,7 @@ export function BonSignatures({ signatures, collaborateurName, collaborateurEmai
           <div key={sig.id} className="flex items-start gap-3 rounded-lg border border-border bg-muted/30 p-3">
             <Clock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
             <div className="min-w-0 flex-1 text-sm">
-              <p className="font-medium text-muted-foreground">Lien de signature ({sigTypeLabel(sig.type)}) invalidé</p>
+              <p className="font-medium text-muted-foreground">Lien de signature ({stepLabel(sig.type)}) invalidé</p>
               <p className="text-xs text-muted-foreground">
                 Le {formatDateTime(sig.invalidatedAt)} — {invalidationLabel(sig)}
               </p>

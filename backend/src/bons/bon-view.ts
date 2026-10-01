@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import type { BonLateness, LinkRefusal } from '../contracts/bons';
+import type { BonLateness, EquipmentReturnState, LinkRefusal } from '../contracts/bons';
 import { BON_SELECT_SHAPE, SIGNATURE_SAFE_SELECT } from '../common/types';
 import { parisDaysSince } from '../common/dates/paris';
 import { canSendLink } from '../common/can-send-link';
@@ -91,6 +91,21 @@ function linkRefusalOf(collaborateur: { active: boolean; email: string | null })
   return result.allowed ? null : { reason: result.reason, message: result.message };
 }
 
+/**
+ * État affiché d'un équipement. Sur un bon clôturé « remplacé » (contestation
+ * Fondée sur la remise), un équipement jamais rendu n'est plus chez le
+ * collaborateur au titre de CE bon : il est suivi sur le bon remplaçant. Le
+ * dire « chez le collaborateur » le compterait deux fois.
+ */
+export function presentedReturnState(
+  equipment: Parameters<typeof equipmentReturnState>[0],
+  signedRestitutionAt: number,
+  bon: { status: BonDetailRow['status']; replacedBy: { id: string } | null },
+): EquipmentReturnState {
+  const state = equipmentReturnState(equipment, signedRestitutionAt, bon.status);
+  return state === 'out' && bon.status === 'archived' && bon.replacedBy ? 'replaced' : state;
+}
+
 /** Transforme une ligne de la base en fiche du contrat (`BonDetail`). */
 export function presentBonDetail(bon: BonDetailRow, options: BonViewOptions) {
   const now = options.now ?? new Date();
@@ -101,7 +116,7 @@ export function presentBonDetail(bon: BonDetailRow, options: BonViewOptions) {
   const shared = {
     ...columns,
     collaborateur: collaborateurFields,
-    equipments: equipments.map((e) => ({ ...e, returnState: equipmentReturnState(e, signedRestitutionAt, bon.status) })),
+    equipments: equipments.map((e) => ({ ...e, returnState: presentedReturnState(e, signedRestitutionAt, bon) })),
     subStatus: subStatus(facts),
     pendingSignature: computePendingSignature(bon, facts, now.getTime()),
     replaces: replacesBon,

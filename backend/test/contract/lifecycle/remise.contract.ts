@@ -229,7 +229,11 @@ describe('Bon remplaçant (contestation Fondée)', () => {
       reason: 'Remise en main propre, collaboratrice injoignable',
     });
     expect(res.status).toBe(201);
-    expect(await itDetail(ctx, original.id)).toMatchObject({ status: 'archived', replacedBy: { id: replacement.id } });
+    const closed = await itDetail(ctx, original.id);
+    expect(closed).toMatchObject({ status: 'archived', replacedBy: { id: replacement.id } });
+    // Suivi sur le remplaçant : jamais « chez le collaborateur » en double.
+    expectShape(closed, bonDetail);
+    expect(closed.equipments.map((e) => e.returnState)).toEqual(['replaced']);
   });
 
   it('les numéros de série repris de l’original ne sont pas signalés « déjà en circulation »', async () => {

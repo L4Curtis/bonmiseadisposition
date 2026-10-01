@@ -3,8 +3,8 @@ import { Button } from '@/components/ui/button';
 import { FileText, Download, Loader2, AlertTriangle, RefreshCw } from 'lucide-react';
 import { cn, formatDateTime } from '@/lib/utils';
 import type { PdfSnapshotInfo } from './types';
-import { SNAPSHOT_LABELS } from './types';
-import { DocumentLine, documentLines } from './pdf-documents';
+import { DocumentLine, ReadyPv, documentLines, documentTypeTitle } from './pdf-documents';
+import { READY_PV_LOADING_KEY } from './actions/usePdfDownloads';
 
 export interface BonPdfSnapshotsProps {
   /** Tous les documents du bon, du plus ancien au plus récent : un par
@@ -20,6 +20,10 @@ export interface BonPdfSnapshotsProps {
   readonly isAdmin?: boolean;
   readonly onRegenerateMissing?: () => void;
   readonly regenerating?: boolean;
+  /** PV de non-restitution prêt (certifié par la signature IT, pas encore
+   *  émis) : proposé au téléchargement en tête de liste. */
+  readonly readyPv?: ReadyPv | null;
+  readonly onDownloadReadyPv?: () => void;
 }
 
 function MissingDocuments({ missing, isAdmin, onRegenerateMissing, regenerating }: Pick<BonPdfSnapshotsProps, 'isAdmin' | 'onRegenerateMissing' | 'regenerating'> & { missing: readonly string[] }) {
@@ -27,7 +31,7 @@ function MissingDocuments({ missing, isAdmin, onRegenerateMissing, regenerating 
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning">
       <div className="flex items-center gap-2">
         <AlertTriangle className="h-4 w-4 shrink-0" />
-        <span>Document(s) manquant(s) : {missing.map((m) => SNAPSHOT_LABELS[m] || m).join(', ')}</span>
+        <span>Document(s) manquant(s) : {missing.map(documentTypeTitle).join(', ')}</span>
       </div>
       {isAdmin && onRegenerateMissing && (
         <Button variant="outline" size="sm" className="min-h-11 sm:min-h-9" onClick={onRegenerateMissing} disabled={regenerating}>
@@ -86,6 +90,19 @@ function DocumentRow({ line, pdfLoading, onDownload }: { line: DocumentLine; pdf
   );
 }
 
+/** Ligne du PV prêt : pas encore un document enregistré, il est généré à la demande. */
+function readyPvLine(readyPv: ReadyPv): DocumentLine {
+  return {
+    id: READY_PV_LOADING_KEY,
+    title: 'PV de non-restitution — signature IT',
+    filename: '',
+    createdAt: readyPv.signedAt,
+    sha256: null,
+    status: `Prêt, signé par ${readyPv.signerName} — partira au retour des équipements encore chez le collaborateur`,
+    superseded: false,
+  };
+}
+
 /**
  * « Documents PDF » de la fiche : TOUS les documents signés, dans l'ordre où
  * ils ont été produits, chacun avec sa vraie date et son empreinte. Un même
@@ -101,15 +118,19 @@ export function BonPdfSnapshots({
   isAdmin = false,
   onRegenerateMissing,
   regenerating = false,
+  readyPv = null,
+  onDownloadReadyPv,
 }: BonPdfSnapshotsProps) {
-  if (snapshots.length === 0 && missing.length === 0) return null;
+  const ready = readyPv && onDownloadReadyPv ? readyPvLine(readyPv) : null;
+  if (snapshots.length === 0 && missing.length === 0 && !ready) return null;
   const lines = documentLines(snapshots);
+  const count = snapshots.length + (ready ? 1 : 0);
 
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-sm flex items-center gap-2">
-          <FileText className="h-4 w-4" /> Documents PDF ({snapshots.length})
+          <FileText className="h-4 w-4" /> Documents PDF ({count})
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-2">
@@ -117,6 +138,9 @@ export function BonPdfSnapshots({
           <MissingDocuments missing={missing} isAdmin={isAdmin} onRegenerateMissing={onRegenerateMissing} regenerating={regenerating} />
         )}
         <ul className="space-y-2">
+          {ready && onDownloadReadyPv && (
+            <DocumentRow line={ready} pdfLoading={pdfLoading} onDownload={onDownloadReadyPv} />
+          )}
           {lines.map((line) => (
             <DocumentRow
               key={line.id}

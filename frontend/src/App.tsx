@@ -103,7 +103,7 @@ function AppRoutes() {
         <Route index element={
           activeView !== 'collaborateur'
             ? <Navigate to="/dashboard" replace />
-            : <Navigate to="/mes-bons" replace />
+            : <Navigate to="/mes-equipements" replace />
         } />
 
         <Route path="dashboard" element={
@@ -112,9 +112,12 @@ function AppRoutes() {
           </ProtectedRoute>
         } />
 
-        <Route path="mes-bons" element={
+        {/* « Mes équipements » : le portail de chacun (plan §1). L'ancienne
+            adresse /mes-bons y redirige ; la fiche d'un bon reste /mes-bons/:id. */}
+        <Route path="mes-equipements" element={
           <ProtectedRoute><PortailCollaborateur /></ProtectedRoute>
         } />
+        <Route path="mes-bons" element={<Navigate to="/mes-equipements" replace />} />
         <Route path="mes-bons/:id" element={
           <ProtectedRoute><BonDetailCollaborateurPage /></ProtectedRoute>
         } />

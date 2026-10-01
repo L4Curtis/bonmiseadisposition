@@ -47,7 +47,7 @@ function Stub() {
 vi.mock('@/pages/bons/detail/BonDetailHeader', () => ({ BonDetailHeader: Stub }));
 vi.mock('@/pages/bons/detail/BonInfoCards', () => ({ BonInfoCards: Stub }));
 vi.mock('@/pages/bons/detail/BonSignatures', () => ({ BonSignatures: Stub }));
-vi.mock('@/pages/bons/detail/BonEquipmentTable', () => ({ BonEquipmentTable: Stub }));
+vi.mock('@/pages/bons/detail/BonEquipmentTable', () => ({ BonEquipmentTable: Stub, showsEquipmentState: () => false }));
 vi.mock('@/pages/bons/detail/BonNotesCard', () => ({ BonNotesCard: Stub }));
 vi.mock('@/pages/bons/detail/BonPdfSnapshots', () => ({ BonPdfSnapshots: Stub }));
 vi.mock('@/pages/bons/detail/BonAttachments', () => ({ BonAttachments: Stub }));

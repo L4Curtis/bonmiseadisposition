@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { api } from '@/lib/api';
+import { TERMS } from '@/domain/labels';
 import { ShieldCheck, ShieldAlert, ShieldQuestion, Clock } from 'lucide-react';
 
 interface IntegritySig {
@@ -18,11 +19,12 @@ interface IntegrityResult {
   signatures: IntegritySig[];
 }
 
-const TYPE_LABELS: Record<string, string> = {
-  it_cachet: 'Cachet IT',
-  mise_disposition: 'Mise à disposition',
+/** Signature scellée, au vocabulaire du lexique (« signature IT », « remise »). */
+export const TYPE_LABELS: Readonly<Record<string, string>> = {
+  it_cachet: 'Signature IT',
+  mise_disposition: 'Remise',
   restitution: 'Restitution',
-  pv_cloture: 'PV de clôture',
+  pv_cloture: TERMS.nonReturnReport,
 };
 
 export function BonIntegrity({ bonId }: { readonly bonId: string }) {

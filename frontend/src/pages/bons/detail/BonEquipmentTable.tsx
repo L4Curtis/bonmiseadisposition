@@ -1,6 +1,6 @@
 import { Link } from 'react-router';
-import { CheckCircle2, Clock, PenLine, XCircle } from 'lucide-react';
-import type { EquipmentReturnState } from '@/contracts';
+import { ArrowRightLeft, CheckCircle2, Clock, PenLine, XCircle } from 'lucide-react';
+import type { BonDetail, BonRef, EquipmentReturnState } from '@/contracts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EQUIPMENT_RETURN_STATE_LABELS } from './bon-lexicon';
 import { equipmentLabel, type FicheEquipment } from './types';
@@ -9,6 +9,21 @@ export interface BonEquipmentTableProps {
   readonly equipments: readonly FicheEquipment[];
   /** Colonne « État » : utile dès qu'une restitution a commencé. */
   readonly showEquipmentStatus: boolean;
+  /** Bon remplaçant (bon clôturé « remplacé ») : ses équipements y sont suivis. */
+  readonly replacedBy?: BonRef | null;
+}
+
+/** Statuts où la colonne « État » a un sens, quels que soient les équipements. */
+const RESTITUTION_STARTED: ReadonlySet<string> = new Set(['sent_restitution', 'partially_returned', 'archived']);
+
+/**
+ * La colonne « État » s'affiche dès qu'une restitution a commencé, et aussi
+ * sur un bon contesté dont des équipements sont déjà marqués rendus ou
+ * déclarés non restitués : pour trancher, il faut voir ce qui a été marqué.
+ */
+export function showsEquipmentState(bon: Pick<BonDetail, 'status' | 'equipments'>): boolean {
+  if (RESTITUTION_STARTED.has(bon.status)) return true;
+  return bon.equipments.some((e) => (e.returnState ?? 'out') !== 'out' || e.returnedAt !== null || e.notReturned);
 }
 
 const STATE_STYLES: Readonly<Record<EquipmentReturnState, { className: string; Icon: typeof Clock }>> = {
@@ -16,11 +31,22 @@ const STATE_STYLES: Readonly<Record<EquipmentReturnState, { className: string; I
   returned_to_sign: { className: 'text-warning bg-warning/10', Icon: PenLine },
   returned: { className: 'text-success bg-success/10', Icon: CheckCircle2 },
   not_returned: { className: 'text-destructive bg-destructive/10', Icon: XCircle },
+  replaced: { className: 'text-muted-foreground bg-muted', Icon: ArrowRightLeft },
 };
 
-function StateBadge({ equipment }: { equipment: FicheEquipment }) {
+function StateBadge({ equipment, replacedBy }: { equipment: FicheEquipment; replacedBy?: BonRef | null }) {
   const state = equipment.returnState ?? (equipment.notReturned ? 'not_returned' : equipment.returnedAt ? 'returned' : 'out');
   const { className, Icon } = STATE_STYLES[state];
+  if (state === 'replaced' && replacedBy) {
+    return (
+      <Link
+        to={`/bons/${replacedBy.id}`}
+        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs underline-offset-2 hover:underline ${className}`}
+      >
+        <Icon className="h-3 w-3" aria-hidden="true" /> Repris sur {replacedBy.reference}
+      </Link>
+    );
+  }
   return (
     <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${className}`} title={equipment.notReturnedReason ?? undefined}>
       <Icon className="h-3 w-3" aria-hidden="true" /> {EQUIPMENT_RETURN_STATE_LABELS[state]}
@@ -42,7 +68,7 @@ function NumberLink({ value }: { value: string | null }) {
 }
 
 /** Équipements du bon, avec l'état de chacun calculé par le serveur. */
-export function BonEquipmentTable({ equipments, showEquipmentStatus }: BonEquipmentTableProps) {
+export function BonEquipmentTable({ equipments, showEquipmentStatus, replacedBy }: BonEquipmentTableProps) {
   return (
     <Card>
       <CardHeader>
@@ -72,7 +98,7 @@ export function BonEquipmentTable({ equipments, showEquipmentStatus }: BonEquipm
                     <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground"><NumberLink value={eq.serialNumber} /></td>
                     <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground"><NumberLink value={eq.inventoryNumber} /></td>
                     <td className="px-4 py-2.5 text-xs text-muted-foreground">{eq.notes || ''}</td>
-                    {showEquipmentStatus && <td className="whitespace-nowrap px-4 py-2.5"><StateBadge equipment={eq} /></td>}
+                    {showEquipmentStatus && <td className="whitespace-nowrap px-4 py-2.5"><StateBadge equipment={eq} replacedBy={replacedBy} /></td>}
                   </tr>
                 ))}
               </tbody>

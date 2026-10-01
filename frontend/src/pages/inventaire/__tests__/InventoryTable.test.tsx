@@ -47,7 +47,7 @@ describe('InventoryTable', () => {
     ['Collaborateur', 'collaborateur'],
     ['Filiale', 'filiale'],
     ['Situation', 'situation'],
-    ['Mise à disposition', 'dateMiseDisposition'],
+    ['Remise', 'dateMiseDisposition'],
     ['Restitution prévue', 'dateRestitution'],
   ])('rend la colonne « %s » triable (onSortChange("%s"))', async (label, field) => {
     const onSortChange = vi.fn();
@@ -64,7 +64,7 @@ describe('InventoryTable', () => {
       <InventoryTable {...baseProps} items={[makeItem()]} onSortChange={vi.fn()} />,
     );
     // Sans tri choisi : mise à disposition, la plus récente d'abord.
-    expect(screen.getByRole('columnheader', { name: /Mise à disposition/ })).toHaveAttribute('aria-sort', 'descending');
+    expect(screen.getByRole('columnheader', { name: /Remise/ })).toHaveAttribute('aria-sort', 'descending');
     expect(screen.getByRole('columnheader', { name: /Filiale/ })).toHaveAttribute('aria-sort', 'none');
 
     rerender(
@@ -76,7 +76,7 @@ describe('InventoryTable', () => {
       />,
     );
     expect(screen.getByRole('columnheader', { name: /Filiale/ })).toHaveAttribute('aria-sort', 'ascending');
-    expect(screen.getByRole('columnheader', { name: /Mise à disposition/ })).toHaveAttribute('aria-sort', 'none');
+    expect(screen.getByRole('columnheader', { name: /Remise/ })).toHaveAttribute('aria-sort', 'none');
   });
 
   it('sans onSortChange (détail d’un collaborateur), aucun en-tête n’est un bouton de tri', () => {

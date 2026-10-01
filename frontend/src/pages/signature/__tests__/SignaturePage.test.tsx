@@ -137,7 +137,7 @@ describe('SignaturePage', () => {
 
     expect(await screen.findByText('Lien plus valable')).toBeInTheDocument();
     expect(screen.queryByText(/vous a été envoyé/)).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Voir mes équipements' })).toHaveAttribute('href', '/mes-bons');
+    expect(screen.getByRole('link', { name: 'Voir mes équipements' })).toHaveAttribute('href', '/mes-equipements');
   });
 
   it.each([
@@ -183,12 +183,27 @@ describe('SignaturePage', () => {
 
   it('ancien lien d’un document contesté puis « Fondée » : en cours de correction (CM n° 1)', async () => {
     mockAuthMe(currentUser);
-    vi.mocked(api.get).mockResolvedValue({ status: 'replaced', reference: 'BDM-1', invalidatedReason: 'contested' });
+    vi.mocked(api.get).mockResolvedValue({
+      status: 'replaced', reference: 'BDM-1', invalidatedReason: 'contested', documentType: 'restitution', followUp: 'link_coming',
+    });
 
     renderSignaturePage();
 
     expect(await screen.findByText('Document en cours de correction')).toBeInTheDocument();
     expect(screen.queryByText('Contestation en cours')).not.toBeInTheDocument();
+  });
+
+  it('ancien lien, restitution corrigée et renvoyée : « Restitution corrigée », un nouveau lien a été envoyé', async () => {
+    mockAuthMe(currentUser);
+    vi.mocked(api.get).mockResolvedValue({
+      status: 'replaced', reference: 'BDM-1', invalidatedReason: 'contested', documentType: 'restitution', followUp: 'link_sent',
+    });
+
+    renderSignaturePage();
+
+    expect(await screen.findByText('Restitution corrigée')).toBeInTheDocument();
+    expect(screen.getByText('La restitution a été corrigée : un nouveau lien vous a été envoyé.')).toBeInTheDocument();
+    expect(screen.queryByText('Document en cours de correction')).not.toBeInTheDocument();
   });
 
   it('bon contesté : la contestation est en cours, rien à signer', async () => {
@@ -207,7 +222,7 @@ describe('SignaturePage', () => {
     renderSignaturePage();
 
     expect(await screen.findByText('Document déjà signé')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Voir mes équipements' })).toHaveAttribute('href', '/mes-bons');
+    expect(screen.getByRole('link', { name: 'Voir mes équipements' })).toHaveAttribute('href', '/mes-equipements');
   });
 
   it('restitution à signer : « Je ne suis pas d’accord » envoie une contestation de la restitution (R-054)', async () => {
@@ -577,6 +592,41 @@ describe('SignaturePage', () => {
       expect(within(liste).getByText('Apple MacBook Air 13')).toBeInTheDocument();
       expect(within(liste).getByText('SN-C02XK-TRES-LONG-0001')).toBeInTheDocument();
       expect(document.querySelector('table')).toBeNull();
+    });
+  });
+
+  describe('2e restitution : seul ce qui est rendu cette fois est à confirmer (R5, constat n° 2)', () => {
+    it('trois blocs, comme le PDF : restitués cette fois, déjà restitués, encore chez vous', async () => {
+      mockAuthMe(currentUser);
+      const equipment = (id: string, order: number, model: string, returnedAt: string | null) => ({
+        id, order, serialNumber: `SN-${id}`, inventoryNumber: null, customLabel: null, returnedAt, notReturned: false,
+        notReturnedReason: null, catalogItem: { brand: 'Dell', model, category: 'pc_portable' },
+      });
+      vi.mocked(api.get).mockResolvedValue({
+        ...pendingResponse,
+        bon: {
+          ...pendingResponse.bon,
+          status: 'partially_returned',
+          equipments: [
+            equipment('pc', 0, 'Latitude 5450', '2026-09-28T09:00:00Z'),
+            equipment('ecran', 1, 'Écran 24', '2026-09-28T10:00:00Z'),
+            equipment('souris', 2, 'Souris', null),
+          ],
+          signatures: [
+            { id: 's1', type: 'restitution', signed: true, signedAt: '2026-09-28T09:30:00Z', signerEmail: 'jean@livio.fr',
+              mentionLuApprouve: true, isInPerson: false, tokenExpiresAt: '2026-10-05T00:00:00Z', createdAt: '2026-09-28T09:10:00Z', pdfType: 'restitution' },
+          ],
+        },
+        signature: { ...pendingResponse.signature, type: 'restitution' },
+      });
+      renderSignaturePage();
+
+      const now = await screen.findByRole('list', { name: 'Équipements restitués (1)' });
+      expect(within(now).getByText('Dell Écran 24')).toBeInTheDocument();
+      expect(within(now).queryByText('Dell Latitude 5450')).not.toBeInTheDocument();
+      const before = screen.getByRole('list', { name: 'Déjà restitués (1)' });
+      expect(within(before).getByText('Dell Latitude 5450')).toBeInTheDocument();
+      expect(within(screen.getByRole('list', { name: 'Encore chez vous (1)' })).getByText('Dell Souris')).toBeInTheDocument();
     });
   });
 

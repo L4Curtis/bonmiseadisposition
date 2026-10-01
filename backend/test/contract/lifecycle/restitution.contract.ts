@@ -233,6 +233,34 @@ describe('PV de non-restitution signé sur place (R-006)', () => {
   });
 });
 
+describe('PV prêt (perte déclarée, équipements encore dehors)', () => {
+  it('l’IT télécharge le PV certifié par sa signature avant son départ ; le collaborateur, jamais', async () => {
+    const bon = await createActiveBon(ctx, ctx.data.people.collaborator, 2);
+    const [, lost] = bon.equipmentIds;
+    const before = await ctx.http.get(`/bons/${bon.id}/pdf/pv-pret`, 'technician');
+    expect(before.status).toBe(404);
+
+    const declared = await ctx.http.post(`/bons/${bon.id}/declare-not-returned`, 'technician', {
+      equipmentIds: [lost],
+      reason: 'Perdu sur le chantier',
+      signatureDataUrl: SIGNATURE_PNG,
+    });
+    expect(declared.body.subStatus).toBe('loss_declared');
+    // Aucun PV enregistré : il ne partira qu'au retour de l'autre équipement.
+    expect(await ctx.prisma.pdfSnapshot.count({ where: { bonId: bon.id, type: 'cloture_equipements_manquants' } })).toBe(0);
+
+    const ready = await ctx.http.get(`/bons/${bon.id}/pdf/pv-pret`, 'technician');
+    expect(ready.status).toBe(200);
+    expect(ready.headers['content-type']).toMatch(/application\/pdf/);
+    expect(ready.headers['content-disposition']).toMatch(/_PV-de-non-restitution_signature-IT_/);
+    // Téléchargement sans effet : rien n'est enregistré ni envoyé.
+    expect(await ctx.prisma.pdfSnapshot.count({ where: { bonId: bon.id, type: 'cloture_equipements_manquants' } })).toBe(0);
+
+    const asHolder = await ctx.http.get(`/bons/${bon.id}/pdf/pv-pret`, 'collaborator');
+    expect(asHolder.status).toBe(403);
+  });
+});
+
 describe('Filtre de liste par sous-état (liste = calcul de la fiche)', () => {
   it.each(['partial_restitution_to_sign', 'pv_to_sign', 'loss_declared', 'equipment_still_out'] as const)(
     'GET /bons?subStatus=%s renvoie exactement les bons dont la fiche porte ce sous-état',

@@ -62,6 +62,14 @@ Historique des évolutions notables de l'application. Les entrées les plus réc
 - Emails : « Non retenue » avec lien, une seule alerte par demande de nouveau lien, 7 modèles de plus personnalisables.
 - Migrations additives `20260927100000` à `20260927100200` (historique des documents, motif « restitution corrigée »).
 
+- **Finitions** : après une contestation fondée, le collaborateur suit la correction jusqu'au bout (« en cours de
+  correction », puis « La restitution a été corrigée : un nouveau lien vous a été envoyé », email « Restitution
+  corrigée à signer ») ; une restitution en plusieurs fois sépare, sur la page de signature et dans les emails comme
+  dans le PDF, ce qui est rendu cette fois, déjà rendu et encore détenu ; chaque carte du tableau de bord ouvre sa
+  liste exacte ou explique pourquoi elle n'en a pas ; le PV signé par l'IT se télécharge avant son envoi ; un bon
+  remplacé affiche « Repris sur BON-… » ; « Mes équipements » a son adresse `/mes-equipements` (l'ancienne redirige)
+  et apparaît en bas du menu de l'IT.
+
 ### Base de données (migrations `20260925100000` et `20260925100100`, additives)
 - Civilité, note interne, date d'attente de signature, motifs, lien entre un bon et son remplaçant, motif
   d'invalidation d'un lien, issue de contestation, document concerné par un rappel. Données existantes reprises.

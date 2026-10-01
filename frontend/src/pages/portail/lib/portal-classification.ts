@@ -4,8 +4,12 @@ import type { SignatureInvalidationReason } from '@/contracts/common';
 /**
  * Classement du portail par CE QUE LA PERSONNE DOIT FAIRE (R-057), et non par
  * la validité du lien :
- *  - « À signer » : chaque document qui attend sa signature, lien valide,
- *    expiré ou au guichet ;
+ *  - « À signer » : chaque document que la personne peut signer (lien
+ *    valide ou au guichet) ou dont elle peut redemander le lien (expiré) ;
+ *  - « En attente d'un nouveau lien » : documents qu'elle ne peut ni signer ni
+ *    redemander (bon modifié, lien déjà redemandé…) ;
+ *  - « En cours de correction » : documents rouverts par une contestation
+ *    Fondée ;
  *  - « En cours » : les bons où elle détient encore du matériel (ou dont la
  *    restitution n'est pas finie), sans rien à signer ;
  *  - « Contestés » : les bons en contestation ;
@@ -52,6 +56,9 @@ export interface HeldEquipment {
   /** Lien pour signer cette remise tout de suite, `null` si le lien a expiré
    *  ou si la remise se signe au guichet. */
   signToken: string | null;
+  /** Remise à confirmer, mais son lien ne vaut plus et le nouveau n'est pas
+   *  encore parti (bon modifié, lien déjà redemandé) : rien à signer d'ici là. */
+  awaitingNewLink: boolean;
   /** Rendu ou déclaré non restitué, mais ce marquage est contesté (Fondée) et
    *  en cours de correction : il reste sous la responsabilité de la personne
    *  tant que la restitution corrigée n'est pas signée. */
@@ -65,6 +72,9 @@ export interface PortalGroups {
   /** Documents rouverts après une contestation Fondée : l'équipe
    *  informatique les corrige, rien ne se signe d'ici là. */
   inCorrection: DocumentToSign[];
+  /** Documents dont le nouveau lien n'est pas encore parti (bon modifié, lien
+   *  déjà redemandé) : rien à signer ni à demander, hors du bandeau. */
+  awaitingLink: DocumentToSign[];
   current: PortalBon[];
   contested: PortalBon[];
   history: PortalBon[];
@@ -139,6 +149,14 @@ function documentToSign(bon: PortalBon, type: LinkSignatureType): DocumentToSign
   };
 }
 
+/** Ni signable, ni à redemander, ni en correction : le document attend un
+ *  nouveau lien de l'équipe informatique (lien invalidé par une modification,
+ *  ou nouveau lien déjà demandé). */
+export function isAwaitingNewLink(doc: DocumentToSign): boolean {
+  if (doc.inPerson || doc.token || doc.underCorrection) return false;
+  return doc.invalidatedReason !== null || doc.newLinkRequestedAt !== null;
+}
+
 /** Équipement encore chez la personne : état calculé par le serveur, sinon
  *  ni rendu ni déclaré non restitué. */
 function isHeld(eq: PortalBon['equipments'][number]): boolean {
@@ -166,8 +184,9 @@ function equipmentLabel(eq: PortalBon['equipments'][number]): string {
 
 function heldEquipments(bon: PortalBon): HeldEquipment[] {
   if (!HOLDING_STATUSES.has(bon.status)) return [];
-  const awaitingSignature = bon.status === 'sent_mise_dispo';
-  const handover = awaitingSignature ? documentToSign(bon, 'mise_disposition') : null;
+  const handover = bon.status === 'sent_mise_dispo' ? documentToSign(bon, 'mise_disposition') : null;
+  const awaitingNewLink = !!handover && isAwaitingNewLink(handover);
+  const awaitingSignature = !!handover && !awaitingNewLink;
   const signToken = handover && !handover.inPerson ? handover.token : null;
   const correcting = isUnderCorrection(bon);
   return [...bon.equipments]
@@ -182,6 +201,7 @@ function heldEquipments(bon: PortalBon): HeldEquipment[] {
       inventoryNumber: eq.inventoryNumber,
       since: bon.dateMiseDisposition,
       awaitingSignature,
+      awaitingNewLink,
       signToken,
       underCorrection: correcting && isUnsignedMarking(eq),
     }));
@@ -200,6 +220,7 @@ function supersededBonIds(bons: readonly PortalBon[]): ReadonlySet<string> {
 export function classifyPortal(bons: readonly PortalBon[]): PortalGroups {
   const toSign: DocumentToSign[] = [];
   const inCorrection: DocumentToSign[] = [];
+  const awaitingLink: DocumentToSign[] = [];
   const current: PortalBon[] = [];
   const contested: PortalBon[] = [];
   const history: PortalBon[] = [];
@@ -208,12 +229,12 @@ export function classifyPortal(bons: readonly PortalBon[]): PortalGroups {
     if (bon.status === 'contested') contested.push(bon);
     else if (type) {
       const doc = documentToSign(bon, type);
-      (doc.underCorrection ? inCorrection : toSign).push(doc);
+      (doc.underCorrection ? inCorrection : isAwaitingNewLink(doc) ? awaitingLink : toSign).push(doc);
     }
     else if (bon.status === 'archived' || bon.status === 'cancelled') history.push(bon);
     else current.push(bon);
   }
   const superseded = supersededBonIds(bons);
   const held = bons.filter((b) => !superseded.has(b.id)).flatMap(heldEquipments);
-  return { toSign, inCorrection, current, contested, history, held };
+  return { toSign, inCorrection, awaitingLink, current, contested, history, held };
 }

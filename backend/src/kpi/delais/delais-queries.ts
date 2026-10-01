@@ -6,7 +6,6 @@ import { Granularity } from '../kpi-types';
 import { parisBucketSql, parisPeriodSql } from '../../common/dates/paris';
 import { filialeFilter, toNumber } from '../kpi-sql';
 import { countSourceSql } from '../lists/kpi-list-sources';
-import { IT_ROLES } from '../../common/roles';
 
 /**
  * Requêtes SQL brutes de `GET /kpi/delais` (lot 2b). Chaque fonction isole un
@@ -162,7 +161,7 @@ export async function queryCreationToSend(
   };
 }
 
-// ── sendToSignature + signatureMode ─────────────────────────────────────
+// ── sendToSignature ─────────────────────────────────────────────────────
 
 export interface SendToSignatureRow {
   type: string;
@@ -171,13 +170,11 @@ export interface SendToSignatureRow {
   p90Hours: unknown;
   within48h: bigint;
   within7d: bigint;
-  inPerson: bigint;
-  proxy: bigint;
 }
 
-/** Délai envoi → signature + mode de signature, groupé par type de signature.
- *  Départ = première demande email postérieure à la signature précédente du
- *  même type (`LAG` par bon/type), repli sur `created_at` (présentiel). */
+/** Délai envoi → signature, groupé par type de signature. Départ = première
+ *  demande email postérieure à la signature précédente du même type (`LAG`
+ *  par bon/type), repli sur `created_at` (présentiel). */
 export async function querySendToSignature(
   prisma: PrismaService,
   range: DelaisRange,
@@ -185,15 +182,7 @@ export async function querySendToSignature(
 ): Promise<SendToSignatureRow[]> {
   return prisma.$queryRaw<SendToSignatureRow[]>(Prisma.sql`
     WITH signed AS (
-      -- Mandataire : signature au guichet par un compte ni titulaire ni IT.
-      -- Un compte IT connecté sur l'appareil est un témoin (le titulaire
-      -- signe devant lui) : exclu, y compris pour les signatures enregistrées
-      -- avant cette règle, dont le sceau interdit de corriger la colonne.
-      SELECT s.bon_id, s.type::text AS type, s.signed_at, s.created_at, s.is_in_person,
-             (s.signed_by_proxy AND NOT EXISTS (
-               SELECT 1 FROM users u
-               WHERE lower(u.email) = lower(s.signer_email) AND u.role::text IN (${Prisma.join([...IT_ROLES])})
-             )) AS signed_by_proxy,
+      SELECT s.bon_id, s.type::text AS type, s.signed_at, s.created_at,
              LAG(s.signed_at) OVER (PARTITION BY s.bon_id, s.type ORDER BY s.signed_at) AS prev_signed_at
       FROM signatures s
       WHERE s.signed AND s.signed_at IS NOT NULL AND s.type::text IN (${Prisma.join(SEND_TO_SIGNATURE_TYPES)})
@@ -204,9 +193,7 @@ export async function querySendToSignature(
       percentile_cont(0.5) WITHIN GROUP (ORDER BY x.hours)::float8 AS "medianHours",
       percentile_cont(0.9) WITHIN GROUP (ORDER BY x.hours)::float8 AS "p90Hours",
       COUNT(*) FILTER (WHERE x.hours <= 48)::bigint AS "within48h",
-      COUNT(*) FILTER (WHERE x.hours <= 168)::bigint AS "within7d",
-      COUNT(*) FILTER (WHERE x.is_in_person)::bigint AS "inPerson",
-      COUNT(*) FILTER (WHERE x.signed_by_proxy)::bigint AS proxy
+      COUNT(*) FILTER (WHERE x.hours <= 168)::bigint AS "within7d"
     FROM (
       SELECT sg.*, GREATEST(0, EXTRACT(EPOCH FROM (sg.signed_at - COALESCE(st.first_request, sg.created_at)))::float8 / 3600) AS hours
       FROM signed sg
@@ -228,6 +215,31 @@ export async function querySendToSignature(
     ) x
     GROUP BY x.type
   `);
+}
+
+// ── signatureMode ───────────────────────────────────────────────────────
+
+export interface SignatureModeCounts {
+  remote: number;
+  inPerson: number;
+  proxy: number;
+}
+
+/** Documents signés par mode (à distance, sur place, par un mandataire) : le
+ *  nombre de lignes des listes qu'ouvrent ces cartes (lists/kpi-list-sources.ts). */
+export async function querySignatureModes(
+  prisma: PrismaService,
+  range: DelaisRange,
+  filialeId?: string,
+): Promise<SignatureModeCounts> {
+  const rows = await prisma.$queryRaw<Record<keyof SignatureModeCounts, unknown>[]>(Prisma.sql`
+    SELECT
+      ${countSourceSql('signatures_a_distance', range, filialeId)} AS "remote",
+      ${countSourceSql('signatures_sur_place', range, filialeId)} AS "inPerson",
+      ${countSourceSql('signatures_mandatees', range, filialeId)} AS "proxy"
+  `);
+  const row = rows[0];
+  return { remote: toNumber(row?.remote), inPerson: toNumber(row?.inPerson), proxy: toNumber(row?.proxy) };
 }
 
 // ── loanDuration ─────────────────────────────────────────────────────────

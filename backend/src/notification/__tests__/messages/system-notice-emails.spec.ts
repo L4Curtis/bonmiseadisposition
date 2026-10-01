@@ -18,7 +18,7 @@ import { renderTemplateHtml } from '../../../templates/render';
 import { activeBon } from '../../../common/__tests__/fixtures/bon.fixtures';
 import { NotificationBon } from '../../../common/types';
 
-const PORTAL = 'https://bons.livio.fr/mes-bons';
+const PORTAL = 'https://bons.livio.fr/mes-equipements';
 
 /** Texte visible d'un email (balises retirées, entités courantes décodées). */
 function visibleText(html: string): string {

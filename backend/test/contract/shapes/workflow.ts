@@ -57,6 +57,9 @@ export const signatureReplaced = object<SignatureReplacedResponse>({
   status: literal('replaced'),
   reference: str,
   invalidatedReason: optional(nullable(signatureInvalidationReason)),
+  // Toujours renvoyés par le serveur : la page de signature en dépend.
+  documentType: linkSignatureType,
+  followUp: literal('link_sent', 'in_person', 'link_coming', 'none'),
 });
 
 export const signatureExpired = object<SignatureExpiredResponse>({

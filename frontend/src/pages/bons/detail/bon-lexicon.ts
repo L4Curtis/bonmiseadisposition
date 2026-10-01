@@ -1,5 +1,6 @@
 import type { BonActionName, BonDetail, EquipmentReturnState, LinkSignatureType } from '@/contracts';
 import { DOCUMENT_LABELS, TERMS, WITHOUT_SIGNATURE_ACTION_LABELS, labelOrKey } from '@/domain/labels';
+import { pvItSignature } from './pdf-documents';
 
 /**
  * Mots du cycle de vie propres à la fiche d'un bon : noms des actions, phrase
@@ -76,6 +77,7 @@ export const EQUIPMENT_RETURN_STATE_LABELS: Readonly<Record<EquipmentReturnState
   returned_to_sign: 'Rendu — restitution à signer',
   returned: 'Rendu',
   not_returned: 'Non restitué',
+  replaced: 'Repris sur le bon remplaçant',
 };
 
 /** Condition de départ du PV, accordée au nombre d'équipements encore dehors. */
@@ -86,7 +88,15 @@ function pvDepartureCondition(out: number): string {
 }
 
 type SentenceContext = Pick<BonDetail, 'status' | 'pendingSignature' | 'subStatus' | 'availableActions'>
-  & Partial<Pick<BonDetail, 'contestation' | 'equipments'>>;
+  & Partial<Pick<BonDetail, 'contestation' | 'equipments' | 'signatures'>>;
+
+/** Qui a certifié le PV : le technicien qui a signé, nommé (il n'est pas
+ *  forcément celui qui lit la fiche). */
+function certifiedBy(signatures: NonNullable<BonDetail['signatures']>): string {
+  const signature = pvItSignature(signatures);
+  const name = signature?.signerName ?? signature?.signerEmail;
+  return name ? `la signature IT de ${name}` : `la ${TERMS.itSignature}`;
+}
 
 /** Phrase d'un document en attente de la signature du collaborateur. */
 function pendingSentence(bon: SentenceContext): string {
@@ -120,7 +130,7 @@ export function nextStepSentence(bon: SentenceContext): string {
   if (bon.status === 'active') return 'Le matériel est chez le collaborateur. À son retour, lancez la restitution.';
   if (bon.subStatus === 'loss_declared') {
     const out = (bon.equipments ?? []).filter((e) => e.returnState === 'out').length;
-    return `Perte déclarée. Le ${TERMS.nonReturnReport}, déjà certifié par votre signature IT, partira à la signature du collaborateur ${pvDepartureCondition(out)}.`;
+    return `Perte déclarée. Le ${TERMS.nonReturnReport}, déjà certifié par ${certifiedBy(bon.signatures ?? [])}, partira à la signature du collaborateur ${pvDepartureCondition(out)}.`;
   }
   if (bon.subStatus === 'equipment_still_out') {
     return 'Des équipements sont encore chez le collaborateur : lancez leur restitution, ou déclarez-les non restitués.';

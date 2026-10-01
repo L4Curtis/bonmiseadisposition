@@ -17,7 +17,15 @@ describe('noms des documents', () => {
     expect(documentFilename(bon, 'signature_collab_restitution', at))
       .toBe('BON-2026-0074_Lea-Martin_Bon-de-restitution-signe_2026-09-27_15h03m27.pdf');
     expect(documentFilename(bon, 'cloture_equipements_manquants', at))
-      .toBe('BON-2026-0074_Lea-Martin_PV-de-non-restitution_2026-09-27_15h03m27.pdf');
+      .toBe('BON-2026-0074_Lea-Martin_PV-de-non-restitution-signe_2026-09-27_15h03m27.pdf');
+  });
+
+  it('PV : la version signée par l’IT seule a son propre nom, comme la remise et la restitution', () => {
+    const at = new Date('2026-09-27T13:03:27Z');
+    expect(documentFilename(bon, 'cloture_equipements_manquants', at, { itVersion: true }))
+      .toBe('BON-2026-0074_Lea-Martin_PV-de-non-restitution_signature-IT_2026-09-27_15h03m27.pdf');
+    expect(documentFilename(bon, 'signature_it_restitution', at))
+      .toBe('BON-2026-0074_Lea-Martin_Bon-de-restitution_signature-IT_2026-09-27_15h03m27.pdf');
   });
 
   it('deux documents du même type à une seconde d’écart ne portent pas le même nom', () => {
@@ -28,8 +36,15 @@ describe('noms des documents', () => {
 
   it('pièce jointe : jamais le nom technique du type', () => {
     const name = attachmentFilename('BON-2026-0074', 'signature_collab_mise_disposition', new Date('2026-09-27T22:30:00Z'));
-    expect(name).toBe('BON-2026-0074_Bon-de-mise-a-disposition-signe_2026-09-28.pdf');
+    expect(name).toBe('BON-2026-0074_Bon-de-mise-a-disposition-signe_2026-09-28_00h30.pdf');
     expect(name).not.toMatch(/signature_collab|cloture_equipements/);
+  });
+
+  it('pièce jointe : deux restitutions signées le même jour ne portent pas le même nom', () => {
+    const first = attachmentFilename('BON-2026-0076', 'signature_collab_restitution', new Date('2026-09-28T09:08:00Z'));
+    const second = attachmentFilename('BON-2026-0076', 'signature_collab_restitution', new Date('2026-09-28T09:10:00Z'));
+    expect(first).toBe('BON-2026-0076_Bon-de-restitution-signe_2026-09-28_11h08.pdf');
+    expect(second).not.toBe(first);
   });
 
   it('horodatage : minuit à Paris reste le bon jour', () => {
@@ -54,6 +69,17 @@ describe('liste des documents', () => {
       ['c', 2, 2, true],
     ]);
     expect(list[1].createdAt).toBe('2026-09-27T13:03:00.000Z');
+  });
+
+  it('PV : la version signée par l’IT et celle signée par le collaborateur ont chacune leur série', () => {
+    const list = toDocumentList([
+      row('pv-it', 'cloture_equipements_manquants', '2026-09-27T13:00:00Z', { type: 'it_cachet', invalidatedAt: null, invalidatedReason: null }),
+      row('pv', 'cloture_equipements_manquants', '2026-09-27T13:10:00Z', { type: 'pv_cloture', invalidatedAt: null, invalidatedReason: null }),
+    ]);
+    expect(list.map((d) => [d.id, d.sequence, d.sequenceCount, d.latest])).toEqual([
+      ['pv-it', 1, 1, true],
+      ['pv', 1, 1, true],
+    ]);
   });
 
   it('document d’une signature IT invalidée (bon modifié) : remplacé, avec le motif', () => {

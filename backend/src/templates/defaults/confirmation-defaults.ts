@@ -19,7 +19,9 @@ import { CHIP_SUCCESS } from './chips';
 // un lien vers le portail. Le PDF signé est joint à l'email quand sa taille
 // le permet (notification/listeners), le texte n'y fait donc qu'allusion.
 
-function confirmation(typeText: string, equipmentsTitle: string, legalText: string): string {
+/** `restitutionSections` : une restitution rappelle à part ce qui avait été
+ *  rendu avant et ce qui reste chez le collaborateur (comme le PDF). */
+function confirmation(typeText: string, equipmentsTitle: string, legalText: string, restitutionSections = false): string {
   return emailWrapper(card(
     brandHeader('Signature confirmée', '{{FILIALE_NOM}}', CHIP_SUCCESS),
     metaStrip(['Réf. <strong style="color:#1B1A18;font-family:monospace">{{REFERENCE}}</strong>', `Document : <strong style="color:#1B1A18">${typeText}</strong>`]),
@@ -31,6 +33,7 @@ function confirmation(typeText: string, equipmentsTitle: string, legalText: stri
       </p>
       ${sectionLabel(equipmentsTitle)}
       ${equipList('{{EQUIP_LIST}}')}
+      ${restitutionSections ? '{{ALREADY_RETURNED_SECTION}}{{REMAINING_SECTION}}' : ''}
       ${ctaButton('{{PORTAIL_URL}}', 'Voir mes bons et mes équipements')}
       ${infoBox('#f0fdf4', '#bbf7d0', '#166534', legalText)}
       `),
@@ -51,6 +54,7 @@ export function defaultConfirmationRestitution(): string {
     'Restitution',
     'Équipements restitués',
     'Signature électronique enregistrée &middot; Document à valeur contractuelle &middot; Aucune autre action requise',
+    true,
   );
 }
 

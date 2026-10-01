@@ -10,6 +10,7 @@ type TitleOf = (params: Readonly<Record<string, string | undefined>>) => string;
  */
 const ROUTE_TITLES: readonly (readonly [pattern: string, title: string | TitleOf])[] = [
   ['/dashboard', SCREEN_LABELS.dashboard],
+  ['/mes-equipements', SCREEN_LABELS.mesEquipements],
   ['/mes-bons/*', SCREEN_LABELS.mesEquipements],
   ['/inventaire', SCREEN_LABELS.inventaire],
   ['/materiel/:reference', ({ reference }) => equipmentTitle(reference)],

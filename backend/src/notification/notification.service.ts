@@ -27,6 +27,7 @@ import {
   buildMiseDispositionRequestMessage,
   buildRestitutionRequestMessage,
   buildPvClotureRequestMessage,
+  RequestMessageOptions,
 } from './messages/signature-request-messages';
 import { buildConfirmationMessage, ConfirmationType } from './messages/confirmation-messages';
 import { buildRestitutionDueReminderMessage } from './messages/restitution-due-reminder-message';
@@ -137,21 +138,21 @@ export class NotificationService {
 
   // ─── Demandes de signature (adresse retenue par l'appelant) ─────────────────
 
-  async sendMiseDispositionRequest(bon: NotificationBon, token: string): Promise<void> {
+  async sendMiseDispositionRequest(bon: NotificationBon, token: string, options: RequestMessageOptions = {}): Promise<void> {
     return sendTokenSignatureRequest(this.senderDeps(), {
-      bon, token, type: 'mise_dispo_request', templateId: 'mise_disposition_request', buildMessage: buildMiseDispositionRequestMessage,
+      bon, token, type: 'mise_dispo_request', templateId: 'mise_disposition_request', buildMessage: buildMiseDispositionRequestMessage, options,
     });
   }
 
-  async sendRestitutionRequest(bon: NotificationBon, token: string): Promise<void> {
+  async sendRestitutionRequest(bon: NotificationBon, token: string, options: RequestMessageOptions = {}): Promise<void> {
     return sendTokenSignatureRequest(this.senderDeps(), {
-      bon, token, type: 'restitution_request', templateId: 'restitution_request', buildMessage: buildRestitutionRequestMessage,
+      bon, token, type: 'restitution_request', templateId: 'restitution_request', buildMessage: buildRestitutionRequestMessage, options,
     });
   }
 
-  async sendPvClotureRequest(bon: NotificationBon, token: string): Promise<void> {
+  async sendPvClotureRequest(bon: NotificationBon, token: string, options: RequestMessageOptions = {}): Promise<void> {
     return sendTokenSignatureRequest(this.senderDeps(), {
-      bon, token, type: 'pv_cloture_request', templateId: 'pv_cloture_request', buildMessage: buildPvClotureRequestMessage,
+      bon, token, type: 'pv_cloture_request', templateId: 'pv_cloture_request', buildMessage: buildPvClotureRequestMessage, options,
     });
   }
 

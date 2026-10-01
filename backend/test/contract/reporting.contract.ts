@@ -11,6 +11,12 @@ import { arrayOf, expectShape, str } from './support/shape';
 import { kpiDelais, kpiIncidents, kpiList, kpiParc, kpiToday } from './shapes/kpi';
 import { auditList, inventoryByCollaborateur, inventoryList, inventorySummary } from './shapes/reporting';
 
+/** Ce que lisent les cartes comparées à leur liste. */
+interface KpiBody {
+  signatureMode: Record<'remote' | 'inPerson' | 'proxy', { current: number }>;
+  contestations: Record<'founded' | 'notRetained', { current: number }>;
+}
+
 let ctx: ContractContext;
 
 beforeAll(async () => {
@@ -187,6 +193,25 @@ describe('Indicateurs du tableau de bord', () => {
     expectShape(list.body, kpiList);
     const created = (delais.body as { volumes: { created: { current: number } } }).volumes.created.current;
     expect((list.body as { total: number }).total).toBe(created);
+  });
+
+  it.each([
+    ['signatures_a_distance', '/kpi/delais', (b: KpiBody) => b.signatureMode.remote.current],
+    ['signatures_sur_place', '/kpi/delais', (b: KpiBody) => b.signatureMode.inPerson.current],
+    ['signatures_mandatees', '/kpi/delais', (b: KpiBody) => b.signatureMode.proxy.current],
+    ['contestations_fondees', '/kpi/incidents', (b: KpiBody) => b.contestations.founded.current],
+    ['contestations_non_retenues', '/kpi/incidents', (b: KpiBody) => b.contestations.notRetained.current],
+  ] as const)('GET /kpi/liste?indicateur=%s : autant de lignes que la carte', async (key, route, card) => {
+    const [list, tab] = await Promise.all([
+      ctx.http.get(`/kpi/liste?indicateur=${key}&limit=200`, 'admin'),
+      ctx.http.get(route, 'admin'),
+    ]);
+    expect(list.status).toBe(200);
+    const body = list.body as { total: number; items: unknown[] };
+    // Le jeu de données n'a pas de ligne pour chaque chiffre : forme vérifiée quand il y en a.
+    if (body.total > 0) expectShape(list.body, kpiList);
+    expect(body.total).toBe(card(tab.body as KpiBody));
+    expect(body.items).toHaveLength(body.total);
   });
 
   it('GET /kpi/liste avec un indicateur inconnu : 400', async () => {

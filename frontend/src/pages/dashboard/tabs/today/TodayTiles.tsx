@@ -4,6 +4,7 @@ import {
 import type { KpiTodayResponse } from '@/contracts/kpi';
 import { LATENESS_LABELS } from '@/domain/labels';
 import { KpiCard, KpiCardSkeleton, type KpiCardProps } from '../../components/KpiCard';
+import { FIVE_CARD_GRID } from '../../components/card-grid';
 import { asOfLabel, countWithUnit, UNITS } from '../../lib/kpi-scope';
 import { TODAY_LINKS } from './today-links';
 
@@ -82,14 +83,14 @@ interface TodayTilesProps {
 export function TodayTiles({ data, loading }: TodayTilesProps) {
   if (loading || !data) {
     return (
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
+      <div className={FIVE_CARD_GRID}>
         {Array.from({ length: 5 }).map((_, i) => <KpiCardSkeleton key={i} />)}
       </div>
     );
   }
   return (
     <div className="space-y-3 sm:space-y-4">
-      <section aria-label="À traiter" className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
+      <section aria-label="À traiter" className={FIVE_CARD_GRID}>
         {urgentTiles(data).map(({ key, ...card }) => <KpiCard key={key} {...card} />)}
       </section>
       <section aria-label="Suivi des bons" className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">

@@ -9,6 +9,7 @@ import {
   queryCreationToSend,
   queryLoanDuration,
   querySendToSignature,
+  querySignatureModes,
   querySentSeries,
   querySeriesFromBons,
   queryStatusBreakdown,
@@ -19,6 +20,7 @@ import {
   buildCreationToSend,
   buildLoanDuration,
   buildSendToSignature,
+  buildSignatureMode,
   buildStatusBreakdown,
   buildVolumes,
   buildWaiting,
@@ -57,6 +59,8 @@ export class KpiDelaisService {
       creationToSendPrevious,
       sendToSignatureCurrentRows,
       sendToSignaturePreviousRows,
+      signatureModeCurrent,
+      signatureModePrevious,
       loanDurationCurrent,
       loanDurationPrevious,
       waitingRows,
@@ -71,15 +75,12 @@ export class KpiDelaisService {
       queryCreationToSend(this.prisma, previous, filialeId),
       querySendToSignature(this.prisma, current, filialeId),
       querySendToSignature(this.prisma, previous, filialeId),
+      querySignatureModes(this.prisma, current, filialeId),
+      querySignatureModes(this.prisma, previous, filialeId),
       queryLoanDuration(this.prisma, current, filialeId),
       queryLoanDuration(this.prisma, previous, filialeId),
       queryWaitingSteps(this.prisma, thresholdDays, now, filialeId),
     ]);
-
-    const { sendToSignature, signatureMode } = buildSendToSignature(
-      sendToSignatureCurrentRows,
-      sendToSignaturePreviousRows,
-    );
 
     return {
       asOf: now.toISOString(),
@@ -89,8 +90,8 @@ export class KpiDelaisService {
       volumes: buildVolumes(period, volumeCurrent, volumePrevious, createdSeriesRows, sentSeriesRows, archivedSeriesRows),
       statusBreakdown: buildStatusBreakdown(statusRows),
       creationToSend: buildCreationToSend(creationToSendCurrent, creationToSendPrevious),
-      sendToSignature,
-      signatureMode,
+      sendToSignature: buildSendToSignature(sendToSignatureCurrentRows, sendToSignaturePreviousRows),
+      signatureMode: buildSignatureMode(signatureModeCurrent, signatureModePrevious),
       loanDuration: buildLoanDuration(loanDurationCurrent, loanDurationPrevious),
       waiting: buildWaiting(thresholdDays, waitingRows),
     };

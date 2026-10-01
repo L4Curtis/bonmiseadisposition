@@ -112,7 +112,7 @@ describe('buildBonPreviewVars', () => {
   it('rend le rappel de restitution avec la date prévue et le lien du portail', () => {
     const { vars, sampleVariables } = buildBonPreviewVars(template('restitution_due_reminder'), bon(), APP_URL);
     expect(vars.DATE_RESTITUTION).toContain('2026');
-    expect(vars.PORTAIL_URL).toBe(`${APP_URL}/mes-bons`);
+    expect(vars.PORTAIL_URL).toBe(`${APP_URL}/mes-equipements`);
     expect(sampleVariables).toEqual([]);
   });
 
@@ -120,7 +120,7 @@ describe('buildBonPreviewVars', () => {
     const { vars } = buildBonPreviewVars(template('confirmation_pv_cloture'), bon(), APP_URL);
     expect(vars.REFERENCE).toBe('BMD-2026-0107');
     expect(vars.DOCUMENT_LABEL).toBe('PV de non-restitution');
-    expect(vars.PORTAIL_URL).toBe(`${APP_URL}/mes-bons`);
+    expect(vars.PORTAIL_URL).toBe(`${APP_URL}/mes-equipements`);
   });
   it('emails d’information : vraies données du bon, motif et bon corrigé en valeurs d’exemple', () => {
     const cancelled = buildBonPreviewVars(template('bon_cancelled'), bon(), APP_URL);
@@ -130,7 +130,7 @@ describe('buildBonPreviewVars', () => {
 
     const handover = buildBonPreviewVars(template('handover_without_signature'), bon(), APP_URL);
     expect(handover.vars.EQUIP_LIST).toContain('Lenovo T14');
-    expect(handover.vars.PORTAIL_URL).toBe(`${APP_URL}/mes-bons`);
+    expect(handover.vars.PORTAIL_URL).toBe(`${APP_URL}/mes-equipements`);
 
     const replaced = buildBonPreviewVars(template('bon_replaced'), bon(), APP_URL);
     expect(replaced.sampleVariables).toEqual(['REPLACEMENT_REFERENCE']);

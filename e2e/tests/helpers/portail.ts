@@ -33,7 +33,7 @@ export async function openPortailSession(browser: Browser): Promise<PortailSessi
 
   // Un collaborateur n'a que la vue « Collaborateur » : l'accueil le mène
   // directement à son portail.
-  await page.waitForURL(/\/mes-bons$/);
+  await page.waitForURL(/\/mes-equipements$/);
   await expect(page.getByRole('heading', { name: 'Mes équipements' })).toBeVisible();
   return { context, page };
 }

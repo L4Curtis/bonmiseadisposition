@@ -25,6 +25,8 @@ export const VARIABLE_DESCRIPTIONS: Record<string, string> = {
   EQUIP_LIST: 'Liste des équipements (balises <li>)',
   NOT_RETURNED_LIST: 'Liste des équipements non restitués (balises <li>)',
   REMAINING_SECTION: 'Section HTML des équipements restants (restitution partielle, vide si complète)',
+  ALREADY_RETURNED_SECTION: 'Section HTML des équipements déjà rendus lors d’une restitution précédente (vide sinon)',
+  CORRECTION_NOTICE: 'Mention d’un document corrigé ou modifié depuis le lien précédent (contestation fondée, restitution corrigée, bon modifié ; vide sinon)',
   USER_NAME: 'Nom du collaborateur contestant',
   CONTESTATION_MESSAGE: 'Message de contestation',
   RESOLUTION_MESSAGE: 'Message de l’équipe informatique au collaborateur',
@@ -140,7 +142,7 @@ export const TEMPLATES: TemplateDefinition[] = [
     category: 'signature',
     recipient: 'Collaborateur',
     headerColor: BRAND_PASTILLE,
-    variables: vars('COLLAB_CIVILITE', 'COLLAB_NAME', 'FILIALE_NOM', 'DATE_MISE_DISPO', 'REFERENCE', 'SIGNER_URL', 'EQUIP_LIST'),
+    variables: vars('COLLAB_CIVILITE', 'COLLAB_NAME', 'FILIALE_NOM', 'DATE_MISE_DISPO', 'REFERENCE', 'SIGNER_URL', 'EQUIP_LIST', 'CORRECTION_NOTICE'),
   },
   {
     id: 'restitution_request',
@@ -149,7 +151,10 @@ export const TEMPLATES: TemplateDefinition[] = [
     category: 'signature',
     recipient: 'Collaborateur',
     headerColor: BRAND_PASTILLE,
-    variables: vars('COLLAB_CIVILITE', 'COLLAB_NAME', 'FILIALE_NOM', 'REFERENCE', 'SIGNER_URL', 'EQUIP_LIST', 'REMAINING_SECTION'),
+    variables: vars(
+      'COLLAB_CIVILITE', 'COLLAB_NAME', 'FILIALE_NOM', 'REFERENCE', 'SIGNER_URL', 'EQUIP_LIST', 'ALREADY_RETURNED_SECTION',
+      'REMAINING_SECTION', 'CORRECTION_NOTICE',
+    ),
   },
   {
     id: 'confirmation_mise_disposition',
@@ -167,7 +172,7 @@ export const TEMPLATES: TemplateDefinition[] = [
     category: 'signature',
     recipient: 'Collaborateur',
     headerColor: BRAND_PASTILLE,
-    variables: CONFIRMATION_VARS,
+    variables: [...CONFIRMATION_VARS, ...vars('ALREADY_RETURNED_SECTION', 'REMAINING_SECTION')],
   },
   {
     id: 'pv_cloture_request',
@@ -176,7 +181,7 @@ export const TEMPLATES: TemplateDefinition[] = [
     category: 'signature',
     recipient: 'Collaborateur',
     headerColor: BRAND_PASTILLE,
-    variables: vars('COLLAB_CIVILITE', 'COLLAB_NAME', 'FILIALE_NOM', 'REFERENCE', 'SIGNER_URL', 'NOT_RETURNED_LIST'),
+    variables: vars('COLLAB_CIVILITE', 'COLLAB_NAME', 'FILIALE_NOM', 'REFERENCE', 'SIGNER_URL', 'NOT_RETURNED_LIST', 'CORRECTION_NOTICE'),
   },
   {
     id: 'contestation_alert',
@@ -287,6 +292,8 @@ export const PREVIEW_VARS: Record<string, string> = {
   SIGNER_URL: '#',
   EQUIP_LIST: PREVIEW_EQUIP_LIST,
   NOT_RETURNED_LIST: PREVIEW_NOT_RETURNED_LIST,
+  ALREADY_RETURNED_SECTION: '',
+  CORRECTION_NOTICE: '',
   REMAINING_SECTION: `<p style="margin:0 0 10px;font-size:11px;font-weight:700;color:#A79F94;text-transform:uppercase;letter-spacing:0.08em">Éléments restants sur ce bon (2)</p>
       <div style="background-color:#F6F3EE;border:1px solid #E2DFD9;border-radius:10px;padding:0 20px;margin-bottom:28px">
         <ul style="margin:0;padding:4px 0;list-style:none"><li style="padding:8px 0;border-bottom:1px solid #E2DFD9;font-size:14px;color:#4A463F;line-height:1.5;list-style:none">Logitech MX Master 3S</li>

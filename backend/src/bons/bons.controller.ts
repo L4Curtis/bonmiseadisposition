@@ -49,6 +49,7 @@ function clientTrace(req: Request): ClientTrace {
   return { ip: clientIp(req), userAgent: req.headers['user-agent'] ?? 'unknown' };
 }
 import { assertValidPdfQuery, resolveBonPdf } from './bons-pdf-lookup';
+import { renderReadyPv } from './bons-ready-pv';
 import { computeMissingPdfSnapshotTypes } from './bons-missing-snapshots';
 import { listBonDocuments } from '../pdf/snapshot-list';
 import type { DocumentAudience } from '../pdf/snapshot-audience';
@@ -316,6 +317,18 @@ export class BonsController {
     // preuve soit identique à celui du snapshot stocké (même rendu, même hash).
     const pdf = await this.pdfService.generateBonPdf({ ...bon, signatures: fullSignatures }, null, type);
     res.send(pdf);
+  }
+
+  /** GET /bons/:id/pdf/pv-pret — IT seulement : le PV de non-restitution
+   *  déjà certifié par la signature IT mais pas encore émis (équipements
+   *  encore dehors), généré à la volée, rien n'est enregistré (bons-ready-pv.ts). */
+  @Get(':id/pdf/pv-pret')
+  async getReadyPv(@Param('id') id: string, @Res() res: Response) {
+    const bon = await this.bonsService.findOne(id);
+    const { filename, data } = await renderReadyPv({ prisma: this.prisma, pdfService: this.pdfService }, bon);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.send(data);
   }
 
   /** Routes propriétaire : un compte non IT ne voit que ses propres bons ;

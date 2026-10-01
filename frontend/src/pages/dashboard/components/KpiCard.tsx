@@ -75,7 +75,9 @@ export function KpiCardSkeleton({ className }: { className?: string }) {
   );
 }
 
-function DeltaLine({ delta }: { delta: KpiCardDelta }) {
+/** Comparaison à la période précédente, toujours sous la même forme : « contre
+ *  N sur la période précédente », précédée de l'écart en % quand il se calcule. */
+function DeltaLine({ delta, format }: { delta: KpiCardDelta; format: KpiCardFormat }) {
   const { pct, direction } = computeDelta(delta.current, delta.previous);
   if (pct === null) {
     const text = delta.previous === 0 ? 'contre 0 sur la période précédente' : 'pas de période précédente comparable';
@@ -87,7 +89,7 @@ function DeltaLine({ delta }: { delta: KpiCardDelta }) {
   return (
     <p className={cn('flex items-center gap-1 text-[11px] font-medium', color)}>
       {direction !== 'flat' && <Arrow className="h-3 w-3 shrink-0" aria-hidden="true" />}
-      {`${pct > 0 ? '+' : ''}${pctFormatter.format(pct)} % vs période précédente`}
+      {`${pct > 0 ? '+' : ''}${pctFormatter.format(pct)} % (contre ${FORMATTERS[format](delta.previous)} sur la période précédente)`}
     </p>
   );
 }
@@ -115,7 +117,7 @@ function CardBody({ label, value, icon: Icon, format = 'number', unit, scope, de
       </p>
       <div className="mt-2 space-y-0.5">
         {detail && <p className="text-[11px] font-medium leading-snug text-muted-foreground">{detail}</p>}
-        {delta && <DeltaLine delta={delta} />}
+        {delta && <DeltaLine delta={delta} format={format} />}
         {scope && <p className="text-[11px] leading-snug text-muted-foreground/70">{scope}</p>}
       </div>
       {href && (

@@ -3,7 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { parisPeriodSql } from '../../common/dates/paris';
 import { CONTESTATION_TO_PROCESS_STATUSES, notReturnedEquipmentSql } from '../../common/bon-predicates';
 import { filialeFilter, toNumber } from '../kpi-sql';
-import { CLOSURE_SQL, HANDOVER_SQL, countSourceSql } from '../lists/kpi-list-sources';
+import { CLOSURE_SQL, DECIDED_AT_SQL, HANDOVER_SQL, countSourceSql } from '../lists/kpi-list-sources';
 
 /**
  * Requêtes SQL de `GET /kpi/incidents`. Toutes sont des `COUNT` / `GROUP BY`
@@ -86,13 +86,12 @@ export interface ContestationsFlow {
   medianDays: number | null;
 }
 
-/** Date à laquelle une contestation a été tranchée (`resolved_at`, à défaut
- *  la dernière modification des contestations tranchées avant la vague 2). */
-const DECIDED_AT_SQL = Prisma.sql`COALESCE(c.resolved_at, c.updated_at)`;
 const DECIDED_SQL = Prisma.sql`c.status::text IN ('resolved', 'rejected')`;
 
 /** Contestations reçues (création) et tranchées (issue Fondée / Non retenue)
- *  sur la période, délai médian entre réception et décision. */
+ *  sur la période, délai médian entre réception et décision. Reçues, Fondée
+ *  et Non retenue comptent les lignes des listes qu'ouvrent leurs cartes
+ *  (lists/kpi-list-sources.ts). */
 export async function queryContestationsFlow(
   prisma: PrismaService,
   range: Range,
@@ -103,8 +102,8 @@ export async function queryContestationsFlow(
     SELECT
       ${countSourceSql('contestations_recues', range, filialeId)} AS received,
       COUNT(*) FILTER (WHERE ${decidedInRange})::bigint AS decided,
-      COUNT(*) FILTER (WHERE ${decidedInRange} AND COALESCE(c.outcome::text, CASE c.status::text WHEN 'resolved' THEN 'founded' ELSE 'not_retained' END) = 'founded')::bigint AS founded,
-      COUNT(*) FILTER (WHERE ${decidedInRange} AND COALESCE(c.outcome::text, CASE c.status::text WHEN 'resolved' THEN 'founded' ELSE 'not_retained' END) = 'not_retained')::bigint AS "notRetained",
+      ${countSourceSql('contestations_fondees', range, filialeId)} AS founded,
+      ${countSourceSql('contestations_non_retenues', range, filialeId)} AS "notRetained",
       (percentile_cont(0.5) WITHIN GROUP (
         ORDER BY EXTRACT(EPOCH FROM (${DECIDED_AT_SQL} - c.created_at))::float8 / 86400
       ) FILTER (WHERE ${decidedInRange}))::float8 AS "medianDays"

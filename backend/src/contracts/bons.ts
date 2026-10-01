@@ -131,9 +131,12 @@ export interface BonAvailableAction {
  *  - `out` : chez le collaborateur ;
  *  - `returned_to_sign` : rendu, restitution à signer ;
  *  - `returned` : rendu, restitution signée (ou bon clôturé) ;
- *  - `not_returned` : déclaré non restitué.
+ *  - `not_returned` : déclaré non restitué ;
+ *  - `replaced` : bon clôturé « remplacé » (contestation Fondée sur la
+ *    remise) : l'équipement n'est plus suivi sur ce bon mais sur le bon
+ *    remplaçant (`replacedBy`), jamais « chez le collaborateur » en double.
  */
-export type EquipmentReturnState = 'out' | 'returned_to_sign' | 'returned' | 'not_returned';
+export type EquipmentReturnState = 'out' | 'returned_to_sign' | 'returned' | 'not_returned' | 'replaced';
 
 /** Retards d'un bon, en jours (`null` : pas en retard). */
 export interface BonLateness {

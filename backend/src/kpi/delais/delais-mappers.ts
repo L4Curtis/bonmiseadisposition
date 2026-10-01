@@ -20,6 +20,7 @@ import {
   LoanDurationAggregate,
   SendToSignatureRow,
   SeriesRow,
+  SignatureModeCounts,
   StatusRow,
   VolumeAggregate,
   WaitingRow,
@@ -114,7 +115,7 @@ export function buildCreationToSend(current: CreationToSendAggregate, previous: 
   };
 }
 
-// ── sendToSignature + signatureMode ─────────────────────────────────────
+// ── sendToSignature ─────────────────────────────────────────────────────
 
 function toMetrics(row: SendToSignatureRow | undefined): SendToSignatureMetrics {
   if (!row) return { ...EMPTY_METRICS };
@@ -135,18 +136,10 @@ function toStep(current: SendToSignatureRow | undefined, previous: SendToSignatu
   };
 }
 
-function sumBy(rows: readonly SendToSignatureRow[], pick: (row: SendToSignatureRow) => unknown): number {
-  return rows.reduce((sum, row) => sum + toNumber(pick(row)), 0);
-}
-
-function remoteCount(rows: readonly SendToSignatureRow[]): number {
-  return sumBy(rows, (r) => r.count) - sumBy(rows, (r) => r.inPerson);
-}
-
 export function buildSendToSignature(
   currentRows: readonly SendToSignatureRow[],
   previousRows: readonly SendToSignatureRow[],
-): { sendToSignature: SendToSignature; signatureMode: SignatureMode } {
+): SendToSignature {
   const currentByType = new Map(currentRows.map((r) => [r.type, r]));
   const previousByType = new Map(previousRows.map((r) => [r.type, r]));
 
@@ -154,19 +147,18 @@ export function buildSendToSignature(
     toStep(currentByType.get(type), previousByType.get(type)),
   );
 
-  const sendToSignature: SendToSignature = {
-    mise_disposition: miseDisposition,
-    restitution,
-    pv_cloture: pvCloture,
-  };
+  return { mise_disposition: miseDisposition, restitution, pv_cloture: pvCloture };
+}
 
-  const signatureMode: SignatureMode = {
-    inPerson: compared(sumBy(currentRows, (r) => r.inPerson), sumBy(previousRows, (r) => r.inPerson)),
-    remote: compared(remoteCount(currentRows), remoteCount(previousRows)),
-    proxy: compared(sumBy(currentRows, (r) => r.proxy), sumBy(previousRows, (r) => r.proxy)),
-  };
+// ── signatureMode ───────────────────────────────────────────────────────
 
-  return { sendToSignature, signatureMode };
+/** Modes de signature comparés à la période précédente. */
+export function buildSignatureMode(current: SignatureModeCounts, previous: SignatureModeCounts): SignatureMode {
+  return {
+    inPerson: compared(current.inPerson, previous.inPerson),
+    remote: compared(current.remote, previous.remote),
+    proxy: compared(current.proxy, previous.proxy),
+  };
 }
 
 // ── loanDuration ─────────────────────────────────────────────────────────

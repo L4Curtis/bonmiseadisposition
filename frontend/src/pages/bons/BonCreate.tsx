@@ -21,6 +21,7 @@ export function BonCreatePage() {
     submitting,
     error,
     editReference,
+    replacesReference,
     serialConflicts,
     setSerialConflicts,
     collaborateur,
@@ -79,11 +80,18 @@ export function BonCreatePage() {
         <button onClick={goBack} className="text-muted-foreground/70 hover:text-muted-foreground" aria-label="Retour">
           <ChevronLeft className="h-5 w-5" />
         </button>
-        <h1 className="text-xl font-bold text-foreground">
-          {isEditing
-            ? `${editStatus === 'sent_mise_dispo' ? 'Modifier le bon' : 'Modifier le brouillon'} ${editReference || ''}`
-            : 'Nouveau bon de mise à disposition'}
-        </h1>
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold text-foreground">
+            {isEditing
+              ? `${editStatus === 'sent_mise_dispo' ? 'Modifier le bon' : 'Modifier le brouillon'} ${editReference || ''}`
+              : 'Nouveau bon de mise à disposition'}
+          </h1>
+          {/* Brouillon correctif d'une contestation Fondée : le titre rappelle
+              quel bon il remplacera une fois signé. */}
+          {isEditing && replacesReference && (
+            <p className="text-sm text-muted-foreground">Remplace le bon contesté {replacesReference}</p>
+          )}
+        </div>
       </div>
       {editStatus === 'sent_mise_dispo' && (
         <div role="status" className="rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">

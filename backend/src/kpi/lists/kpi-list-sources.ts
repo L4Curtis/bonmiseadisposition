@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { parisPeriodSql } from '../../common/dates/paris';
 import { filialeFilter } from '../kpi-sql';
+import { IT_ROLES } from '../../common/roles';
 
 /**
  * Sources des chiffres « sur la période » qui comptent des bons ou des
@@ -22,7 +23,12 @@ export const KPI_LIST_KEYS = [
   'remises_sans_signature',
   'clotures_sans_signature',
   'contestations_recues',
+  'contestations_fondees',
+  'contestations_non_retenues',
   'emails_en_echec',
+  'signatures_a_distance',
+  'signatures_sur_place',
+  'signatures_mandatees',
 ] as const;
 export type KpiListKey = (typeof KPI_LIST_KEYS)[number];
 
@@ -79,6 +85,57 @@ function contestationsReceived(range: ListRange, filialeId?: string): Prisma.Sql
     WHERE ${parisPeriodSql(Prisma.raw('c.created_at'), range)} ${filialeFilter('b', filialeId)}`;
 }
 
+/** Date à laquelle une contestation a été tranchée : `resolved_at`, à défaut
+ *  la dernière modification (contestations tranchées avant la vague 2). */
+export const DECIDED_AT_SQL = Prisma.sql`COALESCE(c.resolved_at, c.updated_at)`;
+
+/** Issue d'une contestation tranchée : `outcome`, à défaut déduite du statut
+ *  (avant la vague 2 : `resolved` = Fondée, `rejected` = Non retenue). */
+const OUTCOME_SQL = Prisma.sql`COALESCE(c.outcome::text, CASE c.status::text WHEN 'resolved' THEN 'founded' ELSE 'not_retained' END)`;
+
+/** Contestations tranchées sur la période avec l'issue `outcome` (datées de la
+ *  décision, quelle que soit leur date de réception) ; `detail` = document contesté. */
+function contestationsDecided(outcome: 'founded' | 'not_retained', range: ListRange, filialeId?: string): Prisma.Sql {
+  return Prisma.sql`
+    SELECT c.id AS row_id, c.bon_id AS bon_id, ${DECIDED_AT_SQL} AS at, c.contested_document::text AS detail
+    FROM contestations c
+    JOIN bons b ON b.id = c.bon_id
+    WHERE c.status::text IN ('resolved', 'rejected') AND ${OUTCOME_SQL} = ${outcome}
+      AND ${parisPeriodSql(DECIDED_AT_SQL, range)} ${filialeFilter('b', filialeId)}`;
+}
+
+/** Mode de signature d'un document signé par le collaborateur. */
+type SignatureModeKey = 'remote' | 'in_person' | 'proxy';
+
+/** Mandataire : signature au guichet par un compte ni titulaire ni IT. Un
+ *  compte IT connecté sur l'appareil est un témoin (le titulaire signe devant
+ *  lui) : exclu, y compris pour les signatures enregistrées avant cette règle,
+ *  dont le sceau interdit de corriger la colonne. */
+const PROXY_SQL = Prisma.sql`(s.signed_by_proxy AND NOT EXISTS (
+  SELECT 1 FROM users u
+  WHERE lower(u.email) = lower(s.signer_email) AND u.role::text IN (${Prisma.join([...IT_ROLES])})
+))`;
+
+const SIGNATURE_MODE_SQL: Record<SignatureModeKey, Prisma.Sql> = {
+  remote: Prisma.sql`NOT s.is_in_person`,
+  in_person: Prisma.sql`s.is_in_person`,
+  proxy: PROXY_SQL,
+};
+
+/** Documents (remise, restitution, PV) signés par le collaborateur sur la
+ *  période, dans le mode demandé ; `detail` = type du document. Un mandataire
+ *  signe au guichet : il est compté aussi dans « sur place ». */
+function signedDocuments(mode: SignatureModeKey, range: ListRange, filialeId?: string): Prisma.Sql {
+  return Prisma.sql`
+    SELECT s.id AS row_id, s.bon_id AS bon_id, s.signed_at AS at, s.type::text AS detail
+    FROM signatures s
+    JOIN bons b ON b.id = s.bon_id
+    WHERE s.signed AND s.signed_at IS NOT NULL
+      AND s.type::text IN ('mise_disposition', 'restitution', 'pv_cloture')
+      AND ${SIGNATURE_MODE_SQL[mode]}
+      AND ${parisPeriodSql(Prisma.raw('s.signed_at'), range)} ${filialeFilter('b', filialeId)}`;
+}
+
 /** Emails en échec sur la période : échec d'envoi ou rejet par le serveur du
  *  destinataire. Jamais `skipped` (bon sans adresse : rien à envoyer, ce n'est
  *  pas une panne), ni les anciennes lignes `failed` sans destinataire qui
@@ -114,8 +171,18 @@ export function listSourceSql(key: KpiListKey, range: ListRange, filialeId?: str
       return auditEntries(CLOSURE_SQL, range, filialeId);
     case 'contestations_recues':
       return contestationsReceived(range, filialeId);
+    case 'contestations_fondees':
+      return contestationsDecided('founded', range, filialeId);
+    case 'contestations_non_retenues':
+      return contestationsDecided('not_retained', range, filialeId);
     case 'emails_en_echec':
       return failedEmails(range, filialeId);
+    case 'signatures_a_distance':
+      return signedDocuments('remote', range, filialeId);
+    case 'signatures_sur_place':
+      return signedDocuments('in_person', range, filialeId);
+    case 'signatures_mandatees':
+      return signedDocuments('proxy', range, filialeId);
   }
 }
 

@@ -17,11 +17,24 @@ export const DOCUMENT_FILE_LABELS: Readonly<Record<PdfSnapshotType, string>> = O
   signature_collab_mise_disposition: 'Bon-de-mise-a-disposition-signe',
   signature_it_restitution: 'Bon-de-restitution_signature-IT',
   signature_collab_restitution: 'Bon-de-restitution-signe',
-  cloture_equipements_manquants: 'PV-de-non-restitution',
+  cloture_equipements_manquants: 'PV-de-non-restitution-signe',
   avenant_equipement_retrouve: 'Avenant-equipement-retrouve',
   remise_sans_signature: 'Remise-constatee-sans-signature',
   cloture_sans_signature: 'Cloture-sans-signature',
 });
+
+/** Version signée par l'IT seule d'un document qui n'a pas de type propre à
+ *  cette version (le PV : même type avant et après la signature du
+ *  collaborateur). Remise et restitution ont déjà leur type « signature IT ». */
+const IT_VERSION_FILE_LABELS: Readonly<Partial<Record<PdfSnapshotType, string>>> = Object.freeze({
+  cloture_equipements_manquants: 'PV-de-non-restitution_signature-IT',
+});
+
+/** Options du nom de fichier d'un document enregistré. */
+export interface DocumentFilenameOptions {
+  /** Version signée par l'IT seule (PV émis, pas encore signé par le collaborateur). */
+  readonly itVersion?: boolean;
+}
 
 const PARIS_PARTS = new Intl.DateTimeFormat('fr-FR', {
   timeZone: 'Europe/Paris',
@@ -40,8 +53,9 @@ export function fileTimestamp(at: Date): string {
   return `${parts.year}-${parts.month}-${parts.day}_${parts.hour}h${parts.minute}m${parts.second}`;
 }
 
-function documentLabel(type: string): string {
-  return DOCUMENT_FILE_LABELS[type as PdfSnapshotType] ?? sanitizeSmbName(type);
+function documentLabel(type: string, options: DocumentFilenameOptions = {}): string {
+  const itLabel = options.itVersion ? IT_VERSION_FILE_LABELS[type as PdfSnapshotType] : undefined;
+  return itLabel ?? DOCUMENT_FILE_LABELS[type as PdfSnapshotType] ?? sanitizeSmbName(type);
 }
 
 /**
@@ -52,15 +66,17 @@ export function documentFilename(
   bon: { reference: string; collaborateur?: { displayName?: string | null } | null },
   type: string,
   at: Date,
+  options: DocumentFilenameOptions = {},
 ): string {
   const collaborateur = sanitizeSmbName(bon.collaborateur?.displayName || 'INCONNU');
-  return `${bon.reference}_${collaborateur}_${documentLabel(type)}_${fileTimestamp(at)}.pdf`;
+  return `${bon.reference}_${collaborateur}_${documentLabel(type, options)}_${fileTimestamp(at)}.pdf`;
 }
 
 /**
  * Nom de la pièce jointe d'un email : court, sans le nom du collaborateur (il
- * le reçoit lui-même), daté du jour. Ex. `BON-2026-0074_PV-de-non-restitution_2026-09-27.pdf`.
+ * le reçoit lui-même), daté à la minute : deux restitutions signées le même
+ * jour ne portent pas le même nom. Ex. `BON-2026-0074_PV-de-non-restitution-signe_2026-09-27_15h03.pdf`.
  */
 export function attachmentFilename(reference: string, type: string, at: Date): string {
-  return `${reference}_${documentLabel(type)}_${fileTimestamp(at).slice(0, 10)}.pdf`;
+  return `${reference}_${documentLabel(type)}_${fileTimestamp(at).slice(0, 16)}.pdf`;
 }

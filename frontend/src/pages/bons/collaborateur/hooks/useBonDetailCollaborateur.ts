@@ -41,10 +41,10 @@ async function loadDetail(id: string): Promise<DetailData> {
     api.get<MyContestationsResponse>('/contestations/mine').catch(() => []),
   ]);
   const portalBon = myBons.find((b) => b.id === id);
-  // Document en attente du bon, à signer ou en cours de correction : la fiche
-  // montre sa carte dans les deux cas.
+  // Document en attente du bon, à signer, en cours de correction ou en attente
+  // d'un nouveau lien : la fiche montre sa carte dans tous les cas.
   const groups = portalBon ? classifyPortal([portalBon]) : null;
-  const toSign = groups ? (groups.toSign[0] ?? groups.inCorrection[0] ?? null) : null;
+  const toSign = groups ? (groups.toSign[0] ?? groups.inCorrection[0] ?? groups.awaitingLink[0] ?? null) : null;
   return { bon, toSign, contestation: latestContestationByBon(mine).get(id) ?? null };
 }
 

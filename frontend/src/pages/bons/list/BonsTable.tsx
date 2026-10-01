@@ -139,7 +139,7 @@ export function BonsTable({
                 <SortableHeader field="reference" label="Référence" {...header} />
                 <SortableHeader field="collaborateur" label="Collaborateur" {...header} />
                 <SortableHeader field="filiale" label="Filiale" className="hidden md:table-cell" {...header} />
-                <SortableHeader field="dateMiseDisposition" label="Mise à dispo." className="hidden lg:table-cell" {...header} />
+                <SortableHeader field="dateMiseDisposition" label="Remise" className="hidden lg:table-cell" {...header} />
                 <th scope="col" className={`${TH_CLASS} text-center hidden sm:table-cell`}>
                   Équip.
                 </th>

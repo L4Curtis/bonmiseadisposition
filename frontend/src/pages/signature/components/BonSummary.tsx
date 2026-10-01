@@ -1,6 +1,7 @@
 import { formatDateLong } from '@/lib/dates';
 import { CIVILITE_LONG_LABELS } from '@/domain/labels';
 import type { BonInfo } from '../types';
+import { pendingRestitutionGroups } from '../lib/restitution-groups';
 
 interface RowProps {
   label: string;
@@ -78,12 +79,21 @@ interface EquipmentCardsProps {
   tone?: 'default' | 'danger';
   /** Mention sous la désignation (« Reste chez vous »…). */
   badge?: string;
+  /** Mention neutre (« Déjà rendu » : rien à faire) ou d'attention. */
+  badgeTone?: 'primary' | 'muted';
 }
 
 /** Liste d'équipements en cartes empilées : lisible sans zoom sur téléphone,
  *  n° de série en entier (jamais coupé ni caché dans un tableau qui défile de
  *  côté), même rendu sur ordinateur. */
-function EquipmentCards({ title, hint, equipments, showReason = false, tone = 'default', badge }: EquipmentCardsProps) {
+const BADGE_TONES = {
+  primary: 'bg-primary/10 text-primary',
+  muted: 'bg-muted text-muted-foreground',
+} as const;
+
+function EquipmentCards({
+  title, hint, equipments, showReason = false, tone = 'default', badge, badgeTone = 'primary',
+}: EquipmentCardsProps) {
   return (
     <section className="rounded-xl bg-card border border-border shadow-sm">
       <div className="px-4 sm:px-5 py-3 border-b">
@@ -109,7 +119,7 @@ function EquipmentCards({ title, hint, equipments, showReason = false, tone = 'd
                 <p className="text-destructive italic [overflow-wrap:anywhere]">Motif : {eq.notReturnedReason || 'non précisé'}</p>
               )}
               {badge && (
-                <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">{badge}</span>
+                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${BADGE_TONES[badgeTone]}`}>{badge}</span>
               )}
             </div>
           </li>
@@ -124,52 +134,61 @@ const byOrder = (a: Equipment, b: Equipment) => a.order - b.order;
 interface EquipmentTableProps {
   equipments: BonInfo['equipments'];
   isPvCloture: boolean;
-  isRestitution: boolean;
 }
 
-/** Équipements concernés par le document signé. */
-export function EquipmentTable({ equipments, isPvCloture, isRestitution }: EquipmentTableProps) {
+/** Équipements d'une remise (tous) ou d'un PV (les non restitués). */
+export function EquipmentTable({ equipments, isPvCloture }: EquipmentTableProps) {
   // Copie avant tri : sort() modifie le tableau, qui vit dans l'état du parent.
-  const filtered = [...equipments].sort(byOrder).filter((eq) => {
-    if (isPvCloture) return eq.notReturned;
-    if (isRestitution) return !!eq.returnedAt;
-    return true;
-  });
+  const sorted = [...equipments].sort(byOrder);
   if (isPvCloture) {
+    const declared = sorted.filter((eq) => eq.notReturned);
     return (
       <EquipmentCards
-        title={`Équipements non restitués (${filtered.length})`}
+        title={`Équipements non restitués (${declared.length})`}
         hint="Les équipements ci-dessous ont été déclarés non restitués par l'équipe informatique."
-        equipments={filtered}
+        equipments={declared}
         showReason
         tone="danger"
       />
     );
   }
-  if (isRestitution) {
-    return (
-      <EquipmentCards
-        title={`Équipements restitués (${filtered.length})`}
-        hint="Les équipements ci-dessous sont rendus : votre signature le confirme."
-        equipments={filtered}
-      />
-    );
-  }
-  return <EquipmentCards title={`Équipements (${filtered.length})`} equipments={filtered} />;
+  return <EquipmentCards title={`Équipements (${sorted.length})`} equipments={sorted} />;
 }
 
-/** Éléments restants sur le bon (restitution uniquement) — ne font pas
- *  partie de cette restitution et restent chez le collaborateur. */
-export function RemainingEquipmentTable({ equipments }: { equipments: BonInfo['equipments'] }) {
-  const remaining = equipments.filter((eq) => !eq.returnedAt && !eq.notReturned).sort(byOrder);
-  if (remaining.length === 0) return null;
+/**
+ * Restitution à signer, découpée comme le PDF : ce qui est rendu CETTE fois
+ * (ce que la signature confirme), ce qui l'avait été lors d'une restitution
+ * précédente (déjà signée, rappelé pour mémoire), puis ce qui reste chez le
+ * collaborateur. Une 2e restitution ne fait jamais re-signer un retour déjà
+ * signé.
+ */
+export function RestitutionTables({ bon }: { bon: BonInfo }) {
+  const groups = pendingRestitutionGroups([...bon.equipments].sort(byOrder), bon.signatures ?? []);
   return (
-    <EquipmentCards
-      title={`Encore chez vous (${remaining.length})`}
-      hint="Ces équipements ne font pas partie de cette restitution : vous les gardez."
-      equipments={remaining}
-      badge="Reste chez vous"
-    />
+    <>
+      <EquipmentCards
+        title={`Équipements restitués (${groups.returnedNow.length})`}
+        hint="Les équipements ci-dessous sont rendus : votre signature le confirme."
+        equipments={groups.returnedNow}
+      />
+      {groups.returnedBefore.length > 0 && (
+        <EquipmentCards
+          title={`Déjà restitués (${groups.returnedBefore.length})`}
+          hint="Rendus lors d'une restitution précédente, déjà signée : cette signature ne les concerne pas."
+          equipments={groups.returnedBefore}
+          badge="Déjà rendu"
+          badgeTone="muted"
+        />
+      )}
+      {groups.stillHeld.length > 0 && (
+        <EquipmentCards
+          title={`Encore chez vous (${groups.stillHeld.length})`}
+          hint="Ces équipements ne font pas partie de cette restitution : vous les gardez."
+          equipments={groups.stillHeld}
+          badge="Reste chez vous"
+        />
+      )}
+    </>
   );
 }
 
@@ -204,9 +223,14 @@ export function BonSummary({ bon, isPvCloture, isRestitution, sigType }: BonSumm
   return (
     <>
       <BonHeaderCard bon={bon} isPvCloture={isPvCloture} sigType={sigType} />
-      <EquipmentTable equipments={bon.equipments} isPvCloture={isPvCloture} isRestitution={isRestitution} />
-      {isRestitution && <RemainingEquipmentTable equipments={bon.equipments} />}
-      {isRestitution && <DeclaredNotReturnedTable equipments={bon.equipments} />}
+      {isRestitution ? (
+        <>
+          <RestitutionTables bon={bon} />
+          <DeclaredNotReturnedTable equipments={bon.equipments} />
+        </>
+      ) : (
+        <EquipmentTable equipments={bon.equipments} isPvCloture={isPvCloture} />
+      )}
     </>
   );
 }

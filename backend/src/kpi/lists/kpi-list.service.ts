@@ -42,10 +42,26 @@ const EMAIL_FAILURE_DETAIL: Record<string, string> = {
   bounced: 'rejeté par la messagerie',
 };
 
+/** Document signé ou contesté, à partir de son type de signature. */
+const DOCUMENT_DETAIL: Record<string, string> = {
+  mise_disposition: 'Remise',
+  restitution: 'Restitution',
+  pv_cloture: 'PV de non-restitution',
+};
+
+const DOCUMENT_KEYS: ReadonlySet<KpiListKey> = new Set<KpiListKey>([
+  'contestations_fondees',
+  'contestations_non_retenues',
+  'signatures_a_distance',
+  'signatures_sur_place',
+  'signatures_mandatees',
+]);
+
 /** Texte brut de la source → précision affichée (voir kpi-list-sources.ts). */
 function readableDetail(key: KpiListKey, raw: string | null): string | null {
   if (raw === null) return null;
   if (key === 'contestations_recues') return CONTESTATION_DETAIL[raw] ?? null;
+  if (DOCUMENT_KEYS.has(key)) return DOCUMENT_DETAIL[raw] ?? null;
   if (key === 'emails_en_echec') {
     const [status, recipient] = raw.split('|', 2);
     return `${recipient} : ${EMAIL_FAILURE_DETAIL[status] ?? status}`;

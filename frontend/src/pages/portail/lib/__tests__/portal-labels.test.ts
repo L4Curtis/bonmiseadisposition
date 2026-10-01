@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PortalBon } from '@/contracts/bons';
 import type { DocumentToSign } from '../portal-classification';
-import { documentSituation, equipmentStateForCollaborator } from '../portal-labels';
+import { documentCardTitle, documentSituation, equipmentStateForCollaborator } from '../portal-labels';
 
 function doc(extra: Partial<DocumentToSign>): DocumentToSign {
   return {
@@ -74,3 +74,24 @@ describe('equipmentStateForCollaborator', () => {
     expect(equipmentStateForCollaborator({ returnState: 'returned_to_sign' }).label).toBe('Rendu — restitution à signer');
   });
 });
+
+describe('documentCardTitle — le titre ne contredit jamais la situation (R5)', () => {
+  it('document à signer : « … à signer »', () => {
+    expect(documentCardTitle(doc({ token: 'tok', expired: false }))).toBe('Bon de restitution à signer');
+  });
+
+  it('en cours de correction : plus « à signer »', () => {
+    expect(documentCardTitle(doc({ invalidatedReason: 'contested', underCorrection: true }))).toBe('Restitution en cours de correction');
+    expect(documentCardTitle(doc({ type: 'pv_cloture', invalidatedReason: 'contested', underCorrection: true }))).toBe(
+      'PV de non-restitution en cours de correction',
+    );
+  });
+
+  it('nouveau lien à venir (bon modifié, lien déjà redemandé) : « en attente d’un nouveau lien »', () => {
+    expect(documentCardTitle(doc({ type: 'mise_disposition', invalidatedReason: 'modified' }))).toBe(
+      'Bon de mise à disposition en attente d’un nouveau lien',
+    );
+    expect(documentCardTitle(doc({ newLinkRequestedAt: '2026-09-27T09:30:00Z' }))).toBe('Bon de restitution en attente d’un nouveau lien');
+  });
+});
+

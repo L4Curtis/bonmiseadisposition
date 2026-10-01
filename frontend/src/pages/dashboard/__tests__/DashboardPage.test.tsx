@@ -84,6 +84,19 @@ describe('DashboardPage', () => {
     expect(await screen.findByRole('tab', { name: 'Parc' })).toHaveAttribute('data-state', 'active');
   });
 
+  it('sous-titre : « à traiter » pour l’IT seulement, pas pour la direction', async () => {
+    renderWithProviders(<DashboardPage />);
+    expect(await screen.findByText('Ce qui est à traiter, le parc prêté et les délais')).toBeInTheDocument();
+    await screen.findByText('Signatures attendues');
+  });
+
+  it('direction : un sous-titre sans « à traiter »', async () => {
+    mockRole = 'direction';
+    renderWithProviders(<DashboardPage />);
+    expect(await screen.findByText('Le parc prêté, les délais et les incidents')).toBeInTheDocument();
+    expect(screen.queryByText(/à traiter, le parc/)).not.toBeInTheDocument();
+  });
+
   describe('liste d’un chiffre (?liste=…)', () => {
     const listResponse = {
       indicateur: 'bons_annules',

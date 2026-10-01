@@ -10,6 +10,7 @@ describe('routeTitle — titre d’onglet déduit de l’adresse', () => {
     ['/bons/abc', 'Bon'],
     ['/inventaire', 'Inventaire'],
     ['/mes-bons', 'Mes équipements'],
+    ['/mes-equipements', 'Mes équipements'],
     ['/mes-bons/abc', 'Mes équipements'],
     ['/admin/contestations', 'Contestations'],
     ['/admin/utilisateurs', 'Utilisateurs'],

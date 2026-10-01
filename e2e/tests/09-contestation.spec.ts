@@ -44,7 +44,7 @@ test('contestation : le collaborateur conteste, l’IT tranche, le collaborateur
     await expect(maContestation).toContainText(motif);
     await expect(maContestation).toContainText('pas encore prise en charge');
 
-    await portail.goto('/mes-bons');
+    await portail.goto('/mes-equipements');
     await expect(portailSection(portail, /Contestés/).getByText(bon.reference, { exact: true })).toBeVisible();
 
     // ── IT : badge du menu, puis traitement depuis Admin → Contestations ────
@@ -79,7 +79,7 @@ test('contestation : le collaborateur conteste, l’IT tranche, le collaborateur
     await expect(ligne).toContainText('Non retenue — tranchée par');
 
     // ── Collaborateur : le bon est de nouveau en cours, la décision est lisible ─
-    await portail.goto('/mes-bons');
+    await portail.goto('/mes-equipements');
     await expect(portailSection(portail, /Bons en cours/).getByText(bon.reference, { exact: true })).toBeVisible();
     await expect(portailSection(portail, /Contestés/).getByText(bon.reference, { exact: true })).toHaveCount(0);
     await portail.goto(`/mes-bons/${bon.bonId}`);

@@ -113,6 +113,22 @@ describe('libellés et phrase de la fiche', () => {
     expect(nextStepSentence(bon)).toMatch(/PV de non-restitution.*signature IT.*2 équipements/);
   });
 
+  it('perte déclarée : nomme le technicien qui a certifié le PV, jamais « votre » signature', () => {
+    const bon = bonFiche({
+      status: 'partially_returned',
+      subStatus: 'loss_declared',
+      equipments: [equipment({ id: 'e1', returnState: 'out' }), equipment({ id: 'e2', returnState: 'not_returned', notReturned: true })],
+      signatures: [{
+        id: 'pv-it', type: 'it_cachet', signed: true, signedAt: '2026-06-19T21:53:00.000Z', signerEmail: 'julie@livio.fr',
+        signerName: 'Julie Moreau', mentionLuApprouve: false, isInPerson: false, tokenExpiresAt: '2026-06-19T21:53:00.000Z',
+        createdAt: '2026-06-19T21:53:00.000Z', pdfType: 'pv_cloture', invalidatedAt: null, invalidatedReason: null,
+      }],
+    });
+    const sentence = nextStepSentence(bon);
+    expect(sentence).toContain('déjà certifié par la signature IT de Julie Moreau');
+    expect(sentence).not.toMatch(/votre signature/);
+  });
+
   it('restitution en attente, lien valide : rien à faire, sauf si le collaborateur se présente', () => {
     const bon = bonFiche({ status: 'sent_restitution', pendingSignature: restitutionPending() });
     expect(nextStepSentence(bon)).toMatch(/au guichet/);

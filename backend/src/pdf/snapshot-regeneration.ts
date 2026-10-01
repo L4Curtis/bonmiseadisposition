@@ -96,7 +96,10 @@ export async function regenerateMissingSnapshots(
           continue;
         }
 
-        await generateAndSave(bon, snapshotType, documentFilename(bon, snapshotType, new Date()));
+        // Le PV régénéré porte la signature du collaborateur s'il l'a signé,
+        // sinon c'est la version de l'IT seule : son nom le dit.
+        const itVersion = !(bon.signatures ?? []).some((s) => s.type === 'pv_cloture' && s.signed);
+        await generateAndSave(bon, snapshotType, documentFilename(bon, snapshotType, new Date(), { itVersion }));
         regenerated++;
       } catch (err) {
         failed++;

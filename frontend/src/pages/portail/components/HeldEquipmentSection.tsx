@@ -26,6 +26,9 @@ function HeldEquipmentCard({ item, showSignAction }: { item: HeldEquipment; show
         {item.awaitingSignature && (
           <span className="rounded-full bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning">À signer</span>
         )}
+        {item.awaitingNewLink && (
+          <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">Nouveau lien à venir</span>
+        )}
         {item.underCorrection && (
           <span className="rounded-full bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning">En cours de correction</span>
         )}
@@ -41,7 +44,7 @@ function HeldEquipmentCard({ item, showSignAction }: { item: HeldEquipment; show
         </p>
       )}
       <p className="text-xs text-muted-foreground mt-1">
-        {item.awaitingSignature ? 'Remis le ' : 'Chez vous depuis le '}
+        {item.awaitingSignature || item.awaitingNewLink ? 'Remis le ' : 'Chez vous depuis le '}
         {formatDateLong(item.since)}
       </p>
       {/* Lien sur sa propre ligne, zone de toucher de 44 px sans marge visuelle en plus. */}
@@ -54,6 +57,11 @@ function HeldEquipmentCard({ item, showSignAction }: { item: HeldEquipment; show
       </Link>
       {item.awaitingSignature && (
         <p className="text-sm text-muted-foreground">Confirmez sa réception en signant la remise.</p>
+      )}
+      {item.awaitingNewLink && (
+        <p className="text-sm text-muted-foreground">
+          Vous confirmerez sa réception avec le nouveau lien que l'équipe informatique vous enverra.
+        </p>
       )}
       {item.underCorrection && (
         <p className="text-sm text-muted-foreground">

@@ -115,7 +115,7 @@ export function InventoryTable({
                 <InventorySortHeader field="filiale" label="Filiale" className="hidden md:table-cell" {...sortProps} />
                 <InventorySortHeader field="situation" label="Situation" {...sortProps} />
                 <th className={HEADER_CLASS}>Bon</th>
-                <InventorySortHeader field="dateMiseDisposition" label="Mise à disposition" className="hidden lg:table-cell" {...sortProps} />
+                <InventorySortHeader field="dateMiseDisposition" label="Remise" className="hidden lg:table-cell" {...sortProps} />
                 <InventorySortHeader field="dateRestitution" label="Restitution prévue" className="hidden xl:table-cell" {...sortProps} />
                 <th className={HEADER_CLASS}>
                   <span className="sr-only">Actions</span>

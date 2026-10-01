@@ -254,7 +254,7 @@ describe('NotificationService', () => {
           REFERENCE: bon.reference,
           DATE_RESTITUTION: expect.any(String),
           EQUIP_LIST: expect.any(String),
-          PORTAIL_URL: 'https://app.test.local/mes-bons',
+          PORTAIL_URL: 'https://app.test.local/mes-equipements',
         }),
       );
       expect(mockSendMail).toHaveBeenCalledWith(
@@ -344,7 +344,7 @@ describe('NotificationService', () => {
         // Le template est mocké : on vérifie l'URL transmise au rendu (slash final retiré).
         expect(templatesService.renderTemplate).toHaveBeenCalledWith(
           'restitution_due_reminder',
-          expect.objectContaining({ PORTAIL_URL: 'https://env.test.local/mes-bons' }),
+          expect.objectContaining({ PORTAIL_URL: 'https://env.test.local/mes-equipements' }),
         );
       } finally {
         process.env.NODE_ENV = originalEnv;

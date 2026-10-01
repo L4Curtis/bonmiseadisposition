@@ -26,9 +26,10 @@ test('présentiel jusqu’à la signature : bon actif et PDF disponible', async 
   // Deux documents attendus : le cachet IT (posé avant l'envoi) et la
   // signature du collaborateur (recueillie en présentiel, voir signing.ts).
   await expect(page.getByText(/Documents PDF \(2\)/)).toBeVisible();
-  // .first() : ces libellés apparaissent aussi dans la carte « Signatures » —
-  // on vérifie ici seulement leur présence (déjà confirmée par le compte ci-
-  // dessus), pas leur unicité sur la page.
-  await expect(page.getByText('Signature IT — mise à disposition').first()).toBeVisible();
-  await expect(page.getByText('Signature du collaborateur — mise à disposition').first()).toBeVisible();
+  // Titres de la liste « Documents PDF », au vocabulaire de la fiche (« remise »,
+  // « signature IT ») ; chacun est en vigueur.
+  const documents = page.getByRole('list').filter({ hasText: 'Remise — signature IT' });
+  await expect(documents.getByText('Remise — signature IT', { exact: true })).toBeVisible();
+  await expect(documents.getByText('Remise — signée par le collaborateur', { exact: true })).toBeVisible();
+  await expect(documents.getByText(/En vigueur/)).toHaveCount(2);
 });

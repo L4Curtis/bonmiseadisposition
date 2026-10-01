@@ -438,10 +438,15 @@ export type KpiListKey =
   | 'remises_sans_signature'
   | 'clotures_sans_signature'
   | 'contestations_recues'
-  | 'emails_en_echec';
+  | 'contestations_fondees'
+  | 'contestations_non_retenues'
+  | 'emails_en_echec'
+  | 'signatures_a_distance'
+  | 'signatures_sur_place'
+  | 'signatures_mandatees';
 
 /** Une ligne de la liste : un bon, ou un événement de ce bon (un PV, une
- *  remise sans signature, une contestation, un email). */
+ *  remise sans signature, une contestation, un email, un document signé). */
 export interface KpiListItem {
   /** Identifiant de l'élément compté (bon, entrée du journal, contestation ou email). */
   id: string;
@@ -451,11 +456,13 @@ export interface KpiListItem {
   collaborateur: string;
   filiale: string;
   /** Date de l'élément : création, premier envoi, clôture, annulation,
-   *  émission, réception ou tentative d'envoi selon le chiffre. */
+   *  émission, réception, décision, signature ou tentative d'envoi selon le chiffre. */
   at: IsoDateTime;
   /** Précision lisible : motif (annulation, remise ou clôture sans
    *  signature), issue d'une contestation (« À traiter », « Fondée »,
-   *  « Non retenue »), destinataire et nature de l'échec d'un email ; sinon null. */
+   *  « Non retenue »), document contesté d'une contestation tranchée, document
+   *  signé (« Remise », « Restitution », « PV de non-restitution »),
+   *  destinataire et nature de l'échec d'un email ; sinon null. */
   detail: string | null;
 }
 

@@ -103,7 +103,7 @@ export function IncidentsTab() {
 
       <ChartCard title="Contestations tranchées" subtitle={scope} delayIndex={1} empty={noDecision}
         emptyMessage="Aucune contestation tranchée sur la période.">
-        <ContestationsSummary contestations={data.contestations} scope={scope} />
+        <ContestationsSummary contestations={data.contestations} scope={scope} listHref={isIt ? listHref : null} />
       </ChartCard>
 
       <ChartCard title="Rappels automatiques" subtitle={`${scope}, trois rappels au plus par document`} delayIndex={2}

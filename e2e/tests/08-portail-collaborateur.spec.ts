@@ -6,7 +6,7 @@ import { openPortailSession, portailSection } from './helpers/portail';
 import { uniqueSuffix } from './helpers/ids';
 
 /**
- * Test 8 — Portail collaborateur (`/mes-bons`), du point de vue de celui qui
+ * Test 8 — Portail collaborateur (`/mes-equipements`), du point de vue de celui qui
  * signe : il voit son bon en cours et ses équipements (n° de série), ouvre le
  * bon, ouvre le document signé dans le navigateur — et ne voit ni ne
  * peut ouvrir le bon d'un autre, même en tapant son adresse directement.

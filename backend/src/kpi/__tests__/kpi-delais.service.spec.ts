@@ -43,6 +43,8 @@ interface Fixtures {
   creationToSendPrevious: unknown[];
   sendToSignatureCurrent: unknown[];
   sendToSignaturePrevious: unknown[];
+  signatureModeCurrent: unknown[];
+  signatureModePrevious: unknown[];
   loanDurationCurrent: unknown[];
   loanDurationPrevious: unknown[];
   waiting: unknown[];
@@ -75,6 +77,9 @@ function mockRouted(prisma: ReturnType<typeof createPrisma>, fixtures: Fixtures)
     }
     if (sql.includes('first_sent')) {
       return Promise.resolve(isCurrent ? fixtures.creationToSendCurrent : fixtures.creationToSendPrevious);
+    }
+    if (sql.includes('"inPerson"') && !sql.includes('LAG(')) {
+      return Promise.resolve(isCurrent ? fixtures.signatureModeCurrent : fixtures.signatureModePrevious);
     }
     if (sql.includes('LAG(')) {
       return Promise.resolve(isCurrent ? fixtures.sendToSignatureCurrent : fixtures.sendToSignaturePrevious);
@@ -110,11 +115,13 @@ const FULL_FIXTURES: Fixtures = {
   creationToSendCurrent: [{ count: 52n, medianHours: 5.2, p90Hours: 48.1 }],
   creationToSendPrevious: [{ count: 40n, medianHours: 6.0, p90Hours: 50.2 }],
   sendToSignatureCurrent: [
-    { type: 'mise_disposition', count: 48n, medianHours: 20.5, p90Hours: 96, within48h: 34n, within7d: 44n, inPerson: 12n, proxy: 2n },
+    { type: 'mise_disposition', count: 48n, medianHours: 20.5, p90Hours: 96, within48h: 34n, within7d: 44n },
   ],
   sendToSignaturePrevious: [
-    { type: 'mise_disposition', count: 40n, medianHours: 24, p90Hours: 110, within48h: 26n, within7d: 36n, inPerson: 9n, proxy: 1n },
+    { type: 'mise_disposition', count: 40n, medianHours: 24, p90Hours: 110, within48h: 26n, within7d: 36n },
   ],
+  signatureModeCurrent: [{ remote: 36n, inPerson: 12n, proxy: 2n }],
+  signatureModePrevious: [{ remote: 31n, inPerson: 9n, proxy: 1n }],
   // avgDays en objet « Decimal-like » : vérifie la conversion via toNumber().
   loanDurationCurrent: [{ count: 44n, avgDays: { toNumber: () => 84.2 }, medianDays: 70 }],
   loanDurationPrevious: [{ count: 50n, avgDays: 90.1, medianDays: 75 }],
@@ -202,7 +209,7 @@ describe('KpiDelaisService', () => {
       });
       expect(result.sendToSignature.pv_cloture).toEqual(result.sendToSignature.restitution);
 
-      // signatureMode : remote = count − inPerson, sommé sur les types
+      // signatureMode : les trois comptes des listes (à distance, sur place, mandataire)
       expect(result.signatureMode).toEqual({
         inPerson: { current: 12, previous: 9 },
         remote: { current: 36, previous: 31 },

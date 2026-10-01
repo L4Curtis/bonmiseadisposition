@@ -1,10 +1,10 @@
 import { Link } from 'react-router';
-import { AlertOctagon, Clock, Info, PenLine, Users, Wrench } from 'lucide-react';
+import { AlertOctagon, Clock, Hourglass, Info, PenLine, Users, Wrench } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { formatDateLong } from '@/lib/dates';
 import { RequestNewLinkButton } from '@/pages/signature/components/RequestNewLinkButton';
 import type { DocumentToSign } from '../lib/portal-classification';
-import { documentSituation, documentToSignTitle } from '../lib/portal-labels';
+import { documentCardTitle, documentSituation } from '../lib/portal-labels';
 import type { ContestTarget } from '../hooks/usePortal';
 
 const PRIMARY = 'w-full min-h-11 inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold';
@@ -65,7 +65,7 @@ export function DocumentCard({ doc, onContest, showBonLink = true }: DocumentCar
     <Card className="border-warning/40">
       <CardContent className="p-4 space-y-3">
         <div className="min-w-0">
-          <h3 className="font-semibold text-foreground">{documentToSignTitle(doc.type)}</h3>
+          <h3 className="font-semibold text-foreground">{documentCardTitle(doc)}</h3>
           <p className="text-sm text-muted-foreground">
             <span className="font-mono">{doc.bon.reference}</span> · {doc.bon.filiale.displayName}
           </p>
@@ -120,7 +120,26 @@ export function InCorrectionSection({ documents, onContest }: ToSignSectionProps
   );
 }
 
-/** « À signer » : chaque document qui attend la signature, lien valide ou non (R-057). */
+/** « En attente d'un nouveau lien » : documents dont le lien ne vaut plus
+ *  (bon modifié) ou a déjà été redemandé. Rien à signer ni à demander : hors
+ *  de « À signer » et du bandeau. */
+export function AwaitingLinkSection({ documents, onContest }: ToSignSectionProps) {
+  return (
+    <section aria-labelledby="nouveau-lien-titre">
+      <h2 id="nouveau-lien-titre" className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-1.5">
+        <Hourglass className="h-4 w-4" aria-hidden="true" /> En attente d'un nouveau lien ({documents.length})
+      </h2>
+      <div className="grid gap-3 lg:grid-cols-2">
+        {documents.map((doc) => (
+          <DocumentCard key={`${doc.bon.id}-${doc.type}`} doc={doc} onContest={onContest} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/** « À signer » : chaque document que la personne peut signer, ou dont elle
+ *  peut redemander le lien expiré (R-057). */
 export function ToSignSection({ documents, onContest }: ToSignSectionProps) {
   return (
     <section id="a-signer" aria-labelledby="a-signer-titre" className="scroll-mt-20">

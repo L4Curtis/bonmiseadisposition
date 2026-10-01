@@ -17,12 +17,13 @@ export function contestationsUrl(appUrl: string): string {
   return `${appUrl}/admin/contestations`;
 }
 
-/** Portail du collaborateur : ses bons et ses équipements. */
+/** Portail du collaborateur, « Mes équipements » (l'ancienne adresse
+ *  `/mes-bons` y redirige). */
 export function portalUrl(appUrl: string): string {
-  return `${appUrl}/mes-bons`;
+  return `${appUrl}/mes-equipements`;
 }
 
 /** Fiche d'un bon dans le portail du collaborateur. */
 export function portalBonUrl(appUrl: string, bonId: string): string {
-  return `${portalUrl(appUrl)}/${encodeURIComponent(bonId)}`;
+  return `${appUrl}/mes-bons/${encodeURIComponent(bonId)}`;
 }

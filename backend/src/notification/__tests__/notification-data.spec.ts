@@ -16,7 +16,7 @@ describe('loadSignedDocumentAttachment', () => {
 
     const attachment = await loadSignedDocumentAttachment(prisma as never, 'bon-1', 'pv_cloture');
 
-    expect(attachment?.filename).toBe('BON-2026-0074_PV-de-non-restitution_2026-09-27.pdf');
+    expect(attachment?.filename).toBe('BON-2026-0074_PV-de-non-restitution-signe_2026-09-27_15h03.pdf');
     expect(attachment?.filename).not.toMatch(/cloture_equipements|signature_collab/);
     expect(prisma.pdfSnapshot.findFirst).toHaveBeenCalledWith(expect.objectContaining({
       where: { bonId: 'bon-1', type: 'cloture_equipements_manquants' },
@@ -27,8 +27,8 @@ describe('loadSignedDocumentAttachment', () => {
   it('restitution signée : « Bon-de-restitution-signe »', async () => {
     const prisma = prismaWith({ data: Buffer.from('%PDF'), createdAt: new Date('2026-09-27T22:30:00Z'), bon: { reference: 'BON-1' } });
     const attachment = await loadSignedDocumentAttachment(prisma as never, 'bon-1', 'restitution');
-    // 22 h 30 UTC = 0 h 30 le lendemain à Paris : la date est celle de Paris.
-    expect(attachment?.filename).toBe('BON-1_Bon-de-restitution-signe_2026-09-28.pdf');
+    // 22 h 30 UTC = 0 h 30 le lendemain à Paris : date et heure sont celles de Paris.
+    expect(attachment?.filename).toBe('BON-1_Bon-de-restitution-signe_2026-09-28_00h30.pdf');
   });
 
   it('aucun document signé : pas de pièce jointe', async () => {

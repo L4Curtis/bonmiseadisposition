@@ -6,7 +6,7 @@ import { ContestationDialog } from '@/components/ContestationDialog';
 import { usePortal } from './portail/hooks/usePortal';
 import type { DocumentToSign } from './portail/lib/portal-classification';
 import { BonsSkeleton } from './portail/components/BonsSkeleton';
-import { InCorrectionSection, ToSignSection } from './portail/components/ToSignSection';
+import { AwaitingLinkSection, InCorrectionSection, ToSignSection } from './portail/components/ToSignSection';
 import { HeldEquipmentSection } from './portail/components/HeldEquipmentSection';
 import { BonsSection } from './portail/components/BonsSection';
 
@@ -80,6 +80,10 @@ export function PortailCollaborateur() {
 
       {groups.inCorrection.length > 0 && (
         <InCorrectionSection documents={groups.inCorrection} onContest={portal.setContestTarget} />
+      )}
+
+      {groups.awaitingLink.length > 0 && (
+        <AwaitingLinkSection documents={groups.awaitingLink} onContest={portal.setContestTarget} />
       )}
 
       {portal.bonCount > 0 && <HeldEquipmentSection items={groups.held} />}

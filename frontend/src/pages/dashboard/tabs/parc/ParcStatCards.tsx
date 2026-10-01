@@ -2,6 +2,7 @@ import { AlertTriangle, Package, PackageCheck, PackageX, ScanLine, Tag } from 'l
 import { LATENESS_LABELS } from '@/domain/labels';
 import { formatDays } from '@/lib/kpi-format';
 import { KpiCard } from '../../components/KpiCard';
+import { FIVE_CARD_GRID } from '../../components/card-grid';
 import { asOfLabel, countWithUnit, periodLabel, UNITS } from '../../lib/kpi-scope';
 import type { ParcKpiResponse } from '../../types/parc';
 import { NO_LIST } from '../../lists/kpi-lists';
@@ -19,6 +20,17 @@ export function inventoryHref(filialeId: string | null, extra: Record<string, st
   if (filialeId) params.set('filialeId', filialeId);
   const query = params.toString();
   return query ? `/inventaire?${query}` : '/inventaire';
+}
+
+/** « Voir l'équipement … » ou « Voir les 3 équipements … » : accord au nombre. */
+export function seeEquipmentsLabel(count: number, what: string): string {
+  return count === 1 ? `Voir l'équipement ${what}` : `Voir les ${countWithUnit(count, UNITS.equipments)} ${what}`;
+}
+
+/** « 1 équipement saisi en texte libre », « 3 équipements saisis en texte libre ». */
+export function offCatalogDetail(count: number): string {
+  if (count === 0) return 'aucun équipement saisi en texte libre';
+  return `${countWithUnit(count, UNITS.equipments)} ${count > 1 ? 'saisis' : 'saisi'} en texte libre`;
 }
 
 /** Cartes de l'onglet Parc : états du jour (« au 25/09 », non filtrés par la
@@ -41,7 +53,7 @@ export function ParcStatCards({ data, loading, filialeId }: ParcStatCardsProps) 
   return (
     <div className="space-y-3">
       <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">État du jour</h3>
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
+      <div className={FIVE_CARD_GRID}>
         <KpiCard
           label="Équipements chez les collaborateurs" value={data?.loaned.total ?? null} unit={UNITS.equipments}
           icon={Package} loading={loading} scope={asOf} href={inventoryHref(filialeId)}
@@ -67,7 +79,8 @@ export function ParcStatCards({ data, loading, filialeId }: ParcStatCardsProps) 
           label="Avec numéro de série" value={data?.loaned.serialCoverage ?? null} format="percent"
           icon={ScanLine} loading={loading} scope={asOf}
           href={missingSerial > 0 ? inventoryHref(filialeId, { sansNumeroSerie: '1' }) : undefined}
-          hrefLabel={`Voir les ${countWithUnit(missingSerial, UNITS.equipments)} sans numéro`}
+          hrefLabel={seeEquipmentsLabel(missingSerial, 'sans numéro')}
+          noList={data && missingSerial === 0 ? NO_LIST.allWithSerial : undefined}
           detail={missingSerial > 0 ? `${countWithUnit(missingSerial, UNITS.equipments)} sans numéro` : 'tous les équipements en ont un'}
           definition="Part des équipements chez les collaborateurs dont le numéro de série est renseigné. Sans lui, on ne peut pas retrouver l'équipement ni le rapprocher d'un autre outil."
         />
@@ -75,14 +88,15 @@ export function ParcStatCards({ data, loading, filialeId }: ParcStatCardsProps) 
           label="Hors catalogue" value={data?.loaned.offCatalogShare ?? null} format="percent" icon={Tag}
           loading={loading} scope={asOf}
           href={offCatalog > 0 ? inventoryHref(filialeId, { horsCatalogue: '1' }) : undefined}
-          hrefLabel={`Voir les ${countWithUnit(offCatalog, UNITS.equipments)} hors catalogue`}
-          detail={offCatalog > 0 ? `${countWithUnit(offCatalog, UNITS.equipments)} saisis en texte libre` : 'aucun équipement saisi en texte libre'}
+          hrefLabel={seeEquipmentsLabel(offCatalog, 'hors catalogue')}
+          noList={data && offCatalog === 0 ? NO_LIST.noneOffCatalog : undefined}
+          detail={offCatalogDetail(offCatalog)}
           definition="Part des équipements chez les collaborateurs qui ne viennent pas d'un article du Catalogue (saisis en texte libre)."
         />
       </div>
 
       <h3 className="pt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Sur la période</h3>
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
+      <div className={FIVE_CARD_GRID}>
         <KpiCard
           label="Équipements déclarés non restitués" value={data?.notReturned.declared.current ?? null}
           unit={UNITS.equipments} icon={PackageX} loading={loading} scope={period}

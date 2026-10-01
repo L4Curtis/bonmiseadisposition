@@ -81,7 +81,14 @@ export function SignaturePage() {
     case 'contested':
       return <ClosedBonScreen status={data.status} reference={data.reference} />;
     case 'replaced':
-      return <InvalidatedLinkScreen reason={data.invalidatedReason} reference={data.reference} />;
+      return (
+        <InvalidatedLinkScreen
+          reason={data.invalidatedReason}
+          reference={data.reference}
+          followUp={data.followUp}
+          documentType={data.documentType}
+        />
+      );
     case 'expired':
       return (
         <ExpiredLinkScreen token={token} reference={data.reference} newLinkRequestedAt={data.newLinkRequestedAt} />

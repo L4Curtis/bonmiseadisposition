@@ -29,6 +29,9 @@ const NOTIFICATION_BON_SELECT = {
       notReturnedReason: true, catalogItem: { select: { brand: true, model: true } },
     },
   },
+  // Dates des restitutions signées : une confirmation ne liste que ce qui a
+  // été rendu dans la restitution qu'elle confirme.
+  signatures: { select: { type: true, signed: true, signedAt: true, invalidatedAt: true } },
 } as const;
 
 export async function loadNotificationBon(prisma: PrismaService, bonId: string): Promise<NotificationBon | null> {
@@ -49,7 +52,7 @@ const SIGNED_SNAPSHOT_TYPES: Readonly<Record<'mise_disposition' | 'restitution' 
 /**
  * Le PDF signé du document, s'il existe et reste d'une taille raisonnable :
  * le plus récent de son type (celui que la confirmation annonce), sous un nom
- * de pièce jointe lisible (« BON-2026-0074_Bon-de-restitution-signe_2026-09-27.pdf »).
+ * de pièce jointe lisible, datée à la minute (« BON-2026-0074_Bon-de-restitution-signe_2026-09-27_15h03.pdf »).
  */
 export async function loadSignedDocumentAttachment(
   prisma: PrismaService,

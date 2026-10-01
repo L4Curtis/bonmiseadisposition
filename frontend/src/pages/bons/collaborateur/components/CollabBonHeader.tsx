@@ -5,11 +5,18 @@ import type { CollaboratorBon } from '../lib/collaborator-view';
 
 /** En-tête de la fiche : retour, référence, où en est le bon, et le lien
  *  avec un bon remplaçant ou remplacé (contestation Fondée). */
-export function CollabBonHeader({ bon }: { bon: CollaboratorBon }) {
+interface CollabBonHeaderProps {
+  bon: CollaboratorBon;
+  /** Où en est le bon, quand le statut seul le dirait mal (« Restitution en
+   *  cours de correction » plutôt que « Restitution à signer »). */
+  statusText?: string;
+}
+
+export function CollabBonHeader({ bon, statusText }: CollabBonHeaderProps) {
   return (
     <div className="space-y-2">
       <Link
-        to="/mes-bons"
+        to="/mes-equipements"
         className="-ml-2 inline-flex min-h-11 items-center gap-1 rounded-lg px-2 text-sm font-medium text-muted-foreground hover:text-foreground"
       >
         <ChevronLeft className="h-4 w-4" /> Mes équipements
@@ -17,7 +24,7 @@ export function CollabBonHeader({ bon }: { bon: CollaboratorBon }) {
       <div>
         <h1 className="text-xl font-bold font-mono [overflow-wrap:anywhere]">{bon.reference}</h1>
         <p className="text-sm text-muted-foreground">
-          {bonStatusLabel(bon.status)} · {bon.filiale.displayName}
+          {statusText ?? bonStatusLabel(bon.status)} · {bon.filiale.displayName}
         </p>
       </div>
       {bon.replacedBy &&

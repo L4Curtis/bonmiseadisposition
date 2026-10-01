@@ -65,6 +65,8 @@ export function useBonCreateForm() {
   const [internalNote, setInternalNote] = useState('');
   const [editStatus, setEditStatus] = useState<string | null>(null);
   const [replacedBonId, setReplacedBonId] = useState<string | null>(null);
+  /** Référence du bon contesté que ce brouillon corrige (« remplace BON-… »). */
+  const [replacesReference, setReplacesReference] = useState<string | null>(null);
   const [dateMiseDisposition, setDateMiseDisposition] = useState(() => {
     if (restoredFromDraft && initialDraft?.dateMiseDisposition) return initialDraft.dateMiseDisposition;
     return isEditing ? '' : todayInParis();
@@ -176,6 +178,7 @@ export function useBonCreateForm() {
         setEditReference(bon.reference);
         setEditStatus(bon.status);
         setReplacedBonId(bon.replaces?.id ?? null);
+        setReplacesReference(bon.replaces?.reference ?? null);
         setCollaborateurState(bon.collaborateur);
         setFilialeIdState(bon.filialeId);
         civiliteTouchedRef.current = true;
@@ -410,6 +413,7 @@ export function useBonCreateForm() {
     submitting,
     error,
     editReference,
+    replacesReference,
     serialConflicts,
     setSerialConflicts,
     collaborateur: collaborateurState,

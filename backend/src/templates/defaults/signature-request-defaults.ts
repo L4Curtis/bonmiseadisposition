@@ -20,6 +20,7 @@ export function defaultMiseDisposition(): string {
     metaStrip(['Réf. <strong style="color:#1B1A18;font-family:monospace">{{REFERENCE}}</strong>', 'Remise le <strong style="color:#1B1A18">{{DATE_MISE_DISPO}}</strong>']),
     body(`
       <p style="margin:0 0 8px;font-size:16px;color:#1B1A18;font-weight:500">{{COLLAB_CIVILITE}} {{COLLAB_NAME}},</p>
+      {{CORRECTION_NOTICE}}
       <p style="margin:0 0 24px;font-size:15px;color:#4A463F;line-height:1.75">
         Dans le cadre de votre activité au sein de <strong style="color:#1B1A18">{{FILIALE_NOM}}</strong>, l’équipe informatique met à votre disposition les équipements ci-dessous à compter du <strong style="color:#1B1A18">{{DATE_MISE_DISPO}}</strong>.
       </p>
@@ -43,11 +44,13 @@ export function defaultRestitution(): string {
     metaStrip(['Réf. <strong style="color:#1B1A18;font-family:monospace">{{REFERENCE}}</strong>']),
     body(`
       <p style="margin:0 0 8px;font-size:16px;color:#1B1A18;font-weight:500">{{COLLAB_CIVILITE}} {{COLLAB_NAME}},</p>
+      {{CORRECTION_NOTICE}}
       <p style="margin:0 0 24px;font-size:15px;color:#4A463F;line-height:1.75">
         L’équipe informatique de <strong style="color:#1B1A18">{{FILIALE_NOM}}</strong> vous invite à signer le <strong style="color:#1B1A18">bon de restitution</strong> des équipements ci-dessous. Ce document atteste que vous les avez rendus.
       </p>
       ${sectionLabel('Équipements restitués')}
       ${equipList('{{EQUIP_LIST}}')}
+      {{ALREADY_RETURNED_SECTION}}
       {{REMAINING_SECTION}}
       <p style="margin:0 0 4px;font-size:15px;color:#4A463F;line-height:1.75">
         Après signature, vous en recevrez une confirmation par email.
@@ -67,6 +70,7 @@ export function defaultPvCloture(): string {
     metaStrip(['Réf. <strong style="color:#1B1A18;font-family:monospace">{{REFERENCE}}</strong>']),
     body(`
       <p style="margin:0 0 8px;font-size:16px;color:#1B1A18;font-weight:500">{{COLLAB_CIVILITE}} {{COLLAB_NAME}},</p>
+      {{CORRECTION_NOTICE}}
       <p style="margin:0 0 24px;font-size:15px;color:#4A463F;line-height:1.75">
         L’équipe informatique de <strong style="color:#1B1A18">{{FILIALE_NOM}}</strong> a constaté que les équipements ci-dessous n’ont pas été restitués dans le cadre du bon <strong style="color:#1B1A18">{{REFERENCE}}</strong>. Un PV de non-restitution a été établi et attend votre signature.
       </p>

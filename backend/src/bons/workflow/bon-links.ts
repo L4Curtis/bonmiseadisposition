@@ -4,6 +4,7 @@ import type { LinkSignatureType } from '../../contracts/bons';
 import { assertCanSendLink } from '../../common/can-send-link';
 import { BON_REFERENCE_TX_OPTIONS } from '../../common/bon-reference';
 import { generateSignatureToken } from '../../common/tokens';
+import { correctionBeforeNewLink, LinkCorrection } from '../../common/link-correction';
 import { NotificationBon } from '../../common/types';
 import { BonsWorkflowContext, getPvTokenValidityDays } from './bon-context';
 import { FactsBon, isItSignedFor, isValidLink } from './bon-facts';
@@ -89,15 +90,24 @@ export function assertItSigned(bon: FactsBon, document: LinkSignatureType): void
  *  les emails affichent. */
 export type LinkBon = FactsBon & NotificationBon & { id: string; collaborateur: { active: boolean; email: string | null } };
 
-/** Envoie la demande de signature du document (email du bon), sans attendre. */
-function sendRequestEmail(ctx: BonsWorkflowContext, bon: NotificationBon, document: LinkSignatureType, token: string) {
+/** Envoie la demande de signature du document (email du bon), sans attendre.
+ *  `correction` : le document a été corrigé depuis le lien précédent, l'email
+ *  le dit. */
+function sendRequestEmail(
+  ctx: BonsWorkflowContext,
+  bon: NotificationBon,
+  document: LinkSignatureType,
+  token: string,
+  correction: LinkCorrection | null,
+) {
   const { notificationService, logger } = ctx;
+  const options = { correction };
   const send =
     document === 'mise_disposition'
-      ? notificationService.sendMiseDispositionRequest(bon, token)
+      ? notificationService.sendMiseDispositionRequest(bon, token, options)
       : document === 'restitution'
-        ? notificationService.sendRestitutionRequest(bon, token)
-        : notificationService.sendPvClotureRequest(bon, token);
+        ? notificationService.sendRestitutionRequest(bon, token, options)
+        : notificationService.sendPvClotureRequest(bon, token, options);
   send.catch((err: unknown) => logger.error(`Email de demande de signature (${bon.reference}) : ${String(err)}`));
 }
 
@@ -106,10 +116,23 @@ function sendRequestEmail(ctx: BonsWorkflowContext, bon: NotificationBon, docume
 export const DUPLICATE_SEND_WINDOW_MS = 30 * 1000;
 
 /** Lien remis par un émetteur : `reused` quand l'envoi précédent, tout
- *  récent, a été réutilisé au lieu d'en créer un autre (aucun email). */
+ *  récent, a été réutilisé au lieu d'en créer un autre (aucun email) ;
+ *  `correction` quand il suit une correction du document. */
 export interface IssuedLink {
   token: string;
   reused: boolean;
+  correction?: LinkCorrection | null;
+}
+
+/** Correction que le nouveau lien du document fait suivre, lue sur ses liens
+ *  précédents (avant qu'ils ne soient invalidés « remplacé »). */
+async function correctionOfDocument(tx: Prisma.TransactionClient, bonId: string, document: LinkSignatureType) {
+  const previous = await tx.signature.findMany({
+    where: { bonId, type: document },
+    orderBy: { createdAt: 'desc' },
+    select: { signed: true, invalidatedReason: true },
+  });
+  return correctionBeforeNewLink(previous);
 }
 
 export interface EmailLinkOptions {
@@ -156,6 +179,7 @@ function claimEmailLink(
     if (live && live.type === document && !live.isInPerson && age < DUPLICATE_SEND_WINDOW_MS) {
       return { token: live.token, reused: true };
     }
+    const correction = await correctionOfDocument(tx, bonId, document);
     await invalidatePendingLinks(tx, bonId, 'replaced');
     const created = await tx.signature.create({
       data: {
@@ -167,7 +191,7 @@ function claimEmailLink(
         initiatedById: actorId,
       },
     });
-    return { token: created.token, reused: false };
+    return { token: created.token, reused: false, correction };
   }, BON_REFERENCE_TX_OPTIONS);
 }
 
@@ -189,7 +213,9 @@ export async function issueEmailLink(
   assertItSigned(bon, document);
   const validityDays = await getPvTokenValidityDays(ctx);
   const issued = await claimEmailLink(ctx, bon.id, document, actorId, { ...options, validityDays });
-  if (!issued.reused) sendRequestEmail(ctx, { ...bon, collaborateurEmail: email }, document, issued.token);
+  if (!issued.reused) {
+    sendRequestEmail(ctx, { ...bon, collaborateurEmail: email }, document, issued.token, issued.correction ?? null);
+  }
   return issued;
 }
 

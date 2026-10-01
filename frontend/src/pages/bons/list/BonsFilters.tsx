@@ -10,7 +10,7 @@ import { BonsAdvancedFilters, type BonsAdvancedFiltersProps } from './BonsAdvanc
 const SORT_OPTION_LABELS: Record<SortField, { asc: string; desc: string }> = {
   createdAt: { desc: 'Création : plus récents d’abord', asc: 'Création : plus anciens d’abord' },
   updatedAt: { desc: 'Activité : plus récente d’abord', asc: 'Activité : plus ancienne d’abord' },
-  dateMiseDisposition: { desc: 'Mise à disposition : plus récente d’abord', asc: 'Mise à disposition : plus ancienne d’abord' },
+  dateMiseDisposition: { desc: 'Remise : plus récente d’abord', asc: 'Remise : plus ancienne d’abord' },
   reference: { asc: 'Référence : croissante', desc: 'Référence : décroissante' },
   collaborateur: { asc: 'Collaborateur : A → Z', desc: 'Collaborateur : Z → A' },
   filiale: { asc: 'Filiale : A → Z', desc: 'Filiale : Z → A' },

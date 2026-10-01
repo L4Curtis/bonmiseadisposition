@@ -11,6 +11,7 @@ import {
   MessageSquareWarning,
   Server,
   Mail,
+  Laptop,
 } from 'lucide-react';
 import type { UiView } from '@/contexts/UiViewContext';
 import { SCREEN_LABELS } from '@/domain/labels';
@@ -43,6 +44,11 @@ const followUpGroup: NavGroup = {
 };
 
 const catalogueItem: NavItem = { to: '/admin/catalogue', icon: Package, label: SCREEN_LABELS.catalogue };
+const mesEquipementsItem: NavItem = { to: '/mes-equipements', icon: Laptop, label: SCREEN_LABELS.mesEquipements };
+
+/** « Mes équipements », en bas du menu : chacun, IT compris, retrouve le
+ *  matériel qui lui est prêté (plan §1). Rubrique sans titre. */
+const mineGroup: NavGroup = { title: '', items: [mesEquipementsItem] };
 const inventaireItem: NavItem = { to: '/inventaire', icon: Boxes, label: SCREEN_LABELS.inventaire };
 
 // Le technicien voit et modifie le Catalogue, mais ne gère ni les comptes
@@ -50,6 +56,7 @@ const inventaireItem: NavItem = { to: '/inventaire', icon: Boxes, label: SCREEN_
 const technicienNavGroups: readonly NavGroup[] = [
   followUpGroup,
   { title: 'Référentiels', items: [catalogueItem, inventaireItem] },
+  mineGroup,
 ];
 
 const adminNavGroups: readonly NavGroup[] = [
@@ -72,15 +79,11 @@ const adminNavGroups: readonly NavGroup[] = [
       { to: '/admin/audit', icon: ScrollText, label: 'Journal d\'audit' },
     ],
   },
+  mineGroup,
 ];
 
 // Une seule entrée : pas de rubrique (titre vide) au-dessus d'elle.
-const collaboratorNavGroups: readonly NavGroup[] = [
-  {
-    title: '',
-    items: [{ to: '/mes-bons', icon: Package, label: SCREEN_LABELS.mesEquipements }],
-  },
-];
+const collaboratorNavGroups: readonly NavGroup[] = [mineGroup];
 
 const directionNavGroups: readonly NavGroup[] = [
   {

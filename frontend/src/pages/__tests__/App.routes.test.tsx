@@ -157,3 +157,36 @@ describe('Titre de l’onglet', () => {
     await waitFor(() => expect(document.title).toBe('Catalogue · Bons IT'));
   });
 });
+
+describe('« Mes équipements » à l’adresse /mes-equipements (R5)', () => {
+  beforeEach(() => {
+    vi.mocked(api.get).mockImplementation((path: string) =>
+      Promise.resolve(path.startsWith('/bons/mes-bons') || path.startsWith('/contestations/mine') ? [] : null),
+    );
+  });
+
+  it('/mes-equipements ouvre le portail du collaborateur', async () => {
+    mockUser = userWithRole('collaborator');
+    renderWithProviders(<App />, { route: '/mes-equipements' });
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Mes équipements' })).toBeInTheDocument();
+    await waitFor(() => expect(document.title).toBe('Mes équipements · Bons IT'));
+  });
+
+  it('l’ancienne adresse /mes-bons redirige vers /mes-equipements (lien du menu actif)', async () => {
+    mockUser = userWithRole('collaborator');
+    renderWithProviders(<App />, { route: '/mes-bons' });
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Mes équipements' })).toBeInTheDocument();
+    const link = screen.getAllByRole('link', { name: /Mes équipements/ })[0];
+    expect(link).toHaveAttribute('href', '/mes-equipements');
+    await waitFor(() => expect(link).toHaveAttribute('aria-current', 'page'));
+  });
+
+  it('un technicien ouvre aussi son portail depuis /mes-equipements', async () => {
+    mockUser = userWithRole('technician');
+    renderWithProviders(<App />, { route: '/mes-equipements' });
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Mes équipements' })).toBeInTheDocument();
+  });
+});

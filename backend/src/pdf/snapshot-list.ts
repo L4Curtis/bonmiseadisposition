@@ -6,7 +6,7 @@ import { DocumentAudience, audienceWhere } from './snapshot-audience';
 /**
  * Liste des documents d'un bon (GET /bons/:id/pdf-snapshots) : TOUS les
  * documents enregistrés, du plus ancien au plus récent, chacun avec sa date,
- * son empreinte, son rang parmi ceux du même type et, s'il ne vaut plus,
+ * son empreinte, son rang dans sa série (même type, même signataire) et, s'il ne vaut plus,
  * pourquoi. La fiche IT la lit telle quelle ; le portail du collaborateur
  * reçoit seulement les documents qu'il peut garder (snapshot-audience.ts),
  * rangs comptés parmi ceux-là.
@@ -26,16 +26,28 @@ export interface DocumentRow {
   } | null;
 }
 
-function sameTypeCount(rows: readonly DocumentRow[], type: PdfSnapshotType): number {
-  return rows.filter((r) => r.type === type).length;
+/**
+ * Série d'un document : son type ET son signataire. Le PV garde le même type
+ * avant et après la signature du collaborateur ; ses deux versions (signée
+ * par l'IT seule, puis par le collaborateur) forment deux séries, comme la
+ * remise et la restitution dont la signature IT a son propre type.
+ */
+function seriesOf(row: DocumentRow): string {
+  const signer = row.signature ? (row.signature.type === 'it_cachet' ? 'it' : 'collaborateur') : 'aucun';
+  return `${row.type}:${signer}`;
+}
+
+function sameSeriesCount(rows: readonly DocumentRow[], series: string): number {
+  return rows.filter((r) => seriesOf(r) === series).length;
 }
 
 /** Met en forme des lignes déjà triées (plus ancien d'abord). Un bon compte
  *  au plus quelques dizaines de documents : le décompte direct suffit. */
 export function toDocumentList(rows: readonly DocumentRow[]): PdfSnapshotInfo[] {
   return rows.map((row, index) => {
-    const sequence = sameTypeCount(rows.slice(0, index + 1), row.type);
-    const sequenceCount = sameTypeCount(rows, row.type);
+    const series = seriesOf(row);
+    const sequence = sameSeriesCount(rows.slice(0, index + 1), series);
+    const sequenceCount = sameSeriesCount(rows, series);
     const invalidated = row.signature?.invalidatedAt ?? null;
     return {
       id: row.id,

@@ -4,6 +4,9 @@ import { toast } from '@/hooks/use-toast';
 import { errorMessage } from '@/lib/errors';
 import type { BonFiche } from '../types';
 
+/** Clé de chargement du PV prêt (aucun identifiant de document : il n'est pas enregistré). */
+export const READY_PV_LOADING_KEY = 'pv-pret';
+
 /** Téléchargement des PDF (document courant et snapshots historiques). */
 export function usePdfDownloads(id: string | undefined, bon: BonFiche | null) {
   const [pdfLoading, setPdfLoading] = useState<string | null>(null);
@@ -45,5 +48,22 @@ export function usePdfDownloads(id: string | undefined, bon: BonFiche | null) {
     } finally { setPdfLoading(null); }
   };
 
-  return { pdfLoading, downloadPdf, downloadPdfSnapshot, headerPdfType };
+  /** PV de non-restitution prêt (certifié par la signature IT, pas encore
+   *  émis) : généré à la volée par le serveur, sous le nom qu'il lui donne. */
+  const downloadReadyPv = async () => {
+    setPdfLoading(READY_PV_LOADING_KEY);
+    try {
+      const file = await api.getFile(`/bons/${id}/pdf/pv-pret`);
+      const url = URL.createObjectURL(file.blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = file.filename ?? `${bon?.reference || id}_PV-de-non-restitution_signature-IT.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e: unknown) {
+      toast({ title: 'Erreur PDF', description: errorMessage(e, 'Erreur lors du téléchargement du PV'), variant: 'destructive' });
+    } finally { setPdfLoading(null); }
+  };
+
+  return { pdfLoading, downloadPdf, downloadPdfSnapshot, downloadReadyPv, headerPdfType };
 }

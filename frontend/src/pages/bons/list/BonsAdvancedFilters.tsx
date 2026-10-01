@@ -27,7 +27,7 @@ export function BonsAdvancedFilters({ query, onChange, currentUserId, creators }
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
       <fieldset className="flex flex-wrap items-center gap-2">
-        <legend className="sr-only">Période de mise à disposition</legend>
+        <legend className="sr-only">Période de remise</legend>
         <label htmlFor="bons-date-from" className="text-muted-foreground">Mis à disposition du</label>
         <input
           id="bons-date-from"

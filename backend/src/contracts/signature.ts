@@ -39,7 +39,18 @@ export interface SignatureReplacedResponse {
    *  invalidé avant la vague 2, motif déduit de l'état du bon. Facultatif le
    *  temps de la vague 2, obligatoire ensuite. */
   invalidatedReason?: SignatureInvalidationReason | null;
+  /** Document du lien (remise, restitution, PV). */
+  documentType: LinkSignatureType;
+  /** Ce qui a suivi l'invalidation (signature/link-follow-up.ts) : la page ne
+   *  dit « un nouveau lien vous a été envoyé » que s'il est parti, et « vous
+   *  sera envoyé » que si le document attend encore. */
+  followUp: LinkFollowUp;
 }
+
+/** Suite d'un lien invalidé : nouveau lien parti par email, document à signer
+ *  au guichet, nouveau lien encore à venir (correction ou signature IT en
+ *  cours), ou plus rien à signer pour ce document. */
+export type LinkFollowUp = 'link_sent' | 'in_person' | 'link_coming' | 'none';
 
 /** Lien arrivé à expiration. La page propose « Demander un nouveau lien »
  *  (POST /api/signature/:token/request-new-link). */
