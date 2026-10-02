@@ -4,12 +4,10 @@
  *
  * Les valeurs de départ proposées sont celles que le serveur applique déjà
  * quand rien n'est enregistré (retention.service.ts) : enregistrer puis activer
- * sans rien changer ne réserve donc aucune surprise. Les minimums reprennent
- * ceux du serveur (admin.controller.ts, INTEGER_CONFIG_RULES) — le plancher de
- * 60 mois de l'anonymisation y est imposé, ici on l'explique avant l'envoi. Le
- * maximum de 600 mois est celui au-delà duquel le serveur plafonne la durée
- * (retention.service.ts, getMonths) ; les autres maximums sont de simples
- * garde-fous de saisie.
+ * sans rien changer ne réserve donc aucune surprise. Les bornes sont celles du
+ * registre de configuration du serveur (backend/src/config/config-registry.ts),
+ * qui refuse toute valeur hors bornes à l'enregistrement : le plancher légal de
+ * 60 mois de l'anonymisation y est imposé, ici on l'explique avant l'envoi.
  */
 
 export type RetentionDurationKey = 'anonymize_months' | 'attachment_months' | 'expired_tokens_days' | 'audit_logs_years';

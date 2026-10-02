@@ -279,9 +279,13 @@ Après 10 échecs de connexion depuis un même poste en 30 minutes, le compte es
 (« Compte temporairement verrouillé… ») ; après 30 échecs depuis un même poste, tous comptes confondus, c'est le
 poste qui l'est (« Trop de tentatives depuis votre adresse… »). Le verrou tombe seul au bout de 30 minutes.
 
-Pour un autre compte local, un administrateur le lève tout de suite : page Utilisateurs, bouton
-« Déverrouiller ». Le déverrouillage n'efface rien : il ajoute au journal une entrée « Compte déverrouillé »,
-et seuls les échecs postérieurs comptent encore. Pour `admin@local`, quand plus aucun administrateur ne peut se
+Pour un autre compte local, un administrateur le lève tout de suite : page Utilisateurs, le compte porte la
+pastille « Verrouillé jusqu'à HH:MM » et le bouton « Déverrouiller » (absent sur un compte qui n'est pas
+verrouillé). Le déverrouillage n'efface rien : il ajoute au journal une entrée « Compte déverrouillé », et seuls
+les échecs postérieurs comptent encore. Il ne lève **que** le verrou du compte : si le poste d'où venaient les
+essais est lui-même bloqué (30 échecs, tous comptes confondus), le message l'indique avec l'heure de fin, et la
+personne se connecte d'ici là depuis un autre poste. Le message « Trop de requêtes » (plus de 5 essais en une
+minute depuis un même poste) n'est pas un verrou : il disparaît seul au bout d'une minute. Pour `admin@local`, quand plus aucun administrateur ne peut se
 connecter, ajouter cette même entrée à la main, depuis la Console de `bons-db` (machine base) :
 
 ```sh
@@ -329,7 +333,9 @@ par défaut : sans configuration, la connexion échoue avec une erreur TLS (voir
    « CA interne pour LDAPS »).
 4. Portainer → Stack `bons-app` → Update the stack.
 5. Administration → Configuration → Active Directory : URL `ldaps://<FQDN du contrôleur de domaine>:636`, puis
-   **Tester la connexion LDAP**.
+   **retapez le mot de passe du compte de service**, puis **Tester la connexion LDAP** (le test porte sur les
+   valeurs affichées, même non enregistrées ; par sécurité, le mot de passe enregistré n'est réutilisé que pour
+   l'URL et le Bind DN enregistrés), puis **Enregistrer**.
 
 | Message affiché | Remède |
 |------------------|--------|

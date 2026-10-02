@@ -150,6 +150,15 @@ Règles :
   liste à sélection multiple ou à lignes dépliables compose son propre tableau avec `SortableHeader` et
   `TH_CLASS`, et garde `ListCards` pour le téléphone : pas de « tableau qui fait tout ».
 - **Tailles tactiles** : les boutons de `Pagination` et de `ListState` font 44 px de haut sur téléphone.
+- **Liste des bons** (`pages/bons/list/`) : son état vit dans `bonsListQuery.ts` (écriture vers l'adresse,
+  l'API et la mémoire du navigateur) et se lit par `readListQuery.ts`, qui vérifie chaque valeur venue de
+  l'adresse ou de la mémoire avec les règles du serveur (date réelle, statut connu, identifiant, référence,
+  longueur de recherche, tri, période dont le début précède la fin). Une valeur invalide est **écartée et
+  signalée** en clair au-dessus de la liste (« Un filtre n'était pas valide et a été ignoré : date de début de
+  mise à disposition. »), puis effacée de l'adresse et de la mémoire : un lien abîmé ne bloque jamais la liste.
+  Une période inversée saisie à l'écran reste dans ses champs, marquée en erreur avec un message sous les
+  dates, mais n'est ni envoyée au serveur ni exportée ni mémorisée. La mémoire garde les filtres choisis à
+  l'écran et le tri, jamais la page, la référence exacte ni les périodes posées par un lien du tableau de bord.
 
 ### 1.4 Téléchargements
 
@@ -298,8 +307,9 @@ Copies encore en place :
   `pages/admin/catalogue/useCatalogueFilters.ts`, `pages/admin/email-templates/BonPicker.tsx`,
   `pages/admin/Utilisateurs.tsx`, `pages/inventaire/useInventory.ts`, `pages/bons/create/DuplicateBonButton.tsx`,
   `pages/bons/create/UserAutocomplete.tsx` ;
-- **pagination** : `Utilisateurs.tsx`, `AuditLogs.tsx`, `Inventaire.tsx`, `catalogue/CataloguePagination.tsx`
-  (la liste des bons et celle des contestations passent par `Pagination`, 25/50/100 lignes) ;
+- **pagination** : `Inventaire.tsx`, `catalogue/CataloguePagination.tsx`, la fenêtre des listes du tableau de
+  bord (`dashboard/lists/KpiListDialog.tsx`) (les bons, les contestations, les utilisateurs et le journal
+  d'audit passent par `Pagination`, 25/50/100 lignes) ;
 - **en-tête triable** : `bons/list/SortableHeader.tsx`, `inventaire/InventorySortHeader.tsx`,
   `inventaire/CollaborateurTable.tsx`, `catalogue/CatalogueTable.tsx` ;
 - **libellés** propres à `pages/bons/**` (`bons/detail/types.ts`, `BonAttachments.tsx`, `BonIntegrity.tsx`,
@@ -333,19 +343,36 @@ la direction, les listes qui mènent à des bons sont remplacées par `NO_LIST.d
 La comparaison à la période précédente dit toujours « contre N sur la période précédente », précédée de l'écart
 en % quand il se calcule. Définitions et listes : `docs/architecture.md` § 9.
 
+Une liste « sur la période » dont la liste des bons a l'équivalent exact (`BONS_LIST_FILTERS` dans
+`lists/kpi-lists.ts` : créés → `createdFrom/createdTo`, clôturés → `closedFrom/closedTo`, annulés →
+`cancelledFrom/cancelledTo`) mène à `/bons` filtré sur la période et la filiale affichées
+(`useKpiListHref`) : on y trie, on y exporte. Les autres (envoyés, PV, sans signature, contestations, emails,
+signatures) s'ouvrent dans le tableau de bord (`?liste=…`, `KpiListDialog`). N'ajoutez une entrée à
+`BONS_LIST_FILTERS` qu'avec la preuve sur base réelle que le filtre donne les mêmes bons que la carte
+(`backend/src/kpi/__tests__/kpi-lists.real-db.spec.ts`).
+
+« Bons par statut » : une couleur par statut, la même dans le donut et la légende, en clair comme en sombre
+(`lib/status-chart-colors.ts` : les cinq `--chart-*` et `--muted-foreground`, plus deux teintes propres
+au graphique ; écart minimal vérifié par `lib/__tests__/status-chart-colors.test.ts`).
+
 ### 1.12 Administration : configuration, tests de connexion, journal d'audit
 
 - **Configuration** (`components/admin/ConfigSection.tsx`, `ConfigFields.tsx`) : chaque rubrique lit en plus
   le registre du serveur (`pages/admin/configuration/useConfigRegistry.ts`, GET `/admin/config/registry`).
-  Sous un champ vide : « Valeur appliquée : 3 (par défaut) » ; sous une saisie hors bornes ou illisible,
-  l'avertissement de ce qui s'applique vraiment (`appliedValue.ts`). Un interrupteur jamais enregistré montre
+  Sous un champ vide : « Valeur appliquée : 3 (par défaut) » ; sous un nombre ou un interrupteur saisi,
+  « Valeur appliquée : 30 » ; sous une saisie hors bornes ou illisible, l'avertissement de ce qui s'applique
+  vraiment (`appliedValue.ts`). Les bornes s'affichent dans l'aide du champ (« Entre 1 et 90 jours. »). Un interrupteur jamais enregistré montre
   l'état que le serveur applique. Ne mettez jamais une valeur par défaut en `placeholder` : un exemple de
   saisie seulement.
-- **Tests de connexion et relances** : la réponse est toujours `{ ok, message }` (`ConnectionTestResponse`) ;
+- **Tests de connexion et relances** : `onTest` de `ConfigSection` reçoit les valeurs saisies (un secret non
+  retapé en est absent) ; l'annuaire les envoie au serveur pour tester ce que l'écran affiche, sans
+  enregistrer (`ConfigLdapPage.tsx`). La réponse est toujours `{ ok, message }` (`ConnectionTestResponse`) ;
   l'écran affiche `message`, en rouge quand `ok` est faux (`ConfigTestButtons.tsx`, relance d'une copie SMB).
 - **Journal d'audit** (`pages/admin/audit-logs/`) : chaque entrée se lit par la phrase du catalogue
-  (`auditEntry.ts`, `fillAuditSentence`), jamais par les clés brutes de `details`. Les filtres vivent dans
-  l'adresse (`auditFilters.ts`) ; l'export passe par `ExportButton`.
+  (`auditEntry.ts`, `fillAuditSentence`), jamais par les clés brutes de `details`. Les filtres et la page
+  vivent dans l'adresse (`auditFilters.ts`, `usePagination`) ; pied de liste commun `Pagination`
+  (« 1–25 sur 608 entrées », 25/50/100 lignes, choix partagé avec les autres listes) ; l'export passe par
+  `ExportButton`.
 - **Modèles** : `/email-templates` et `/pdf-templates` (plus sous `/admin`).
 
 ## 2. Retours à l'utilisateur
@@ -386,6 +413,12 @@ en % quand il se calcule. Définitions et listes : `docs/architecture.md` § 9.
 
 - Validation : schémas zod dans `lib/validation.ts` (`loginSchema`, `changePasswordSchema`, `bonCreateSchema`,
   `contestationSchema`) et `validate(schema, valeurs)`, qui renvoie les erreurs par champ.
+- Formulaire d'un bon (`pages/bons/create/`) : `runBonValidation` rend **toutes** les erreurs à la fois, une
+  par champ, dans l'ordre de l'écran. Après un premier envoi refusé, `useBonFormErrors` les recalcule à chaque
+  saisie : le récapitulatif (`FormErrorSummary`, dont chaque ligne amène à son champ) et le message sous le
+  champ (`FieldError`, relié par `aria-describedby`, champ en `aria-invalid`) disparaissent dès la correction.
+  Le formulaire est en `noValidate` : la validation du navigateur, qui s'arrête à la première erreur, n'intervient
+  pas. Les erreurs du serveur restent dans leur propre bandeau.
 - Chaque étiquette est reliée à son champ (`<Label htmlFor>` et `id`) ; les champs de mot de passe portent
   `autoComplete`.
 - Saisie non enregistrée : `useUnsavedChangesWarning(dirty)` (`hooks/use-unsaved-changes.ts`) prévient avant de

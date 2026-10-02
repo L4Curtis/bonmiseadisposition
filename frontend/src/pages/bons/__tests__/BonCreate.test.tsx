@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Rendu complet de la page de création (catalogue, autocomplétion) : sous la
 // charge de la suite parallèle, le délai par défaut de 5 s est parfois dépassé.
 vi.setConfig({ testTimeout: 20000 });
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/render';
 import { resetActiveFilialesForTests } from '@/hooks/use-active-filiales';
@@ -194,7 +194,8 @@ describe('BonCreatePage — validation avant envoi', () => {
     await user.click(screen.getByRole('radio', { name: 'Monsieur' }));
     await user.click(screen.getByRole('button', { name: /créer le bon/i }));
 
-    expect(await screen.findByText(/Numéro de série en double/i)).toBeInTheDocument();
+    const summary = await screen.findByRole('alert', { name: /point à corriger/ });
+    expect(within(summary).getByText(/Numéro de série en double/i)).toBeInTheDocument();
     expect(api.post).not.toHaveBeenCalled();
   });
 
@@ -272,7 +273,8 @@ describe('BonCreatePage — validation avant envoi', () => {
     // sans collaborateur ; voir la limite notée dans le rapport final).
     await user.click(await screen.findByRole('button', { name: /créer le bon/i }));
 
-    expect(await screen.findByText('Sélectionnez un collaborateur')).toBeInTheDocument();
+    const summary = await screen.findByRole('alert', { name: /points? à corriger/ });
+    expect(within(summary).getByText('Sélectionnez un collaborateur')).toBeInTheDocument();
     expect(api.post).not.toHaveBeenCalled();
   });
 });
@@ -585,7 +587,8 @@ describe('BonCreatePage — civilité sans valeur par défaut (R-002)', () => {
     expect(screen.getByRole('radio', { name: 'Madame' })).toHaveAttribute('aria-checked', 'false');
     expect(screen.getByRole('radio', { name: 'Monsieur' })).toHaveAttribute('aria-checked', 'false');
     await user.click(screen.getByRole('button', { name: /créer le bon/i }));
-    expect(await screen.findByText(/Choisissez la civilité/)).toBeInTheDocument();
+    const summary = await screen.findByRole('alert', { name: /point à corriger/ });
+    expect(within(summary).getByText(/Choisissez la civilité/)).toBeInTheDocument();
     expect(api.post).not.toHaveBeenCalled();
   });
 
@@ -596,5 +599,84 @@ describe('BonCreatePage — civilité sans valeur par défaut (R-002)', () => {
     await user.click(await screen.findByText('Léa Martin'));
     expect(screen.getByRole('radio', { name: 'Madame' })).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByText(/Reprise du compte du collaborateur/)).toBeInTheDocument();
+  });
+});
+
+describe('BonCreatePage — formulaire envoyé vide : toutes les erreurs à la fois', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.localStorage.clear();
+    resetActiveFilialesForTests();
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (path.startsWith('/filiales/active')) return Promise.resolve([{ id: 'f1', name: 'siege', displayName: 'Siège', active: true }]);
+      if (path.startsWith('/equipment/catalog')) return Promise.resolve([]);
+      if (path.startsWith('/equipment/packs')) return Promise.resolve([]);
+      if (path.startsWith('/users/search')) {
+        return Promise.resolve([{ id: 'u2', displayName: 'Paul Neuf', email: 'paul@livio.fr', civilite: null }]);
+      }
+      return Promise.reject(new Error(`GET non mocké dans ce test : ${path}`));
+    });
+  });
+
+  it('liste chaque erreur dans le récapitulatif et marque chaque champ fautif à son endroit', async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    renderWithProviders(<BonCreatePage />);
+    fireEvent.change(screen.getByLabelText(/Date de mise à disposition/), { target: { value: '' } });
+
+    await user.click(screen.getByRole('button', { name: /créer le bon/i }));
+
+    const summary = await screen.findByRole('alert', { name: '5 points à corriger' });
+    const items = within(summary).getAllByRole('listitem').map((li) => li.textContent);
+    expect(items).toEqual([
+      'Choisissez la civilité du collaborateur (Madame ou Monsieur).',
+      'Sélectionnez une filiale',
+      'Sélectionnez un collaborateur',
+      'Indiquez la date de mise à disposition',
+      'Ajoutez au moins un équipement',
+    ]);
+    expect(screen.getByRole('radiogroup', { name: /Civilité/ })).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByRole('combobox', { name: 'Rechercher un collaborateur' })).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByLabelText(/Date de mise à disposition/)).toHaveAttribute('aria-invalid', 'true');
+    expect(document.getElementById('filiale-select')).toHaveAttribute('aria-invalid', 'true');
+    // Chaque champ annonce son propre message (aria-describedby).
+    const dateInput = screen.getByLabelText(/Date de mise à disposition/);
+    const described = document.getElementById(dateInput.getAttribute('aria-describedby') ?? '');
+    expect(described).toHaveTextContent('Indiquez la date de mise à disposition');
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it('le récapitulatif se met à jour dès qu’une erreur est corrigée, puis disparaît', async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    renderWithProviders(<BonCreatePage />);
+    await user.click(screen.getByRole('button', { name: /créer le bon/i }));
+    await screen.findByRole('alert', { name: '4 points à corriger' });
+
+    await user.type(screen.getByPlaceholderText('Rechercher un collaborateur...'), 'Paul');
+    await user.click(await screen.findByText('Paul Neuf'));
+
+    const summary = await screen.findByRole('alert', { name: '3 points à corriger' });
+    expect(within(summary).queryByText('Sélectionnez un collaborateur')).toBeNull();
+    expect(screen.queryByText('Sélectionnez un collaborateur')).toBeNull();
+
+    await user.click(screen.getByRole('radio', { name: 'Monsieur' }));
+    await user.click(screen.getByText('Sélectionner une filiale...'));
+    await user.click(await screen.findByRole('option', { name: 'Siège' }));
+    await user.type(screen.getAllByPlaceholderText('Libellé personnalisé')[0], 'Laptop A');
+
+    await waitFor(() => expect(screen.queryByRole('alert', { name: /à corriger/ })).toBeNull());
+    expect(screen.getByRole('radiogroup', { name: /Civilité/ })).not.toHaveAttribute('aria-invalid');
+  });
+
+  it('un point du récapitulatif amène au champ concerné (cible tactile)', async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    renderWithProviders(<BonCreatePage />);
+    await user.click(screen.getByRole('button', { name: /créer le bon/i }));
+    const summary = await screen.findByRole('alert', { name: /points à corriger/ });
+
+    const goToCollaborateur = within(summary).getByRole('button', { name: 'Sélectionnez un collaborateur' });
+    expect(goToCollaborateur.className).toContain('min-h-11');
+    await user.click(goToCollaborateur);
+
+    expect(screen.getByRole('combobox', { name: 'Rechercher un collaborateur' })).toHaveFocus();
   });
 });

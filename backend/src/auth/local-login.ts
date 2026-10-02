@@ -4,7 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { normalizeEmail } from './utils/normalize-email.util';
 import { computeMustChangePassword, PasswordPolicyUser } from './password-policy';
 import { AccountLockedException } from './exceptions';
-import { LOGIN_LOCK_WINDOW_MS, lockWindowStart } from '../audit/login-lock';
+import { ACCOUNT_LOCK_THRESHOLD, LOGIN_LOCK_WINDOW_MS, STATION_LOCK_THRESHOLD, lockWindowStart } from '../audit/login-lock';
 
 // Pre-computed hash to equalize timing between "unknown user" and "wrong password"
 // (prevents user enumeration through bcrypt timing).
@@ -31,15 +31,16 @@ type LocalUser = PasswordPolicyUser & {
 
 // ─── Protection anti force brute (déduite du journal, survit aux redémarrages)
 // Deux dimensions indépendantes :
-//  - verrou par COMPTE : ≥10 échecs pour (email, IP) en 30 min, comptés
+//  - verrou par COMPTE : ≥ACCOUNT_LOCK_THRESHOLD (10) échecs pour (email, IP) en 30 min, comptés
 //    depuis le dernier déverrouillage par l'administrateur s'il est plus
 //    récent (audit/login-lock.ts : le déverrouillage n'efface rien du
 //    journal). Sans la dimension IP, n'importe qui pouvait verrouiller
 //    admin@local (compte de secours) depuis n'importe où avec le bon email.
-//  - verrou par IP : ≥30 échecs depuis une même IP en 30 min, toutes cibles
+//  - verrou par IP : ≥STATION_LOCK_THRESHOLD (30) échecs depuis une même IP en 30 min, toutes cibles
 //    confondues — bloque le credential-stuffing qui teste beaucoup d'emails
 //    différents depuis une seule IP (ce que le verrou par compte ne couvre pas).
 // Failed login audit entries are recorded by the controller after this check;
+// Mêmes seuils que l'état affiché dans l'écran Utilisateurs (audit/login-lock.ts).
 // lockout rejections are logged as login_local_locked (not counted here) so
 // that probing a locked account cannot extend the lockout indefinitely.
 async function checkBruteForce(deps: Pick<LocalLoginDeps, 'prisma' | 'logger'>, email: string, ip: string): Promise<void> {
@@ -54,11 +55,11 @@ async function checkBruteForce(deps: Pick<LocalLoginDeps, 'prisma' | 'logger'>, 
       where: { ipAddress: ip, action: 'login_local_failed', createdAt: { gte: ipWindowStart } },
     }),
   ]);
-  if (accountFailures >= 10) {
+  if (accountFailures >= ACCOUNT_LOCK_THRESHOLD) {
     deps.logger.warn(`Compte ${email} bloqué depuis l'IP ${ip} (${accountFailures} échecs en 30 min)`);
     throw new AccountLockedException();
   }
-  if (ipFailures >= 30) {
+  if (ipFailures >= STATION_LOCK_THRESHOLD) {
     deps.logger.warn(`IP ${ip} bloquée (${ipFailures} échecs toutes cibles confondues en 30 min)`);
     throw new AccountLockedException('Trop de tentatives depuis votre adresse. Réessayez dans 30 minutes.');
   }

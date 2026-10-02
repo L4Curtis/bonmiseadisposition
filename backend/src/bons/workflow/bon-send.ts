@@ -19,6 +19,12 @@ import { writeAuditEntry } from '../../audit/audit-record';
  * email si `canSendLink` l'autorise (R-004, R-009), sinon au guichet.
  */
 
+/** Voie de la remise, dans la phrase du journal : au guichet, aucun email ne part. */
+export const HANDOVER_CHANNELS = Object.freeze({
+  email: 'lien envoyé par email',
+  inPerson: 'lien de signature au guichet',
+});
+
 /** Passe le brouillon en « Remise à signer » (transition conditionnelle) et
  *  démarre l'horloge de la demande (`awaitingSince`). */
 async function markHandoverRequested(ctx: BonsWorkflowContext, id: string, actorId: string | null, inPerson: boolean) {
@@ -27,7 +33,8 @@ async function markHandoverRequested(ctx: BonsWorkflowContext, id: string, actor
     data: { status: 'sent_mise_dispo', awaitingSince: new Date() },
   });
   if (transition.count === 0) throw statusChangedMeanwhile();
-  await writeAuditEntry(ctx.prisma, 'bon_sent', { actorId, bonId: id, details: { inPerson } });
+  const channel = inPerson ? HANDOVER_CHANNELS.inPerson : HANDOVER_CHANNELS.email;
+  await writeAuditEntry(ctx.prisma, 'bon_sent', { actorId, bonId: id, details: { inPerson, channel } });
 }
 
 /** Contrôles communs aux deux voies de remise, AVANT toute écriture. */

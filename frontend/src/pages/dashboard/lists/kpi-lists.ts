@@ -1,10 +1,17 @@
 /**
- * Listes des chiffres « sur la période » (onglets Délais et Incidents) :
- * `GET /kpi/liste?indicateur=…` rend exactement ce que la carte compte, pour
- * la même période et la même filiale (backend/src/kpi/lists). La liste
- * s'ouvre dans le tableau de bord, par le paramètre d'adresse `liste` : le
- * lien se partage, le bouton retour la referme. Réservé à l'IT : chaque
- * ligne mène à un bon.
+ * Listes des chiffres « sur la période » (onglets Délais et Incidents).
+ *
+ * - Quand la liste des bons sait filtrer exactement ce que compte la carte
+ *   (bons créés, clôturés, annulés : `BONS_LIST_FILTERS`), le lien mène à
+ *   `/bons` filtré sur la période et la filiale : on peut y trier, exporter,
+ *   agir. L'égalité carte = liste filtrée est prouvée sur base réelle
+ *   (backend/src/kpi/__tests__/kpi-lists.real-db.spec.ts).
+ * - Sinon, `GET /kpi/liste?indicateur=…` rend exactement ce que la carte
+ *   compte (backend/src/kpi/lists) ; la liste s'ouvre dans le tableau de
+ *   bord, par le paramètre d'adresse `liste` : le lien se partage, le bouton
+ *   retour la referme.
+ *
+ * Réservé à l'IT dans les deux cas : chaque ligne mène à un bon.
  */
 import type { KpiListKey } from '@/contracts/kpi';
 import { UNITS, type Unit } from '../lib/kpi-scope';
@@ -44,8 +51,34 @@ export function isKpiListKey(value: string | null): value is KpiListKey {
   return value !== null && Object.prototype.hasOwnProperty.call(KPI_LISTS, value);
 }
 
-/** Adresse qui ouvre la liste `key` en gardant l'onglet, la période et la filiale. */
-export function kpiListHref(key: KpiListKey, current: URLSearchParams): string {
+/** Paramètres de période de la liste des bons (jours de Paris, bornes
+ *  incluses) qui désignent exactement les bons comptés par la carte. Absent :
+ *  aucun filtre équivalent (« Bons envoyés » se lit au journal), la liste
+ *  reste dans le tableau de bord. */
+export const BONS_LIST_FILTERS: Partial<Record<KpiListKey, readonly [from: string, to: string]>> = {
+  bons_crees: ['createdFrom', 'createdTo'],
+  bons_clotures: ['closedFrom', 'closedTo'],
+  bons_annules: ['cancelledFrom', 'cancelledTo'],
+};
+
+/** Période et filiale affichées par le tableau de bord. */
+export interface KpiListScope {
+  readonly from: string;
+  readonly to: string;
+  readonly filialeId: string | null;
+}
+
+/** Adresse de la liste du chiffre `key` : la liste des bons filtrée quand elle
+ *  existe, sinon la liste dans le tableau de bord (onglet, période et filiale
+ *  gardés). */
+export function kpiListHref(key: KpiListKey, current: URLSearchParams, scope: KpiListScope): string {
+  const bonsFilter = BONS_LIST_FILTERS[key];
+  if (bonsFilter) {
+    const [fromParam, toParam] = bonsFilter;
+    const params = new URLSearchParams({ [fromParam]: scope.from, [toParam]: scope.to });
+    if (scope.filialeId) params.set('filialeId', scope.filialeId);
+    return `/bons?${params.toString()}`;
+  }
   const next = new URLSearchParams(current);
   next.set(LIST_PARAM, key);
   next.delete('page');

@@ -3,13 +3,14 @@ import {
   DEFAULT_LIST_QUERY,
   hasActiveFilters,
   nextSort,
-  parseListQuery,
   toApiParams,
   toExportParams,
   toRememberedParams,
   toUrlParams,
 } from '../bonsListQuery';
+import { parseListQuery } from '../readListQuery';
 
+const CREATOR_ID = '5d1c0e8e-7a51-4f2b-a0a4-2c8e9b3f6d71';
 const parse = (qs: string) => parseListQuery(new URLSearchParams(qs));
 
 describe('parseListQuery', () => {
@@ -18,11 +19,11 @@ describe('parseListQuery', () => {
   });
 
   it('lit filtres, tri et page', () => {
-    expect(parse('search=jean&status=draft&overdue=1&dateFrom=2026-01-01&dateTo=2026-01-31&noReturnDate=1&createdById=u1&sort=reference&order=asc&page=3'))
+    expect(parse(`search=jean&status=draft&overdue=1&dateFrom=2026-01-01&dateTo=2026-01-31&noReturnDate=1&createdById=${CREATOR_ID}&sort=reference&order=asc&page=3`))
       .toEqual({
         ...DEFAULT_LIST_QUERY,
         search: 'jean', status: 'draft', overdue: true, dateFrom: '2026-01-01', dateTo: '2026-01-31',
-        noReturnDate: true, createdById: 'u1', sort: 'reference', order: 'asc', page: 3,
+        noReturnDate: true, createdById: CREATOR_ID, sort: 'reference', order: 'asc', page: 3,
       });
   });
 
@@ -54,6 +55,14 @@ describe('toRememberedParams', () => {
   it('mémorise filtres et tri, jamais la page', () => {
     const q = { ...DEFAULT_LIST_QUERY, status: 'draft', sort: 'reference' as const, order: 'asc' as const, page: 4 };
     expect(toRememberedParams(q).toString()).toBe('status=draft&sort=reference&order=asc');
+  });
+
+  it('ne mémorise pas la référence exacte ni les périodes posées par un lien du tableau de bord', () => {
+    const q = {
+      ...DEFAULT_LIST_QUERY, overdue: true, reference: 'BON-2026-0001',
+      cancelledFrom: '2026-09-01', cancelledTo: '2026-09-30', createdFrom: '2026-09-01',
+    };
+    expect(toRememberedParams(q).toString()).toBe('overdue=1');
   });
 });
 
@@ -101,7 +110,8 @@ describe('nextSort', () => {
 
 describe('filtres des tuiles de l’accueil (tuile = liste)', () => {
   it('lit et transmet awaitingSignature et linkExpired à l’API', async () => {
-    const { parseListQuery: parse, toApiParams: api, hasActiveFilters: active } = await import('../bonsListQuery');
+    const parse = parseListQuery;
+    const { toApiParams: api, hasActiveFilters: active } = await import('../bonsListQuery');
     const q = parse(new URLSearchParams('awaitingSignature=1&linkExpired=1'));
     expect(q).toMatchObject({ awaitingSignature: true, linkExpired: true });
     const params = api(q, 25);
@@ -113,7 +123,8 @@ describe('filtres des tuiles de l’accueil (tuile = liste)', () => {
 
 describe('filtre par sous-état (section « Restitution partielle à signer » de l’accueil)', () => {
   it('lit un sous-état connu et le transmet ; ignore une valeur inconnue', async () => {
-    const { parseListQuery: parse, toApiParams: api } = await import('../bonsListQuery');
+    const parse = parseListQuery;
+    const { toApiParams: api } = await import('../bonsListQuery');
     const q = parse(new URLSearchParams('subStatus=partial_restitution_to_sign'));
     expect(api(q, 25).get('subStatus')).toBe('partial_restitution_to_sign');
     expect(parse(new URLSearchParams('subStatus=nimporte')).subStatus).toBe('');

@@ -9,20 +9,29 @@ export interface BonsAdvancedFiltersProps {
   readonly onChange: (patch: AdvancedPatch) => void;
   readonly currentUserId: string | undefined;
   readonly creators: readonly BonCreator[];
+  /** Période de mise à disposition inversée : message affiché sous les dates. */
+  readonly dateRangeError?: string | null;
 }
+
+const DATE_RANGE_ERROR_ID = 'bons-date-range-error';
 
 const CHECKBOX_CLASS = 'h-4 w-4 rounded border-border accent-[hsl(var(--primary))] cursor-pointer';
 
 /** Deuxième ligne de filtres : période de mise à disposition, créateur du bon,
  *  étape d'une « Restitution en cours » (lien de l'accueil), « en retard » et
  *  « sans date de restitution prévue ». */
-export function BonsAdvancedFilters({ query, onChange, currentUserId, creators }: BonsAdvancedFiltersProps) {
+export function BonsAdvancedFilters({ query, onChange, currentUserId, creators, dateRangeError }: BonsAdvancedFiltersProps) {
   // Le créateur filtré peut ne plus figurer parmi les comptes actifs (compte
   // désactivé, lien partagé) : on garde alors une option pour ne pas afficher
   // un select vide alors que le filtre s'applique.
   const knownCreator = !query.createdById
     || query.createdById === currentUserId
     || creators.some((c) => c.id === query.createdById);
+
+  const invalidDateProps = dateRangeError
+    ? { 'aria-invalid': true as const, 'aria-describedby': DATE_RANGE_ERROR_ID }
+    : {};
+  const dateClass = `field-modern h-9 px-2${dateRangeError ? ' border-destructive' : ''}`;
 
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
@@ -32,7 +41,8 @@ export function BonsAdvancedFilters({ query, onChange, currentUserId, creators }
         <input
           id="bons-date-from"
           type="date"
-          className="field-modern h-9 px-2"
+          className={dateClass}
+          {...invalidDateProps}
           value={query.dateFrom}
           max={query.dateTo || undefined}
           onChange={(e) => onChange({ dateFrom: e.target.value })}
@@ -41,11 +51,17 @@ export function BonsAdvancedFilters({ query, onChange, currentUserId, creators }
         <input
           id="bons-date-to"
           type="date"
-          className="field-modern h-9 px-2"
+          className={dateClass}
+          {...invalidDateProps}
           value={query.dateTo}
           min={query.dateFrom || undefined}
           onChange={(e) => onChange({ dateTo: e.target.value })}
         />
+        {dateRangeError && (
+          <p id={DATE_RANGE_ERROR_ID} role="alert" className="basis-full text-xs text-destructive">
+            {dateRangeError}
+          </p>
+        )}
       </fieldset>
 
       <select

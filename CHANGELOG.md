@@ -49,6 +49,19 @@ Historique des évolutions notables de l'application. Les entrées les plus réc
 - Tests de connexion et emails de test limités à 10 par minute ; un mot de passe masqué renvoyé tel quel n'écrase plus
   le vrai.
 
+### Corrigé après la recette réelle de la vague 3
+- L'historique d'un bon dit la vérité : une signature au guichet est celle du collaborateur, « en présence de » du
+  technicien ; une remise au guichet n'annonce plus d'email ; premier envoi et renvoi d'un lien distingués ; la
+  clôture du bon et la modification d'un brouillon y figurent. Les anciennes lignes sont corrigées par une migration
+  de données (`20261002100000_audit_history_truth`).
+- Les réglages numériques ont un maximum (seuil « Signature en retard » : 1 à 90 jours). Le test de l'annuaire teste
+  les valeurs saisies, sans rien enregistrer (pour passer en LDAPS, retaper le mot de passe).
+- Un filtre abîmé dans l'adresse de la liste des bons est ignoré et signalé ; l'export des bons donne l'heure de
+  Paris ; « Nouveau bon » montre toutes les erreurs d'un coup.
+- Journal d'audit paginé 25/50/100 ; les cartes Créés, Clôturés et Annulés du tableau de bord ouvrent la liste des
+  bons filtrée ; une couleur par statut.
+- On voit quels comptes sont verrouillés (et jusqu'à quand) ; un faux fichier image est refusé comme cachet ou logo.
+
 ---
 
 ## 2026-09-27 — Refonte, vague 2 : le cycle de vie d'un bon, les documents et le mobile

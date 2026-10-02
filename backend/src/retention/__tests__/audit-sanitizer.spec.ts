@@ -26,4 +26,9 @@ describe('sanitizeAuditDetails', () => {
     expect(sanitizeAuditDetails(['message', 'reason'])).toEqual(['message', 'reason']);
     expect(sanitizeAuditDetails('message')).toBe('message');
   });
+
+  it('retire la précision « au guichet, en présence de … », qui nomme une personne', () => {
+    const result = sanitizeAuditDetails({ inPersonContext: 'au guichet, en présence de Julie Moreau', newStatus: 'archived' });
+    expect(result).toEqual({ newStatus: 'archived' });
+  });
 });

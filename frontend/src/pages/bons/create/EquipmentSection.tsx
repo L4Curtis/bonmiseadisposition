@@ -7,6 +7,8 @@ import { CatalogSearch } from './CatalogSearch';
 import { DuplicateBonButton } from './DuplicateBonButton';
 import { splitPastedSerials } from './lib/equipmentLines';
 import type { CatalogItem, EquipmentLine, Pack, SerialConflict } from './types';
+import { BON_FIELD_ANCHORS, invalidFieldProps } from './fieldAnchors';
+import { FieldError } from './FieldError';
 
 export interface EquipmentSectionProps {
   readonly equipments: EquipmentLine[];
@@ -30,6 +32,8 @@ export interface EquipmentSectionProps {
    *  volée, throttlé côté hook — voir useLiveSerialConflicts). */
   readonly onSerialBlur: (id: string, value: string) => void;
   readonly onImportDuplicatedEquipments: (lines: EquipmentLine[]) => void;
+  /** Erreur de saisie sur les équipements, montrée après un envoi refusé. */
+  readonly error?: string;
 }
 
 /** Carte « Équipements » : import depuis un pack, un bon existant ou le
@@ -56,6 +60,7 @@ export function EquipmentSection({
   onPasteSerial,
   onSerialBlur,
   onImportDuplicatedEquipments,
+  error,
 }: EquipmentSectionProps) {
   const activePacks = packs.filter((p) => (p as Pack & { active?: boolean }).active !== false);
 
@@ -74,10 +79,18 @@ export function EquipmentSection({
   }, [equipments]);
 
   return (
-    <Card>
+    // Cible du récapitulatif d'erreurs : la carte reçoit le focus, son message l'accompagne.
+    <Card
+      id={BON_FIELD_ANCHORS.equipments}
+      tabIndex={-1}
+      role="group"
+      aria-labelledby="bon-equipments-title"
+      {...invalidFieldProps('equipments', error)}
+      className={`outline-none focus-visible:ring-2 focus-visible:ring-ring${error ? ' border-destructive' : ''}`}
+    >
       <CardHeader>
         <div className="flex items-center justify-between flex-wrap gap-2">
-          <CardTitle className="text-base">Équipements</CardTitle>
+          <CardTitle id="bon-equipments-title" className="text-base">Équipements</CardTitle>
           <div className="flex flex-wrap gap-2">
             <DuplicateBonButton onImport={onImportDuplicatedEquipments} />
             {/* Import depuis pack */}
@@ -111,6 +124,7 @@ export function EquipmentSection({
         </div>
       </CardHeader>
       <CardContent className="space-y-2">
+        <FieldError field="equipments" message={error} />
         <CatalogSearch allItems={allCatalogItems} onAdd={onAddFromCatalog} />
 
         {equipments.length === 0 ? (

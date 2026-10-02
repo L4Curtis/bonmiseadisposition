@@ -13,7 +13,7 @@ import { BonsWorkflowContext } from './bon-context';
 import { assertActionAllowed, statusChangedMeanwhile } from './bon-guards';
 import { invalidateItSignatures, invalidatePendingLinks } from './bon-links';
 import { blankToNull, rememberCivilite } from './bon-crud';
-import { documentChanges } from './bon-document-diff';
+import { documentChanges, documentChangesLabel } from './bon-document-diff';
 import { writeAuditEntry } from '../../audit/audit-record';
 
 /**
@@ -24,6 +24,8 @@ import { writeAuditEntry } from '../../audit/audit-record';
  *    signature IT est exigée avant le nouveau lien ;
  *  - redémarre l'horloge de la demande ;
  *  - est tracée dans l'audit (« bon modifié après envoi », champs modifiés).
+ * La modification d'un brouillon est tracée elle aussi (« bon modifié »),
+ * dès qu'elle change le document.
  * Le nouveau lien part ensuite par le parcours habituel (signature IT, puis
  * « Renvoyer » ou lien au guichet).
  *
@@ -59,8 +61,9 @@ export async function updateBon(ctx: BonsWorkflowContext, id: string, dto: Updat
   });
 
   await rememberCivilite(ctx, (data.collaborateurId as string | undefined) ?? bon.collaborateurId, data.civilite as Civilite | undefined);
-  if (renewsRequest) {
-    await writeAuditEntry(ctx.prisma, 'bon_modified_after_send', { actorId, bonId: id, details: { fields: changes } });
+  if (documentChanged) {
+    const details = { fields: changes, fieldsLabel: documentChangesLabel(changes) };
+    await writeAuditEntry(ctx.prisma, renewsRequest ? 'bon_modified_after_send' : 'bon_updated', { actorId, bonId: id, details });
   }
 }
 

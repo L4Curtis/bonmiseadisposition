@@ -28,6 +28,7 @@ export async function resendSignatureLink(ctx: BonsWorkflowContext, bonId: strin
   const document = pendingDocument(facts);
   if (!document) throw new BadRequestException('Aucun document n’attend la signature du collaborateur.');
 
+  let resent = false;
   if (document === 'pv_cloture' && !(await pvEverEmitted(ctx, bonId))) {
     const emitted = await emitPvClotureIfDue(ctx, bonId, undefined, actorId);
     if (!emitted) throw new BadRequestException('Le PV de non-restitution n’a pas pu être émis pour ce bon.');
@@ -38,11 +39,22 @@ export async function resendSignatureLink(ctx: BonsWorkflowContext, bonId: strin
     const refuseRecentWithinMs = force ? undefined : RECENT_LINK_MS;
     const issued = await issueEmailLink(ctx, bon, document, actorId, { refuseRecentWithinMs });
     if (issued.reused) return { ok: true as const, message: ALREADY_SENT_MESSAGE };
+    resent = issued.resent === true;
   }
 
-  await writeAuditEntry(ctx.prisma, 'reminder_sent', { actorId, bonId, details: { manual: true, document } });
-  return { ok: true as const, message: 'Lien renvoyé avec succès' };
+  // Premier envoi du document (restitution, nouvelle version après une
+  // modification) ou renvoi du même document : deux phrases différentes.
+  const details = { manual: true, document, documentName: LINK_DOCUMENT_NAMES[document] };
+  await writeAuditEntry(ctx.prisma, resent ? 'reminder_sent' : 'signature_link_sent', { actorId, bonId, details });
+  return { ok: true as const, message: resent ? 'Lien renvoyé avec succès' : 'Lien envoyé avec succès' };
 }
+
+/** Document du lien, dans la phrase du journal (« le lien de signature de la restitution »). */
+const LINK_DOCUMENT_NAMES: Readonly<Record<string, string>> = Object.freeze({
+  mise_disposition: 'la mise à disposition',
+  restitution: 'la restitution',
+  pv_cloture: 'le PV de non-restitution',
+});
 
 async function pvEverEmitted(ctx: BonsWorkflowContext, bonId: string): Promise<boolean> {
   const snapshot = await ctx.prisma.pdfSnapshot.findFirst({

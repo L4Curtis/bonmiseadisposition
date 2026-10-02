@@ -223,7 +223,21 @@ bon_cancelled: { label: 'Bon annulé', sentence: '{acteur} a annulé le bon {bon
 ```
 
 Gabarit : `{acteur}` (nom ou email de l'auteur, « Le système » s'il n'y en a pas), `{bon}` (référence du bon),
-`{clé}` (clé de premier niveau de `details`), `[…]` segment retiré si une de ses variables manque.
+`{clé}` (clé de premier niveau de `details`), `[…]` segment retiré si une de ses variables manque. Un texte
+inséré perd ses espaces de bord et son point final : un motif saisi « Bon en double. » ne donne pas « (…).). ».
+
+**L'auteur est celui qui a fait le geste, pas forcément le compte connecté.** Une signature du collaborateur
+est écrite au nom du signataire (`signature/signature-audit.ts`) : au guichet sur le compte d'un technicien,
+c'est le titulaire, avec `details.inPersonContext` « au guichet, en présence de Julie Moreau » (comme le
+certificat du PDF) ; un mandataire est l'auteur de sa signature « pour le compte de » du titulaire. Une phrase
+dit la vérité sur ce qui s'est passé : la remise porte sa voie (`bon_sent`, `details.channel` : « lien envoyé
+par email » ou « lien de signature au guichet ») ; un lien par email depuis la fiche est un **premier envoi**
+(`signature_link_sent` : restitution, nouvelle version après une modification ou une correction) ou un
+**renvoi** du même document (`reminder_sent`, libellé « Lien renvoyé » ; les rappels automatiques ne sont pas
+au journal, ils sont dans l'historique des emails) ; la signature qui termine le bon ajoute « Le système a
+clôturé le bon » (`bon_closed`) ; la modification d'un brouillon est tracée (`bon_updated`, champs changés en
+toutes lettres dans `details.fieldsLabel`). Les entrées écrites avant ces règles ont été complétées par la
+migration `20261002100000_audit_history_truth` (données seulement, idempotente).
 `auditSentence({ action, actorName, bonReference, details })` (`audit/audit-actions.ts`) et
 `fillAuditSentence(gabarit, valeurs)` (côté front, depuis `@/contracts/audit-actions`) produisent la phrase.
 
@@ -263,7 +277,32 @@ hors bornes est refusée (400 `validation_failed`, avec le libellé et les borne
 hors bornes (saisie avant qu'une borne existe) est **ramenée à la borne** par le registre pour tous les
 consommateurs (rappels, liens, rétention, annuaire, SMTP…), sans repli silencieux sur le défaut ; l'écran
 l'annonce sous le champ (« La valeur saisie (0) est hors des bornes : valeur appliquée 1 (minimum). »). Un
-champ vide affiche « Valeur appliquée : 3 (par défaut) ».
+champ vide affiche « Valeur appliquée : 3 (par défaut) » ; un nombre ou un interrupteur saisi, « Valeur
+appliquée : 30 », aussi après rechargement.
+
+**Chaque entier a deux bornes** (le registre l'impose à la compilation) : une faute de frappe (500 au lieu de
+50) est refusée au lieu de dérégler l'application. L'écran affiche les bornes sous le champ.
+
+| Réglage | Bornes | Pourquoi |
+|---|---|---|
+| `rappels.delay_1`, `delay_2`, `delay_3` | 1 à 90 jours | au-delà de trois mois, un rappel n'a plus d'utilité |
+| `rappels.restitution_before_days` | 0 à 90 jours | 0 = aucun rappel de restitution |
+| `rappels.signature_overdue_days` | 1 à 90 jours | un seuil trop haut ferait disparaître toutes les alertes de retard |
+| `tokens.expiry_days` | 1 à 30 jours | durée de vie d'un lien de signature |
+| `ldap.sync_interval_hours` | 1 à 168 heures | au-delà d'une semaine, un départ serait détecté trop tard |
+| `smtp.port` | 1 à 65535 | plage des ports TCP |
+| `retention.anonymize_months` | 60 à 600 mois | plancher légal de conservation des bons |
+| `retention.attachment_months` | 1 à 600 mois | mêmes bornes que l'assistant de rétention |
+| `retention.expired_tokens_days` | 1 à 3650 jours | idem |
+| `retention.audit_logs_years` | 1 à 100 ans | idem |
+
+**Tests de connexion.** `POST /admin/config/test/ldap` teste les valeurs **saisies** dans le formulaire
+(`url`, `use_ssl`, `bind_dn`, `bind_password`, `user_filter` ; DTO `ldap/dto/ldap-test.dto.ts`), enregistrées
+ou non, et n'enregistre rien. Un champ absent reprend la valeur enregistrée. Un mot de passe vide ou masqué
+reprend le mot de passe enregistré **seulement** si l'URL et le Bind DN sont ceux enregistrés et que le SSL n'est
+pas retiré : sinon le test répond « Retapez le mot de passe… » sans rien envoyer, pour que le mot de passe du
+compte de service ne parte jamais vers une adresse saisie ni en clair. Ni la réponse ni les journaux ne contiennent de secret. Les tests SMTP, Entra et SMB portent encore sur
+la configuration enregistrée : enregistrez avant de les lancer.
 
 **Journal.** Chaque enregistrement qui change au moins un réglage écrit `config_updated` dans la même
 transaction : `details` = `{ category, section, summary, changes: [{ key, label, from, to }] }` ; pour un

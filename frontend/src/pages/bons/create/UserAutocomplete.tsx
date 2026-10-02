@@ -8,13 +8,16 @@ import { ManualUserDialog } from './ManualUserDialog';
 // ── Autocomplete utilisateur ──────────────────────────────────
 // Exporté (avec CatalogSearch) uniquement pour permettre leur test unitaire
 // isolé — la page reste par ailleurs le seul export utilisé par le routeur.
-export function UserAutocomplete({
-  value,
-  onChange,
-}: {
-  value: UserResult | null;
-  onChange: (u: UserResult | null) => void;
-}) {
+export interface UserAutocompleteProps {
+  readonly value: UserResult | null;
+  readonly onChange: (u: UserResult | null) => void;
+  /** Identifiant du champ de recherche (cible du récapitulatif d'erreurs). */
+  readonly inputId?: string;
+  /** Attributs d'erreur du champ (`aria-invalid`, `aria-describedby`). */
+  readonly invalidProps?: { readonly 'aria-invalid'?: true; readonly 'aria-describedby'?: string };
+}
+
+export function UserAutocomplete({ value, onChange, inputId, invalidProps = {} }: UserAutocompleteProps) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<UserResult[]>([]);
   const [open, setOpen] = useState(false);
@@ -75,10 +78,16 @@ export function UserAutocomplete({
 
   return (
     <div ref={ref} className="relative">
-      <div className="flex items-center gap-2 rounded-md border bg-card px-3 py-1.5">
+      <div
+        className={`flex items-center gap-2 rounded-md border bg-card px-3 py-1.5${
+          invalidProps['aria-invalid'] ? ' border-destructive' : ''
+        }`}
+      >
         <Search className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
         <input
-          className="flex-1 text-sm outline-none bg-transparent text-foreground placeholder:text-muted-foreground/70"
+          id={inputId}
+          {...invalidProps}
+          className="flex-1 min-h-8 text-sm outline-none bg-transparent text-foreground placeholder:text-muted-foreground/70"
           placeholder="Rechercher un collaborateur..."
           aria-label="Rechercher un collaborateur"
           role="combobox"

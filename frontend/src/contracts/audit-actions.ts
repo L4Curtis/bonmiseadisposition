@@ -27,7 +27,8 @@
  *  - `[…]` : segment facultatif, retiré en entier si l'une de ses variables
  *    est absente, nulle ou vide (ex. `[ (motif : {reason})]`) ; les segments
  *    ne s'imbriquent pas ;
- *  - une variable hors crochets absente est remplacée par « — ».
+ *  - une variable hors crochets absente est remplacée par « — » ;
+ *  - un texte inséré perd ses espaces de bord et son point final.
  *
  * Règles d'écriture : une seule phrase au passé composé, sujet `{acteur}`,
  * terminée par un point, avec le vocabulaire de l'application ; jamais de
@@ -130,9 +131,11 @@ export const AUDIT_ACTIONS = {
   },
   bon_corrected: { label: 'Bon corrigé', sentence: '{acteur} a créé le bon {correctedTo} pour corriger le bon {bon}.', domain: 'bon', tone: 'action' },
   bon_replaced: { label: 'Bon remplacé', sentence: '{acteur} a clôturé le bon {bon}, remplacé par le bon {replacement}.', domain: 'bon', tone: 'action' },
+  // `details.channel` : « lien envoyé par email » ou « lien de signature au
+  // guichet » — une remise au guichet n'envoie aucun email.
   bon_sent: {
-    label: 'Bon envoyé',
-    sentence: '{acteur} a soumis la mise à disposition du bon {bon} à la signature du collaborateur.',
+    label: 'Remise soumise à signature',
+    sentence: '{acteur} a soumis la mise à disposition du bon {bon} à la signature du collaborateur[, {channel}].',
     domain: 'bon', tone: 'action',
   },
   bon_sent_without_serial: {
@@ -145,11 +148,20 @@ export const AUDIT_ACTIONS = {
     sentence: "{acteur} a soumis le bon {bon} à la signature malgré des numéros de série déjà présents sur d'autres bons.",
     domain: 'bon', tone: 'warning',
   },
+  // `details.fieldsLabel` : champs du document changés, en toutes lettres.
+  bon_updated: {
+    label: 'Bon modifié',
+    sentence: '{acteur} a modifié le bon {bon}[ ({fieldsLabel})].',
+    domain: 'bon', tone: 'action',
+  },
   bon_modified_after_send: {
     label: 'Bon modifié après envoi',
-    sentence: '{acteur} a modifié le bon {bon} après son envoi, ce qui demande une nouvelle signature.',
+    sentence: '{acteur} a modifié le bon {bon} après son envoi[ ({fieldsLabel})], ce qui demande une nouvelle signature.',
     domain: 'bon', tone: 'warning',
   },
+  // Clôture par la signature qui termine le bon (restitution complète, PV de
+  // non-restitution) : sans auteur, « Le système a clôturé… ». `details.cause`.
+  bon_closed: { label: 'Bon clôturé', sentence: '{acteur} a clôturé le bon {bon}[ ({cause})].', domain: 'bon', tone: 'success' },
   bon_cancelled: { label: 'Bon annulé', sentence: '{acteur} a annulé le bon {bon}[ (motif : {reason})].', domain: 'bon', tone: 'failure' },
   bon_handover_without_signature: {
     label: 'Remise sans signature',
@@ -171,7 +183,20 @@ export const AUDIT_ACTIONS = {
     sentence: '{acteur} a rouvert le bon {bon} pour corriger le document contesté.',
     domain: 'bon', tone: 'warning',
   },
-  reminder_sent: { label: 'Rappel envoyé', sentence: '{acteur} a renvoyé le lien de signature du bon {bon}.', domain: 'bon', tone: 'action' },
+  // Lien de signature par email, depuis la fiche ou la liste : premier envoi
+  // d'un document (ou de sa nouvelle version), puis renvoi du même document.
+  // `details.documentName` : « la restitution »… Le nom `reminder_sent` est
+  // historique : les rappels automatiques, eux, ne sont pas au journal.
+  signature_link_sent: {
+    label: 'Lien de signature envoyé',
+    sentence: '{acteur} a envoyé par email le lien de signature[ de {documentName}] du bon {bon}.',
+    domain: 'bon', tone: 'action',
+  },
+  reminder_sent: {
+    label: 'Lien renvoyé',
+    sentence: '{acteur} a renvoyé par email le lien de signature[ de {documentName}] du bon {bon}.',
+    domain: 'bon', tone: 'action',
+  },
 
   // ─── Restitution ────────────────────────────────────────────────────────────
   restitution_initiated: {
@@ -207,12 +232,22 @@ export const AUDIT_ACTIONS = {
   },
 
   // ─── Signatures ─────────────────────────────────────────────────────────────
+  // L'auteur est le signataire : le collaborateur, même au guichet sur le
+  // compte du technicien (`details.inPersonContext` : « au guichet, en
+  // présence de … »), ou le mandataire qui signe pour lui (« au guichet,
+  // pour le compte de … (mandataire) »).
   signed_mise_disposition: {
-    label: 'Mise à disposition signée', sentence: '{acteur} a signé la mise à disposition du bon {bon}.', domain: 'signature', tone: 'success',
+    label: 'Mise à disposition signée',
+    sentence: '{acteur} a signé la mise à disposition du bon {bon}[, {inPersonContext}].',
+    domain: 'signature', tone: 'success',
   },
-  signed_restitution: { label: 'Restitution signée', sentence: '{acteur} a signé la restitution du bon {bon}.', domain: 'signature', tone: 'success' },
+  signed_restitution: {
+    label: 'Restitution signée', sentence: '{acteur} a signé la restitution du bon {bon}[, {inPersonContext}].', domain: 'signature', tone: 'success',
+  },
   signed_pv_cloture: {
-    label: 'PV de non-restitution signé', sentence: '{acteur} a signé le PV de non-restitution du bon {bon}.', domain: 'signature', tone: 'success',
+    label: 'PV de non-restitution signé',
+    sentence: '{acteur} a signé le PV de non-restitution du bon {bon}[, {inPersonContext}].',
+    domain: 'signature', tone: 'success',
   },
   signed_it_cachet: { label: 'Signature IT', sentence: '{acteur} a apposé la signature IT sur le bon {bon}.', domain: 'signature', tone: 'action' },
   signature_link_requested: {
@@ -379,6 +414,12 @@ export const AUDIT_SYSTEM_ACTOR = 'Le système';
 /** Remplace une variable obligatoire absente. */
 const MISSING_VALUE = '—';
 
+/** Valeur insérée dans une phrase : un texte saisi qui finit par un point
+ *  (« motif : Bon en double. ») le perd, la phrase a déjà sa ponctuation. */
+function inlineValue(value: string | number): string {
+  return typeof value === 'number' ? String(value) : value.trim().replace(/\s*\.+$/, '');
+}
+
 function isBlank(value: string | number | null | undefined): boolean {
   return value === undefined || value === null || (typeof value === 'string' && value.trim() === '');
 }
@@ -408,7 +449,7 @@ function fillPlaceholders(text: string, values: AuditSentenceValues): { text: st
       complete = false;
       out += MISSING_VALUE;
     } else {
-      out += String(value);
+      out += inlineValue(value as string | number);
     }
     cursor = close + 1;
   }

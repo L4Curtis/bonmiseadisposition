@@ -187,15 +187,50 @@ describe('Administration d’un compte', () => {
     expect(res.body.code).toBe('own_account');
   });
 
-  it('POST /users/:id/unlock : { unlocked, failedAttempts }, rien n’est effacé du journal', async () => {
+  /** Dix échecs du compte depuis un même poste : le compte est verrouillé. */
+  async function lockAccount(email: string | null, ip: string): Promise<void> {
+    await ctx.prisma.auditLog.createMany({
+      data: Array.from({ length: 10 }, () => ({ action: 'login_local_failed', userEmail: email, ipAddress: ip })),
+    });
+  }
+
+  it('POST /users/:id/unlock : { unlocked, failedAttempts, stationLockedUntil }, rien n’est effacé du journal', async () => {
     const admin = ctx.data.people.admin;
-    await ctx.prisma.auditLog.create({ data: { action: 'login_local_failed', userEmail: admin.email, ipAddress: '10.9.9.9' } });
+    await lockAccount(admin.email, '10.9.9.9');
+    const before = await ctx.http.get('/users?page=1&limit=100', 'admin');
+    expect(before.body.items.find((u: { id: string }) => u.id === admin.id)?.lockedUntil).toEqual(expect.any(String));
+
     const res = await ctx.http.post(`/users/${admin.id}/unlock`, 'admin');
     expect(res.status).toBe(200);
     expectShape(res.body, unlockUser);
-    expect(res.body.failedAttempts).toBeGreaterThanOrEqual(1);
+    expect(res.body).toMatchObject({ failedAttempts: 10, stationLockedUntil: null });
     const kept = await ctx.prisma.auditLog.count({ where: { action: 'login_local_failed', userEmail: admin.email } });
-    expect(kept).toBeGreaterThanOrEqual(1);
+    expect(kept).toBeGreaterThanOrEqual(10);
+    const after = await ctx.http.get('/users?page=1&limit=100', 'admin');
+    expect(after.body.items.find((u: { id: string }) => u.id === admin.id)?.lockedUntil).toBeNull();
+  });
+
+  it('POST /users/:id/unlock sur un compte qui n’est pas verrouillé : 409 not_locked, rien au journal', async () => {
+    const admin = ctx.data.people.admin;
+    const markers = () => ctx.prisma.auditLog.count({ where: { action: 'user_unlocked' } });
+    const before = await markers();
+    const res = await ctx.http.post(`/users/${admin.id}/unlock`, 'admin');
+    expect(res.status).toBe(409);
+    expectShape(res.body, apiError);
+    expect(res.body.code).toBe('not_locked');
+    expect(await markers()).toBe(before);
+  });
+
+  it('POST /users/:id/unlock : le verrou du poste (30 échecs, tous comptes) reste, sa fin est donnée', async () => {
+    const admin = ctx.data.people.admin;
+    const ip = '10.202.0.1';
+    await lockAccount(admin.email, ip);
+    await ctx.prisma.auditLog.createMany({
+      data: Array.from({ length: 20 }, (_, i) => ({ action: 'login_local_failed', userEmail: `poste-${i % 4}@contrat.local`, ipAddress: ip })),
+    });
+    const res = await ctx.http.post(`/users/${admin.id}/unlock`, 'admin');
+    expect(res.status).toBe(200);
+    expect(Date.parse(res.body.stationLockedUntil)).toBeGreaterThan(Date.now());
   });
 
   it('verrou anti force brute : le déverrouillage le lève sans effacer les échecs du journal', async () => {
@@ -280,6 +315,9 @@ describe('Anciens chemins (alias dépréciés)', () => {
 
   it('POST /admin/users/:id/unlock : même traitement, en-têtes de dépréciation', async () => {
     const admin = ctx.data.people.admin;
+    await ctx.prisma.auditLog.createMany({
+      data: Array.from({ length: 10 }, () => ({ action: 'login_local_failed', userEmail: admin.email, ipAddress: '10.203.0.1' })),
+    });
     const res = await ctx.http.post(`/admin/users/${admin.id}/unlock`, 'admin');
     expect(res.status).toBe(200);
     expectShape(res.body, unlockUser);

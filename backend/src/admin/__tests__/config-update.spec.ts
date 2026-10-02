@@ -42,6 +42,15 @@ describe('validateConfigUpdate — contrôle d’une rubrique avant enregistreme
     expect(err.message).toBe('Validité des liens de signature (jours) : un nombre entier entre 1 et 30 est attendu.');
   });
 
+  it('refuse un seuil de retard de signature au-delà de 90 jours', () => {
+    const err = rejection(() => validateConfigUpdate('rappels', { signature_overdue_days: '500' }, noFilterCheck));
+    expect(err.code).toBe('validation_failed');
+    expect(err.message).toBe('Signature en retard après (jours) : un nombre entier entre 1 et 90 est attendu.');
+    expect(validateConfigUpdate('rappels', { signature_overdue_days: '90' }, noFilterCheck)).toEqual({
+      signature_overdue_days: '90',
+    });
+  });
+
   it('accepte un entier dans les bornes et le normalise (« 007 » → « 7 »)', () => {
     expect(validateConfigUpdate('tokens', { expiry_days: ' 007 ' }, noFilterCheck)).toEqual({ expiry_days: '7' });
   });

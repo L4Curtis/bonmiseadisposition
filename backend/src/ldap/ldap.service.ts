@@ -15,6 +15,12 @@ import { LdapUser } from './ldap-entry-parser';
 import { upsertLdapUsers } from './ldap-user-upsert';
 import { deactivateAbsentLdapUsers } from './ldap-deactivation';
 import { notifyDepartures } from './departure-notifications';
+import type { LdapTestDto } from './dto/ldap-test.dto';
+import { LdapConnectionSettings, resolveLdapTestSettings } from './ldap-test-settings';
+
+/** Test vers un autre serveur ou un autre compte sans mot de passe retapé. */
+export const STORED_PASSWORD_WITHHELD_MESSAGE =
+  'Retapez le mot de passe du compte de service pour tester un autre serveur, un autre compte ou une connexion sans SSL : le mot de passe enregistré n’est envoyé qu’au serveur enregistré.';
 
 export interface SyncStatus {
   lastSync: Date | null;
@@ -54,12 +60,18 @@ export class LdapService {
   ) {}
 
   /** Test de connexion de l'écran Configuration : `{ ok, message }`, le
-   *  message d'échec étant traduit pour l'administrateur. */
-  async testConnection(): Promise<ConnectionTestResponse> {
+   *  message d'échec étant traduit pour l'administrateur. Teste les valeurs
+   *  saisies dans le formulaire (`typed`), enregistrées ou non, sans jamais
+   *  les enregistrer (règles : ldap-test-settings.ts). */
+  async testConnection(typed: LdapTestDto = {}): Promise<ConnectionTestResponse> {
     let client: ldap.Client | null = null;
     try {
-      client = await this.createClient();
-      await this.bindClient(client);
+      const settings = resolveLdapTestSettings(typed, await this.storedConnectionSettings());
+      if (typed.user_filter !== undefined && settings.userFilter) validateLdapFilterInput(settings.userFilter);
+      client = this.createClient(settings);
+      // Après les contrôles de l'adresse, avant tout envoi du mot de passe.
+      if (settings.storedPasswordWithheld) return { ok: false, message: STORED_PASSWORD_WITHHELD_MESSAGE };
+      await this.bindClient(client, settings);
       return { ok: true, message: 'Connexion à l’annuaire réussie.' };
     } catch (err: unknown) {
       // Le détail technique brut (code TLS Node, message ldapjs...) reste dans
@@ -141,8 +153,9 @@ export class LdapService {
         return;
       }
 
-      client = await this.createClient();
-      await this.bindClient(client);
+      const settings = await this.storedConnectionSettings();
+      client = this.createClient(settings);
+      await this.bindClient(client, settings);
 
       const searchBase = (await this.settings.getString('ldap.search_base')) ?? '';
       // Filtre par défaut du registre : personnes, comptes désactivés exclus.
@@ -211,15 +224,23 @@ export class LdapService {
     }
   }
 
-  private async createClient(): Promise<ldap.Client> {
-    const url = await this.settings.getString('ldap.url');
-    if (!url) throw new Error('URL LDAP non configurée');
-    return createLdapClient(url, await this.settings.getBool('ldap.use_ssl'), this.logger);
+  /** Réglages de connexion enregistrés, lus par le registre. */
+  private async storedConnectionSettings(): Promise<LdapConnectionSettings> {
+    return {
+      url: await this.settings.getString('ldap.url'),
+      useSsl: await this.settings.getBool('ldap.use_ssl'),
+      bindDn: await this.settings.getString('ldap.bind_dn'),
+      bindPassword: await this.settings.getString('ldap.bind_password'),
+      userFilter: await this.settings.getString('ldap.user_filter'),
+    };
   }
 
-  private async bindClient(client: ldap.Client): Promise<void> {
-    const bindDn = await this.settings.getString('ldap.bind_dn');
-    const bindPassword = await this.settings.getString('ldap.bind_password');
+  private createClient({ url, useSsl }: LdapConnectionSettings): ldap.Client {
+    if (!url) throw new Error('URL LDAP non configurée');
+    return createLdapClient(url, useSsl, this.logger);
+  }
+
+  private bindClient(client: ldap.Client, { bindDn, bindPassword }: LdapConnectionSettings): Promise<void> {
     if (!bindDn || !bindPassword) throw new Error('Bind DN ou mot de passe LDAP non configuré');
     return bindLdapClient(client, bindDn, bindPassword);
   }

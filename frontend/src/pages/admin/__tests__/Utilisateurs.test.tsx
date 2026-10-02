@@ -23,7 +23,10 @@ vi.mock('@/lib/api', async (importOriginal) => {
   };
 });
 
-import { api } from '@/lib/api';
+vi.mock('@/hooks/use-toast', () => ({ toast: vi.fn() }));
+
+import { api, ApiError } from '@/lib/api';
+import { toast } from '@/hooks/use-toast';
 import { toListResponse } from '@/lib/api-envelope';
 
 const CURRENT_USER_ID = 'admin-1';
@@ -283,14 +286,63 @@ describe('UtilisateursPage — liste', () => {
     await waitFor(() => expect(api.getList).toHaveBeenCalledWith('/users?page=1&limit=25&status=inactive'));
   });
 
-  it('déverrouille un compte local via POST /users/:id/unlock', async () => {
+  /** Compte local verrouillé jusqu'à 10:42 (heure de Paris, 08:42 UTC en été). */
+  const lockedLocal = {
+    ...users[1], id: 'loc-1', displayName: 'Lucie Locale', isLocalAccount: true, lockedUntil: '2026-10-01T08:42:00.000Z',
+  };
+  const NOT_LOCKED = "Ce compte n'est pas verrouillé : il peut déjà se connecter.";
+
+  it('montre l’état « Verrouillé jusqu’à HH:MM » (heure de Paris) et ne propose Déverrouiller que sur ce compte', async () => {
+    serveUsers([lockedLocal, { ...users[1], id: 'loc-2', displayName: 'Paul Libre', isLocalAccount: true, lockedUntil: null }]);
+    renderWithProviders(<UtilisateursPage />);
+
+    expect(await screen.findByText("Verrouillé jusqu'à 10:42")).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /Déverrouiller/ })).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Déverrouiller le compte de Lucie Locale' })).toBeInTheDocument();
+  });
+
+  it('déverrouille via POST /users/:id/unlock : message, puis l’état disparaît', async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
-    serveUsers([{ ...users[1], id: 'loc-1', displayName: 'Lucie Locale', isLocalAccount: true }]);
-    vi.mocked(api.post).mockResolvedValue({ unlocked: true, failedAttempts: 3 });
+    serveUsers([lockedLocal]);
+    vi.mocked(api.post).mockResolvedValue({ unlocked: true, failedAttempts: 10, stationLockedUntil: null });
 
     renderWithProviders(<UtilisateursPage />);
-    await user.click(await screen.findByRole('button', { name: 'Déverrouiller' }));
+    await user.click(await screen.findByRole('button', { name: 'Déverrouiller le compte de Lucie Locale' }));
 
     await waitFor(() => expect(api.post).toHaveBeenCalledWith('/users/loc-1/unlock'));
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Compte déverrouillé',
+      description: expect.stringContaining('Lucie Locale peut se reconnecter'),
+      variant: 'success',
+    }));
+    await waitFor(() => expect(screen.queryByText("Verrouillé jusqu'à 10:42")).not.toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: /Déverrouiller/ })).not.toBeInTheDocument();
+  });
+
+  it('poste encore bloqué : ne dit pas « peut se reconnecter », donne l’heure de fin du verrou du poste', async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    serveUsers([lockedLocal]);
+    vi.mocked(api.post).mockResolvedValue({ unlocked: true, failedAttempts: 10, stationLockedUntil: '2026-10-01T08:55:00.000Z' });
+
+    renderWithProviders(<UtilisateursPage />);
+    await user.click(await screen.findByRole('button', { name: 'Déverrouiller le compte de Lucie Locale' }));
+
+    await waitFor(() => expect(toast).toHaveBeenCalled());
+    const shown = vi.mocked(toast).mock.calls[0][0] as { title: string; description: string };
+    expect(shown.title).toBe('Compte déverrouillé');
+    expect(shown.description).toContain("le poste d'où venaient les essais reste bloqué jusqu'à 10:55");
+    expect(shown.description).not.toContain('peut se reconnecter');
+  });
+
+  it('compte déjà déverrouillé entre-temps (409 not_locked) : le dit et recharge la liste', async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    serveUsers([lockedLocal]);
+    vi.mocked(api.post).mockRejectedValue(new ApiError(409, NOT_LOCKED, { statusCode: 409, code: 'not_locked', message: NOT_LOCKED }));
+
+    renderWithProviders(<UtilisateursPage />);
+    await user.click(await screen.findByRole('button', { name: 'Déverrouiller le compte de Lucie Locale' }));
+
+    await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Compte déjà déverrouillé' })));
+    await waitFor(() => expect(vi.mocked(api.get).mock.calls.filter(([p]) => String(p).startsWith('/users?'))).toHaveLength(2));
   });
 });

@@ -42,11 +42,6 @@ export function readFilters(search: string): AuditFilters {
   };
 }
 
-export function readPage(search: string): number {
-  const page = Number(new URLSearchParams(search).get('page'));
-  return Number.isInteger(page) && page > 0 ? page : 1;
-}
-
 /** Paramètres de requête communs à la liste et à l'export : l'export reprend
  *  exactement ce que l'écran affiche. */
 export function filterQuery(filters: AuditFilters): URLSearchParams {

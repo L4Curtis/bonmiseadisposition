@@ -59,3 +59,20 @@ export function documentChanges(bon: DocumentState, dto: UpdateBonDto): string[]
   ];
   return checks.filter(([, changed]) => changed).map(([field]) => field);
 }
+
+/** Nom en toutes lettres d'un champ du document, tel que l'écran le nomme. */
+const DOCUMENT_FIELD_LABELS: Readonly<Record<string, string>> = Object.freeze({
+  filialeId: 'filiale',
+  collaborateurId: 'collaborateur',
+  civilite: 'civilité',
+  dateMiseDisposition: 'date de remise',
+  dateRestitution: 'restitution prévue',
+  notes: 'remarques',
+  equipments: 'équipements',
+});
+
+/** Champs changés, en toutes lettres, pour la phrase du journal
+ *  (« restitution prévue, équipements »). */
+export function documentChangesLabel(changes: readonly string[]): string {
+  return changes.map((field) => DOCUMENT_FIELD_LABELS[field] ?? field).join(', ');
+}

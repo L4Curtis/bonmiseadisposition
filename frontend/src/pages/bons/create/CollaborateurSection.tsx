@@ -13,6 +13,9 @@ import type { Filiale } from '@/types';
 import { UserAutocomplete } from './UserAutocomplete';
 import type { CiviliteChoice, UserResult } from './types';
 import { CIVILITE_LABELS, CIVILITE_LONG_LABELS } from '@/domain/labels';
+import type { BonFieldErrors } from './lib/validation';
+import { BON_FIELD_ANCHORS, invalidFieldProps } from './fieldAnchors';
+import { FieldError } from './FieldError';
 
 export interface CollaborateurSectionProps {
   readonly civilite: CiviliteChoice;
@@ -24,6 +27,8 @@ export interface CollaborateurSectionProps {
   readonly filiales: Filiale[];
   readonly collaborateur: UserResult | null;
   readonly onCollaborateurChange: (user: UserResult | null) => void;
+  /** Erreurs de saisie montrées après un envoi refusé. */
+  readonly errors?: BonFieldErrors;
 }
 
 /** Carte « Collaborateur & Filiale » : civilité, filiale et sélection du
@@ -38,6 +43,7 @@ export function CollaborateurSection({
   filiales,
   collaborateur,
   onCollaborateurChange,
+  errors = {},
 }: CollaborateurSectionProps) {
   return (
     <Card>
@@ -45,10 +51,16 @@ export function CollaborateurSection({
       <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="space-y-1">
           <Label id="civilite-label">Civilité *</Label>
-          <div role="radiogroup" aria-labelledby="civilite-label" className="flex gap-2">
+          <div
+            role="radiogroup"
+            aria-labelledby="civilite-label"
+            {...invalidFieldProps('civilite', errors.civilite)}
+            className="flex gap-2"
+          >
             {(['mme', 'mr'] as const).map((c) => (
               <button
                 key={c}
+                id={c === 'mme' ? BON_FIELD_ANCHORS.civilite : undefined}
                 type="button"
                 role="radio"
                 aria-checked={civilite === c}
@@ -57,13 +69,14 @@ export function CollaborateurSection({
                 className={`min-h-11 rounded-md border px-4 text-sm font-medium transition-colors sm:min-h-9 ${
                   civilite === c
                     ? 'bg-primary text-primary-foreground border-primary'
-                    : 'bg-card text-muted-foreground hover:bg-muted/40'
+                    : `bg-card text-muted-foreground hover:bg-muted/40${errors.civilite ? ' border-destructive' : ''}`
                 }`}
               >
                 {CIVILITE_LABELS[c]}
               </button>
             ))}
           </div>
+          <FieldError field="civilite" message={errors.civilite} />
           <p className="text-xs text-muted-foreground">
             {civilite === ''
               ? 'À choisir : aucune civilité n’est proposée par défaut.'
@@ -79,7 +92,11 @@ export function CollaborateurSection({
               filiales (son <select> caché n'a pas encore l'option), ce qui
               effaçait la filiale d'un bon modifié. On l'ignore. */}
           <Select value={filialeId ?? ''} onValueChange={(value) => { if (value) onFilialeIdChange(value); }}>
-            <SelectTrigger id="filiale-select">
+            <SelectTrigger
+              id={BON_FIELD_ANCHORS.filiale}
+              {...invalidFieldProps('filiale', errors.filiale)}
+              className={errors.filiale ? 'border-destructive' : undefined}
+            >
               <SelectValue placeholder="Sélectionner une filiale..." />
             </SelectTrigger>
             <SelectContent>
@@ -88,10 +105,17 @@ export function CollaborateurSection({
               ))}
             </SelectContent>
           </Select>
+          <FieldError field="filiale" message={errors.filiale} />
         </div>
         <div className="space-y-1 sm:col-span-2">
-          <Label>Collaborateur *</Label>
-          <UserAutocomplete value={collaborateur} onChange={onCollaborateurChange} />
+          <Label htmlFor={BON_FIELD_ANCHORS.collaborateur}>Collaborateur *</Label>
+          <UserAutocomplete
+            value={collaborateur}
+            onChange={onCollaborateurChange}
+            inputId={BON_FIELD_ANCHORS.collaborateur}
+            invalidProps={invalidFieldProps('collaborateur', errors.collaborateur)}
+          />
+          <FieldError field="collaborateur" message={errors.collaborateur} />
           {collaborateur && !isDeliverableEmail(collaborateur.email) && (
             <p
               role="alert"

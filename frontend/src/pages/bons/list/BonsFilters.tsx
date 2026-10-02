@@ -34,6 +34,7 @@ export interface BonsFiltersProps {
   readonly onAdvancedChange: BonsAdvancedFiltersProps['onChange'];
   readonly currentUserId: string | undefined;
   readonly creators: BonsAdvancedFiltersProps['creators'];
+  readonly dateRangeError?: BonsAdvancedFiltersProps['dateRangeError'];
   /** Bouton d'export de la liste (annonce avant, bandeau après : ExportButton). */
   readonly exportControl: ReactNode;
   readonly hasActiveFilters: boolean;
@@ -59,6 +60,7 @@ export function BonsFilters({
   onAdvancedChange,
   currentUserId,
   creators,
+  dateRangeError,
   exportControl,
   hasActiveFilters,
   onResetFilters,
@@ -153,6 +155,7 @@ export function BonsFilters({
         onChange={onAdvancedChange}
         currentUserId={currentUserId}
         creators={creators}
+        dateRangeError={dateRangeError}
       />
 
       <ActiveFilterChips chips={activeFilterChips(query, showExcludeChip)} onClear={onClearFilter} />

@@ -5,7 +5,8 @@ import { todayInParis } from '@/lib/kpi-period';
 import { useBonCreateReferenceData } from './useBonCreateReferenceData';
 import { useBonFormSnapshot } from './useBonFormSnapshot';
 import { useLiveSerialConflicts } from './useLiveSerialConflicts';
-import { runBonValidation } from './lib/validation';
+import { runBonValidation, type BonFormValues } from './lib/validation';
+import { useBonFormErrors } from './useBonFormErrors';
 import { buildBonPayload } from './lib/payload';
 import { withoutReplacedBon } from './lib/serialConflicts';
 import {
@@ -294,14 +295,18 @@ export function useBonCreateForm() {
   // reste par ailleurs inchangée — voir lib/validation.ts).
   const duplicateSerialIds = useMemo(() => findDuplicateSerialIds(equipments), [equipments]);
 
-  const runValidation = () => runBonValidation({
+  const formValues: BonFormValues = {
     collaborateurId: collaborateurState?.id ?? '',
     filialeId: filialeIdState,
     civilite,
     dateMiseDisposition,
     dateRestitution,
     equipments,
-  });
+  };
+  const runValidation = () => runBonValidation(formValues);
+  // Toutes les erreurs de saisie à la fois, montrées dès le premier envoi
+  // refusé et tenues à jour à chaque correction (voir useBonFormErrors).
+  const { fieldErrors, attempt: errorAttempt, reveal: revealFieldErrors } = useBonFormErrors(formValues);
 
   /** Envoi effectif (création ou mise à jour du brouillon) — `submitting` est
    *  géré par l'appelant. Revalide systématiquement : cette fonction est aussi
@@ -309,7 +314,7 @@ export function useBonCreateForm() {
   const performSubmit = async () => {
     const validation = runValidation();
     if (!validation.success) {
-      setError(validation.error);
+      revealFieldErrors();
       return;
     }
     if (!collaborateurState) {
@@ -370,7 +375,7 @@ export function useBonCreateForm() {
     try {
       const validation = runValidation();
       if (!validation.success) {
-        setError(validation.error);
+        revealFieldErrors();
         return;
       }
       const { validEquipments } = validation;
@@ -412,6 +417,8 @@ export function useBonCreateForm() {
     isEditing,
     submitting,
     error,
+    fieldErrors,
+    errorAttempt,
     editReference,
     replacesReference,
     serialConflicts,

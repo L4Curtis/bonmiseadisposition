@@ -14,6 +14,12 @@ function display(value: ConfigScalar): string {
   return String(value);
 }
 
+/** Un nombre ou un interrupteur saisi se relit en une ligne, même enregistré ;
+ *  un texte saisi est déjà lisible tel quel dans son champ. */
+function echoesStoredValue(entry: ConfigRegistryEntry): boolean {
+  return entry.type === 'integer' || entry.type === 'boolean';
+}
+
 function boundText(entry: ConfigRegistryEntry): string {
   if (entry.appliedValue === entry.min) return 'minimum';
   if (entry.appliedValue === entry.max) return 'maximum';
@@ -26,7 +32,9 @@ function boundText(entry: ConfigRegistryEntry): string {
  *    de la configuration du serveur) ;
  *  - saisie hors bornes : elle est ramenée à la borne, et on le dit ;
  *  - saisie illisible : le défaut s'applique, et on le dit ;
- *  - saisie normale, ou secret : rien (`null`).
+ *  - nombre ou interrupteur saisi : « Valeur appliquée : 30 », aussi après
+ *    rechargement ;
+ *  - texte saisi, ou secret : rien (`null`).
  */
 export function appliedValueCaption(entry: ConfigRegistryEntry | undefined): AppliedValueCaption | null {
   if (!entry || entry.secret) return null;
@@ -35,7 +43,10 @@ export function appliedValueCaption(entry: ConfigRegistryEntry | undefined): App
     return { text: `Valeur appliquée : ${display(applied)} (reprise de la configuration du serveur)`, tone: 'muted' };
   }
   if (entry.source === 'stored') {
-    if (!entry.adjusted || applied === null) return null;
+    if (applied === null) return null;
+    if (!entry.adjusted) {
+      return echoesStoredValue(entry) ? { text: `Valeur appliquée : ${display(applied)}`, tone: 'muted' } : null;
+    }
     return {
       text: `La valeur saisie (${entry.storedValue}) est hors des bornes : valeur appliquée ${display(applied)} (${boundText(entry)}).`,
       tone: 'warning',

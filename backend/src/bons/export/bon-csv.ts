@@ -2,7 +2,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AppConfigService } from '../../config/config.service';
 import { BonStatus } from '../../common/types';
 import { buildCsv, type CsvCell } from '../../common/csv';
-import { formatParisDate } from '../../common/dates/paris';
+import { formatParisDate, formatParisDateTimeFr } from '../../common/dates/paris';
 import { bonStatusLabel } from '../bon-status';
 import { buildBonWhere, BonListFilters } from '../queries/bon-where';
 import { buildBonOrderBy, BonSortField, SortOrder } from '../queries/bon-order';
@@ -40,11 +40,13 @@ export interface ExportBonRow {
   signatures: Array<{ type: string; signedAt: Date | string | null }>;
 }
 
+/** En-têtes en toutes lettres : le fichier est lu dans Excel par quelqu'un
+ *  qui n'a pas l'application sous les yeux. */
 const EXPORT_HEADERS: readonly string[] = [
-  'Référence', 'Statut', 'Filiale', 'Collaborateur', 'Email collaborateur',
-  'Service', 'Date mise à disposition', 'Date restitution', 'Nb équipements',
-  'Équipements', 'Créé par', 'Date création',
-  'Date signature mise à dispo', 'Date signature restitution',
+  'Référence', 'Statut', 'Filiale', 'Collaborateur', 'Email du collaborateur',
+  'Service', 'Date de mise à disposition', 'Date de restitution prévue', 'Nombre d’équipements',
+  'Équipements', 'Créé par', 'Date de création',
+  'Date de signature de la remise', 'Date de signature de la restitution',
 ];
 
 /** Découpe les lignes récupérées (EXPORT_ROW_LIMIT + 1) en (lignes à
@@ -64,9 +66,11 @@ function equipmentLabels(bon: ExportBonRow): string {
     .join(' | ');
 }
 
-/** Une ligne du fichier. Les instants (création, signatures) sont datés à
- *  l'heure de Paris : le serveur tourne en UTC, et un bon signé entre 0 h et
- *  2 h serait sinon daté de la veille. */
+/** Une ligne du fichier. Les dates civiles (mise à disposition, restitution
+ *  prévue) restent en JJ/MM/AAAA ; les instants (création, signatures) sont
+ *  en JJ/MM/AAAA HH:MM à l'heure de Paris, comme l'export du journal : le
+ *  serveur tourne en UTC, et un bon signé entre 0 h et 2 h serait sinon daté
+ *  de la veille. */
 function exportRow(bon: ExportBonRow): CsvCell[] {
   const signedAt = (type: string) => bon.signatures.find((s) => s.type === type)?.signedAt;
   return [
@@ -83,9 +87,9 @@ function exportRow(bon: ExportBonRow): CsvCell[] {
     bon.equipments.length,
     equipmentLabels(bon),
     bon.createdBy.displayName,
-    formatParisDate(bon.createdAt),
-    formatParisDate(signedAt('mise_disposition')),
-    formatParisDate(signedAt('restitution')),
+    formatParisDateTimeFr(bon.createdAt),
+    formatParisDateTimeFr(signedAt('mise_disposition')),
+    formatParisDateTimeFr(signedAt('restitution')),
   ];
 }
 

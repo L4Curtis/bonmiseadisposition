@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api, hasErrorCode } from '@/lib/api';
 import { showActionError } from '@/lib/errors';
 import { toast } from '@/hooks/use-toast';
+import { formatTime } from '@/lib/dates';
 import type { ChangeUserRoleResponse, UnlockUserResponse } from '@/contracts/users';
 import type { User, UserRole } from '@/types';
 import type { UsersList } from './useUsersList';
@@ -18,6 +19,23 @@ export interface UserAccountActions {
   /** Réactive tout de suite ; une désactivation passe par la confirmation. */
   readonly toggleActive: (user: User) => void;
   readonly confirmDeactivate: () => Promise<void>;
+}
+
+/**
+ * Ce que le déverrouillage a réellement levé. Le verrou du compte tombe ; le
+ * verrou du poste d'où venaient les essais (30 échecs, tous comptes
+ * confondus) reste posé : tant qu'il l'est, la personne ne peut pas se
+ * reconnecter depuis ce poste, et le message ne doit pas dire le contraire.
+ * La limite de débit (5 essais par minute et par poste) tombe d'elle-même en
+ * une minute au plus.
+ */
+export function unlockedMessage(displayName: string, res: UnlockUserResponse): string {
+  if (res.stationLockedUntil) {
+    return `Le compte de ${displayName} est déverrouillé, mais le poste d'où venaient les essais reste bloqué `
+      + `jusqu'à ${formatTime(res.stationLockedUntil)} (trop d'échecs depuis ce poste, tous comptes confondus). `
+      + "D'ici là, se connecter depuis un autre poste.";
+  }
+  return `${displayName} peut se reconnecter (patienter une minute en cas de message « Trop de requêtes »).`;
 }
 
 /**
@@ -52,15 +70,17 @@ export function useUserAccountActions(list: Pick<UsersList, 'replaceUser' | 'rel
     setUnlockingId(target.id);
     try {
       const res = await api.post<UnlockUserResponse>(`/users/${target.id}/unlock`);
-      toast({
-        title: 'Compte déverrouillé',
-        description: res.failedAttempts > 0
-          ? `${res.failedAttempts} tentative(s) échouée(s) ne comptent plus : ${target.displayName} peut se reconnecter.`
-          : `${target.displayName} n'était pas verrouillé.`,
-        variant: 'success',
-      });
+      list.replaceUser(target.id, (u) => ({ ...u, lockedUntil: null }));
+      toast({ title: 'Compte déverrouillé', description: unlockedMessage(target.displayName, res), variant: 'success' });
     } catch (e: unknown) {
-      showActionError(e, 'Erreur lors du déverrouillage');
+      if (hasErrorCode(e, 'not_locked')) {
+        // Le verrou est tombé seul (30 minutes) ou un autre administrateur
+        // l'a levé : la liste est relue pour montrer l'état réel.
+        toast({ title: 'Compte déjà déverrouillé', description: e.message });
+        list.reload();
+      } else {
+        showActionError(e, 'Erreur lors du déverrouillage');
+      }
     } finally {
       setUnlockingId(null);
     }

@@ -2,6 +2,16 @@ import { api } from '@/lib/api';
 import { ConfigSection } from '@/components/admin/ConfigSection';
 import type { ConnectionTestResponse } from '@/contracts/admin';
 
+/** Champs que le test de connexion utilise : il les prend tels que saisis,
+ *  enregistrés ou non, et n'enregistre rien. Le mot de passe masqué n'est
+ *  jamais envoyé : le serveur reprend alors celui qui est enregistré. */
+const TESTED_FIELDS = ['url', 'use_ssl', 'bind_dn', 'bind_password', 'user_filter'] as const;
+
+function testLdap(typed: Readonly<Record<string, string>>): Promise<ConnectionTestResponse> {
+  const body = Object.fromEntries(TESTED_FIELDS.filter((key) => key in typed).map((key) => [key, typed[key]]));
+  return api.post<ConnectionTestResponse>('/admin/config/test/ldap', body);
+}
+
 export function ConfigLdapPage() {
   return (
     <>
@@ -11,7 +21,7 @@ export function ConfigLdapPage() {
       <ConfigSection
         title="LDAP / Active Directory"
         category="ldap"
-        onTest={() => api.post<ConnectionTestResponse>('/admin/config/test/ldap')}
+        onTest={testLdap}
         testLabel="Tester la connexion LDAP"
         fields={[
           { key: 'enabled', label: 'LDAP activé', toggle: true },
@@ -25,7 +35,7 @@ export function ConfigLdapPage() {
             key: 'sync_interval_hours',
             label: 'Fréquence de synchronisation (heures)',
             type: 'number',
-            help: 'La synchronisation passe au plus souvent toutes les 6 heures.',
+            help: 'Entre 1 et 168 heures (une semaine). La synchronisation passe au plus souvent toutes les 6 heures.',
           },
         ]}
       />

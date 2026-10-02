@@ -51,8 +51,18 @@ describe('appliedValueCaption', () => {
     expect(appliedValueCaption(url)?.text).toBe('Valeur appliquée : https://bons.livio.fr (reprise de la configuration du serveur)');
   });
 
-  it('ne dit rien pour une saisie normale ni pour un secret', () => {
-    expect(appliedValueCaption(entry({ storedValue: '5', appliedValue: 5, source: 'stored' }))).toBeNull();
+  it('rappelle la valeur appliquée d’un nombre ou d’un interrupteur saisis', () => {
+    expect(appliedValueCaption(entry({ storedValue: '5', appliedValue: 5, source: 'stored' }))).toEqual({
+      text: 'Valeur appliquée : 5',
+      tone: 'muted',
+    });
+    const toggle = entry({ type: 'boolean', storedValue: 'false', appliedValue: false, source: 'stored', min: null });
+    expect(appliedValueCaption(toggle)?.text).toBe('Valeur appliquée : désactivé');
+  });
+
+  it('ne dit rien pour un texte saisi ni pour un secret', () => {
+    const host = entry({ type: 'string', storedValue: 'smtp.livio.fr', appliedValue: 'smtp.livio.fr', source: 'stored', min: null });
+    expect(appliedValueCaption(host)).toBeNull();
     expect(appliedValueCaption(entry({ secret: true }))).toBeNull();
     expect(appliedValueCaption(undefined)).toBeNull();
   });

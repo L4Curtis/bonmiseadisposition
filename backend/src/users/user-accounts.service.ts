@@ -2,10 +2,11 @@ import { HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
 import type { User, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
-import { LOGIN_LOCK_WINDOW_MS } from '../audit/login-lock';
+import { accountLockStates, stationLockedUntil } from '../audit/login-lock';
 import { AppException } from '../common/errors';
 import { isItRole } from '../common/roles';
 import { ConfigRegistryService } from '../config/config-registry.service';
+import type { IsoDateTime } from '../contracts/common';
 import type { ChangeUserRoleResponse, UnlockUserResponse } from '../contracts/users';
 import { normalizeEmail } from '../auth/utils/normalize-email.util';
 import { USER_SAFE_SELECT } from './user-select';
@@ -55,10 +56,14 @@ export class UserAccountsService {
   }
 
   /**
-   * POST /users/:id/unlock — lève le verrou anti force brute de la connexion
-   * locale. Rien n'est effacé du journal : l'entrée `user_unlocked` marque le
-   * point à partir duquel les échecs comptent de nouveau (audit/login-lock.ts).
-   * `failedAttempts` : échecs des 30 dernières minutes qui ne comptent plus.
+   * POST /users/:id/unlock — lève le verrou du compte (connexion locale).
+   * Rien n'est effacé du journal : l'entrée `user_unlocked` marque le point à
+   * partir duquel les échecs comptent de nouveau (audit/login-lock.ts).
+   * Un compte qui n'est pas verrouillé est refusé (409 `not_locked`) : il n'y
+   * a rien à lever, et le journal ne doit pas dire le contraire.
+   * `failedAttempts` : échecs qui ne comptent plus. `stationLockedUntil` : le
+   * verrou d'un poste d'où venaient ces échecs (30 échecs, tous comptes
+   * confondus) n'est PAS levé ; sa fin, s'il est encore posé.
    */
   async unlock(targetId: string, actor: AccountActor, ip?: string): Promise<UnlockUserResponse> {
     const target = await this.findTarget(targetId);
@@ -68,19 +73,36 @@ export class UserAccountsService {
     // L'adresse telle que la connexion la trace et la cherche (login-lock.ts) :
     // sinon le marqueur ne correspondrait pas et le verrou resterait posé.
     const email = normalizeEmail(target.email);
-    const failedAttempts = await this.prisma.auditLog.count({
-      where: {
-        userEmail: email,
-        action: 'login_local_failed',
-        createdAt: { gte: new Date(Date.now() - LOGIN_LOCK_WINDOW_MS) },
-      },
-    });
+    const now = new Date();
+    const state = (await accountLockStates(this.prisma, [email], now)).get(email);
+    if (!state?.lockedUntil) {
+      throw new AppException('not_locked', "Ce compte n'est pas verrouillé : il peut déjà se connecter.", HttpStatus.CONFLICT);
+    }
     await this.audit.record('user_unlocked', {
       actorId: actor.id,
       details: { targetUserId: target.id, targetEmail: email },
       ip,
     });
-    return { unlocked: true, failedAttempts };
+    const ips = [...new Set(state.failures.flatMap((f) => (f.ipAddress ? [f.ipAddress] : [])))];
+    const station = await stationLockedUntil(this.prisma, ips, now);
+    return { unlocked: true, failedAttempts: state.failures.length, stationLockedUntil: station?.toISOString() ?? null };
+  }
+
+  /**
+   * Fin du verrou de chaque compte (`null` : pas verrouillé), pour l'écran
+   * Utilisateurs. Seul un compte local se connecte par mot de passe, donc
+   * seul lui peut être verrouillé. Même calcul que la connexion.
+   */
+  async lockedUntil(users: readonly LockableUser[]): Promise<ReadonlyMap<string, IsoDateTime | null>> {
+    const emailOf = (u: LockableUser): string | null =>
+      (accountKind(u) === 'local' && u.email ? normalizeEmail(u.email) : null);
+    const emails = [...new Set(users.flatMap((u) => emailOf(u) ?? []))];
+    const states = await accountLockStates(this.prisma, emails, new Date());
+    return new Map(users.map((u) => {
+      const email = emailOf(u);
+      const until = email ? states.get(email)?.lockedUntil : null;
+      return [u.id, until ? until.toISOString() : null];
+    }));
   }
 
   /**
@@ -141,6 +163,9 @@ export class UserAccountsService {
     if (others === 0) throw new AppException('last_admin', message, HttpStatus.CONFLICT);
   }
 }
+
+/** Ce que l'état du verrou lit d'un compte. */
+export type LockableUser = Pick<User, 'id' | 'email' | 'isLocalAccount' | 'isManualAccount'>;
 
 /** Origine d'un compte, telle que l'écran la présente. */
 export type AccountKind = 'manual' | 'local' | 'directory';

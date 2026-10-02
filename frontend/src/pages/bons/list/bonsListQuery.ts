@@ -1,9 +1,10 @@
-import { BON_SUB_STATUS_LABELS } from '@/domain/labels';
 /**
  * État de la liste des bons (filtres, tri, page) et sa traduction en URL et en
  * paramètres d'API. Fonctions pures : l'URL est la forme partageable de cet
  * état (lien copié, retour arrière, liens du tableau de bord), et la valeur
- * par défaut d'un champ n'y figure jamais, pour garder des URL courtes.
+ * par défaut d'un champ n'y figure jamais, pour garder des URL courtes. La
+ * lecture inverse (adresse ou mémoire → état, valeurs vérifiées) est dans
+ * `readListQuery.ts`.
  */
 
 /** Champs triables — même liste blanche que le backend (bons/queries/bon-order). */
@@ -90,72 +91,11 @@ export const DEFAULT_LIST_QUERY: BonsListQuery = {
   page: 1,
 };
 
-const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-const REFERENCE_PATTERN = /^BON-\d{4}-\d{4,}$/i;
-
 /** Périodes d'événement lues et écrites telles quelles dans l'adresse. */
 export const EVENT_DAY_KEYS = [
   'createdFrom', 'createdTo', 'closedFrom', 'closedTo', 'cancelledFrom', 'cancelledTo',
 ] as const;
 export type EventDayKey = (typeof EVENT_DAY_KEYS)[number];
-
-function isSortField(value: string | null): value is SortField {
-  return value !== null && (SORT_FIELDS as readonly string[]).includes(value);
-}
-
-function readDay(params: URLSearchParams, key: string): string {
-  const value = params.get(key) ?? '';
-  return DAY_PATTERN.test(value) ? value : '';
-}
-
-/** Sous-état lu dans l'adresse ; une valeur inconnue est ignorée (pas de 400). */
-function readSubStatus(params: URLSearchParams): string {
-  const value = params.get('subStatus') ?? '';
-  return Object.prototype.hasOwnProperty.call(BON_SUB_STATUS_LABELS, value) ? value : '';
-}
-
-/** Référence de bon lue dans l'adresse ; autre chose est ignoré (pas de 400). */
-function readReference(params: URLSearchParams): string {
-  const value = (params.get('reference') ?? '').trim();
-  return REFERENCE_PATTERN.test(value) ? value.toUpperCase() : '';
-}
-
-function readEventDays(params: URLSearchParams): Record<EventDayKey, string> {
-  return Object.fromEntries(EVENT_DAY_KEYS.map((key) => [key, readDay(params, key)])) as Record<EventDayKey, string>;
-}
-
-function readFlag(params: URLSearchParams, key: string): boolean {
-  const value = params.get(key);
-  return value === '1' || value === 'true';
-}
-
-/** Lit l'état depuis l'URL. Une valeur invalide (tri inconnu, date mal formée,
- *  page négative — lien bricolé ou ancien) retombe sur la valeur par défaut
- *  plutôt que de provoquer un 400 côté API. */
-export function parseListQuery(params: URLSearchParams): BonsListQuery {
-  const sortParam = params.get('sort');
-  const orderParam = params.get('order');
-  const pageParam = Number(params.get('page'));
-  return {
-    search: params.get('search') ?? '',
-    reference: readReference(params),
-    status: params.get('status') ?? '',
-    excludeStatus: params.get('excludeStatus') ?? '',
-    filialeId: params.get('filialeId') ?? '',
-    overdue: readFlag(params, 'overdue'),
-    awaitingSignature: readFlag(params, 'awaitingSignature'),
-    linkExpired: readFlag(params, 'linkExpired'),
-    subStatus: readSubStatus(params),
-    dateFrom: readDay(params, 'dateFrom'),
-    dateTo: readDay(params, 'dateTo'),
-    noReturnDate: readFlag(params, 'noReturnDate'),
-    createdById: params.get('createdById') ?? '',
-    ...readEventDays(params),
-    sort: isSortField(sortParam) ? sortParam : DEFAULT_LIST_QUERY.sort,
-    order: orderParam === 'asc' || orderParam === 'desc' ? orderParam : DEFAULT_LIST_QUERY.order,
-    page: Number.isInteger(pageParam) && pageParam > 1 ? pageParam : 1,
-  };
-}
 
 /** Filtres seuls (sans tri ni page), dans l'ordre stable de l'URL. */
 function filterEntries(q: BonsListQuery): Array<[string, string]> {
@@ -189,10 +129,18 @@ export function toUrlParams(q: BonsListQuery): URLSearchParams {
   return new URLSearchParams(entries);
 }
 
-/** Forme mémorisée dans le navigateur : filtres et tri, jamais la page (revenir
- *  à la liste sur la page 4 d'une recherche d'hier n'aurait pas de sens). */
+/** Filtres posés par un lien (tableau de bord, recherche globale) et sans
+ *  champ à l'écran : ils valent pour la visite, pas pour la suivante. */
+const LINK_ONLY_KEYS: ReadonlySet<string> = new Set(['reference', ...EVENT_DAY_KEYS]);
+
+/** Forme mémorisée dans le navigateur : filtres choisis à l'écran et tri.
+ *  Jamais la page (revenir à la liste sur la page 4 d'une recherche d'hier
+ *  n'aurait pas de sens), ni la référence exacte ou les périodes d'un lien du
+ *  tableau de bord (revenir par le menu « Bons » afficherait sinon une liste
+ *  filtrée sans qu'on l'ait demandé). */
 export function toRememberedParams(q: BonsListQuery): URLSearchParams {
-  return new URLSearchParams([...filterEntries(q), ...sortEntries(q)]);
+  const filters = filterEntries(q).filter(([key]) => !LINK_ONLY_KEYS.has(key));
+  return new URLSearchParams([...filters, ...sortEntries(q)]);
 }
 
 /** Paramètres de `GET /bons` (liste paginée). */

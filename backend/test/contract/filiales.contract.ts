@@ -116,6 +116,21 @@ describe('Écriture', () => {
     expect((await lastAudit(action))?.details).toMatchObject({ filialeId: ctx.data.filialeId, name: expect.any(String) });
   });
 
+  it.each([
+    ['du texte renommé en .png', 'faux-cachet.png', 'image/png'],
+    ['un fichier .txt', 'faux-cachet.txt', 'text/plain'],
+  ])('PATCH /filiales/:id/stamp avec %s : 400 unsupported_image, cachet inchangé', async (_label, filename, contentType) => {
+    const before = await ctx.prisma.filiale.findUniqueOrThrow({ where: { id: ctx.data.filialeId } });
+    const res = await ctx.http
+      .send('patch', `/filiales/${ctx.data.filialeId}/stamp`, 'admin')
+      .attach('file', Buffer.from('ceci n est pas une image'), { filename, contentType });
+    expect(res.status).toBe(400);
+    expectShape(res.body, apiError);
+    expect(res.body).toMatchObject({ code: 'unsupported_image', message: 'Format non supporté : JPEG ou PNG uniquement' });
+    const after = await ctx.prisma.filiale.findUniqueOrThrow({ where: { id: ctx.data.filialeId } });
+    expect(after.stampPath).toBe(before.stampPath);
+  });
+
   it('PATCH /filiales/:id/stamp sans fichier : 400 file_missing', async () => {
     const res = await ctx.http.patch(`/filiales/${ctx.data.filialeId}/stamp`, 'admin', {});
     expect(res.status).toBe(400);

@@ -4,6 +4,7 @@ import { canResendLink, lastLinkSentAt } from '../resendEligibility';
 import { buildQuickViews, findActiveView } from '../quickViews';
 import { DEFAULT_LIST_QUERY } from '../bonsListQuery';
 import { toReport } from '../useResendLinks';
+import { bonCountLabel } from '../bonCount';
 
 const NOW = new Date('2026-09-24T12:00:00Z').getTime();
 const ago = (ms: number) => new Date(NOW - ms).toISOString();
@@ -86,5 +87,16 @@ describe('toReport', () => {
     expect(report.sent.map((r) => r.id)).toEqual(['a', 'd']);
     expect(report.skipped.map((r) => r.id)).toEqual(['b']);
     expect(report.failed.map((r) => r.id)).toEqual(['c']);
+  });
+});
+
+describe('bonCountLabel', () => {
+  it.each([
+    [0, '0 bon'],
+    [1, '1 bon'],
+    [2, '2 bons'],
+    [1250, '1 250 bons'],
+  ])('%i → %s', (total, expected) => {
+    expect(bonCountLabel(total)).toBe(expected);
   });
 });

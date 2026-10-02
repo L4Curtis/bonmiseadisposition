@@ -10,6 +10,9 @@
  *   mêmes équipements.
  * - Cartes de bons et d'événements sur la période (Délais, Incidents) → liste
  *   du chiffre (`GET /kpi/liste`), réservée à l'IT.
+ * - Cartes « Bons créés », « Bons clôturés », « Bons annulés » → liste des
+ *   bons filtrée (`createdFrom/To`, `closedFrom/To`, `cancelledFrom/To`,
+ *   `filialeId`), où le tableau de bord les envoie : mêmes bons que la carte.
  *
  * Deux filiales : ce qui arrive dans l'autre ne compte jamais ; des éléments
  * vieux de soixante jours, hors période, non plus. Données préfixées
@@ -33,6 +36,8 @@ import { KpiIncidentsService } from '../kpi-incidents.service';
 import { KpiListService } from '../lists/kpi-list.service';
 import { KPI_LIST_KEYS, type KpiListKey } from '../lists/kpi-list-sources';
 import { resolvePeriod } from '../kpi-period';
+import { buildBonWhere } from '../../bons/queries/bon-where';
+import { QueryBonsDto, toBonListQuery } from '../../bons/dto/query-bons.dto';
 
 const ENABLED = process.env.RUN_DB_TESTS === '1';
 const describeDb = ENABLED ? describe : describe.skip;
@@ -316,6 +321,23 @@ describeDb('Tuile = liste (base réelle)', () => {
       expect(list.total).toBe(value);
       expect(list.items).toHaveLength(value);
       expect(list.meta?.period).toEqual(range);
+    });
+
+    /** Paramètres de la liste des bons qu'ouvre la carte : même table que
+     *  `BONS_LIST_FILTERS` (frontend/src/pages/dashboard/lists/kpi-lists.ts). */
+    const BONS_FILTERS = {
+      bons_crees: ['createdFrom', 'createdTo'],
+      bons_clotures: ['closedFrom', 'closedTo'],
+      bons_annules: ['cancelledFrom', 'cancelledTo'],
+    } as const;
+
+    it.each(Object.entries(BONS_FILTERS))('%s : la liste des bons filtrée donne les mêmes bons que la carte', async (key, [fromParam, toParam]) => {
+      const dto = Object.assign(new QueryBonsDto(), { filialeId, [fromParam]: range.from, [toParam]: range.to });
+      const rows = await prisma.bon.findMany({ where: buildBonWhere(toBonListQuery(dto)), select: { id: true } });
+      const value = await cardValue(key as KpiListKey);
+
+      expect(sorted(rows.map((r) => r.id))).toEqual(sorted(expected[key as KpiListKey]));
+      expect(rows).toHaveLength(value);
     });
 
     it('pagine sans perdre ni répéter de ligne', async () => {

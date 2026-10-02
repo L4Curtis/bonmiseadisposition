@@ -149,7 +149,7 @@ attendant son retrait (vague 5).
   est le dernier administrateur actif (les administrateurs désactivés ne comptent pas). Chaque
   changement est journalisé (`user_role_changed`, avec l'ancien et le nouveau rôle).
 - **Seuil de retard de signature** : configurable (`rappels.signature_overdue_days`, défaut 7,
-  minimum 1 — 0 est rejeté), une définition unique partagée par `/bons`, `/bons/stats` et
+  de 1 à 90 jours — 0 ou 500 sont rejetés), une définition unique partagée par `/bons`, `/bons/stats` et
   `/kpi/delais`.
 
 ## Mise à jour 2026-09-16 — règles modifiées ou précisées
@@ -176,10 +176,18 @@ là où elles ont changé depuis.
   confondues, en 30 minutes — protège contre un balayage d'emails depuis une même source.
 - Les rejets pendant un verrou sont journalisés en `login_local_locked` (pas `login_local_failed`)
   pour qu'une tentative sur un compte déjà verrouillé ne prolonge pas indéfiniment la fenêtre.
-- **Déverrouillage manuel** : `POST /users/:id/unlock` (bouton « Déverrouiller » d'un compte
-  local, page Administration → Utilisateurs). N'efface rien du journal : il écrit `user_unlocked`
-  (`details.targetEmail`), et le compteur par compte ne compte plus que les échecs postérieurs au
-  dernier déverrouillage (`audit/login-lock.ts`). Le verrou par adresse IP n'est pas levé.
+- **État affiché** : `GET /users` donne pour chaque compte local `lockedUntil`, la fin de son verrou
+  (pastille « Verrouillé jusqu'à HH:MM » de l'écran Utilisateurs, heure de Paris). Seuils, fenêtre
+  et marqueur sont ceux de la connexion (`audit/login-lock.ts`, lus aussi par `auth/local-login.ts`) :
+  l'écran dit ce que la connexion applique.
+- **Déverrouillage manuel** : `POST /users/:id/unlock` (bouton « Déverrouiller », proposé seulement
+  sur un compte local verrouillé, page Administration → Utilisateurs). Un compte qui n'est pas
+  verrouillé est refusé (`409 not_locked`) : rien n'est écrit au journal. N'efface rien du journal :
+  il écrit `user_unlocked` (`details.targetEmail`), et le compteur par compte ne compte plus que les
+  échecs postérieurs au dernier déverrouillage. **Ce qu'il ne lève pas** : le verrou d'IP (30 échecs,
+  tous comptes ; la réponse donne sa fin dans `stationLockedUntil` pour les postes d'où venaient les
+  échecs, et l'écran le dit au lieu de « peut se reconnecter ») et la limite de débit de la connexion
+  (5 essais par minute et par poste, `429` « Trop de requêtes », qui tombe seule en une minute).
 - **Désactivation d'un compte** : `POST /users/:id/deactivate` (et `/reactivate`). Un compte venu
   de l'annuaire ne se désactive ici que lorsque l'annuaire est inactif (`ldap.enabled` décoché ou
   adresse vide) : sinon la synchronisation fait foi et le départ se traite dans Active Directory
@@ -352,11 +360,19 @@ prisma.user.findMany({ include: { filiale: true } })
 prisma.user.findMany({ select: this.safeSelect })
 ```
 
-### 4. Uploads : SVG interdit, rate limit 5/min obligatoire
+### 4. Uploads : PNG ou JPEG vérifiés sur leurs octets, rate limit 5/min obligatoire
 ```typescript
-const allowedMime = /^image\/(jpeg|png|gif|webp)$/;
+const allowedExt = /\.(jpg|jpeg|png)$/i;        // filiales.module.ts (nom et type annoncés)
+const allowedMime = /^image\/(jpeg|png)$/;
+await assertFilialeImageFile(path);             // filiales-image.ts (contenu réel, après écriture)
 @Throttle({ default: { limit: 5, ttl: 60000 } })
 ```
+Un logo ou un cachet de filiale n'est accepté que si ses premiers octets sont ceux d'un PNG
+(`89 50 4E 47 0D 0A 1A 0A`) ou d'un JPEG (`FF D8 FF`) : un fichier texte renommé en `.png` est refusé
+(`400 unsupported_image`, « Format non supporté : JPEG ou PNG uniquement », même code et même message
+qu'un mauvais nom ou type), et le fichier déjà écrit est supprimé. WebP et GIF restent refusés : PDFKit
+ne sait pas les dessiner. L'import CSV des filiales applique le même contrôle aux images en base64
+(`detectImageExtension`, même fichier). SVG reste interdit.
 
 ### 5. Les cookies d'auth ont un path restreint
 ```typescript
@@ -397,6 +413,7 @@ Aucune route ne sert `data/uploads` ; `stampPath` est retiré des réponses non 
 ### Haute
 - [ ] `POST /api/bons/:id/contestation` avec message > 2000 chars → `400`
 - [ ] Upload SVG via `/api/filiales/:id/logo` → rejeté
+- [ ] Fichier texte renommé `cachet.png` via `/api/filiales/:id/stamp` → `400 unsupported_image`, cachet inchangé
 - [ ] `GET /api/audit` avec compte technician → `403`
 - [ ] `PATCH /api/admin/email-templates/:id` avec compte technician → `403`
 - [ ] `POST /api/users/manual`, `PATCH /api/users/:id/manual`, `GET /api/users`, `POST /api/filiales`,
@@ -416,11 +433,12 @@ Aucune route ne sert `data/uploads` ; `stampPath` est retiré des réponses non 
 - [ ] 10 `login_local_failed` pour le même (email, IP) en 30 min → verrouillage de compte
 - [ ] 30 `login_local_failed` depuis la même IP toutes cibles en 30 min → verrouillage d'IP
 - [ ] `POST /api/users/:id/unlock` sur un compte verrouillé → débloque, journalise `user_unlocked`, n'efface aucune ligne `login_local_failed`
+- [ ] `POST /api/users/:id/unlock` sur un compte non verrouillé → `409 not_locked`, rien au journal
 - [ ] Annuaire inactif : `POST /api/users/:id/deactivate` sur un compte Active Directory → compte désactivé, `user_deactivated` journalisé ; annuaire actif → `409 directory_active`
 - [ ] `GET /api/users` → aucun champ `passwordHash` dans la réponse
 - [ ] Redirect `returnTo=//evil.com` → redirige vers `/` uniquement (comparaison d'origine)
 - [ ] Upload logo 6 fois en 1 min → `429`
-- [ ] `GET /api/audit?limit=999999` → retourne max 100 entrées
+- [ ] `GET /api/audit?limit=999999` → 400 `validation_failed` (`limit` vaut 25, 50 ou 100)
 - [ ] Aucune méthode de contrôleur ne porte `@UseGuards(ThrottlerGuard)` (double comptage) — seul le guard global compte
 - [ ] `DELETE /api/bons/:id` sur un bon `active` (déjà signé) → `400`
 - [ ] `retention.anonymize_months` réglé à une valeur < 60 → rejeté
@@ -429,7 +447,11 @@ Aucune route ne sert `data/uploads` ; `stampPath` est retiré des réponses non 
 - [ ] Un compte `direction` → `403` sur `GET /api/bons/stats`, `GET /api/bons/:id` d'un bon dont il n'est pas le destinataire, `GET /api/contestations`, `GET /api/users` et toute route `/api/admin/*`
 - [ ] Un compte `direction` → `200` sur `GET /api/kpi/parc` (et `/kpi/delais`, `/kpi/incidents`, `/api/reporting/inventory*`), et `403` sur `GET /api/kpi/liste` (les listes de bons)
 - [ ] `PATCH /api/users/:id/role` refusé sur son propre compte (`400 own_account`) et sur le dernier administrateur actif (`409 last_admin`)
-- [ ] `PUT /api/admin/config/rappels` avec `signature_overdue_days=0` → rejeté (minimum 1)
+- [ ] `PUT /api/admin/config/rappels` avec `signature_overdue_days=0` ou `500` → rejeté (de 1 à 90)
+- [ ] `POST /api/admin/config/test/ldap` avec une autre URL (ou un autre Bind DN, ou le SSL retiré) et le mot de
+  passe masqué → « Retapez le mot de passe… », aucun bind : le mot de passe enregistré ne part que vers le serveur
+  enregistré ; avec le mot de passe retapé → teste les valeurs saisies ; n'enregistre rien, aucun mot de passe
+  dans la réponse ni les journaux
 
 ### Infrastructure
 - [ ] Header `Content-Security-Policy` présent sur toutes les réponses
@@ -446,8 +468,11 @@ Aucune route ne sert `data/uploads` ; `stampPath` est retiré des réponses non 
 **Symptôme** : `401 account_locked` — « Compte temporairement verrouillé »
 - Attendre 30 minutes (automatique, compteur en DB sur `AuditLog`)
 - Ou redémarrer le backend **ne suffit plus** (brute-force persisté en DB depuis M-01)
-- Déverrouillage recommandé : bouton « Déverrouiller » du compte, page
-  Administration → Utilisateurs (`POST /users/:id/unlock`)
+- Déverrouillage recommandé : bouton « Déverrouiller » du compte (affiché seulement quand il est
+  verrouillé, avec l'heure de fin), page Administration → Utilisateurs (`POST /users/:id/unlock`)
+- `401 account_locked` « Trop de tentatives depuis votre adresse » ou `429` « Trop de requêtes » : c'est le
+  poste qui est bloqué, pas le compte ; le déverrouillage n'y change rien (30 minutes, ou une minute pour
+  le `429`) : se connecter depuis un autre poste
 - Déverrouillage manuel alternatif (sans accès administrateur) : insérer une entrée
   `user_unlocked` dont `details.targetEmail` est l'email du compte ; ne plus supprimer de lignes
   du journal

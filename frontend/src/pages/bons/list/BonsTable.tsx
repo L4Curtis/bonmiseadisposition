@@ -96,9 +96,17 @@ export function BonsTable({
           </div>
           <p className="text-sm font-medium text-foreground/80 mb-1">Erreur de chargement</p>
           <p className="text-xs text-muted-foreground/70 max-w-xs">{loadError}</p>
-          <Button size="sm" variant="outline" className="mt-4" onClick={onRetry}>
-            Réessayer
-          </Button>
+          <div className="mt-4 flex flex-wrap justify-center gap-2">
+            <Button size="sm" variant="outline" className="min-h-11 sm:min-h-9" onClick={onRetry}>
+              Réessayer
+            </Button>
+            {/* Un filtre peut être la cause du refus : s'en défaire sans chercher le bouton du haut. */}
+            {hasActiveFilters && (
+              <Button size="sm" variant="ghost" className="min-h-11 sm:min-h-9" onClick={onResetFilters}>
+                Réinitialiser les filtres
+              </Button>
+            )}
+          </div>
         </div>
       ) : bons.length === 0 ? (
         /* Empty state */

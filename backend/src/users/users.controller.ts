@@ -38,14 +38,17 @@ export class UsersController {
 
   /** GET /users — page de l'écran Utilisateurs. `meta.directoryActive` dit
    *  si l'annuaire synchronise les comptes : sinon, l'écran propose de
-   *  désactiver un compte venu d'Active Directory. */
+   *  désactiver un compte venu d'Active Directory. Chaque compte porte
+   *  `lockedUntil`, la fin du verrou de sa connexion locale. */
   @Get()
   async findPage(@Query() query: UsersListQueryDto): Promise<ListResponse<unknown, UserPageMeta>> {
     const [page, directoryActive] = await Promise.all([
       this.usersService.findPage(query),
       this.accounts.directoryActive(),
     ]);
-    return { ...page, meta: { directoryActive } };
+    const locks = await this.accounts.lockedUntil(page.items);
+    const items = page.items.map((u) => ({ ...u, lockedUntil: locks.get(u.id) ?? null }));
+    return { ...page, items, meta: { directoryActive } };
   }
 
   /** GET /users/search?q= — recherche d'une personne active : destinataire
@@ -110,7 +113,8 @@ export class UsersController {
     return this.accounts.changeRole(id, dto.role, user, clientIp(req));
   }
 
-  /** POST /users/:id/unlock — lève le verrou de la connexion locale. */
+  /** POST /users/:id/unlock — lève le verrou du compte (connexion locale) ;
+   *  409 `not_locked` s'il n'est pas verrouillé. Le verrou du poste reste. */
   @Post(':id/unlock')
   @HttpCode(HttpStatus.OK)
   @DeprecatedAlias('POST /admin/users/:id/unlock')

@@ -1,13 +1,14 @@
 import { Button } from '@/components/ui/button';
 import { LockOpen, Pencil, Power } from 'lucide-react';
 import type { User } from '@/types';
+import type { UserRow } from './types';
 import { accountOrigin, canToggleActive } from './account-origin';
 
 /** Cible tactile de 44 px sur téléphone, taille compacte à partir de 640 px. */
 const TOUCH = 'h-11 sm:h-8 gap-1.5';
 
 export interface UserActionsCellProps {
-  readonly user: User;
+  readonly user: UserRow;
   readonly currentUserId?: string;
   readonly directoryActive: boolean;
   readonly unlockingId: string | null;
@@ -18,7 +19,8 @@ export interface UserActionsCellProps {
 }
 
 /**
- * Actions d'un compte : déverrouillage (compte local), modification (compte
+ * Actions d'un compte : déverrouillage (compte local verrouillé seulement),
+ * modification (compte
  * créé à la main), désactivation et réactivation (tout compte, sauf un compte
  * de l'annuaire quand l'annuaire synchronise : une phrase renvoie alors vers
  * Active Directory).
@@ -30,8 +32,15 @@ export function UserActionsCell({
   const canToggle = canToggleActive(user, directoryActive, currentUserId);
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      {origin === 'local' && (
-        <Button variant="outline" size="sm" className={TOUCH} disabled={unlockingId === user.id} onClick={() => onUnlock(user)}>
+      {origin === 'local' && user.lockedUntil && (
+        <Button
+          variant="outline"
+          size="sm"
+          className={TOUCH}
+          disabled={unlockingId === user.id}
+          onClick={() => onUnlock(user)}
+          aria-label={`Déverrouiller le compte de ${user.displayName}`}
+        >
           <LockOpen className="h-3.5 w-3.5" aria-hidden="true" />
           {unlockingId === user.id ? 'Déverrouillage…' : 'Déverrouiller'}
         </Button>

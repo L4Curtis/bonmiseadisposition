@@ -19,6 +19,7 @@ import { AppException } from '../common/errors';
 import { sendCsv } from '../common/csv';
 import { clientIp } from '../common/http/client-ip';
 import { UPLOADS_DIR } from '../common/storage-paths';
+import { assertFilialeImageFile } from './filiales-image';
 
 function actorOf(user: AuthUser, req: Request): FilialeActor {
   return { id: user.id, ip: clientIp(req) };
@@ -102,43 +103,31 @@ export class FilialesController {
     return this.filialesService.update(id, dto, actorOf(user, req));
   }
 
+  /** PATCH /filiales/:id/logo — PNG ou JPEG, vérifié sur ses premiers
+   *  octets (400 `unsupported_image` sinon, comme un mauvais format). */
   @Patch(':id/logo')
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @UseInterceptors(FileInterceptor('file'))
-  async uploadLogo(
+  uploadLogo(
     @Param('id') id: string,
     @UploadedFile() upload: Express.Multer.File | undefined,
     @CurrentUser() user: AuthUser,
     @Req() req: Request,
   ) {
-    const file = requireFile(upload);
-    try {
-      return await this.filialesService.updateLogo(id, file.filename, actorOf(user, req));
-    } catch (err) {
-      // La filiale ciblée n'existe pas (ou autre échec) : multer a déjà écrit
-      // le fichier sur disque avant l'appel du service — on le supprime pour
-      // ne pas laisser de fichier orphelin.
-      this.cleanupOrphanUpload(file.filename);
-      throw err;
-    }
+    return this.replaceImage(upload, (filename) => this.filialesService.updateLogo(id, filename, actorOf(user, req)));
   }
 
+  /** PATCH /filiales/:id/stamp — même contrôle que le logo. */
   @Patch(':id/stamp')
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @UseInterceptors(FileInterceptor('file'))
-  async uploadStamp(
+  uploadStamp(
     @Param('id') id: string,
     @UploadedFile() upload: Express.Multer.File | undefined,
     @CurrentUser() user: AuthUser,
     @Req() req: Request,
   ) {
-    const file = requireFile(upload);
-    try {
-      return await this.filialesService.updateStamp(id, file.filename, actorOf(user, req));
-    } catch (err) {
-      this.cleanupOrphanUpload(file.filename);
-      throw err;
-    }
+    return this.replaceImage(upload, (filename) => this.filialesService.updateStamp(id, filename, actorOf(user, req)));
   }
 
   /** DELETE /filiales/:id — suppression réelle d'une filiale sans bon ni
@@ -146,6 +135,22 @@ export class FilialesController {
   @Delete(':id')
   remove(@Param('id') id: string, @CurrentUser() user: AuthUser, @Req() req: Request) {
     return this.filialesService.remove(id, actorOf(user, req));
+  }
+
+  /**
+   * Enregistre un logo ou un cachet déjà écrit sur disque par multer, après
+   * en avoir vérifié le type réel. Tout échec (fichier qui n'est pas une
+   * image, filiale introuvable…) supprime le fichier : rien d'orphelin.
+   */
+  private async replaceImage<T>(upload: Express.Multer.File | undefined, save: (filename: string) => Promise<T>): Promise<T> {
+    const file = requireFile(upload);
+    try {
+      await assertFilialeImageFile(join(UPLOADS_DIR, basename(file.filename)));
+      return await save(file.filename);
+    } catch (err) {
+      this.cleanupOrphanUpload(file.filename);
+      throw err;
+    }
   }
 
   /** Supprime (au mieux) le fichier déjà écrit par multer quand l'enregistrement

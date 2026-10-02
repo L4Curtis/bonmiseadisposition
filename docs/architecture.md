@@ -582,7 +582,9 @@ la contestation », qui ouvre directement sa décision : `/admin/contestations?c
 Fondée sur une restitution ou un PV et rien corrigé depuis la décision — ni geste de correction au journal,
 ni nouvelle signature IT, ni nouveau lien) et `linkRequest` (le collaborateur a demandé un nouveau lien
 pour le dernier lien envoyé, reconnu par son identifiant). Le bloc « Historique » de la fiche IT lit
-`GET /bons/:id/history` (`bons/bon-history.ts`). Pendant l'étape `correction`, l'action principale devient le geste de correction
+`GET /bons/:id/history` (`bons/bon-history.ts`) : chaque geste en phrase, signataire réel compris (une
+signature au guichet est celle du collaborateur, « en présence de » du technicien), premier envoi distinct du
+renvoi, clôture et modification d'un brouillon comprises (voir [api-conventions.md § 5](api-conventions.md#5-journal-daudit)). Pendant l'étape `correction`, l'action principale devient le geste de correction
 (« Corriger le marquage » pour une restitution, « Équipement retrouvé » pour un PV) au lieu du renvoi.
 Chaque signature de la fiche IT porte `signerName`, le nom du compte de `signerEmail` : « par Thomas
 Girard », comme le PDF (`bons/bon-signer-names.ts`).
@@ -844,7 +846,7 @@ les exceptions.
 |---|---|---|---|---|
 | GET | `/bons` | IT | | Liste à la forme commune (`limit` 25/50/100), projection allégée, avec `subStatus`, `pendingSignature`, `lateness`, `canSendLink`. Filtres `status`, `excludeStatus`, `filialeId`, `search` (sous-chaîne), `reference` (référence exacte), `overdue`, `awaitingSignature`, `linkExpired`, `subStatus` (même règle que la fiche), `dateFrom` / `dateTo` (mise à disposition), `createdFrom` / `createdTo`, `closedFrom` / `closedTo`, `cancelledFrom` / `cancelledTo` (jours de Paris : mêmes règles que les listes du tableau de bord), `noReturnDate`, `createdById`, `ids` ; tri `sort` et `order` (une valeur inconnue répond `400`). Ancien chemin : `GET /bons/recent` (alias déprécié) |
 | GET | `/bons/stats` | IT | | Compteurs de bons (mêmes prédicats que l'accueil) ; l'onglet Aujourd'hui lit désormais `/kpi/aujourdhui` |
-| GET | `/bons/export` | IT | | CSV, mêmes filtres et tri que la liste ; `ids` pour une sélection de 100 bons au plus |
+| GET | `/bons/export` | IT | | CSV, mêmes filtres et tri que la liste ; `ids` pour une sélection de 100 bons au plus. En-têtes en toutes lettres ; dates de mise à disposition et de restitution prévue en JJ/MM/AAAA, création et signatures en JJ/MM/AAAA HH:MM à l'heure de Paris (`formatParisDateTimeFr`, comme le journal) |
 | GET | `/me/bons` | tous | | Bons de l'utilisateur connecté (liste complète, coupée à 100), état calculé compris ; jetons du lien signable et du dernier lien expiré. Ancien chemin : `GET /bons/mes-bons` |
 | GET | `/bons/:id` | tous | | Fiche et état calculé (§ 6) ; sans `internalNote`, `linkRefusal`, `availableActions` pour le titulaire |
 | GET | `/bons/:id/send-check` | IT | | Contrôles avant la remise : lignes sans numéro, numéros déjà prêtés |
@@ -935,11 +937,11 @@ Les routes `/catalog/active`, `/catalog/search` et `/packs/active`, qu'aucun éc
 | GET | `/users/search` | IT | Recherche d'un collaborateur pour le formulaire de bon (15 au plus, `truncated` au-delà) |
 | GET | `/users/:id` | IT | Fiche d'un utilisateur, en lecture |
 | GET | `/users/it-staff` | IT | Comptes IT, pour le filtre « Créé par » de la liste des bons |
-| GET | `/users` | `admin` | Écran Utilisateurs : une seule forme, la liste paginée (`page`, `limit`, `search`, `status` = `active` par défaut, `inactive` ou `all`, `origin` = `manual`, `local` ou `directory`, `role`, `filialeId`) ; `meta.directoryActive` dit si l'annuaire synchronise les comptes |
+| GET | `/users` | `admin` | Écran Utilisateurs : une seule forme, la liste paginée (`page`, `limit`, `search`, `status` = `active` par défaut, `inactive` ou `all`, `origin` = `manual`, `local` ou `directory`, `role`, `filialeId`) ; `meta.directoryActive` dit si l'annuaire synchronise les comptes ; chaque compte porte `lockedUntil`, fin du verrou de sa connexion locale (`null` s'il n'est pas verrouillé) |
 | POST | `/users/manual` | `admin` | Création d'un compte manuel, y compris depuis le formulaire de bon |
 | PATCH | `/users/:id/manual` | `admin` | Modification d'un compte manuel (400 `directory_account` pour un compte de l'annuaire) |
 | PATCH | `/users/:id/role` | `admin` | Changement de rôle ; refusé sur soi-même (400 `own_account`) et sur le dernier administrateur actif (409 `last_admin`). Ancien chemin `PATCH /admin/users/:id/role` en alias déprécié |
-| POST | `/users/:id/unlock` | `admin` | Déverrouillage de la connexion locale ; rien n'est effacé du journal. Ancien chemin `POST /admin/users/:id/unlock` en alias déprécié |
+| POST | `/users/:id/unlock` | `admin` | Déverrouillage du compte (connexion locale) ; `409 not_locked` s'il n'est pas verrouillé ; rien n'est effacé du journal ; `stationLockedUntil` : fin du verrou du poste, qui reste. Ancien chemin `POST /admin/users/:id/unlock` en alias déprécié |
 | POST | `/users/:id/deactivate`, `/users/:id/reactivate` | `admin` | Désactivation, réactivation d'un compte (`user_deactivated`, `user_reactivated` au journal). Un compte de l'annuaire ne se désactive ici que si l'annuaire est inactif (409 `directory_active` sinon) |
 | GET | `/users/manual/export`, `/users/manual/import/template` | `admin` | CSV des comptes manuels (`collaborateurs-manuels-AAAA-MM-JJ.csv`, date de Paris), modèle d'import |
 | POST | `/users/manual/import` | `admin` | Import CSV, 500 lignes au plus |
@@ -972,7 +974,7 @@ dans `retention/`). Toutes ces routes sont réservées à `admin`. Un test de co
 | GET, PUT | `/admin/config/:category` | | Paramètres d'une rubrique, secrets masqués en lecture ; chaque enregistrement tracé (`config_updated`) |
 | GET | `/admin/config/health` | | État de chaque rubrique, sans aucun secret |
 | GET | `/admin/config/registry` | | Chaque réglage : valeur saisie, défaut, valeur appliquée et sa source ; secrets masqués |
-| POST | `/admin/config/test/ldap`, `/test/smtp`, `/test/entra`, `/test/smb` | 10/min | Tests de connexion : 200 `{ ok, message }` ; un échec donne une phrase française et la première ligne de la réponse du serveur, sans pile ni secret |
+| POST | `/admin/config/test/ldap`, `/test/smtp`, `/test/entra`, `/test/smb` | 10/min | Tests de connexion : 200 `{ ok, message }` ; l'annuaire teste les valeurs saisies (corps facultatif `LdapTestDto`), sans les enregistrer ; un échec donne une phrase française et la première ligne de la réponse du serveur, sans pile ni secret |
 | GET | `/admin/ldap/status` | | État de la dernière synchronisation |
 | POST | `/admin/ldap/sync` | 5/min | Synchronisation immédiate, en arrière-plan |
 | POST | `/admin/ldap/deactivate-all` | 5/min | Désactivation des comptes de l'annuaire, `{ ok, message, deactivated }` (alias déprécié : `DELETE /admin/ldap/users`) |
@@ -1181,7 +1183,12 @@ choisie est reportée sur chaque lien (`&filialeId=`).
 
 Une carte de bons ou d'événements « sur la période » ouvre, pour l'IT, la liste de ce qu'elle compte dans
 le tableau de bord même (paramètre d'adresse `liste=<indicateur>`, qui garde l'onglet, la période et la
-filiale ; le bouton retour la referme). La carte et la liste lisent la **même requête source**
+filiale ; le bouton retour la referme). Exception : « Bons créés », « Bons clôturés » et « Bons annulés »
+mènent à la liste des bons filtrée (`/bons?createdFrom&createdTo`, `closedFrom&closedTo`,
+`cancelledFrom&cancelledTo`, jours de Paris, et `filialeId`), où l'on trie et exporte ; le test sur base
+réelle `kpi-lists.real-db.spec.ts` prouve que ce filtre donne les mêmes bons que la carte. « Bons envoyés »
+n'a pas d'équivalent dans la liste des bons et reste dans le tableau de bord. L'adresse
+`?liste=bons_crees` (lien partagé) ouvre toujours la fenêtre. La carte et la liste lisent la **même requête source**
 (`kpi/lists/kpi-list-sources.ts`) : la carte en compte les lignes, la liste les affiche, avec le bon, le
 collaborateur, la filiale, la date et la précision utile (motif, issue, destinataire). Chaque ligne ouvre
 son bon. La direction n'a pas ces listes (403) et le « ? » de la carte le dit (« La liste de ce chiffre mène
@@ -1201,7 +1208,7 @@ catalogue) n'a rien à lister et le dit aussi. Les listes ne sont pas mises en c
 
 | Indicateur | Ce qu'il compte | Unité | Portée | Liste ouverte (IT) |
 |---|---|---|---|---|
-| Bons créés, envoyés, clôturés, annulés | Bons créés (date de création), envoyés (au moins un envoi sur la période, un bon compté une fois), clôturés (`archivedAt`), annulés | bons | période | `liste=bons_crees`, `bons_envoyes`, `bons_clotures`, `bons_annules` |
+| Bons créés, envoyés, clôturés, annulés | Bons créés (date de création), envoyés (au moins un envoi sur la période, un bon compté une fois), clôturés (`archivedAt`), annulés | bons | période | `/bons?createdFrom…`, `liste=bons_envoyes`, `/bons?closedFrom…`, `/bons?cancelledFrom…` |
 | Délai entre création et envoi | Médiane du temps entre la création et le premier envoi, avec le nombre de bons | heures | période | aucune (médiane) |
 | Remises signées sous 48 h / 7 jours | Part des remises signées dans ce délai après la demande, avec l'effectif (« 6 remises sur 7 ») | % | période | aucune (part) |
 | Durée moyenne de prêt | Temps entre la signature de la remise (à défaut la date de mise à disposition) et la clôture, pour les bons clôturés | jours | période | aucune (moyenne) |
@@ -1221,7 +1228,7 @@ catalogue) n'a rien à lister et le dit aussi. Les listes ne sont pas mises en c
 | PV de non-restitution émis | PV émis | PV | période | IT : `liste=pv_emis` |
 | Remises constatées sans signature | Bons passés « En cours » sans la signature du collaborateur, avec motif | bons | période | IT : `liste=remises_sans_signature` |
 | Clôturés sans signature | Bons clôturés sans la signature du collaborateur, avec motif (geste distinct du précédent) | bons | période | IT : `liste=clotures_sans_signature` |
-| Bons annulés | Bons annulés | bons | période | IT : `liste=bons_annules` |
+| Bons annulés | Bons annulés | bons | période | IT : `/bons?cancelledFrom=…&cancelledTo=…` |
 | Contestations reçues | Contestations créées | contestations | période | IT : `liste=contestations_recues` |
 | Contestations tranchées | Délai médian de décision, nombre de Fondées (le bon est corrigé) et de Non retenues (rien ne change) | jours, contestations | période | Fondée, Non retenue : `liste=contestations_fondees`, `contestations_non_retenues` ; délai : aucune (médiane) |
 | Rappels automatiques | Rappels envoyés par rang (trois au plus **par document**, comptés depuis sa demande), suivis ou non de la signature du même document ; documents ayant reçu leur 3ᵉ rappel | rappels, documents | période | — |

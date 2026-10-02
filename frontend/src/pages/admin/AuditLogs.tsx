@@ -1,15 +1,17 @@
-import { Shield, ChevronLeft, ChevronRight, XCircle } from 'lucide-react';
+import { Shield, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Pagination } from '@/components/list';
 import { useAuditLogs } from './audit-logs/useAuditLogs';
 import { AuditLogsFilters } from './audit-logs/AuditLogsFilters';
 import { AuditLogsTable } from './audit-logs/AuditLogsTable';
 import { AuditExportBar } from './audit-logs/AuditExportBar';
 
+const ENTRY_LABEL = { singular: 'entrée', plural: 'entrées' } as const;
+
 /** Journal d'audit : qui a fait quoi, raconté en phrases ; filtres gardés dans l'adresse. */
 export function AuditLogsPage() {
   const {
-    data, loading, loadError, load, filters, setFilters, resetFilters,
-    page, setPage, totalPages,
+    data, loading, loadError, load, filters, setFilters, resetFilters, pagination,
   } = useAuditLogs();
   const total = data?.total ?? 0;
 
@@ -42,20 +44,14 @@ export function AuditLogsPage() {
 
       <AuditLogsTable logs={data?.items} loading={loading} />
 
-      {totalPages > 1 && (
-        <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
-          <span>{total.toLocaleString('fr-FR')} entrée{total > 1 ? 's' : ''}</span>
-          <div className="flex items-center gap-1">
-            <Button variant="outline" size="icon" className="h-11 w-11" disabled={page <= 1} onClick={() => setPage(page - 1)} aria-label="Page précédente">
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <span className="px-3">Page {page} / {totalPages}</span>
-            <Button variant="outline" size="icon" className="h-11 w-11" disabled={page >= totalPages} onClick={() => setPage(page + 1)} aria-label="Page suivante">
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      )}
+      <Pagination
+        page={pagination.page}
+        pageSize={pagination.pageSize}
+        total={total}
+        onPageChange={pagination.setPage}
+        onPageSizeChange={pagination.setPageSize}
+        itemLabel={ENTRY_LABEL}
+      />
     </div>
   );
 }

@@ -52,8 +52,11 @@ export function BonNotificationLogs({ logs }: Props) {
                 <span className="text-muted-foreground truncate">{log.recipientEmail}</span>
                 <span className="text-muted-foreground ml-auto whitespace-nowrap">{formatDate(log.sentAt)}</span>
               </div>
+              {/* break-words et non break-all : la phrase passe à la ligne entre
+                  les mots ; seul un mot plus large que la colonne (une adresse
+                  très longue) est coupé. */}
               {log.status === 'failed' && log.errorMessage && (
-                <p className="mt-1 text-destructive text-xs break-all">{log.errorMessage}</p>
+                <p className="mt-1 text-destructive text-xs break-words">{log.errorMessage}</p>
               )}
             </div>
           </li>

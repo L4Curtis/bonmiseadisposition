@@ -33,3 +33,24 @@ export function correctionBeforeNewLink(previousNewestFirst: readonly PreviousLi
   }
   return null;
 }
+
+/** Lien précédent du même document, avec sa voie (email ou guichet). */
+export interface PreviousLinkWithChannel extends PreviousLink {
+  readonly isInPerson: boolean;
+}
+
+/**
+ * Le nouveau lien par email est-il un RENVOI ? Oui si le collaborateur a déjà
+ * reçu par email un lien de cette version du document : on remonte les liens
+ * précédents, du plus récent au plus ancien, jusqu'au dernier document signé
+ * (cycle précédent) ou à une correction (nouvelle version du document). Un
+ * lien affiché au guichet n'est pas un envoi. Module pur.
+ */
+export function isResendOfSameDocument(previousNewestFirst: readonly PreviousLinkWithChannel[]): boolean {
+  for (const link of previousNewestFirst) {
+    if (link.signed) return false;
+    if (link.invalidatedReason && CORRECTIONS.includes(link.invalidatedReason)) return false;
+    if (!link.isInPerson) return true;
+  }
+  return false;
+}

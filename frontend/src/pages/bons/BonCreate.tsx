@@ -6,6 +6,7 @@ import { useBonCreateForm } from './create/useBonCreateForm';
 import { CollaborateurSection } from './create/CollaborateurSection';
 import { DatesSection } from './create/DatesSection';
 import { EquipmentSection } from './create/EquipmentSection';
+import { FormErrorSummary } from './create/FormErrorSummary';
 
 // Exportés uniquement pour permettre leur test unitaire isolé — la page reste
 // par ailleurs le seul export utilisé par le routeur.
@@ -20,6 +21,8 @@ export function BonCreatePage() {
     isEditing,
     submitting,
     error,
+    fieldErrors,
+    errorAttempt,
     editReference,
     replacesReference,
     serialConflicts,
@@ -101,7 +104,9 @@ export function BonCreatePage() {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-4">
+      {/* noValidate : la validation de l'application signale toutes les erreurs
+          à la fois ; celle du navigateur s'arrêterait à la première. */}
+      <form onSubmit={handleSubmit} noValidate className="space-y-4">
         {restoredFromDraft && (
           <div
             role="status"
@@ -135,6 +140,7 @@ export function BonCreatePage() {
             </button>
           </div>
         )}
+        <FormErrorSummary errors={fieldErrors} attempt={errorAttempt} />
         {error && (
           <div ref={errorRef} className="rounded-lg bg-destructive/10 border border-destructive/20 px-4 py-3 text-sm text-destructive" role="alert">
             {error}
@@ -178,6 +184,7 @@ export function BonCreatePage() {
           filiales={filiales}
           collaborateur={collaborateur}
           onCollaborateurChange={setCollaborateur}
+          errors={fieldErrors}
         />
 
         <DatesSection
@@ -185,6 +192,7 @@ export function BonCreatePage() {
           onDateMiseDispositionChange={setDateMiseDisposition}
           dateRestitution={dateRestitution}
           onDateRestitutionChange={setDateRestitution}
+          errors={fieldErrors}
         />
 
         <EquipmentSection
@@ -202,6 +210,7 @@ export function BonCreatePage() {
           onPasteSerial={pasteSerial}
           onSerialBlur={checkSerialConflict}
           onImportDuplicatedEquipments={importDuplicatedEquipments}
+          error={fieldErrors.equipments}
         />
 
         {/* Deux textes distincts (R-170) : ce que voit le collaborateur, et ce qui reste à l'IT. */}

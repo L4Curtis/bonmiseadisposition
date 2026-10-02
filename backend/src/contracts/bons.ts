@@ -606,7 +606,7 @@ export interface BonHistoryEntry {
   at: IsoDateTime;
   /** Clé de l'action (catalogue `AUDIT_ACTIONS`). */
   action: string;
-  /** Libellé court (« Bon envoyé ») ; « Action non répertoriée » hors catalogue. */
+  /** Libellé court (« Bon créé ») ; « Action non répertoriée » hors catalogue. */
   label: string;
   tone: AuditActionTone;
   /** Phrase complète (« Marie Martin a annulé le bon BON-2026-0042 (motif : …). »). */

@@ -1,8 +1,9 @@
 import { BadRequestException } from '@nestjs/common';
-import { writeFile, unlink } from 'fs/promises';
+import { open, writeFile, unlink } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { randomUUID } from 'node:crypto';
+import { AppException } from '../common/errors';
 import { UPLOADS_DIR, dataPath } from '../common/storage-paths';
 
 /** Taille max de l'image décodée (logo/cachet) acceptée à l'import CSV. */
@@ -21,13 +22,41 @@ const DATA_URL_PREFIX = /^data:image\/[a-z0-9.+-]+;base64,/i;
 
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
+/** Refus d'un logo ou d'un cachet qui n'est ni un PNG ni un JPEG : même
+ *  message que le format refusé à l'envoi (filiales.module.ts), même code. */
+export const UNSUPPORTED_IMAGE_MESSAGE = 'Format non supporté : JPEG ou PNG uniquement';
+
+export function unsupportedImage(): AppException {
+  return new AppException('unsupported_image', UNSUPPORTED_IMAGE_MESSAGE);
+}
+
 /** Détecte PNG/JPEG par octets magiques uniquement — jamais par extension ou
  *  Content-Type annoncé (cohérent avec attachments.service.ts#sniffMime et
- *  common/signature-data-url.ts#assertPngDataUrl). */
-function detectImageExtension(buf: Buffer): 'png' | 'jpg' | null {
+ *  common/signature-data-url.ts#assertPngDataUrl). Ce sont les deux seuls
+ *  formats que PDFKit sait dessiner : un WebP, même authentique, est refusé. */
+export function detectImageExtension(buf: Buffer): 'png' | 'jpg' | null {
   if (buf.length >= 8 && buf.subarray(0, 8).equals(PNG_MAGIC)) return 'png';
   if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'jpg';
   return null;
+}
+
+/**
+ * Vérifie le type RÉEL d'un logo ou d'un cachet déposé par formulaire
+ * (PATCH /filiales/:id/logo|stamp), une fois écrit sur disque par multer :
+ * le nom et le type annoncés (seuls contrôlés par le `fileFilter`) se
+ * falsifient en renommant un fichier. Lève 400 `unsupported_image` si les
+ * premiers octets ne sont ni ceux d'un PNG ni ceux d'un JPEG ; le fichier
+ * reste à supprimer par l'appelant.
+ */
+export async function assertFilialeImageFile(path: string): Promise<void> {
+  const handle = await open(path, 'r');
+  try {
+    const header = Buffer.alloc(PNG_MAGIC.length);
+    const { bytesRead } = await handle.read(header, 0, header.length, 0);
+    if (!detectImageExtension(header.subarray(0, bytesRead))) throw unsupportedImage();
+  } finally {
+    await handle.close();
+  }
 }
 
 /**

@@ -90,14 +90,31 @@ function firstRowCells(csv: string): Record<string, string> {
   return Object.fromEntries(names.map((name, i) => [name, values[i]]));
 }
 
-describe('buildExportCsv — dates à l’heure de Paris, serveur réglé en UTC', () => {
+describe('buildExportCsv — en-têtes en toutes lettres', () => {
+  it('nomme chaque colonne sans abréviation', () => {
+    const header = buildExportCsv([]).slice(1).split('\n')[0].split(';').map((c) => c.slice(1, -1));
+
+    expect(header).toEqual([
+      'Référence', 'Statut', 'Filiale', 'Collaborateur', 'Email du collaborateur',
+      'Service', 'Date de mise à disposition', 'Date de restitution prévue', 'Nombre d’équipements',
+      'Équipements', 'Créé par', 'Date de création',
+      'Date de signature de la remise', 'Date de signature de la restitution',
+    ]);
+  });
+});
+
+describe('buildExportCsv — horodatages à l’heure de Paris, serveur réglé en UTC', () => {
   useHostTimeZone('UTC');
 
   it.each([
-    ['été', '2026-07-14T22:30:00.000Z', '15/07/2026'],
-    ['été, 1 h 59', '2026-07-14T23:59:00.000Z', '15/07/2026'],
-    ['hiver', '2026-01-14T23:30:00.000Z', '15/01/2026'],
-  ])('création et signatures entre 0 h et 2 h à Paris (%s)', (_season, instant, expected) => {
+    ['été, juste avant minuit UTC', '2026-07-14T22:30:00.000Z', '15/07/2026 00:30'],
+    ['été, 1 h 59 à Paris', '2026-07-14T23:59:00.000Z', '15/07/2026 01:59'],
+    ['hiver, juste avant minuit UTC', '2026-01-14T23:30:00.000Z', '15/01/2026 00:30'],
+    ['veille du passage à l’heure d’été (UTC+1)', '2026-03-29T00:30:00.000Z', '29/03/2026 01:30'],
+    ['lendemain du passage à l’heure d’été (UTC+2)', '2026-03-29T01:30:00.000Z', '29/03/2026 03:30'],
+    ['avant le retour à l’heure d’hiver (UTC+2)', '2026-10-25T00:30:00.000Z', '25/10/2026 02:30'],
+    ['après le retour à l’heure d’hiver (UTC+1)', '2026-10-25T01:30:00.000Z', '25/10/2026 02:30'],
+  ])('création et signatures en JJ/MM/AAAA HH:MM (%s)', (_cas, instant, expected) => {
     const row = makeRow({
       createdAt: new Date(instant),
       signatures: [
@@ -108,18 +125,25 @@ describe('buildExportCsv — dates à l’heure de Paris, serveur réglé en UTC
 
     const cells = firstRowCells(buildExportCsv([row]));
 
-    expect(cells['Date création']).toBe(expected);
-    expect(cells['Date signature mise à dispo']).toBe(expected);
-    expect(cells['Date signature restitution']).toBe(expected);
+    expect(cells['Date de création']).toBe(expected);
+    expect(cells['Date de signature de la remise']).toBe(expected);
+    expect(cells['Date de signature de la restitution']).toBe(expected);
   });
 
-  it('les dates civiles (mise à disposition, restitution) gardent leur jour', () => {
+  it('les dates civiles (mise à disposition, restitution prévue) restent sans heure', () => {
     const row = makeRow({ dateMiseDisposition: new Date('2026-04-01'), dateRestitution: '2026-10-31' });
 
     const cells = firstRowCells(buildExportCsv([row]));
 
-    expect(cells['Date mise à disposition']).toBe('01/04/2026');
-    expect(cells['Date restitution']).toBe('31/10/2026');
+    expect(cells['Date de mise à disposition']).toBe('01/04/2026');
+    expect(cells['Date de restitution prévue']).toBe('31/10/2026');
+  });
+
+  it('laisse vide une signature absente', () => {
+    const cells = firstRowCells(buildExportCsv([makeRow({ signatures: [] })]));
+
+    expect(cells['Date de signature de la remise']).toBe('');
+    expect(cells['Date de signature de la restitution']).toBe('');
   });
 });
 

@@ -8,7 +8,7 @@
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit.service';
 import { Logger, UnauthorizedException } from '@nestjs/common';
-import { lockWindowStart, LOGIN_LOCK_WINDOW_MS } from '../login-lock';
+import { accountLockStates, lockWindowStart, LOGIN_LOCK_WINDOW_MS, stationLockedUntil } from '../login-lock';
 import { localLogin } from '../../auth/local-login';
 import { AccountLockedException } from '../../auth/exceptions';
 
@@ -123,5 +123,32 @@ describeDb('Verrou de connexion : marqueur de déverrouillage (base réelle)', (
 
     expect(await attempt(EMAIL, ATTACKER_IP)).toBe('verrouillé : Trop de tentatives depuis votre adresse. Réessayez dans 30 minutes.');
     expect(await attempt(EMAIL, '10.9.9.10')).toBe('identifiants');
+  });
+
+  it('l’état affiché (accountLockStates) suit la connexion : verrouillé, puis libre après le marqueur', async () => {
+    await cleanup();
+    for (let i = 0; i < 10; i++) await audit.record('login_local_failed', { actorEmail: EMAIL, ip: ATTACKER_IP });
+    await audit.record('user_unlocked', { actorEmail: 'admin@test.local', details: { targetEmail: OTHER_EMAIL } });
+
+    const locked = (await accountLockStates(prisma, [EMAIL, OTHER_EMAIL], new Date())).get(EMAIL);
+    expect(locked?.lockedUntil).not.toBeNull();
+    expect(locked?.failures).toHaveLength(10);
+    expect(await attempt(EMAIL, ATTACKER_IP)).toMatch(/^verrouillé : Compte temporairement verrouillé/);
+
+    await waitForDatabaseClockAfterLastFailure();
+    await audit.record('user_unlocked', { actorEmail: 'admin@test.local', details: { targetEmail: EMAIL } });
+    const unlocked = (await accountLockStates(prisma, [EMAIL], new Date(Date.now() + 1000))).get(EMAIL);
+    expect(unlocked).toEqual({ failures: [], lockedUntil: null });
+    expect(await attempt(EMAIL, ATTACKER_IP)).toBe('identifiants');
+  });
+
+  it('stationLockedUntil voit le verrou du poste que la connexion applique', async () => {
+    await cleanup();
+    for (let i = 0; i < 30; i++) {
+      await audit.record('login_local_failed', { actorEmail: `${IP_EMAIL_PREFIX}${i % 6}@test.local`, ip: ATTACKER_IP });
+    }
+    expect(await stationLockedUntil(prisma, [ATTACKER_IP], new Date())).not.toBeNull();
+    expect(await stationLockedUntil(prisma, ['10.9.9.10'], new Date())).toBeNull();
+    expect(await attempt(EMAIL, ATTACKER_IP)).toMatch(/^verrouillé : Trop de tentatives/);
   });
 });

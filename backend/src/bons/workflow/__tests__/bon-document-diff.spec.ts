@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { documentChanges, DocumentState } from '../bon-document-diff';
+import { documentChanges, documentChangesLabel, DocumentState } from '../bon-document-diff';
 
 const bon: DocumentState = {
   filialeId: 'f1',
@@ -44,5 +44,12 @@ describe('documentChanges', () => {
     expect(documentChanges(bon, { dateRestitution: '2026-12-01', dateMiseDisposition: '2026-09-21' }))
       .toEqual(['dateMiseDisposition', 'dateRestitution']);
     expect(documentChanges({ ...bon, notes: null }, { notes: '   ' })).toEqual([]);
+  });
+});
+
+describe('documentChangesLabel', () => {
+  it('nomme les champs changés comme l’écran, dans l’ordre', () => {
+    expect(documentChangesLabel(['dateRestitution', 'equipments'])).toBe('restitution prévue, équipements');
+    expect(documentChangesLabel([])).toBe('');
   });
 });

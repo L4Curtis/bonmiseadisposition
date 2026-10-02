@@ -19,8 +19,7 @@ import { saveSignatureFile } from './signature-file-store';
 import { generatePdfSnapshot, PdfSnapshotDeps, recordSnapshotFailure } from './pdf-snapshot';
 import { LINK_INVALIDATION_MESSAGES, NON_SIGNABLE_BON_STATUSES, isBonStatusIn } from '../bons/bon-status';
 import { isItRole } from '../common/roles';
-import { writeAuditEntry } from '../audit/audit-record';
-import type { AuditAction } from '../audit/audit-actions';
+import { writeSignatureAudit } from './signature-audit';
 
 export interface SignDeps {
   prisma: PrismaService;
@@ -49,13 +48,6 @@ const COLLAB_SNAPSHOT_TYPES: Readonly<Record<LinkDocumentType, string>> = Object
   mise_disposition: 'signature_collab_mise_disposition',
   restitution: 'signature_collab_restitution',
   pv_cloture: 'cloture_equipements_manquants',
-});
-
-/** Document signé par le collaborateur → action du journal d'audit. */
-const SIGNED_DOCUMENT_ACTIONS: Readonly<Record<LinkDocumentType, AuditAction>> = Object.freeze({
-  mise_disposition: 'signed_mise_disposition',
-  restitution: 'signed_restitution',
-  pv_cloture: 'signed_pv_cloture',
 });
 
 type SignableSignature = Signature & { bon: Awaited<ReturnType<typeof loadBonForSignature>> };
@@ -180,9 +172,10 @@ function runSignTransaction(
   deps: SignDeps,
   sig: SignableSignature,
   signer: SignerInput,
-  signedByProxy: boolean,
+  resolved: { signedByProxy: boolean; collectedByOtherAccount: boolean },
   signatureImagePath: string,
 ): Promise<SignedRecord> {
+  const { signedByProxy } = resolved;
   return deps.prisma.$transaction(async (tx) => {
     const fresh = await tx.signature.findUnique({
       where: { token: sig.token },
@@ -220,15 +213,15 @@ function runSignTransaction(
     });
     if (statusUpdate.count === 0) throw new ConflictException('Le statut du bon a changé entre-temps, veuillez réessayer');
 
-    await writeAuditEntry(tx, SIGNED_DOCUMENT_ACTIONS[sig.type as LinkDocumentType], {
-      actorEmail: signer.signerEmail,
-      bonId: sig.bon.id,
-      ip: signer.signerIp,
-      userAgent: signer.signerUserAgent,
-      details: {
-        isInPerson: sig.isInPerson, signedByProxy, titulaireEmail: sig.bon.collaborateurEmail,
-        mentionLuApprouve: signer.mentionLuApprouve, newStatus,
-      },
+    await writeSignatureAudit(tx, {
+      bon: sig.bon,
+      documentType: sig.type as LinkDocumentType,
+      isInPerson: sig.isInPerson,
+      ...resolved,
+      account: { id: signer.signerId, email: signer.signerEmail, ip: signer.signerIp, userAgent: signer.signerUserAgent },
+      mentionLuApprouve: signer.mentionLuApprouve,
+      previousStatus: fresh.bon.status,
+      newStatus,
     });
     return { updatedSig, previousStatus: fresh.bon.status, newStatus, seal };
   });
@@ -277,7 +270,7 @@ export async function sign(deps: SignDeps, token: string, signer: SignerInput) {
   );
   let record: SignedRecord;
   try {
-    record = await runSignTransaction(deps, sig, signer, signedByProxy, signatureImagePath);
+    record = await runSignTransaction(deps, sig, signer, { signedByProxy, collectedByOtherAccount }, signatureImagePath);
   } catch (err) {
     await removeOrphanFile(deps, signatureImagePath);
     throw err;

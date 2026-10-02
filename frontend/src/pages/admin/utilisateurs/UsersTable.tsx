@@ -2,7 +2,9 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ResponsiveList, type ListColumn } from '@/components/list';
 import { ROLE_LABELS } from '@/domain/labels';
+import { formatTime } from '@/lib/dates';
 import type { User, UserRole } from '@/types';
+import type { UserRow } from './types';
 import { UserActionsCell, type UserActionsCellProps } from './UserActionsCell';
 import { accountOrigin } from './account-origin';
 
@@ -11,7 +13,7 @@ const ASSIGNABLE_ROLES = Object.keys(ROLE_LABELS) as UserRole[];
 const ORIGIN_LABELS = { manual: 'Créé manuellement', local: 'Compte local', directory: null } as const;
 
 export interface UsersTableProps extends Omit<UserActionsCellProps, 'user'> {
-  readonly users: readonly User[];
+  readonly users: readonly UserRow[];
   readonly isAdmin: boolean;
   readonly updatingRoleId: string | null;
   readonly onRoleChange: (user: User, role: UserRole) => void;
@@ -58,6 +60,17 @@ function RoleCell({ user, isAdmin, currentUserId, updatingRoleId, onRoleChange }
   );
 }
 
+/** État du compte ; un compte local verrouillé dit jusqu'à quand (heure de
+ *  Paris), comme la connexion l'applique. */
+function StatusCell({ user }: { user: UserRow }) {
+  return (
+    <span className="flex flex-wrap items-center gap-1.5">
+      <Badge variant={user.active ? 'success' : 'error'}>{user.active ? 'Actif' : 'Inactif'}</Badge>
+      {user.lockedUntil && <Badge variant="warning">{`Verrouillé jusqu'à ${formatTime(user.lockedUntil)}`}</Badge>}
+    </span>
+  );
+}
+
 /**
  * Comptes de l'écran Utilisateurs : un tableau sur ordinateur, des cartes sur
  * téléphone. Rôle modifiable par l'administrateur (sauf le sien), état du
@@ -65,7 +78,7 @@ function RoleCell({ user, isAdmin, currentUserId, updatingRoleId, onRoleChange }
  */
 export function UsersTable(props: UsersTableProps) {
   const { users, isAdmin } = props;
-  const columns: ListColumn<User>[] = [
+  const columns: ListColumn<UserRow>[] = [
     { key: 'name', header: 'Nom', card: 'title', cell: (u) => <NameCell user={u} /> },
     { key: 'email', header: 'Email', card: 'subtitle', cell: (u) => u.email || '—', className: 'text-muted-foreground' },
     { key: 'department', header: 'Service', cell: (u) => u.department || '—', className: 'text-muted-foreground' },
@@ -74,10 +87,10 @@ export function UsersTable(props: UsersTableProps) {
     {
       key: 'status',
       header: 'État',
-      cell: (u) => <Badge variant={u.active ? 'success' : 'error'}>{u.active ? 'Actif' : 'Inactif'}</Badge>,
+      cell: (u) => <StatusCell user={u} />,
     },
     ...(isAdmin
-      ? [{ key: 'actions', header: 'Actions', card: 'actions' as const, cell: (u: User) => <UserActionsCell user={u} {...props} /> }]
+      ? [{ key: 'actions', header: 'Actions', card: 'actions' as const, cell: (u: UserRow) => <UserActionsCell user={u} {...props} /> }]
       : []),
   ];
   return <ResponsiveList items={users} columns={columns} getKey={(u) => u.id} caption="Liste des utilisateurs" />;

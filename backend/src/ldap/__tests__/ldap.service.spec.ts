@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { Prisma } from '@prisma/client';
-import { LdapService } from '../ldap.service';
+import { LdapService, STORED_PASSWORD_WITHHELD_MESSAGE } from '../ldap.service';
 import { ConfigRegistryService } from '../../config/config-registry.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationService } from '../../notification/notification.service';
@@ -199,6 +199,85 @@ describe('LdapService', () => {
         ok: false,
         message: expect.stringContaining('Connection refused'),
       });
+    });
+
+    // ─── valeurs saisies dans le formulaire, non enregistrées ───────────────
+
+    function bindSucceeds() {
+      mockClient.bind.mockImplementation((_dn: string, _pw: string, cb: (err: Error | null) => void) => cb(null));
+    }
+
+    it('teste les valeurs saisies plutôt que celles enregistrées, sans rien enregistrer', async () => {
+      bindSucceeds();
+      configService.set.mockClear();
+
+      const result = await service.testConnection({
+        url: 'ldaps://dc02.livio.local:636',
+        use_ssl: 'true',
+        bind_dn: 'CN=svc,DC=livio,DC=local',
+        bind_password: 'nouveau-secret',
+      });
+
+      expect(result.ok).toBe(true);
+      expect(ldapMock.createClient).toHaveBeenCalledWith(expect.objectContaining({ url: 'ldaps://dc02.livio.local:636' }));
+      expect(mockClient.bind).toHaveBeenCalledWith('CN=svc,DC=livio,DC=local', 'nouveau-secret', expect.any(Function));
+      expect(configService.set).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['absent', undefined],
+      ['vide', ''],
+      ['masqué', '••••••••'],
+    ])('mot de passe %s dans le formulaire : reprend le mot de passe enregistré', async (_cas, password) => {
+      bindSucceeds();
+
+      await service.testConnection({ url: 'ldap://dc.test.local', bind_dn: 'CN=admin,DC=test,DC=local', bind_password: password });
+
+      expect(mockClient.bind).toHaveBeenCalledWith('CN=admin,DC=test,DC=local', 'secret', expect.any(Function));
+    });
+
+    it('autre serveur sans mot de passe retapé : le mot de passe enregistré ne part pas', async () => {
+      bindSucceeds();
+
+      const result = await service.testConnection({ url: 'ldap://machine-inconnue:389', bind_password: '' });
+
+      expect(result).toEqual({ ok: false, message: STORED_PASSWORD_WITHHELD_MESSAGE });
+      expect(mockClient.bind).not.toHaveBeenCalled();
+    });
+
+    it('URL effacée dans le formulaire : le test le dit, sans reprendre l’URL enregistrée', async () => {
+      const result = await service.testConnection({ url: '' });
+
+      expect(result).toEqual({ ok: false, message: 'URL LDAP non configurée' });
+      expect(ldapMock.createClient).not.toHaveBeenCalled();
+    });
+
+    it('SSL coché avec une URL ldap:// saisie : incohérence signalée avant toute connexion', async () => {
+      const result = await service.testConnection({ url: 'ldap://dc02.livio.local', use_ssl: 'true' });
+
+      expect(result.ok).toBe(false);
+      expect(result.message).toContain('ldaps://');
+      expect(ldapMock.createClient).not.toHaveBeenCalled();
+    });
+
+    it('filtre saisi invalide : signalé sans se connecter', async () => {
+      const result = await service.testConnection({ user_filter: 'objectClass=person' });
+
+      expect(result.ok).toBe(false);
+      expect(result.message).toContain('Filtre LDAP invalide');
+      expect(ldapMock.createClient).not.toHaveBeenCalled();
+    });
+
+    it('n’écrit jamais le mot de passe saisi dans les journaux ni dans la réponse', async () => {
+      mockClient.bind.mockImplementation((_dn: string, _pw: string, cb: (err: Error | null) => void) =>
+        cb(new Error('Invalid Credentials')),
+      );
+      const warn = vi.spyOn((service as unknown as { logger: { warn: (m: string) => void } }).logger, 'warn');
+
+      const result = await service.testConnection({ bind_password: 'Tres-Secret-42' });
+
+      expect(JSON.stringify(result)).not.toContain('Tres-Secret-42');
+      expect(warn.mock.calls.flat().join(' ')).not.toContain('Tres-Secret-42');
     });
 
     // ─── traduction des erreurs TLS/LDAP (LOT A6 — LDAPS) ───────────────────

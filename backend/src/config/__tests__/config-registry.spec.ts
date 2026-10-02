@@ -34,6 +34,36 @@ describe('CONFIG_REGISTRY — structure', () => {
     }
   });
 
+  it('chaque entier a une borne haute : une faute de frappe ne passe pas', () => {
+    for (const key of keys) {
+      const definition = configDefinition(key);
+      if (definition.type !== 'integer') continue;
+      expect({ key, max: definition.max }).toEqual({ key, max: expect.any(Number) });
+    }
+  });
+
+  it('bornes retenues pour chaque entier', () => {
+    const bounds = Object.fromEntries(
+      keys
+        .filter((key) => configDefinition(key).type === 'integer')
+        .map((key) => [key, [configDefinition(key).min, configDefinition(key).max]]),
+    );
+    expect(bounds).toEqual({
+      'ldap.sync_interval_hours': [1, 168],
+      'smtp.port': [1, 65535],
+      'rappels.delay_1': [1, 90],
+      'rappels.delay_2': [1, 90],
+      'rappels.delay_3': [1, 90],
+      'rappels.restitution_before_days': [0, 90],
+      'rappels.signature_overdue_days': [1, 90],
+      'tokens.expiry_days': [1, 30],
+      'retention.anonymize_months': [60, 600],
+      'retention.attachment_months': [1, 600],
+      'retention.expired_tokens_days': [1, 3650],
+      'retention.audit_logs_years': [1, 100],
+    });
+  });
+
   it('reprend les défauts appliqués aujourd’hui par les services', () => {
     expect(CONFIG_REGISTRY['rappels.signature_overdue_days'].defaultValue).toBe(DEFAULT_SIGNATURE_OVERDUE_DAYS);
     expect(CONFIG_REGISTRY['tokens.expiry_days']).toMatchObject({ defaultValue: 7, min: 1, max: 30 });
@@ -64,6 +94,14 @@ describe('resolveConfigValue — valeur appliquée', () => {
     expect(resolveConfigValue(expiry, '0')).toEqual({ applied: 1, source: 'stored', adjusted: true });
     expect(resolveConfigValue(expiry, '7j')).toEqual({ applied: 7, source: 'default', adjusted: true });
     expect(resolveConfigValue(expiry, '')).toEqual({ applied: 7, source: 'default', adjusted: false });
+  });
+
+  it('seuil de retard déjà saisi au-delà de 90 jours : ramené à 90', () => {
+    expect(resolveConfigValue(configDefinition('rappels.signature_overdue_days'), '500')).toEqual({
+      applied: 90,
+      source: 'stored',
+      adjusted: true,
+    });
   });
 
   it('plancher légal de l’anonymisation : jamais moins de 60 mois', () => {

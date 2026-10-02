@@ -7,7 +7,7 @@ import { api } from '@/lib/api';
 import { errorMessage } from '@/lib/errors';
 import { RetentionSetupWizard } from './retention/RetentionSetupWizard';
 import { RetentionActions, TechnicalPurgeActions } from './retention/RetentionManualActions';
-import { RETENTION_DURATIONS } from './retention/retention-durations';
+import { ANONYMIZE_MONTHS_FLOOR, RETENTION_DURATIONS, type RetentionDurationDef } from './retention/retention-durations';
 
 function ManualActions() {
   return (
@@ -37,6 +37,12 @@ function FirstSetup({ saved, onActivated }: { saved: Record<string, string>; onA
 }
 
 /** Rétention active : réglages courants et actions manuelles. */
+/** Bornes d'une durée, les mêmes que celles du serveur (registre de configuration). */
+function boundsHelp(d: RetentionDurationDef): string {
+  const legal = d.key === 'anonymize_months' ? ` (minimum légal : ${ANONYMIZE_MONTHS_FLOOR} mois)` : '';
+  return `Entre ${d.min} et ${d.max} ${d.unit}${legal}.`;
+}
+
 function ActiveRetention() {
   return (
     <ConfigSection
@@ -49,7 +55,8 @@ function ActiveRetention() {
           label: `${d.label} (${d.unit})`,
           type: 'number',
           min: d.min,
-          help: d.key === 'anonymize_months' ? 'Minimum légal : 60 mois' : undefined,
+          max: d.max,
+          help: boundsHelp(d),
         })),
       ]}
       footer={<ManualActions />}

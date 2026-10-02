@@ -23,6 +23,8 @@ import { canResendLink } from './list/resendEligibility';
 import { formatTimeAgo } from './list/relativeTime';
 import { bonsExportFilters } from './list/exportFilters';
 import { toExportParams } from './list/bonsListQuery';
+import { bonCountLabel } from './list/bonCount';
+import { ListNotice } from './list/ListNotice';
 import type { Bon } from './list/types';
 
 const NOT_RESENDABLE_REASON = 'Pas en attente de signature par email';
@@ -31,9 +33,11 @@ export function BonsListPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const list = useBonsListParams();
-  const { query } = list;
+  // `query` : ce que montrent les champs ; `appliedQuery` : ce qui est
+  // réellement filtré (sans une période inversée), donc aussi exporté.
+  const { query, appliedQuery } = list;
   const creators = useBonCreators();
-  const { exportLoading, exportCsv } = useBonsExport(query);
+  const { exportLoading, exportCsv } = useBonsExport(appliedQuery);
   const selection = useBonsSelection(list.bons);
   const resend = useResendLinks(list.reload);
   // Sélection figée à l'ouverture de la relance groupée : la liste est
@@ -78,7 +82,7 @@ export function BonsListPage() {
             {list.loading ? (
               <Skeleton as="span" className="h-4 w-16 inline-block" />
             ) : (
-              <>{list.total} bon{list.total !== 1 ? 's' : ''}</>
+              bonCountLabel(list.total)
             )}
           </p>
         </div>
@@ -87,6 +91,8 @@ export function BonsListPage() {
           Nouveau bon
         </Button>
       </div>
+
+      {list.notice && <ListNotice message={list.notice} onDismiss={list.dismissNotice} />}
 
       <QuickViewsBar views={quickViews} activeViewId={activeView?.id} onSelect={(v) => list.applyQuery(v.query)} />
 
@@ -104,11 +110,12 @@ export function BonsListPage() {
         onAdvancedChange={list.updateFilters}
         currentUserId={user?.id}
         creators={creators}
+        dateRangeError={list.dateRangeError}
         exportControl={
           <ExportButton
-            path={`/bons/export?${toExportParams(query)}`}
+            path={`/bons/export?${toExportParams(appliedQuery)}`}
             fallbackFilename={`bons-export-${todayInParis()}.csv`}
-            filters={bonsExportFilters(query, { filiales: list.filiales, creators, currentUserId: user?.id })}
+            filters={bonsExportFilters(appliedQuery, { filiales: list.filiales, creators, currentUserId: user?.id })}
             count={list.loading ? null : list.total}
             limit={list.exportLimit}
             itemLabel={{ singular: 'bon', plural: 'bons' }}

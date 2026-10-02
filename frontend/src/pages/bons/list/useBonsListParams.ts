@@ -11,7 +11,6 @@ import {
   DEFAULT_LIST_QUERY,
   hasActiveFilters as queryHasFilters,
   nextSort,
-  parseListQuery,
   toApiParams,
   toRememberedParams,
   toUrlParams,
@@ -19,6 +18,7 @@ import {
   type SortField,
 } from './bonsListQuery';
 import { loadRememberedQuery, saveRememberedQuery } from './rememberedQuery';
+import { ignoredFiltersNotice, invertedRanges, readListQuery, withoutInvertedRanges, type ReadListQueryResult } from './readListQuery';
 
 /** Nombre de lignes choisi (25, 50 ou 100), mémorisé dans le navigateur et
  *  commun à toutes les listes (même clé que `usePagination`). */
@@ -42,12 +42,16 @@ function writePageSize(size: PageSize): void {
 
 type FilterPatch = Partial<Omit<BonsListQuery, 'page'>>;
 
+/** Message affiché près des dates quand la période saisie est inversée. */
+export const DATE_RANGE_ERROR = 'La date de début doit précéder la date de fin : la période n’est pas appliquée.';
+
 /** État initial : l'URL si elle porte quelque chose (lien partagé, tableau de
- *  bord, recherche globale), sinon les derniers filtres mémorisés. */
-function initialQuery(searchParams: URLSearchParams): BonsListQuery {
-  if (searchParams.toString()) return parseListQuery(searchParams);
+ *  bord, recherche globale), sinon les derniers filtres mémorisés. Les deux
+ *  sources sont vérifiées : une valeur invalide est écartée et signalée. */
+function initialRead(searchParams: URLSearchParams): ReadListQueryResult {
+  if (searchParams.toString()) return readListQuery(searchParams);
   const remembered = loadRememberedQuery();
-  return remembered ? parseListQuery(remembered) : DEFAULT_LIST_QUERY;
+  return remembered ? readListQuery(remembered) : { query: DEFAULT_LIST_QUERY, ignored: [] };
 }
 
 /** Filtres, tri, pagination et chargement de la liste des bons. L'état vit
@@ -59,7 +63,10 @@ function initialQuery(searchParams: URLSearchParams): BonsListQuery {
  *  mémorisés dans le navigateur (rememberedQuery). */
 export function useBonsListParams() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [query, setQuery] = useState<BonsListQuery>(() => initialQuery(searchParams));
+  const [initial] = useState(() => initialRead(searchParams));
+  const [query, setQuery] = useState<BonsListQuery>(initial.query);
+  // Filtres écartés à la lecture de l'adresse ou de la mémoire, dits en clair.
+  const [notice, setNotice] = useState<string | null>(() => ignoredFiltersNotice(initial.ignored));
   const [searchInput, setSearchInput] = useState(query.search);
   const [pageSize, setPageSizeState] = useState<PageSize>(readPageSize);
 
@@ -81,9 +88,10 @@ export function useBonsListParams() {
 
   useEffect(() => {
     if (lastWrittenUrl.current === null || urlString === lastWrittenUrl.current) return;
-    const external = parseListQuery(new URLSearchParams(urlString));
-    setQuery(external);
-    setSearchInput(external.search);
+    const external = readListQuery(new URLSearchParams(urlString));
+    setQuery(external.query);
+    setSearchInput(external.query.search);
+    setNotice(ignoredFiltersNotice(external.ignored));
   }, [urlString]);
 
   // setSearchParams change d'identité à chaque changement d'URL : lu via une
@@ -93,16 +101,22 @@ export function useBonsListParams() {
   const currentUrlRef = useRef(urlString);
   currentUrlRef.current = urlString;
 
+  // Requête réellement appliquée : une période inversée saisie à l'écran reste
+  // visible dans ses champs (avec un message) mais n'est ni envoyée au
+  // serveur, qui la refuserait, ni écrite dans l'adresse, ni mémorisée.
+  const appliedQuery = useMemo(() => withoutInvertedRanges(query), [query]);
+  const dateRangeError = invertedRanges(query).includes('mise') ? DATE_RANGE_ERROR : null;
+
   useEffect(() => {
-    const next = toUrlParams(query).toString();
+    const next = toUrlParams(appliedQuery).toString();
     lastWrittenUrl.current = next;
     if (next !== currentUrlRef.current) {
       setSearchParamsRef.current(new URLSearchParams(next), { replace: true });
     }
-    saveRememberedQuery(toRememberedParams(query));
-  }, [query]);
+    saveRememberedQuery(toRememberedParams(appliedQuery));
+  }, [appliedQuery]);
 
-  const apiParams = useMemo(() => toApiParams(query, pageSize).toString(), [query, pageSize]);
+  const apiParams = useMemo(() => toApiParams(appliedQuery, pageSize).toString(), [appliedQuery, pageSize]);
 
   useEffect(() => {
     setLoading(true);
@@ -157,6 +171,7 @@ export function useBonsListParams() {
     // Le tri choisi est conservé : « réinitialiser » vise les filtres.
     setQuery((q) => ({ ...DEFAULT_LIST_QUERY, sort: q.sort, order: q.order }));
     setSearchInput('');
+    setNotice(null);
   }, []);
 
   const toggleSort = useCallback((field: SortField) => {
@@ -180,6 +195,10 @@ export function useBonsListParams() {
 
   return {
     query,
+    appliedQuery,
+    notice,
+    dismissNotice: () => setNotice(null),
+    dateRangeError,
     bons,
     total,
     exportLimit,

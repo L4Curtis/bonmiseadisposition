@@ -70,9 +70,12 @@ export type FilialeResponse = Filiale;
  *  - `filiale_name_taken` (409) : nom déjà pris (sans tenir compte de la casse) ;
  *  - `filiale_in_use` (409) : suppression refusée, des bons ou des comptes y
  *    sont rattachés (`details.bonCount`, `details.userCount`) : la désactiver ;
- *  - `file_missing` (400) : envoi de logo ou de cachet sans fichier.
+ *  - `file_missing` (400) : envoi de logo ou de cachet sans fichier ;
+ *  - `unsupported_image` (400) : logo ou cachet qui n'est ni un PNG ni un
+ *    JPEG, par son nom, son type annoncé ou ses premiers octets (un fichier
+ *    texte renommé en `.png` est refusé).
  */
-export type FilialeErrorCode = 'filiale_name_taken' | 'filiale_in_use' | 'file_missing';
+export type FilialeErrorCode = 'filiale_name_taken' | 'filiale_in_use' | 'file_missing' | 'unsupported_image';
 
 /** Ligne rejetée d'un import : `index` est la position dans le tableau
  *  `items` envoyé ; `message` concatène les erreurs de validation ou décrit

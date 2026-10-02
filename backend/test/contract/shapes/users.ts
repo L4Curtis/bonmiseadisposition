@@ -14,13 +14,14 @@ import type {
   ManualUsersImportResult,
   UnlockUserResponse,
   User,
+  UserListItem,
   UserPageMeta,
 } from '../../../src/contracts/users';
 import { civilite, listOf, listWithMeta, userRole } from '../support/common-shapes';
 import { arrayOf, bool, int, isoDate, literal, nullable, object, optional, str, uuid } from '../support/shape';
 import { filialeSummary } from './filiales';
 
-export const user = object<User>({
+const userFields = {
   id: uuid,
   samAccountName: str,
   displayName: str,
@@ -40,9 +41,13 @@ export const user = object<User>({
   lastLdapSync: nullable(isoDate),
   createdAt: isoDate,
   updatedAt: isoDate,
-});
+};
 
-export const userPage = listWithMeta(user, object<UserPageMeta>({ directoryActive: bool }), { minLength: 1 });
+export const user = object<User>(userFields);
+
+export const userListItem = object<UserListItem>({ ...userFields, lockedUntil: nullable(isoDate) });
+
+export const userPage = listWithMeta(userListItem, object<UserPageMeta>({ directoryActive: bool }), { minLength: 1 });
 
 export const userSearch = listOf(user, { minLength: 1 });
 
@@ -66,7 +71,11 @@ export const manualUsersImportResult = object<ManualUsersImportResult>({
 
 export const changeUserRole = object<ChangeUserRoleResponse>({ id: uuid, role: userRole, isItStaff: bool });
 
-export const unlockUser = object<UnlockUserResponse>({ unlocked: literal(true), failedAttempts: int });
+export const unlockUser = object<UnlockUserResponse>({
+  unlocked: literal(true),
+  failedAttempts: int,
+  stationLockedUntil: nullable(isoDate),
+});
 
 export const authMe = object<AuthMeResponse>({
   id: uuid,

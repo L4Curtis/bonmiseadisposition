@@ -161,4 +161,19 @@ describe('ConfigRetentionPage — rétention active', () => {
     expect(await screen.findByRole('switch', { name: /Anonymisation automatique/ })).toBeInTheDocument();
     expect(screen.queryByText('Rétention RGPD — première configuration')).not.toBeInTheDocument();
   });
+
+  it('annonce les bornes de chaque durée, refusées au-delà par le serveur', async () => {
+    mockApi({ enabled: 'true' });
+    renderWithProviders(<ConfigRetentionPage />);
+
+    expect(await screen.findByLabelText('Purge des liens de signature expirés (jours)')).toHaveAccessibleDescription(
+      expect.stringContaining('Entre 1 et 3650 jours.'),
+    );
+    expect(screen.getByLabelText('Purge du journal d’audit (années)')).toHaveAccessibleDescription(
+      expect.stringContaining('Entre 1 et 100 années.'),
+    );
+    expect(screen.getByLabelText('Anonymisation des bons (mois)')).toHaveAccessibleDescription(
+      expect.stringContaining('Entre 60 et 600 mois (minimum légal : 60 mois).'),
+    );
+  });
 });

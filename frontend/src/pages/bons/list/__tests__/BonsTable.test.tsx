@@ -110,3 +110,19 @@ describe('BonsTable', () => {
     expect(sel.toggleAll).toHaveBeenCalled();
   });
 });
+
+describe('BonsTable — erreur de chargement', () => {
+  it('avec des filtres actifs, propose de les réinitialiser en plus de réessayer', () => {
+    const props = renderTable({ loadError: 'Service indisponible', hasActiveFilters: true });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Réinitialiser les filtres' }));
+
+    expect(props.onResetFilters).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'Réessayer' })).toBeInTheDocument();
+  });
+
+  it('sans filtre actif, seul « Réessayer » est proposé', () => {
+    renderTable({ loadError: 'Service indisponible' });
+    expect(screen.queryByRole('button', { name: 'Réinitialiser les filtres' })).not.toBeInTheDocument();
+  });
+});

@@ -118,13 +118,25 @@ describe('UserAccountsService', () => {
   // ─── Déverrouillage ─────────────────────────────────────────────────────────
 
   describe('unlock', () => {
-    it('n’efface rien du journal : écrit user_unlocked avec l’adresse du compte', async () => {
+    const minutesAgo = (m: number): Date => new Date(NOW.getTime() - m * 60 * 1000);
+    const failures = (email: string, ip: string, count: number, fromMinutesAgo: number) =>
+      Array.from({ length: count }, (_, i) => ({ userEmail: email, ipAddress: ip, createdAt: minutesAgo(fromMinutesAgo - i) }));
+
+    /** Journal lu par l'état du verrou : échecs du compte, marqueurs, échecs du poste. */
+    function journalReads(account: unknown[], station: unknown[] = account) {
+      prisma.auditLog.findMany.mockImplementation(async (args: { where: { action: string; ipAddress?: unknown } }) => {
+        if (args.where.action === 'user_unlocked') return [];
+        return args.where.ipAddress ? station : account;
+      });
+    }
+
+    it('lève le verrou sans rien effacer : écrit user_unlocked avec l’adresse du compte', async () => {
       prisma.user.findUnique.mockResolvedValue(directoryUser({ id: 'loc-1', email: 'locked@exemple.fr', isLocalAccount: true }));
-      prisma.auditLog.count.mockResolvedValue(7);
+      journalReads(failures('locked@exemple.fr', '10.0.0.1', 10, 20));
 
       const result = await service.unlock('loc-1', ADMIN);
 
-      expect(result).toEqual({ unlocked: true, failedAttempts: 7 });
+      expect(result).toEqual({ unlocked: true, failedAttempts: 10, stationLockedUntil: null });
       expect(prisma.auditLog.create).toHaveBeenCalledWith({
         data: {
           action: 'user_unlocked',
@@ -132,22 +144,42 @@ describe('UserAccountsService', () => {
           details: { targetUserId: 'loc-1', targetEmail: 'locked@exemple.fr' },
         },
       });
-      // Seuls les échecs de la fenêtre de 30 minutes sont comptés.
-      expect(prisma.auditLog.count).toHaveBeenCalledWith({
-        where: {
-          userEmail: 'locked@exemple.fr',
-          action: 'login_local_failed',
-          createdAt: { gte: new Date('2026-10-01T09:30:00Z') },
-        },
-      });
     });
 
-    it('marque l’adresse normalisée, celle que la connexion trace et compare', async () => {
+    it('dit jusqu’à quand le poste d’où venaient les essais reste bloqué (30 échecs, tous comptes)', async () => {
+      prisma.user.findUnique.mockResolvedValue(directoryUser({ id: 'loc-1', email: 'locked@exemple.fr', isLocalAccount: true }));
+      const station = [
+        ...failures('locked@exemple.fr', '10.0.0.9', 10, 20),
+        ...failures('autre@exemple.fr', '10.0.0.9', 20, 25),
+      ];
+      journalReads(failures('locked@exemple.fr', '10.0.0.9', 10, 20), station);
+
+      const result = await service.unlock('loc-1', ADMIN);
+
+      // Le plus ancien des 30 échecs (il y a 25 min) sort de la fenêtre dans 5 min.
+      expect(result.stationLockedUntil).toBe(new Date(minutesAgo(25).getTime() + 30 * 60 * 1000).toISOString());
+      expect(prisma.auditLog.findMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({ ipAddress: { in: ['10.0.0.9'] } }),
+      }));
+    });
+
+    it('refuse un compte qui n’est pas verrouillé (409 not_locked), sans rien écrire au journal', async () => {
+      prisma.user.findUnique.mockResolvedValue(directoryUser({ id: 'loc-1', email: 'locked@exemple.fr', isLocalAccount: true }));
+      journalReads(failures('locked@exemple.fr', '10.0.0.1', 5, 3));
+
+      await expectAppError(service.unlock('loc-1', ADMIN), 'not_locked', 409);
+      expect(prisma.auditLog.create).not.toHaveBeenCalled();
+    });
+
+    it('cherche le verrou sur l’adresse normalisée, celle que la connexion trace et compare', async () => {
       prisma.user.findUnique.mockResolvedValue(directoryUser({ id: 'loc-2', email: ' Locked@Exemple.FR ', isLocalAccount: true }));
-      prisma.auditLog.count.mockResolvedValue(0);
+      journalReads(failures('locked@exemple.fr', '10.0.0.1', 10, 20));
 
       await service.unlock('loc-2', ADMIN);
 
+      expect(prisma.auditLog.findMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({ userEmail: { in: ['locked@exemple.fr'] } }),
+      }));
       expect(prisma.auditLog.create).toHaveBeenCalledWith({
         data: expect.objectContaining({ details: { targetUserId: 'loc-2', targetEmail: 'locked@exemple.fr' } }),
       });
@@ -161,6 +193,33 @@ describe('UserAccountsService', () => {
     it('refuse un compte sans adresse (rien à déverrouiller)', async () => {
       prisma.user.findUnique.mockResolvedValue(directoryUser({ email: null }));
       await expectAppError(service.unlock('ad-1', ADMIN), 'no_local_login', 400);
+    });
+  });
+
+  describe('lockedUntil — état « verrouillé » de la liste', () => {
+    it('donne la fin du verrou des seuls comptes locaux verrouillés, en une lecture groupée', async () => {
+      const locked = Array.from({ length: 10 }, (_, i) => ({
+        userEmail: 'locked@exemple.fr', ipAddress: '10.0.0.1', createdAt: new Date(NOW.getTime() - (12 - i) * 60_000),
+      }));
+      prisma.auditLog.findMany.mockImplementation(async (args: { where: { action: string } }) =>
+        (args.where.action === 'login_local_failed' ? locked : []));
+
+      const result = await service.lockedUntil([
+        { id: 'loc-1', email: 'Locked@Exemple.fr', isLocalAccount: true, isManualAccount: false },
+        { id: 'loc-2', email: 'libre@exemple.fr', isLocalAccount: true, isManualAccount: false },
+        { id: 'ad-1', email: 'locked@exemple.fr', isLocalAccount: false, isManualAccount: false },
+        { id: 'man-1', email: null, isLocalAccount: false, isManualAccount: true },
+      ]);
+
+      expect(result).toEqual(new Map([
+        ['loc-1', new Date(NOW.getTime() - 12 * 60_000 + 30 * 60_000).toISOString()],
+        ['loc-2', null],
+        ['ad-1', null],
+        ['man-1', null],
+      ]));
+      expect(prisma.auditLog.findMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({ userEmail: { in: ['locked@exemple.fr', 'libre@exemple.fr'] } }),
+      }));
     });
   });
 

@@ -201,6 +201,14 @@ describe('catalogue des actions du journal d’audit', () => {
 });
 
 describe('fillAuditSentence', () => {
+  it('un texte saisi qui finit par un point ne double pas la ponctuation', () => {
+    const sentence = AUDIT_ACTIONS.bon_cancelled.sentence;
+    expect(fillAuditSentence(sentence, { acteur: 'Julie Moreau', bon: 'BON-2026-0073', reason: 'Créé en double (recette).  ' }))
+      .toBe('Julie Moreau a annulé le bon BON-2026-0073 (motif : Créé en double (recette)).');
+    expect(fillAuditSentence(sentence, { acteur: 'Julie Moreau', bon: 'BON-2026-0073', reason: 'Doublon...' }))
+      .toBe('Julie Moreau a annulé le bon BON-2026-0073 (motif : Doublon).');
+  });
+
   it('remplace les variables, nombres compris', () => {
     expect(fillAuditSentence('{acteur} a exporté {rowCount} lignes.', { acteur: 'Alice Martin', rowCount: 571 }))
       .toBe('Alice Martin a exporté 571 lignes.');

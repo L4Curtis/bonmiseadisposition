@@ -124,14 +124,13 @@ describe('IncidentsTab', () => {
   });
 
   describe('tuile = liste', () => {
-    it('IT : chaque carte de bons ouvre sa liste exacte dans le tableau de bord, période et filiale gardées', async () => {
+    it('IT : chaque carte ouvre sa liste exacte (bons annulés : la liste des bons filtrée), période et filiale gardées', async () => {
       mockGet('/kpi/incidents', incidentsFixture());
       renderWithProviders(<IncidentsTab />, { route: `${ROUTE}&tab=incidents&filialeId=f1` });
       const expected: [RegExp, string][] = [
         [/^PV de non-restitution émis/, 'pv_emis'],
         [/^Remises constatées sans signature/, 'remises_sans_signature'],
         [/^Clôturés sans signature/, 'clotures_sans_signature'],
-        [/^Bons annulés/, 'bons_annules'],
         [/^Contestations reçues/, 'contestations_recues'],
         [/^Emails en échec/, 'emails_en_echec'],
         [/^Fondée/, 'contestations_fondees'],
@@ -147,6 +146,8 @@ describe('IncidentsTab', () => {
         expect(params.get('from')).toBe('2026-08-27');
         expect(params.get('tab')).toBe('incidents');
       }
+      expect(screen.getByRole('link', { name: /^Bons annulés/ }))
+        .toHaveAttribute('href', '/bons?cancelledFrom=2026-08-27&cancelledTo=2026-09-25&filialeId=f1');
       expect(screen.getByRole('link', { name: /^Encore non restitués : 2 équipements/ }))
         .toHaveAttribute('href', '/inventaire?situation=non_restitue&filialeId=f1');
     });

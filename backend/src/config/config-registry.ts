@@ -34,10 +34,15 @@ function bool(label: string, defaultValue: boolean, healthSection: ConfigCategor
   return { label, type: 'boolean', defaultValue, adminOnly: true, healthSection };
 }
 
+/**
+ * Entier borné des deux côtés : une borne haute est obligatoire, pour qu'une
+ * faute de frappe (500 au lieu de 50) soit refusée à l'enregistrement au lieu
+ * de dérégler l'application en silence.
+ */
 function int(
   label: string,
   defaultValue: number,
-  bounds: { min: number; max?: number },
+  bounds: { min: number; max: number },
   healthSection: ConfigCategory,
 ): Definition<'integer', number> {
   return { label, type: 'integer', defaultValue, ...bounds, adminOnly: true, healthSection };
@@ -77,9 +82,12 @@ export const CONFIG_REGISTRY = {
   'ldap.bind_dn': text('string', 'Compte de connexion (Bind DN)', 'ldap'),
   'ldap.bind_password': text('secret', 'Mot de passe du compte de connexion', 'ldap'),
   'ldap.user_filter': text('string', 'Filtre des comptes', 'ldap', DEFAULT_LDAP_USER_FILTER),
-  'ldap.sync_interval_hours': int('Intervalle de synchronisation (heures)', 6, { min: 1 }, 'ldap'),
+  // Au-delà d'une semaine, un départ ne serait plus détecté à temps (comptes
+  // désactivés, matériel à récupérer).
+  'ldap.sync_interval_hours': int('Intervalle de synchronisation (heures)', 6, { min: 1, max: 168 }, 'ldap'),
 
   'smtp.host': text('string', 'Serveur SMTP', 'smtp'),
+  // Plage des ports TCP.
   'smtp.port': int('Port', 587, { min: 1, max: 65535 }, 'smtp'),
   'smtp.secure': bool('Connexion chiffrée (TLS)', false, 'smtp'),
   'smtp.user': text('string', 'Utilisateur', 'smtp'),
@@ -93,19 +101,22 @@ export const CONFIG_REGISTRY = {
   'smb.domain': text('string', 'Domaine', 'smb'),
 
   'rappels.enabled': bool('Rappels automatiques activés', true, 'rappels'),
-  'rappels.delay_1': int('Premier rappel (jours après l’envoi)', 3, { min: 1 }, 'rappels'),
-  'rappels.delay_2': int('Deuxième rappel (jours après l’envoi)', 7, { min: 1 }, 'rappels'),
-  'rappels.delay_3': int('Troisième rappel (jours après l’envoi)', 14, { min: 1 }, 'rappels'),
+  // Délais de la rubrique Rappels : trois mois au plus. Un rappel ou une alerte
+  // de retard plus tardifs n'ont plus d'utilité, et un seuil de retard trop
+  // haut ferait disparaître toutes les alertes du tableau de bord.
+  'rappels.delay_1': int('Premier rappel (jours après l’envoi)', 3, { min: 1, max: 90 }, 'rappels'),
+  'rappels.delay_2': int('Deuxième rappel (jours après l’envoi)', 7, { min: 1, max: 90 }, 'rappels'),
+  'rappels.delay_3': int('Troisième rappel (jours après l’envoi)', 14, { min: 1, max: 90 }, 'rappels'),
   'rappels.restitution_before_days': int(
     'Rappel de restitution (jours avant la date prévue, 0 = aucun)',
     7,
-    { min: 0 },
+    { min: 0, max: 90 },
     'rappels',
   ),
   'rappels.signature_overdue_days': int(
     'Signature en retard après (jours)',
     DEFAULT_SIGNATURE_OVERDUE_DAYS,
-    { min: 1 },
+    { min: 1, max: 90 },
     'rappels',
   ),
 
@@ -115,10 +126,18 @@ export const CONFIG_REGISTRY = {
   'timestamp.tsa_url': text('url', 'URL de l’autorité d’horodatage (TSA)', 'timestamp'),
 
   'retention.enabled': bool('Anonymisation automatique activée', false, 'retention'),
+  // Rétention : 60 mois au moins pour l'anonymisation (durée légale de
+  // conservation des bons) ; les maximums sont ceux que l'assistant de
+  // rétention propose déjà (50 ans, 10 ans pour les liens, 100 ans).
   'retention.anonymize_months': int('Anonymisation des bons après (mois)', 60, { min: 60, max: 600 }, 'retention'),
   'retention.attachment_months': int('Suppression des pièces jointes après (mois)', 24, { min: 1, max: 600 }, 'retention'),
-  'retention.expired_tokens_days': int('Suppression des liens expirés après (jours)', 30, { min: 1 }, 'retention'),
-  'retention.audit_logs_years': int('Conservation du journal d’audit (années)', 5, { min: 1 }, 'retention'),
+  'retention.expired_tokens_days': int(
+    'Suppression des liens expirés après (jours)',
+    30,
+    { min: 1, max: 3650 },
+    'retention',
+  ),
+  'retention.audit_logs_years': int('Conservation du journal d’audit (années)', 5, { min: 1, max: 100 }, 'retention'),
 } as const satisfies Readonly<Record<string, ConfigDefinition>>;
 
 export type ConfigKey = keyof typeof CONFIG_REGISTRY;

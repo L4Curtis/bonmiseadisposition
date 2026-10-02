@@ -4,7 +4,7 @@ import type { LinkSignatureType } from '../../contracts/bons';
 import { assertCanSendLink } from '../../common/can-send-link';
 import { BON_REFERENCE_TX_OPTIONS } from '../../common/bon-reference';
 import { generateSignatureToken } from '../../common/tokens';
-import { correctionBeforeNewLink, LinkCorrection } from '../../common/link-correction';
+import { correctionBeforeNewLink, isResendOfSameDocument, LinkCorrection } from '../../common/link-correction';
 import { NotificationBon } from '../../common/types';
 import { BonsWorkflowContext, getPvTokenValidityDays } from './bon-context';
 import { FactsBon, isItSignedFor, isValidLink } from './bon-facts';
@@ -118,22 +118,26 @@ export const DUPLICATE_SEND_WINDOW_MS = 30 * 1000;
 
 /** Lien remis par un émetteur : `reused` quand l'envoi précédent, tout
  *  récent, a été réutilisé au lieu d'en créer un autre (aucun email) ;
- *  `correction` quand il suit une correction du document. */
+ *  `correction` quand il suit une correction du document ; `resent` quand le
+ *  collaborateur avait déjà reçu par email un lien de cette version du
+ *  document (renvoi, et non premier envoi). */
 export interface IssuedLink {
   token: string;
   reused: boolean;
   correction?: LinkCorrection | null;
+  resent?: boolean;
 }
 
-/** Correction que le nouveau lien du document fait suivre, lue sur ses liens
- *  précédents (avant qu'ils ne soient invalidés « remplacé »). */
-async function correctionOfDocument(tx: Prisma.TransactionClient, bonId: string, document: LinkSignatureType) {
+/** Ce que les liens précédents du document disent du nouveau : suit-il une
+ *  correction, est-ce un renvoi ? Lu avant qu'ils ne soient invalidés
+ *  « remplacé ». */
+async function previousLinksOfDocument(tx: Prisma.TransactionClient, bonId: string, document: LinkSignatureType) {
   const previous = await tx.signature.findMany({
     where: { bonId, type: document },
     orderBy: { createdAt: 'desc' },
-    select: { signed: true, invalidatedReason: true },
+    select: { signed: true, invalidatedReason: true, isInPerson: true },
   });
-  return correctionBeforeNewLink(previous);
+  return { correction: correctionBeforeNewLink(previous), resent: isResendOfSameDocument(previous) };
 }
 
 export interface EmailLinkOptions {
@@ -180,7 +184,7 @@ function claimEmailLink(
     if (live && live.type === document && !live.isInPerson && age < DUPLICATE_SEND_WINDOW_MS) {
       return { token: live.token, reused: true };
     }
-    const correction = await correctionOfDocument(tx, bonId, document);
+    const { correction, resent } = await previousLinksOfDocument(tx, bonId, document);
     await invalidatePendingLinks(tx, bonId, 'replaced');
     const created = await tx.signature.create({
       data: {
@@ -192,7 +196,7 @@ function claimEmailLink(
         initiatedById: actorId,
       },
     });
-    return { token: created.token, reused: false, correction };
+    return { token: created.token, reused: false, correction, resent };
   }, BON_REFERENCE_TX_OPTIONS);
 }
 

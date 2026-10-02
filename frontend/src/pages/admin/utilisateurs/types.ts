@@ -1,3 +1,10 @@
+import type { User } from '@/types';
+
+/** Compte d'une page de GET /users : `lockedUntil`, fin du verrou de sa
+ *  connexion locale (`null` : pas verrouillé), calculée par le serveur comme
+ *  à la connexion. */
+export type UserRow = User & { readonly lockedUntil: string | null };
+
 export type ManualUserImportLineStatus = 'created' | 'updated' | 'skipped' | 'error';
 
 /** Compte rendu d'une ligne envoyée (index dans le tableau `items`). */

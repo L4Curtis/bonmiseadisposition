@@ -5,6 +5,9 @@ import { screen, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { delaisFixture } from '../../__tests__/kpi-fixtures';
 import { DelaisTab } from '../DelaisTab';
+import { presetRange } from '@/lib/kpi-period';
+import { todayInParis } from '@/lib/dates';
+import { statusChartColor } from '../../lib/status-chart-colors';
 
 // jsdom ne calcule pas de mise en page réelle : ResponsiveContainer est
 // remplacé par un conteneur de taille fixe, comme dans charts.test.tsx.
@@ -121,14 +124,35 @@ describe('DelaisTab', () => {
       .toHaveAttribute('href', '/bons?overdue=1&filialeId=f1');
   });
 
-  it('IT : les volumes ouvrent leur liste exacte ; direction : aucune liste de bons, le « ? » dit pourquoi', async () => {
+  it('IT : créés, clôturés et annulés ouvrent la liste des bons filtrée sur la période et la filiale', async () => {
+    mockGet('/kpi/delais', delaisFixture());
+    renderWithProviders(<DelaisTab />, { route: `${ROUTE}&tab=delais&filialeId=f1` });
+    for (const [name, expected] of [
+      [/^Bons créés/, '/bons?createdFrom=2026-08-27&createdTo=2026-09-25&filialeId=f1'],
+      [/^Bons clôturés/, '/bons?closedFrom=2026-08-27&closedTo=2026-09-25&filialeId=f1'],
+      [/^Bons annulés/, '/bons?cancelledFrom=2026-08-27&cancelledTo=2026-09-25&filialeId=f1'],
+    ] as const) {
+      expect(await screen.findByRole('link', { name })).toHaveAttribute('href', expected);
+    }
+  });
+
+  it('sans période dans l’adresse, le lien vers les bons reprend la période affichée (30 derniers jours)', async () => {
+    mockGet('/kpi/delais', delaisFixture());
+    renderWithProviders(<DelaisTab />, { route: '/dashboard?tab=delais' });
+    const href = (await screen.findByRole('link', { name: /^Bons créés/ })).getAttribute('href') ?? '';
+    const params = new URL(href, 'http://localhost').searchParams;
+    const shown = presetRange('30d', todayInParis());
+    expect(params.get('createdFrom')).toBe(shown.from);
+    expect(params.get('createdTo')).toBe(shown.to);
+    expect(params.has('filialeId')).toBe(false);
+  });
+
+  it('IT : « Bons envoyés », sans filtre équivalent dans la liste des bons, garde sa liste dans le tableau de bord ; direction : aucune liste, le « ? » dit pourquoi', async () => {
     mockGet('/kpi/delais', delaisFixture());
     const { unmount } = renderWithProviders(<DelaisTab />, { route: ROUTE });
-    for (const [name, key] of [[/^Bons créés/, 'bons_crees'], [/^Bons envoyés/, 'bons_envoyes'],
-      [/^Bons clôturés/, 'bons_clotures'], [/^Bons annulés/, 'bons_annules']] as const) {
-      const href = (await screen.findByRole('link', { name })).getAttribute('href') ?? '';
-      expect(new URL(href, 'http://localhost').searchParams.get('liste')).toBe(key);
-    }
+    const href = (await screen.findByRole('link', { name: /^Bons envoyés/ })).getAttribute('href') ?? '';
+    expect(new URL(href, 'http://localhost').pathname).toBe('/dashboard');
+    expect(new URL(href, 'http://localhost').searchParams.get('liste')).toBe('bons_envoyes');
     // Une médiane ou une part n'est pas une liste : pas de lien.
     expect(screen.queryByRole('link', { name: /^Délai entre création et envoi/ })).not.toBeInTheDocument();
     unmount();
@@ -164,6 +188,29 @@ describe('DelaisTab', () => {
       await user.click(screen.getByRole('button', { name: `Définition : ${label}` }));
     }
     expect(screen.getAllByText(/La liste de ce chiffre mène aux bons concernés/)).toHaveLength(3);
+  });
+
+  it('« Bons par statut » : chaque statut garde sa propre couleur, la même dans la légende', async () => {
+    mockGet('/kpi/delais', {
+      ...delaisFixture(),
+      statusBreakdown: [
+        { status: 'sent_restitution', label: 'Restitution à signer', count: 2 },
+        { status: 'cancelled', label: 'Annulé', count: 1 },
+      ],
+    });
+    // jsdom ne charge pas index.css : on pose les deux variables du thème lues ici.
+    const tokens: Record<string, string> = { '--chart-6': '325 65% 50%', '--chart-7': '35 10% 74%' };
+    Object.entries(tokens).forEach(([name, value]) => document.documentElement.style.setProperty(name, value));
+    renderWithProviders(<DelaisTab />, { route: ROUTE });
+    const legend = (await screen.findByText('Annulé')).closest('ul') as HTMLElement;
+    const dot = (label: string) => (within(legend).getByText(label).previousElementSibling as HTMLElement).style.background;
+    // Le navigateur réécrit `hsl(…)` en `rgb(…)` : on compare après la même conversion.
+    const asRendered = (color: string) => Object.assign(document.createElement('span').style, { background: color }).background;
+    const readToken = (name: string) => tokens[name] ?? '';
+    expect(dot('Restitution à signer')).toBe(asRendered(statusChartColor('sent_restitution', 'light', readToken)));
+    expect(dot('Annulé')).toBe(asRendered(statusChartColor('cancelled', 'light', readToken)));
+    expect(dot('Restitution à signer')).not.toBe(dot('Annulé'));
+    Object.keys(tokens).forEach((name) => document.documentElement.style.removeProperty(name));
   });
 
   it('le tableau des signatures attendues donne le seuil', async () => {

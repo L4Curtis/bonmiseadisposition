@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { describeAuditEntry } from '../auditEntry';
-import { exportFilters, filterQuery, readFilters, readPage } from '../auditFilters';
+import { exportFilters, filterQuery, readFilters } from '../auditFilters';
 import type { AuditLogEntry } from '../types';
 
 function entry(overrides: Partial<AuditLogEntry>): AuditLogEntry {
@@ -44,8 +44,6 @@ describe('filtres de l’adresse', () => {
     expect(readFilters('?user=%20jean%20&domain=config&action=inconnue&dateFrom=2026-09-01&dateTo=hier')).toEqual({
       user: 'jean', domain: 'config', action: '', dateFrom: '2026-09-01', dateTo: '',
     });
-    expect(readPage('?page=3')).toBe(3);
-    expect(readPage('?page=-1')).toBe(1);
   });
 
   it('reconstruit la requête et décrit les filtres en français', () => {

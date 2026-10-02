@@ -19,7 +19,9 @@ interface ConfigSectionProps {
   title: string;
   category: ConfigCategory;
   fields: FieldDef[];
-  onTest?: () => Promise<ConnectionTestResponse>;
+  /** Reçoit les valeurs saisies (mêmes règles qu'à l'enregistrement : un
+   *  secret non retapé n'y figure pas), pour tester ce que l'écran affiche. */
+  onTest?: (typed: Readonly<Record<string, string>>) => Promise<ConnectionTestResponse>;
   testLabel?: string;
   footer?: React.ReactNode;
 }
@@ -166,7 +168,9 @@ export function ConfigSection({ title, category, fields, onTest, testLabel, foot
             {saving ? <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none" /> : saved ? <Check className="h-3 w-3" /> : null}
             {saved ? 'Enregistré' : 'Enregistrer'}
           </Button>
-          {onTest && testLabel && <TestButton onTest={onTest} label={testLabel} />}
+          {onTest && testLabel && (
+            <TestButton onTest={() => onTest(valuesToSave(fields, values, touched))} label={testLabel} />
+          )}
         </div>
         {footer}
       </CardContent>

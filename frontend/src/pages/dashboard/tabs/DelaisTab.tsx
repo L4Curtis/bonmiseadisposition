@@ -21,6 +21,7 @@ import { WaitingStepsTable } from './delais/WaitingStepsTable';
 import { TODAY_LINKS } from './today/today-links';
 import { NO_LIST, type KpiListKey } from '../lists/kpi-lists';
 import { useKpiListHref } from '../lists/use-kpi-list-href';
+import { useStatusChartColors } from '../lib/status-chart-colors';
 import type { ListHref } from './incidents/incident-stat-cards';
 
 type CardDef = KpiCardProps & { key: string };
@@ -107,6 +108,7 @@ export function DelaisTab() {
   const { from, to, filialeId, preset, setPreset } = usePeriodParams();
   const isIt = isItRole(user?.role);
   const listHref = useKpiListHref();
+  const statusColor = useStatusChartColors();
 
   const query = new URLSearchParams({ from, to });
   if (filialeId) query.set('filialeId', filialeId);
@@ -129,7 +131,7 @@ export function DelaisTab() {
   }));
   const statusData: DonutChartDatum[] = (data?.statusBreakdown ?? [])
     .filter((s) => s.count > 0)
-    .map((s) => ({ key: s.status, label: s.label, value: s.count }));
+    .map((s) => ({ key: s.status, label: s.label, value: s.count, color: statusColor(s.status) }));
   const totalWaiting = (data?.waiting.steps ?? []).reduce((sum, s) => sum + s.count, 0);
   const noSignature = !!data && data.signatureMode.inPerson.current === 0 && data.signatureMode.remote.current === 0;
   const noVolume = !!data && [data.volumes.created, data.volumes.sent, data.volumes.archived, data.volumes.cancelled]

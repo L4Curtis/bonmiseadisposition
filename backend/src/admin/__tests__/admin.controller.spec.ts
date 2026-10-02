@@ -117,7 +117,9 @@ describe('ConfigController', () => {
   });
 
   it('renvoie le résultat des tests de connexion sous un seul nom de champ (`ok`)', async () => {
-    await expect(controller.testLdap()).resolves.toEqual({ ok: false, message: 'Serveur injoignable' });
+    const typed = { url: 'ldap://dc02.livio.local', bind_dn: 'CN=svc,DC=livio,DC=local' };
+    await expect(controller.testLdap(typed)).resolves.toEqual({ ok: false, message: 'Serveur injoignable' });
+    expect(ldap.testConnection).toHaveBeenCalledWith(typed);
     await expect(controller.testEntra()).resolves.toEqual({ ok: false, message: 'refusé' });
     await expect(controller.testSmtp({ testEmail: '' })).resolves.toEqual({ ok: true, message: 'ok' });
     expect(connectionTests.testSmtp).toHaveBeenCalledWith(undefined);

@@ -11,6 +11,7 @@ import { toFullListResponse } from '../common/pagination';
 import { clientIp } from '../common/http/client-ip';
 import { CONNECTION_TEST_THROTTLE } from '../common/throttle-limits';
 import { LdapService } from '../ldap/ldap.service';
+import { LdapTestDto } from '../ldap/dto/ldap-test.dto';
 import { SmbService } from '../smb/smb.service';
 import type { ConfigRegistryResponse } from '../contracts/config-registry';
 import type {
@@ -55,12 +56,13 @@ export class ConfigController {
   }
 
   /** Tests de connexion : 200 `{ ok, message }`, y compris quand le test échoue.
-   *  Chacun joint un serveur externe : débit limité (CONNECTION_TEST_THROTTLE). */
+   *  Chacun joint un serveur externe : débit limité (CONNECTION_TEST_THROTTLE).
+   *  L'annuaire teste les valeurs saisies dans le formulaire, sans les enregistrer. */
   @Post('test/ldap')
   @HttpCode(HttpStatus.OK)
   @Throttle(CONNECTION_TEST_THROTTLE)
-  testLdap(): Promise<ConnectionTestResponse> {
-    return this.ldapService.testConnection();
+  testLdap(@Body() typed: LdapTestDto): Promise<ConnectionTestResponse> {
+    return this.ldapService.testConnection(typed);
   }
 
   @Post('test/smtp')

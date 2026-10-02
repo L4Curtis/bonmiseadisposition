@@ -80,8 +80,19 @@ export interface UserPageMeta {
   directoryActive: boolean;
 }
 
+/**
+ * Compte d'une page de GET /users : l'utilisateur et l'état du verrou de sa
+ * connexion locale. `lockedUntil` : fin du verrou anti force brute (au moins
+ * 10 échecs depuis un même poste en 30 minutes, comptés depuis le dernier
+ * déverrouillage), calculée comme à la connexion ; `null` si le compte n'est
+ * pas verrouillé, et toujours pour un compte qui n'est pas local.
+ */
+export interface UserListItem extends User {
+  lockedUntil: IsoDateTime | null;
+}
+
 /** GET /users — page de l'écran Utilisateurs, triée par `displayName`. */
-export type UserPageResponse = ListResponse<User, UserPageMeta>;
+export type UserPageResponse = ListResponse<UserListItem, UserPageMeta>;
 
 /** GET /users/search?q= — 15 utilisateurs actifs au plus, triés par
  *  `displayName`, dont le nom, l'email ou l'identifiant contient `q` ;
@@ -154,13 +165,21 @@ export interface ChangeUserRoleResponse {
 
 /**
  * POST /users/:id/unlock (ancien chemin POST /admin/users/:id/unlock, alias
- * déprécié) — le verrou de la connexion locale est levé. Rien n'est effacé du
- * journal : `failedAttempts` compte les échecs des 30 dernières minutes qui
- * ne comptent plus (0 : le compte n'était pas verrouillé).
+ * déprécié) — le verrou du compte est levé (409 `not_locked` s'il n'était pas
+ * verrouillé). Rien n'est effacé du journal : `failedAttempts` compte les
+ * échecs qui ne comptent plus.
+ *
+ * Le déverrouillage ne lève PAS le verrou d'un poste (30 échecs depuis une
+ * même adresse en 30 minutes, tous comptes confondus) : `stationLockedUntil`
+ * donne la fin du verrou le plus tardif parmi les postes d'où venaient les
+ * échecs de ce compte, `null` si aucun n'est verrouillé. Il ne lève pas non
+ * plus la limite de débit de la connexion (5 essais par minute et par poste,
+ * réponse 429), qui tombe d'elle-même au bout d'une minute.
  */
 export interface UnlockUserResponse {
   unlocked: true;
   failedAttempts: number;
+  stationLockedUntil: IsoDateTime | null;
 }
 
 /**
@@ -173,7 +192,8 @@ export interface UnlockUserResponse {
  *  - `directory_account` (400) : un compte d'annuaire ne se modifie pas ici ;
  *  - `email_taken` (409) : adresse déjà portée par un autre compte ;
  *  - `filiale_unavailable` (400) : filiale introuvable ou inactive ;
- *  - `no_local_login` (400) : compte sans adresse, rien à déverrouiller.
+ *  - `no_local_login` (400) : compte sans adresse, rien à déverrouiller ;
+ *  - `not_locked` (409) : le compte n'est pas verrouillé, rien à lever.
  */
 export type UserErrorCode =
   | 'own_account'
@@ -182,4 +202,5 @@ export type UserErrorCode =
   | 'directory_account'
   | 'email_taken'
   | 'filiale_unavailable'
-  | 'no_local_login';
+  | 'no_local_login'
+  | 'not_locked';

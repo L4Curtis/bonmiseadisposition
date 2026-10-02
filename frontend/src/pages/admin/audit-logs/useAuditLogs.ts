@@ -3,22 +3,24 @@ import { api } from '@/lib/api';
 import type { ListResponse } from '@/contracts/common';
 import { errorMessage } from '@/lib/errors';
 import { useSearchParamsPatch } from '@/hooks/useSearchParamsPatch';
-import { AuditFilters, filterQuery, FILTER_KEYS, readFilters, readPage } from './auditFilters';
+import { usePagination } from '@/hooks/usePagination';
+import { AuditFilters, filterQuery, FILTER_KEYS, readFilters } from './auditFilters';
 import type { AuditListMeta, AuditLogEntry } from './types';
-
-export const AUDIT_PAGE_SIZE = 50;
 
 export type AuditList = ListResponse<AuditLogEntry, AuditListMeta>;
 
 /**
  * Journal d'audit : filtres et page lus dans l'adresse (et écrits dedans),
- * chargement de la liste (l'export, lui, passe par AuditExportBar).
+ * nombre de lignes (25, 50 ou 100) commun à toutes les listes et mémorisé
+ * (`usePagination`), chargement de la liste (l'export, lui, passe par
+ * AuditExportBar).
  */
 export function useAuditLogs() {
   const { search, patch } = useSearchParamsPatch();
   const filters = useMemo(() => readFilters(search), [search]);
-  const page = readPage(search);
   const [data, setData] = useState<AuditList | null>(null);
+  const pagination = usePagination({ total: data?.total });
+  const { page, pageSize } = pagination;
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   // Seule la réponse de la requête la plus récente compte (filtres changés vite).
@@ -31,14 +33,14 @@ export function useAuditLogs() {
     setLoadError(null);
     const params = new URLSearchParams(query);
     params.set('page', String(page));
-    params.set('limit', String(AUDIT_PAGE_SIZE));
+    params.set('limit', String(pageSize));
     api.getList<AuditLogEntry, AuditListMeta>(`/audit?${params}`)
       .then((res) => { if (requestIdRef.current === requestId) setData(res); })
       .catch((e: unknown) => {
         if (requestIdRef.current === requestId) setLoadError(errorMessage(e, 'Erreur lors du chargement du journal'));
       })
       .finally(() => { if (requestIdRef.current === requestId) setLoading(false); });
-  }, [query, page]);
+  }, [query, page, pageSize]);
 
   useEffect(() => {
     load();
@@ -55,14 +57,7 @@ export function useAuditLogs() {
     patch({ ...Object.fromEntries(FILTER_KEYS.map((key) => [key, null])), page: null });
   }, [patch]);
 
-  const setPage = useCallback((next: number) => {
-    patch({ page: next > 1 ? String(next) : null });
-  }, [patch]);
-
-  const totalPages = data ? Math.max(1, Math.ceil(data.total / AUDIT_PAGE_SIZE)) : 0;
-
   return {
-    data, loading, loadError, load, filters, setFilters, resetFilters,
-    page, setPage, totalPages,
+    data, loading, loadError, load, filters, setFilters, resetFilters, pagination,
   };
 }

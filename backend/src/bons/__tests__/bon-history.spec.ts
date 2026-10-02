@@ -72,7 +72,7 @@ describe('loadBonHistory', () => {
     ]);
     const { items } = await loadBonHistory(prisma as never, 'bon-1');
     expect(items[0]).toMatchObject({ actorName: 'inconnu@ext.fr', sentence: 'inconnu@ext.fr a signé la mise à disposition du bon BON-2026-0042.' });
-    expect(items[1]).toMatchObject({ actorName: null, sentence: 'Le système a renvoyé le lien de signature du bon BON-2026-0042.' });
+    expect(items[1]).toMatchObject({ actorName: null, sentence: 'Le système a renvoyé par email le lien de signature du bon BON-2026-0042.' });
   });
 
   it('action absente du catalogue : libellé neutre, sans code brut dans la phrase', async () => {

@@ -4,7 +4,10 @@ import { Prisma } from '@prisma/client';
 // — 'message' : bon_contested stocke message.substring(0,200) (texte libre du collaborateur)
 // — 'reason' : declare_not_returned / bon_closed_unilateral stockent un motif libre
 // — 'targetEmail' : adresse du compte visé (rôle changé, compte déverrouillé)
-const AUDIT_DETAILS_PII_KEYS = ['filename', 'titulaireEmail', 'signerEmail', 'email', 'targetEmail', 'message', 'reason'];
+// — 'inPersonContext' : signature au guichet, nomme le témoin ou le titulaire
+const AUDIT_DETAILS_PII_KEYS = [
+  'filename', 'titulaireEmail', 'signerEmail', 'email', 'targetEmail', 'message', 'reason', 'inPersonContext',
+];
 
 /** Retire du JSON `details` d'un AuditLog les clés pouvant porter des PII. */
 export function sanitizeAuditDetails(details: Prisma.JsonValue): Prisma.JsonValue {

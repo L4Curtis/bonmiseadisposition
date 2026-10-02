@@ -33,14 +33,14 @@ describe('runBonValidation', () => {
 
     expect(result).toEqual({
       success: false,
-      error: 'Ligne 2 : choisissez un article du catalogue ou saisissez un libellé (un numéro est saisi).',
+      fieldErrors: { equipments: 'Ligne 2 : choisissez un article du catalogue ou saisissez un libellé (un numéro est saisi).' },
     });
   });
 
   it('rejette un formulaire sans collaborateur sélectionné', () => {
     const result = runBonValidation({ ...baseValues, collaborateurId: '' });
 
-    expect(result).toEqual({ success: false, error: 'Sélectionnez un collaborateur' });
+    expect(result).toEqual({ success: false, fieldErrors: { collaborateur: 'Sélectionnez un collaborateur' } });
   });
 
   it('rejette deux équipements avec le même numéro de série (insensible à la casse/espaces)', () => {
@@ -54,7 +54,7 @@ describe('runBonValidation', () => {
 
     expect(result.success).toBe(false);
     if (!result.success) {
-      expect(result.error).toMatch(/Numéro de série en double/);
+      expect(result.fieldErrors.equipments).toMatch(/Numéro de série en double/);
     }
   });
 
@@ -66,7 +66,35 @@ describe('runBonValidation', () => {
 
     expect(result.success).toBe(false);
     if (!result.success) {
-      expect(result.error).toMatch(/ne peut pas précéder/);
+      expect(result.fieldErrors.dateRestitution).toMatch(/ne peut pas précéder/);
+    }
+  });
+
+  it('formulaire envoyé vide : toutes les erreurs à la fois, dans l’ordre de l’écran', () => {
+    const result = runBonValidation({
+      collaborateurId: '', filialeId: '', civilite: '', dateMiseDisposition: '', dateRestitution: '',
+      equipments: [newLine()],
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(Object.keys(result.fieldErrors)).toEqual(['civilite', 'filiale', 'collaborateur', 'dateMiseDisposition', 'equipments']);
+      expect(result.fieldErrors).toEqual({
+        civilite: 'Choisissez la civilité du collaborateur (Madame ou Monsieur).',
+        filiale: 'Sélectionnez une filiale',
+        collaborateur: 'Sélectionnez un collaborateur',
+        dateMiseDisposition: 'Indiquez la date de mise à disposition',
+        equipments: 'Ajoutez au moins un équipement',
+      });
+    }
+  });
+
+  it('signale la civilité manquante avec les autres erreurs, pas après elles', () => {
+    const result = runBonValidation({ ...baseValues, civilite: '', collaborateurId: '' });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(Object.keys(result.fieldErrors)).toEqual(['civilite', 'collaborateur']);
     }
   });
 });
